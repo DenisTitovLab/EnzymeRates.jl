@@ -135,16 +135,16 @@ function _testhelper_graph(m)
     mech = _testhelper_lift(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     cm = EnzymeRates.Mechanisms.catalytic(mech)
-    kept = EnzymeRates.Mechanisms._kept_members(mech)
+    kept = EnzymeRates.Derivation._kept_members(mech)
     tags = allo ? copy(mech.mwc_tags) : Symbol[]
     # The edges group by group, each group's in edge order, as the derivation reads them.
-    edges = EnzymeRates.Mechanisms._flat_edges(cm)
+    edges = EnzymeRates.Derivation._flat_edges(cm)
     _testhelper_names(k, state) =
-        Symbol[EnzymeRates.Mechanisms.name(p, mech, kept)
-               for p in EnzymeRates.Mechanisms._edge_constants(cm, k, state)]
+        Symbol[EnzymeRates.Derivation.name(p, mech, kept)
+               for p in EnzymeRates.Derivation._edge_constants(cm, k, state)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
-    in_law, in_active = EnzymeRates.Mechanisms.conformation_steps(mech, :inactive),
-        EnzymeRates.Mechanisms.conformation_steps(mech, :active)
+    in_law, in_active = EnzymeRates.Derivation.conformation_steps(mech, :inactive),
+        EnzymeRates.Derivation.conformation_steps(mech, :active)
     steps = map(edges) do k
         e = cm.steps[k]
         g, consumed, released = e.group, e.taken_up, e.given_off
@@ -493,7 +493,7 @@ function _testhelper_consistent_point(m, rng)
     # (`forward` holds the forward rates: a local named `kf` would be the one the closure
     # `_testhelper_conformation_steps` assigns.)
     cm = EnzymeRates.Mechanisms.catalytic(mech)
-    flat = EnzymeRates.Mechanisms._flat_edges(cm)
+    flat = EnzymeRates.Derivation._flat_edges(cm)
     K = ones(BigFloat, length(cm.steps), 2)
     forward = ones(BigFloat, length(cm.steps), 2)
     rates = Dict{Tuple{Int, Int}, BigFloat}()
@@ -869,7 +869,7 @@ function _testhelper_phantom_map_holds(am; rng)
         A = EnzymeRates.Derivation._law(am, s)
         w = EnzymeRates.Derivation._phantom_weights(A)
         isempty(w) && return false
-        all(EnzymeRates.Mechanisms.conformation_steps(am, :active)) || error(
+        all(EnzymeRates.Derivation.conformation_steps(am, :active)) || error(
             "_testhelper_phantom_map_holds: " *
             "the active conformation drops an edge, so the law at L = 0 is not the law " *
             "of catalytic(am)")
@@ -960,12 +960,12 @@ by site (`regulator_constant`): for `:A` those of every ligand the active confor
 binds; for `:I` those of every `:OnlyI` or `:NonequalAI` ligand, an `:EqualAI` ligand's
 one name being listed with the active ones."""
 function _testhelper_regulator_constants(am, state::Symbol)
-    M = EnzymeRates.Mechanisms
+    D = EnzymeRates.Derivation
     inactive = state === :I
     Symbol[K for site in am.regulatory_sites
            for (lig, tag) in zip(site.ligands, site.mwc_tags)
            if !(inactive && tag === :EqualAI)
-           for K in (M.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
+           for K in (D.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
 end
 
 """Whether conformation `c` (1 active, 2 inactive) of `m` excludes edge `k` of its
@@ -1004,7 +1004,7 @@ function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
     function _testhelper_site_factor(inactive)
         prod((1 + sum((concs[lig] / point.vals[K]
                        for (lig, tag) in zip(site.ligands, site.mwc_tags)
-                       for K in (EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag,
+                       for K in (EnzymeRates.Derivation.regulator_constant(mech, lig, tag,
                                                                           inactive),)
                        if K !== nothing); init = big(0)))^site.multiplicity
              for site in mech.regulatory_sites; init = big(1))
@@ -2299,7 +2299,7 @@ parallel steps counted apart, by the matrix-tree theorem in `BigInt`. One segmen
 """
 function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVector)
     g = _testhelper_graph(m)
-    kept = BitVector([mask[k] for k in EnzymeRates.Mechanisms._flat_edges(m)])
+    kept = BitVector([mask[k] for k in EnzymeRates.Derivation._flat_edges(m)])
     segments, _ = _testhelper_re_segments(g, kept)
     V = length(segments)
     V <= 1 && return big(V)

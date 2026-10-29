@@ -33,8 +33,8 @@ module calls its own names bare.
 - **`Mechanisms`**: reactions and mechanisms as values. It holds `EnzymeReaction`, the
   raw input (`RawMechanism`, `RawStep`, `RawForm`, `RawAllostericMechanism`, `RawSite`),
   the canonical graphs `Mechanism` and `AllostericMechanism`, the singleton types and
-  `compile_mechanism`, the naming rules and the printer of the DSL text. Its interface is
-  the reads, views and writers below.
+  `compile_mechanism`, the form names and the printer of the DSL text. Its interface is
+  the reads and writers below.
 - **`Derivation`**: the well-posedness guard, the joint solve and the rate law with its
   code, text and key. Besides the exported `rate_equation`, `rate_equation_string` and
   `parameters` (with the kinds `IndependentParameters`, `FittedParameters` and
@@ -43,7 +43,12 @@ module calls its own names bare.
   `check_valid_rate_equation(m; throw = true)` (the guard's verdict as a `Bool`, throwing
   its message on a fault unless `throw = false`), `parameter_count(m)`,
   `rate_equation_dedup_key(m)`, `rate_equation_complexity(m)` and
-  `scale_rate_constants(m, params, factor)`.
+  `scale_rate_constants(m, params, factor)`. It owns the parameter names (`name(p, m)`,
+  `constant_columns`, `regulator_constant`; `src/Derivation/names.jl`) and what a step
+  mask means: the allosteric conformations (`excludes`, `conformation_steps`;
+  `src/Derivation/conformations.jl`) and the segments and cycles of a mask
+  (`re_segments`, `segment_graph`, `has_turnover_cycle`, `has_unbalanced_cycle`;
+  `src/Derivation/segments.jl`), which Enumeration's filters and moves read too.
 - **`Enumeration`**: candidate mechanisms. `base_mechanisms` gives identify the
   mechanisms it fits first, and `expand_mechanisms` the children of each mechanism it
   keeps. `init_mechanisms`, `seed_mechanisms` and the moves are private; tests reach them
@@ -57,7 +62,7 @@ module calls its own names bare.
 - **The top level** (`src/EnzymeRates.jl`, `identify_rate_equation.jl`): identify and the
   exports, among them the three macros.
 
-### Reads, views and writers
+### Reads and writers
 
 Code reads a mechanism's stored data with dots: `m.nodes[x].bound`, `m.steps[k].from`,
 `m.steps[k].group`, `m.substrates`, `am.mwc_tags[g]`. Forms and steps are integer indices
@@ -67,25 +72,25 @@ functions that compute something are:
 | Reads | Functions |
 |---|---|
 | Steps | `step_kind(m, k)` (`:isomerization`, `:binding`, `:fused_binding` or `:chemistry`), `runs_toward_products(m, k)` |
+| Step names | `step_sides(m, k)` (the names of a step's two sides) |
 | Groups | `groups(m)` |
 | Metabolites | `catalytic(am)`, `metabolites(m)`, `modifiers(m)` |
-| Allosteric | `excludes(am, k, c)`, `exclusion_components(am, c)`, `conformation_steps(am, c)` |
 
-A derived view lives in `Mechanisms` only when two modules use it; otherwise it stays
-private to its module. The shared views are `re_segments(m, on, re)` (the
-rapid-equilibrium segments and each form's offsets), `segment_graph(m, on)` (the
-steady-state steps between them), `has_turnover_cycle(m, on)`, `present_species(m, on)`
-and the array walks under them, `segment_walk` and `has_unbalanced_cycle`.
+A derived view lives in `Derivation` when the rate law gives it its meaning: the
+conformations an allosteric mechanism's tags define (`excludes(tag, c)`,
+`conformation_steps(am, c)`), `re_segments(m, on, re)` (the rapid-equilibrium segments and
+each form's offsets), `segment_graph(m, on)` (the steady-state steps between them) and
+`has_turnover_cycle(m, on)`. Enumeration reads them as `Derivation.x`.
 
 The writers rebuild a mechanism through its written form. `RawMechanism(m)`,
 `RawStep(m, k)` and `RawForm(m, x)` give that form; `with_flags(m, re)` and
 `regroup(m, groups, re)` build a mechanism with the given flags or kinetic groups through
 the checked constructors; `with_tags(am, tags)` retags through the composition constructor;
 `canonical_graph(raw)` builds a canonical graph with only the alignment check. The
-naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
-forms and steps (`form_text`, `step_text`) complete the graph interface. The rest of
-`Mechanisms.API` is the types (`Reactant`, `Regulator`, …) and the checks the DSL reader runs on names and labels
-(`check_decodable_names`, `check_conformation_label`, `label_collision_error`).
+DSL text of forms and steps (`form_text`, `step_text`) completes the graph interface.
+The rest of `Mechanisms.API` is the types (`Reactant`, `Regulator`, …) and the checks the
+DSL reader runs on names and labels (`check_decodable_names`, `check_conformation_label`,
+`label_collision_error`).
 
 ### The boundary test
 
@@ -174,7 +179,7 @@ optimizer, not once per mechanism.
 ### The joint thermodynamic solve
 
 `_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`) over the columns `Mechanisms.constant_columns(m)` lists: a column per
+(`_joint_system`) over the columns `constant_columns(m)` lists: a column per
 constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
 `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
 member of a kinetic class to its first. The columns come ordered by `_priority_key`
@@ -187,7 +192,8 @@ Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:Onl
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member that comes last in that order
 (`_kept_members`), through the `name(p, m)` chokepoint; `constant_columns` returns each
-column's name with it, so the naming rule stays in `Mechanisms`. The engine (`_law`,
+column's name with it, so the naming rule lives in `src/Derivation/names.jl`. The
+engine (`_law`,
 `src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
 keeps (`conformation_steps(am, :active)`, `conformation_steps(am, :inactive)`; every edge
 of a plain mechanism). Every edge keeps its stored direction, so both conformations share
@@ -318,8 +324,9 @@ The constructor rejects a binding whose forms match a plain binding by name but 
 such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
 `_is_chemistry` is true for every edge but a plain binding; the allosteric moves (`_chemistry_groups`, in
-`Enumeration`, through `step_kind`), admission, the joint solve's priority (`_priority_key`)
-and `_merged_complexes` read it to tell catalysis from binding. The derivation reads every
+`Enumeration`, through `step_kind`), admission, the joint solve's priority (`_priority_key`,
+through `step_kind`) and `_merged_complexes` read it to tell catalysis from binding. The
+derivation reads every
 binding alike, so a fused binding's rapid-equilibrium constant is a dissociation constant
 and its steady-state pair a binding and a release rate constant. Every step's constants are
 named by the two sides of its kinetic class's kept member — each side's enzyme form followed

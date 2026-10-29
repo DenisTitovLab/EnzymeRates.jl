@@ -396,7 +396,7 @@ function _seed_candidate_screen(m::Mechanisms.Mechanism)
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
     n = length(m.nodes)
     parent = zeros(Int, n); offset = zeros(Int, n)
-    turnover(on) = Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)
+    turnover(on) = Derivation.has_unbalanced_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
     kept = falses(length(ks))
     function screen(re::BitVector)

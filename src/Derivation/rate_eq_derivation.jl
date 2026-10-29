@@ -119,9 +119,9 @@ mechanism and `:A` or `:I` for an allosteric one; an inactive constant reads its
 column when its group has one, so an `:EqualAI` group's constants take their one shared
 name in both.
 """
-function _edge_names(m::_AnyMech, state::Symbol, cols = Mechanisms.constant_columns(m))
+function _edge_names(m::_AnyMech, state::Symbol, cols = constant_columns(m))
     cm = Mechanisms.catalytic(m)
-    mask = Mechanisms.conformation_steps(m, state === :I ? :inactive : :active)
+    mask = conformation_steps(m, state === :I ? :inactive : :active)
     index = Dict(c => i for (i, c) in enumerate(cols.columns))
     column(k, slot) = get(() -> index[_Column((k, slot, false))], index,
                           _Column((k, slot, state === :I)))
@@ -143,7 +143,7 @@ function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMech
     m = _derivation_input(typeof(em))
     cm = Mechanisms.catalytic(m)
     states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
-    cols = Mechanisms.constant_columns(m)
+    cols = constant_columns(m)
     Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, cols))
                 if !cm.steps[k].rapid_equilibrium for n in ns)
 end

@@ -519,7 +519,7 @@ end
     # Each topology's first isomerization in that order is its steady-state step.
     function _testhelper_iso_texts(t)
         m = _testhelper_topo_mech(ter_bi_rxn, t)
-        sort([join(EnzymeRates.Mechanisms._sides(m, k),
+        sort([join(EnzymeRates.Mechanisms.step_sides(m, k),
                    e.rapid_equilibrium ? " ⇌ " : " <--> ") for (k, e) in enumerate(m.steps)
               if EnzymeRates.Mechanisms._is_iso(e)])
     end
@@ -2864,10 +2864,10 @@ end
     # segments joined by one tree, so the sum is the active law's count plus 2.
     for x in (am, p_by_a, p_by_b, a_by_p)
         @test _testhelper_laplacian_tree_count(
-            x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :inactive)) == 2
+            x.catalytic, EnzymeRates.Derivation.conformation_steps(x, :inactive)) == 2
         @test EnzymeRates.Derivation.rate_equation_complexity(x) ==
               _testhelper_laplacian_tree_count(
-                  x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :active)) + 2
+                  x.catalytic, EnzymeRates.Derivation.conformation_steps(x, :active)) + 2
     end
     @test EnzymeRates.Derivation.parameter_count(p_by_a) ==
           EnzymeRates.Derivation.parameter_count(am)
@@ -2962,10 +2962,10 @@ end
     # Both conformations count: the inactive conformation keeps only E + Q <--> E(Q).
     for x in (am, a_by_p, p_by_b)
         @test _testhelper_laplacian_tree_count(
-            x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :inactive)) == 2
+            x.catalytic, EnzymeRates.Derivation.conformation_steps(x, :inactive)) == 2
         @test EnzymeRates.Derivation.rate_equation_complexity(x) ==
               _testhelper_laplacian_tree_count(
-                  x.catalytic, EnzymeRates.Mechanisms.conformation_steps(x, :active)) + 2
+                  x.catalytic, EnzymeRates.Derivation.conformation_steps(x, :active)) + 2
     end
     @test EnzymeRates.Derivation.parameter_count(am) == 22
     @test EnzymeRates.Derivation.parameter_count(a_by_p) == 24
@@ -9101,7 +9101,7 @@ _testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].grou
 # tagged :NonequalAI those names do appear, so the first assertion can fail.
 function _testhelper_test_no_inactive_constants(am, g)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    i_names = EnzymeRates.Mechanisms.name.(EnzymeRates.Mechanisms._edge_constants(
+    i_names = EnzymeRates.Derivation.name.(EnzymeRates.Derivation._edge_constants(
         cm, first(EnzymeRates.Mechanisms.groups(cm)[g]), :I), Ref(am))
     @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
     nonequal = EnzymeRates.Mechanisms.with_tags(am,
@@ -9445,13 +9445,13 @@ end
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
     # every step RE: infinite rate
-    @test ER.Mechanisms.has_turnover_cycle(base,
+    @test ER.Derivation.has_turnover_cycle(base,
                                            _testhelper_flags(base))
-    @test !ER.Mechanisms.has_turnover_cycle(seed,
+    @test !ER.Derivation.has_turnover_cycle(seed,
                                             _testhelper_flags(seed))
     _testhelper_variant(ss) = .!BitVector([_testhelper_binds(base, ss...)(e)
                                            for e in base.steps])
-    _testhelper_clean(m, re) = !ER.Mechanisms.has_turnover_cycle(m, re) &&
+    _testhelper_clean(m, re) = !ER.Derivation.has_turnover_cycle(m, re) &&
         ER.Enumeration._has_vmax(m, re, m.substrates) &&
         ER.Enumeration._has_vmax(m, re, m.products) &&
         !ER.Enumeration._chemistry_equilibrates_both_sides(m, re)
@@ -9494,7 +9494,7 @@ end
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
     # E → E(A) → E(Q) → E, all RE
-    @test ER.Mechanisms.has_turnover_cycle(tc, _testhelper_flags(tc))
+    @test ER.Derivation.has_turnover_cycle(tc, _testhelper_flags(tc))
     _testhelper_ss(which) = BitVector([!(e.group in which) for e in tc.steps])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
@@ -9602,8 +9602,8 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test !ER.Mechanisms.has_turnover_cycle(m, _testhelper_flags(m))
-    @test ER.Mechanisms.has_turnover_cycle(m, trues(length(m.steps)))
+    @test !ER.Derivation.has_turnover_cycle(m, _testhelper_flags(m))
+    @test ER.Derivation.has_turnover_cycle(m, trues(length(m.steps)))
 end
 
 @testset "C on the ping-pong seed and its single flips" begin
@@ -10224,7 +10224,7 @@ end
             ss = BitVector([isodd(bits >> (g - 1))
                             for g in 1:length(ER.Mechanisms.groups(m))])
             re = BitVector([!ss[e.group] for e in m.steps])
-            expected = !ER.Mechanisms.has_turnover_cycle(m, re) &&
+            expected = !ER.Derivation.has_turnover_cycle(m, re) &&
                 ER.Enumeration._has_vmax(m, re, m.substrates) &&
                 ER.Enumeration._has_vmax(m, re, m.products) &&
                 !ER.Enumeration._chemistry_equilibrates_both_sides(m, re)
@@ -11480,7 +11480,7 @@ end
         derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism, BitVector}, Bool}()
         _testhelper_state_hyperbolic(m, state) = get!(derived,
             (state, EnzymeRates.Mechanisms.catalytic(m),
-             EnzymeRates.Mechanisms.conformation_steps(
+             EnzymeRates.Derivation.conformation_steps(
                  m, state === :A ? :active : :inactive))) do
             L = EnzymeRates.Derivation._law(m)
             _testhelper_hyperbolic(state === :A ? L.active : L.inactive, mets)
@@ -13714,7 +13714,7 @@ end
     # None is an L phantom: L raises every child's rank, so no certificate exists, though
     # only_q and p_and_q bind nothing in the inactive conformation.
     for k in (only_q, p_and_q)
-        @test !any(EnzymeRates.Mechanisms.conformation_steps(k, :inactive))
+        @test !any(EnzymeRates.Derivation.conformation_steps(k, :inactive))
     end
     @test !any(k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k)),
                (only_q, only_p, p_and_q))

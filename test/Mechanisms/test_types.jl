@@ -688,7 +688,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test ER.Derivation._guard(copy_first) == v
         @test copy_first == copy_last
         for m in (copy_last, copy_first)
-            segment = ER.Mechanisms.re_segments(
+            segment = ER.Derivation.re_segments(
                 m, trues(length(m.steps)), _testhelper_flags(m)).bottom
             @test [ER.Mechanisms._form_name(m, f) for f in segment] ==
                   ["EA", "EAB", "EB", "EAmodB"]
@@ -1269,25 +1269,6 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     end
 
 
-    @testset "Parameter family: edge constants and Kreg" begin
-        # One RE constant and one forward/reverse rate pair serve every kind of edge, each
-        # an edge of a mechanism's catalytic graph in one state.
-        for T in (ER.Mechanisms.Krapid, ER.Mechanisms.Kfor, ER.Mechanisms.Krev)
-            p = T(1, :None)
-            @test p isa T
-            @test p isa ER.Mechanisms.Parameter
-            @test p == T(1, :None)
-            @test p != T(1, :I) && p != T(2, :None)
-        end
-
-        # A regulator constant is its ligand's in one state; it needs no site, since a
-        # ligand sits at one site.
-        kr = ER.Mechanisms.Kreg(:A, :A)
-        @test kr isa ER.Mechanisms.Parameter
-        @test kr == ER.Mechanisms.Kreg(:A, :A)
-        @test kr != ER.Mechanisms.Kreg(:A, :I) && kr != ER.Mechanisms.Kreg(:B, :A)
-    end
-
     @testset "Reactant canonicalizes atom ordering" begin
         ra1 = ER.Mechanisms.Reactant(:ATP, [:C => 10, :H => 16, :N => 5])
         ra2 = ER.Mechanisms.Reactant(:ATP, [:N => 5, :H => 16, :C => 10])
@@ -1589,7 +1570,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
 
         m = ER.Mechanism(_testhelper_raw_uniuni([bind, iso, rel]))
         @test (m.substrates, m.products) == ([:S], [:P])
-        flat = ER.Mechanisms._flat_edges(m)
+        flat = ER.Derivation._flat_edges(m)
         @test Set(_testhelper_edge_text(m, k) for k in flat) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         @test [m.steps[k].group for k in flat] == [1, 2, 3]
@@ -1615,7 +1596,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
         end)
         @test [_testhelper_edge_text(pingpong, k)
-               for k in ER.Mechanisms._flat_edges(pingpong)] ==
+               for k in ER.Derivation._flat_edges(pingpong)] ==
               ["E + A ⇌ EA",
                "E + Q ⇌ EQ",
                "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP",
@@ -1743,42 +1724,6 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test ER.AllostericMechanism(aem) == am
     end
 
-    @testset "name(p, ::AllostericMechanism) chokepoint" begin
-        aem = @allosteric_mechanism begin
-            substrates: S
-            products:   P
-            allosteric_regulators: R
-            catalytic_multiplicity: 2
-            steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: NonequalAI
-                E(P) ⇌ E + P      :: NonequalAI
-            end
-            regulatory_site(1): R::NonequalAI
-        end
-        am = ER.AllostericMechanism(aem)
-
-        # Edge parameters, edges of the catalytic graph picked by content.
-        rep_bind = _testhelper_edge(am, "E + S ⇌ ES")
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(rep_bind, :None), am) === :K_ES_to_E_S
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(rep_bind, :I), am) === :K_I_ES_to_E_S
-
-        rep_iso = _testhelper_edge(am, "ES <--> EP")
-        @test ER.Mechanisms.name(ER.Mechanisms.Kfor(rep_iso, :None), am) === :k_ES_to_EP
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(rep_iso, :None), am) === :K_ES_to_EP
-        @test ER.Mechanisms.name(ER.Mechanisms.Krev(rep_iso, :None), am) === :k_EP_to_ES
-
-        lig = first(am.regulatory_sites[1].ligands)
-        @test ER.Mechanisms.name(ER.Mechanisms.Kreg(lig, :A), am) === :K_A_Rreg
-        @test ER.Mechanisms.name(ER.Mechanisms.Kreg(lig, :I), am) === :K_I_Rreg
-
-        # The chokepoint renders on the concrete mechanism only; a compiled type
-        # is lifted first.
-        @test_throws MethodError ER.Mechanisms.name(
-            ER.Mechanisms.Krapid(rep_bind, :None), aem)
-        @test_throws MethodError ER.Mechanisms.name(ER.Mechanisms.Kreg(lig, :A), aem)
-    end
-
     @testset "_sig_of / _mechanism_from_sig roundtrip" begin
         # One fixture built from raw input: two substrates, two products, a
         # modifier-only name bound by a step, a covalent residual, a Theorell–Chance step,
@@ -1825,62 +1770,6 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         end
         @test ER.EnzymeMechanism(only(ER.Enumeration.init_mechanisms(with_u))) ===
               ER.EnzymeMechanism(only(ER.Enumeration.init_mechanisms(without_u)))
-    end
-
-    @testset "name(p::Parameter, m) chokepoint" begin
-        m = ER.Mechanism(_testhelper_re_mm)
-        # The binding of S, the isomerization and the binding of P, as edges of `m`.
-        bind, iso, rel = (_testhelper_edge(m, text)
-                          for text in ("E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"))
-
-        # Structural naming: every step constant encodes its reaction's two sides;
-        # a binding K reads in the release direction, iso params in the stored one.
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(bind, :None), m) === :K_ES_to_E_S
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(bind, :I),    m) === :K_I_ES_to_E_S
-        @test ER.Mechanisms.name(ER.Mechanisms.Kfor(iso, :None), m) === :k_ES_to_EP
-        @test ER.Mechanisms.name(ER.Mechanisms.Krev(iso, :None), m) === :k_EP_to_ES
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(rel, :None), m) === :K_EP_to_E_P
-
-        # A binding's rate pair: the forward rate binds, the reverse rate releases
-        @test ER.Mechanisms.name(ER.Mechanisms.Kfor(bind, :None), m) === :k_E_S_to_ES
-        @test ER.Mechanisms.name(ER.Mechanisms.Krev(bind, :None), m) === :k_ES_to_E_S
-
-        # I-state token on SS step
-        @test ER.Mechanisms.name(ER.Mechanisms.Kfor(iso, :I), m) === :k_I_ES_to_EP
-        @test ER.Mechanisms.name(ER.Mechanisms.Krev(iso, :I), m) === :k_I_EP_to_ES
-
-        # The RE iso's equilibrium constant, named in the stored direction
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(iso, :None), m) === :K_ES_to_EP
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(iso, :I),    m) === :K_I_ES_to_EP
-
-        # Same names resolve on the mechanism lifted back from EnzymeMechanism(m);
-        # the compiled type itself is not a chokepoint argument.
-        em = EnzymeMechanism(m)
-        @test ER.Mechanisms.name(ER.Mechanisms.Krapid(bind, :None), ER.Mechanism(em)) ===
-              :K_ES_to_E_S
-        @test ER.Mechanisms.name(ER.Mechanisms.Kfor(iso, :None),
-                                 ER.Mechanism(em)) === :k_ES_to_EP
-        @test_throws MethodError ER.Mechanisms.name(ER.Mechanisms.Krapid(bind, :None), em)
-    end
-
-    @testset "name(p::Parameter, m) for the steps of a shared kinetic group" begin
-        m = ER.Mechanism(@enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-            end
-        end)
-
-        # Both steps bind S; rep = bind. Both yield the same name.
-        @test ER.Mechanisms.name(
-            ER.Mechanisms.Krapid(_testhelper_edge(m, "E + S ⇌ ES"), :None), m) ===
-              :K_ES_to_E_S
-        @test ER.Mechanisms.name(
-            ER.Mechanisms.Krapid(_testhelper_edge(m, "EP + S ⇌ EPS"), :None), m) ===
-              :K_ES_to_E_S
     end
 end
 
@@ -2134,235 +2023,6 @@ end
     err = _testhelper_rebuild([bind_s, iso, iso, bind_p], [1, 2, 2, 3])
     @test err isa ErrorException
     @test occursin("holds the reaction ES ⇌ EP twice", err.msg)
-end
-
-@testset "fused steps are named by their sides" begin
-    m = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(Q) + P
-            E(Q) <--> E + Q
-        end
-    end
-    names = _testhelper_step_constant_names(m)
-    @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
-    # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
-    # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
-    mech = ER.Mechanism(m)
-    k = only(k for (k, e) in enumerate(mech.steps) if ER.Mechanisms._is_chemistry(mech, e))
-    kon, koff = ER.Mechanisms._edge_constants(mech, k, :None)
-    @test kon isa ER.Mechanisms.Kfor && koff isa ER.Mechanisms.Krev
-    @test ER.Mechanisms.name(kon, mech) == :k_EQ_P_to_EAB &&
-          ER.Mechanisms.name(koff, mech) == :k_EAB_to_EQ_P
-    @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
-end
-
-@testset "step constants are named by their reaction" begin
-    # Michaelis–Menten, every step steady-state: each binding has one rate constant
-    # per direction, named after the reaction it drives; the isomerization has k both ways.
-    mm_ss = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S <--> E(S)
-            E(S) <--> E(P)
-            E(P) <--> E + P
-        end
-    end
-    @test issubset([:k_E_S_to_ES, :k_ES_to_E_S, :k_E_P_to_EP, :k_EP_to_E_P],
-                   _testhelper_step_constant_names(mm_ss))
-    # The Haldane reduction leaves the SS isomerization constant fitted.
-    @test :k_ES_to_EP in ER.parameters(mm_ss)
-    # An RE isomerization has one equilibrium constant, in its canonical direction.
-    re_iso = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) ⇌ E(P)
-            E(P) <--> E + P
-        end
-    end
-    @test :K_ES_to_EP in _testhelper_step_constant_names(re_iso)
-    # An RE fused release is stored as the binding of P it reverses, so its
-    # constant is a dissociation constant, [EQ]·[P]/[EAB], named in the release
-    # direction.
-    re_fused = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) ⇌ E(Q) + P
-            E(Q) <--> E + Q
-        end
-    end
-    @test :K_EAB_to_EQ_P in _testhelper_step_constant_names(re_fused)
-    # An RE fused binding takes a dissociation constant too, [E]·[S]/[EP], named in
-    # the release direction like a plain binding's.
-    re_fused_binding = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(P)
-            E(P) <--> E + P
-        end
-    end
-    @test :K_EP_to_E_S in _testhelper_step_constant_names(re_fused_binding)
-    # A competitive-inhibitor copy of A and A itself bind E without colliding.
-    inh = @enzyme_mechanism begin
-        substrates: A
-        products: P
-        modifiers: A
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P)
-            E(P) ⇌ E + P
-            E + A::Mod ⇌ E(A::Mod)
-        end
-    end
-    @test issubset([:K_EAmod_to_E_Amod, :K_EA_to_E_A],
-                   _testhelper_step_constant_names(inh))
-    _testhelper_check_law_against_oracle(inh)
-    # The allosteric state tag follows the prefix: a :NonequalAI binding has an
-    # A-state and an I-state constant, an :EqualAI binding one shared constant.
-    allo = @allosteric_mechanism begin
-        substrates: S
-        products: P
-        catalytic_multiplicity: 2
-        steps: begin
-            E + S ⇌ E(S)     :: NonequalAI
-            E(S) <--> E(P)   :: EqualAI
-            E(P) ⇌ E + P     :: EqualAI
-        end
-    end
-    # Every constant the rate equation names, fitted or dependent.
-    dep, indep = _testhelper_dependent_param_exprs(typeof(allo))
-    allo_names = union(keys(dep), indep)
-    @test issubset([:K_A_ES_to_E_S, :K_I_ES_to_E_S], allo_names)
-    @test !(:K_ES_to_E_S in allo_names)
-    @test :K_EP_to_E_P in ER.parameters(allo) && !(:K_A_EP_to_E_P in allo_names)
-    @test :K_I_EP_to_E_P ∉ ER.parameters(allo)
-    # A ping-pong residual form: B binds E(; residual = A - P), whose name is
-    # E_res_plusA_minusP, so the release-direction K reads
-    # EB_res_plusA_minusP → E_res_plusA_minusP + B.
-    # E and the covalent E(; residual) share one RE segment whose weights vanish only
-    # at B = Q = 0 (mixed), so the mechanism is accepted.
-    pingpong = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q ⇌ E(Q)
-        end
-    end
-    pp_names = _testhelper_step_constant_names(pingpong)
-    @test :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B in pp_names
-    _testhelper_check_law_against_oracle(pingpong)
-    # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
-    pm = ER.Mechanism(pingpong)
-    @test length(pp_names) == sum(pm.steps[first(ks)].rapid_equilibrium ? 1 : 2
-                                  for ks in ER.Mechanisms.groups(pm))
-end
-
-@testset "a modifier-only name is bare in constant names, a reactant's copy is Xmod" begin
-    # I binds only as a modifier, so nothing else carries its name.
-    modifier_only = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: I
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E + I ⇌ E(I)
-        end
-    end
-    @test _testhelper_step_constant_names(modifier_only) ==
-          Set([:K_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_EP_to_E_P, :K_EI_to_E_I])
-    _testhelper_check_law_against_oracle(modifier_only)
-    # P is a product that also binds as a modifier, so its modifier copy reads Pmod.
-    reactant_copy = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        modifiers: P
-        steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) ⇌ E(Q) + P
-            E(Q) ⇌ E + Q
-            E(Q) + P::Mod ⇌ E(P::Mod, Q)
-        end
-    end
-    @test _testhelper_step_constant_names(reactant_copy) ==
-          Set([:K_EA_to_E_A, :K_EAB_to_EA_B, :k_EAB_to_EPQ, :k_EPQ_to_EAB,
-               :K_EPQ_to_EQ_P, :K_EQ_to_E_Q, :K_EPmodQ_to_EQ_Pmod])
-    _testhelper_check_law_against_oracle(reactant_copy)
-end
-
-@testset "a residual reads _res, then _plus per added and _minus per subtracted name" begin
-    # The residual adds A and B and subtracts P; each run lists its names in order.
-    m = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(P; residual = B + A - P)
-            E(P; residual = B + A - P) <--> E(; residual = B + A - P) + P
-            E(; residual = B + A - P) <--> E(Q)
-            E(Q) <--> E + Q
-        end
-    end
-    @test _testhelper_step_constant_names(m) == Set([
-        :k_E_A_to_EA, :k_EA_to_E_A, :k_EA_B_to_EAB, :k_EAB_to_EA_B,
-        :k_EAB_to_EP_res_plusA_plusB_minusP, :k_EP_res_plusA_plusB_minusP_to_EAB,
-        :k_E_res_plusA_plusB_minusP_P_to_EP_res_plusA_plusB_minusP,
-        :k_EP_res_plusA_plusB_minusP_to_E_res_plusA_plusB_minusP_P,
-        :k_E_res_plusA_plusB_minusP_to_EQ, :k_EQ_to_E_res_plusA_plusB_minusP,
-        :k_E_Q_to_EQ, :k_EQ_to_E_Q])
-    # Every name is a Julia identifier, so a parameter tuple needs no var"…".
-    @test all(Base.isidentifier, ER.parameters(m))
-    _testhelper_check_law_against_oracle(m)
-end
-
-@testset "Tier 2 reads the free metabolites at both ends of a step" begin
-    # F is where P leaves (the fused release E(S) → F + P) and E is where S
-    # enters, so the isomerization between them runs F → E however either step
-    # is written.
-    forward = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S <--> E(S)
-            E(S) <--> F + P
-            F <--> E
-        end
-    end
-    backward = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S <--> E(S)
-            F + P <--> E(S)
-            E <--> F
-        end
-    end
-    m = ER.Mechanism(forward)
-    @test ER.Mechanism(backward) == m
-    k = only(k for (k, e) in enumerate(m.steps) if ER.Mechanisms._is_iso(e))
-    @test ER.Mechanisms._form_name(m, m.steps[k].from) == "F" &&
-          ER.Mechanisms._form_name(m, m.steps[k].to) == "E"
-    kf, kr = ER.Mechanisms._edge_constants(m, k, :None)
-    @test ER.Mechanisms.name(kf, m) == :k_F_to_E && ER.Mechanisms.name(kr, m) == :k_E_to_F
 end
 
 @testset "a competitive-inhibitor copy marks no reactant side" begin
@@ -2714,8 +2374,8 @@ end
     # names differ in the bound form (k_E_A_to_EA, k_E_A_to_EstarA).
     m = _testhelper_written(:(E + A <--> E(A)), :(E + A <--> Estar(A)),
                             :(E(A) <--> E(P)), :(E + P <--> E(P)))
-    names = [ER.Mechanisms.name(p, m) for members in ER.Mechanisms.groups(m)
-             for p in ER.Mechanisms._edge_constants(m, first(members), :None)]
+    names = [ER.Derivation.name(p, m) for members in ER.Mechanisms.groups(m)
+             for p in ER.Derivation._edge_constants(m, first(members), :None)]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
     # The same binding in two groups, once written as its release: both would be
@@ -2863,109 +2523,6 @@ end
           Set([:K_EPinh_to_E_Pinh, :k_EPinh_to_EP, :k_EP_to_EPinh, :K_EP_to_E_P,
                :K_EPmod_to_E_Pmod])
     _testhelper_check_law_against_oracle(pinh)
-end
-
-# Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside
-# parameter-name rendering bodies (the `name(::Parameter, m)` chokepoint).
-
-const _CHOKEPOINT_PREFIX = r"^[KkVL][_a-zA-Z0-9]"
-
-# Extract the function-name symbol from a signature expression.
-# Handles `name(...)`, `name(...) where T`, `name(...)::Ret`, etc.
-function _testhelper_sig_fn_name(sig)
-    while sig isa Expr && sig.head === :where
-        sig = sig.args[1]
-    end
-    if sig isa Expr && sig.head === :(::)
-        sig = sig.args[1]
-    end
-    return sig isa Expr && sig.head === :call ? sig.args[1] : nothing
-end
-
-# Extract the first positional arg type-annotation as a String.
-function _testhelper_sig_first_arg_str(sig)
-    while sig isa Expr && sig.head === :where
-        sig = sig.args[1]
-    end
-    if sig isa Expr && sig.head === :(::)
-        sig = sig.args[1]
-    end
-    sig isa Expr && sig.head === :call || return ""
-    args = sig.args[2:end]
-    pos_args = filter(a -> !(a isa Expr && a.head === :parameters), args)
-    isempty(pos_args) && return ""
-    return string(pos_args[1])
-end
-
-# A method definition is a chokepoint body iff it is a `name` method
-# dispatching on a Parameter subtype value.
-function _testhelper_is_chokepoint_def(expr)
-    expr isa Expr || return false
-    sig = if expr.head === :function && length(expr.args) >= 1
-        expr.args[1]
-    elseif expr.head === :(=) && expr.args[1] isa Expr &&
-           expr.args[1].head in (:call, :where)
-        expr.args[1]
-    else
-        return false
-    end
-    fn_name = _testhelper_sig_fn_name(sig)
-    fn_name === :name || return false
-    arg_str = _testhelper_sig_first_arg_str(sig)
-    return occursin(
-        r"Parameter|::(Krapid|Kfor|Krev|Kreg)\b",
-        arg_str)
-end
-
-# Reconstruct the string content of a `Symbol("...")` call. Supports
-# both literal Strings and `:string` interpolation expressions like
-# `Symbol("K\$idx")` → `Expr(:string, "K", :idx)`.
-function _testhelper_symbol_call_pattern(expr)
-    expr isa Expr && expr.head === :call &&
-        length(expr.args) >= 2 && expr.args[1] === :Symbol || return nothing
-    arg2 = expr.args[2]
-    if arg2 isa String
-        return arg2
-    elseif arg2 isa Expr && arg2.head === :string
-        # Concatenate; non-String parts become a placeholder so the
-        # prefix regex can still match (e.g., "K\$idx" → "K_"). The
-        # placeholder must be a character class matched by
-        # `_CHOKEPOINT_PREFIX` (`[_a-zA-Z0-9]`); underscore qualifies.
-        return join(p isa String ? p : "_" for p in arg2.args)
-    end
-    return nothing
-end
-
-function _testhelper_walk_violations!(expr, in_chokepoint::Bool, out::Vector{String})
-    expr isa Expr || return
-    if _testhelper_is_chokepoint_def(expr)
-        for child in expr.args
-            _testhelper_walk_violations!(child, true, out)
-        end
-    else
-        pat = _testhelper_symbol_call_pattern(expr)
-        if pat !== nothing && occursin(_CHOKEPOINT_PREFIX, pat) && !in_chokepoint
-            push!(out, "Symbol(\"$pat\")")
-        end
-        for child in expr.args
-            _testhelper_walk_violations!(child, in_chokepoint, out)
-        end
-    end
-end
-
-@testset "chokepoint: no Symbol(\"[KkVL]...\") outside parameter-name renderers" begin
-    src_dir = normpath(joinpath(@__DIR__, "..", "..", "src"))
-    for f in sort!([joinpath(d, f) for (d, _, fs) in walkdir(src_dir) for f in fs])
-        endswith(f, ".jl") || continue
-        src = read(f, String)
-        expr = Meta.parseall(src; filename=f)
-        violations = String[]
-        _testhelper_walk_violations!(expr, false, violations)
-        if !isempty(violations)
-            @info "chokepoint violations" file=basename(f) violations
-        end
-        @test isempty(violations)
-    end
 end
 
 @testset "admission rejects a one-sided :OnlyA binding and admits balanced ones" begin

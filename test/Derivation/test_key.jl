@@ -401,9 +401,9 @@ end
     for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
         @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))
     end
-    @test !any(EnzymeRates.Mechanisms.conformation_steps(onlya_site, :inactive))
+    @test !any(EnzymeRates.Derivation.conformation_steps(onlya_site, :inactive))
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(only_a))
-    @test any(EnzymeRates.Mechanisms.conformation_steps(only_a, :inactive))
+    @test any(EnzymeRates.Derivation.conformation_steps(only_a, :inactive))
     @test _testhelper_phantom_map_holds(only_a; rng = Random.MersenneTwister(23))
 end
 

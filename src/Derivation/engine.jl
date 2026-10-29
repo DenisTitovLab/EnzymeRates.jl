@@ -113,7 +113,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     ratio(k) = _mmul(_mpow(bare(k, 1), binds(k) ? -1 : 1),
                      _mmul(conc(m.steps[k].taken_up),
                            _mpow(conc(m.steps[k].given_off), -1)))
-    s = Mechanisms.re_segments(m, mask, _re_flags(m))
+    s = re_segments(m, mask, _re_flags(m))
     re = [k for k in eachindex(m.steps)
           if mask[k] && m.steps[k].rapid_equilibrium]
     nforms = length(m.nodes)
@@ -306,7 +306,7 @@ function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
                       site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
     for (lig, tag) in zip(site.ligands, site.mwc_tags)
-        K = Mechanisms.regulator_constant(am, lig, tag, inactive)
+        K = regulator_constant(am, lig, tag, inactive)
         K === nothing && continue
         W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))
     end
@@ -327,8 +327,8 @@ polynomial product (`_assert_derivable`). The guard rejects an empty active mask
 """
 function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
     _assert_derivable(am)
-    m, amask, imask = Mechanisms.catalytic(am), Mechanisms.conformation_steps(am, :active),
-                      Mechanisms.conformation_steps(am, :inactive)
+    m, amask, imask = Mechanisms.catalytic(am), conformation_steps(am, :active),
+                      conformation_steps(am, :inactive)
     concentrations = Mechanisms.metabolites(am)
     LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
@@ -397,7 +397,7 @@ when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before any polynomial is built) an
 `typemax(Int)`.
 """
 function rate_equation_complexity(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Mechanisms.segment_graph(m, mask)
+    s = segment_graph(m, mask)
     G = length(s.segments)
     G <= 1 && return G
     lap = zeros(Int, G, G)
@@ -422,8 +422,8 @@ identify's `eq_complexity_filter` read it.
 rate_equation_complexity(m::Mechanisms.Mechanism) =
     rate_equation_complexity(m, trues(length(m.steps)))
 function rate_equation_complexity(am::Mechanisms.AllostericMechanism)
-    m, imask = Mechanisms.catalytic(am), Mechanisms.conformation_steps(am, :inactive)
-    a = rate_equation_complexity(m, Mechanisms.conformation_steps(am, :active))
+    m, imask = Mechanisms.catalytic(am), conformation_steps(am, :inactive)
+    a = rate_equation_complexity(m, conformation_steps(am, :active))
     i = any(imask) ? rate_equation_complexity(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end

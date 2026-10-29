@@ -7,14 +7,15 @@ using LinearAlgebra: det
 using SHA: sha256
 
 const API = (:AllParameters, :FittedParameters, :IndependentParameters,
-    :check_valid_rate_equation, :parameter_count, :parameters, :rate_equation,
+    :check_valid_rate_equation, :conformation_steps, :excludes, :has_turnover_cycle,
+    :has_unbalanced_cycle, :parameter_count, :parameters, :rate_equation,
     :rate_equation_complexity, :rate_equation_dedup_key, :rate_equation_string,
-    :scale_rate_constants)
+    :re_segments, :scale_rate_constants, :segment_graph)
 
 """A plain or an allosteric mechanism."""
 const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
 
-"""A column of the joint solve (`Mechanisms.constant_columns`): slot `slot` of step `edge`
+"""A column of the joint solve (`constant_columns`): slot `slot` of step `edge`
 of the catalytic graph, in the inactive conformation when `inactive`."""
 const _Column = @NamedTuple{edge::Int, slot::Int, inactive::Bool}
 
@@ -28,6 +29,9 @@ _copies(held::Vector{Mechanisms.Met}, name::Symbol) = count(x -> x.name === name
 """The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)
 
+include("conformations.jl")
+include("segments.jl")
+include("names.jl")
 include("rate_eq_derivation.jl")
 include("thermo.jl")
 include("poly.jl")

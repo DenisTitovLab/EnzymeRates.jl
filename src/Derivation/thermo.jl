@@ -10,7 +10,7 @@ and conformation, except that the copy of an edge in the conformation that exclu
 of its own.
 """
 _class(m::_AnyMech, c::_Column) =
-    Mechanisms.excludes(m, c.edge, c.inactive ? :inactive : :active) ?
+    excludes(m, c.edge, c.inactive ? :inactive : :active) ?
     (c.edge, c.slot, c.inactive, true) :
     (Mechanisms.catalytic(m).steps[c.edge].group, c.slot, c.inactive, false)
 
@@ -94,7 +94,7 @@ member of each kinetic class (`_class`), setting it equal to the class's first m
 slot by slot. `law[k]` tells whether edge `k` lies in the inactive conformation's law,
 `tags` holds each group's tag and `flat` the edges group by group.
 """
-function _joint_system(m::_AnyMech, cols = Mechanisms.constant_columns(m))
+function _joint_system(m::_AnyMech, cols = constant_columns(m))
     cm = Mechanisms.catalytic(m)
     (; columns, flat, tags, law) = cols
     allosteric = m isa Mechanisms.AllostericMechanism
@@ -247,7 +247,7 @@ name can still imitate a residual's: with a modifier named `minusQ`, the side
 fire for a mechanism they build.
 """
 function _solve(m::_AnyMech)
-    cols = Mechanisms.constant_columns(m)
+    cols = constant_columns(m)
     sys = _joint_system(m, cols)
     M, pivots = _reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
@@ -294,8 +294,8 @@ function _regulator_names(am::Mechanisms.AllostericMechanism)
                              for (lig, tag) in zip(site.ligands,
                                                    site.mwc_tags)
                              if !(inactive && tag === :EqualAI)
-                             for K in (Mechanisms.regulator_constant(am, lig, tag,
-                                                                     inactive),)
+                             for K in (regulator_constant(am, lig, tag,
+                                                          inactive),)
                              if K !== nothing]
     [names(false); names(true)]
 end

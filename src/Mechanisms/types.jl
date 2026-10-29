@@ -34,26 +34,6 @@ struct RegulatorySite
     end
 end
 
-# Parameter family.
-abstract type Parameter end
-
-# Edge parameters: a rapid-equilibrium edge's equilibrium constant, and a steady-state
-# edge's forward and reverse rate constants, `edge` indexing the edges of a mechanism's
-# catalytic graph.
-struct Krapid <: Parameter; edge::Int; state::Symbol end
-struct Kfor   <: Parameter; edge::Int; state::Symbol end
-struct Krev   <: Parameter; edge::Int; state::Symbol end
-
-"""
-Regulator-site parameter: the constant of the ligand named `ligand` in the A (active) or
-I (inactive) branch of the polynomial (`state`). A ligand sits at one site, so its name
-and state determine the constant.
-"""
-struct Kreg <: Parameter
-    ligand::Symbol
-    state::Symbol
-end
-
 """
 Reactant: a substrate or product of a reaction, with its atoms as `element => count`
 pairs. The constructor sorts the atoms by element so two equivalent constructions compare
@@ -1067,7 +1047,7 @@ function _check_each_reaction_once(m::Mechanism, groups::Vector{Vector{Int}})
         key = minmax((e.from, e.taken_up), (e.to, e.given_off))
         if haskey(seen, key)
             g0, k0 = seen[key]
-            text = join(_sides(m, k0), " ⇌ ")
+            text = join(step_sides(m, k0), " ⇌ ")
             g0 == g && error("Mechanism: kinetic group $g holds the reaction $text " *
                              "twice; a mechanism holds each reaction once")
             e0 = m.steps[k0]
@@ -1089,7 +1069,7 @@ end
 # which changes between precompile sessions; a graph's hash and a raw value's read only
 # symbols, integers and flags, so every process agrees on them. `Met` keeps Julia's `==`,
 # which compares its two fields, and has its own `hash`.
-for T in (RegulatorySite, Krapid, Kfor, Krev, Kreg, Reactant, Regulator,
+for T in (RegulatorySite, Reactant, Regulator,
           EnzymeReaction, RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism,
           Node, Step, Mechanism, AllostericMechanism)
     fs = fieldnames(T)
@@ -1353,8 +1333,8 @@ function _binds_by_name(m::Mechanism, e::Step)
 end
 """Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
 isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
-with several metabolites on a side. The joint solve's priority (`_priority_key`) and the
-allosteric moves (`_chemistry_groups`) read it to tell catalysis from binding."""
+with several metabolites on a side. The allosteric moves (`_chemistry_groups`) tell
+catalysis from binding by it."""
 _is_chemistry(m::Mechanism, e::Step) = !_is_plain_binding(m, e)
 """
     runs_toward_products(m, k) -> Bool
@@ -1371,317 +1351,10 @@ function runs_toward_products(m::Mechanism, k::Int)
     _side_score(m.nodes[e.from], e.taken_up, m.substrates) >=
         _side_score(m.nodes[e.to], e.given_off, m.substrates)
 end
-"""The steps group by group, each group in step order: the order the joint solve and the
-derivation read them in."""
-_flat_edges(m::Mechanism) = reduce(vcat, groups(m); init = Int[])
 """Whether `n` is a free node: nothing bound and no residual, whatever its label."""
 _is_free(n::Node) = isempty(n.bound) && !_has_residual(n)
 """Whether `n` is free E: label `E`, nothing bound and no residual."""
 _is_free_E(n::Node) = n.conformation === :E && _is_free(n)
-"""Whether step `e` of `m` binds a product: it takes up one product, not as a modifier."""
-_binds_product(m::Mechanism, e::Step) =
-    _is_binding(e) && (x = only(e.taken_up); !x.modifier && insorted(x.name, m.products))
-"""Each node's position in content order (`isless(::Node)`: label, bound, added,
-subtracted): its index, except that free E moves behind the nodes whose label sorts before
-`E` (a free node labelled D)."""
-_base_rank(m::Mechanism) = invperm(sortperm(m.nodes))
-"""Each step's position by the base ranks (`_base_rank`) of its two nodes, then its
-taken-up and given-off metabolites as lists: the content order of the joint solve's ties
-(`_priority_key`)."""
-function _edge_base_rank(m::Mechanism)
-    rank = _base_rank(m)
-    invperm(sortperm([Step(rank[e.from], rank[e.to], e.taken_up, e.given_off,
-                           e.rapid_equilibrium, e.group) for e in m.steps]))
-end
-
-# Sub-graphs: a mask says which steps of a mechanism a sub-graph keeps, such as an
-# allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no
-# check meant for the mechanisms a user writes fires on a sub-graph.
-
-"""
-    present_species(m, on) -> BitVector
-
-The nodes of `m` that the steps `on` keeps touch, one flag per node: a sub-graph's law,
-segments and network cover these.
-"""
-function present_species(m::Mechanism, on::BitVector)
-    present = falses(length(m.nodes))
-    for (k, e) in enumerate(m.steps)
-        on[k] && (present[e.from] = present[e.to] = true)
-    end
-    present
-end
-
-"""The distinct metabolite names of `m` (the names of `_table`), sorted: a reactant and its
-modifier copy share one, as they share a concentration."""
-function _distinct_names(m::Mechanism)
-    names = Symbol[]
-    for n in m.nodes
-        foreach(x -> push!(names, x.name), n.bound)
-        append!(names, n.added)
-        append!(names, n.subtracted)
-    end
-    for e in m.steps
-        foreach(x -> push!(names, x.name), e.taken_up)
-        foreach(x -> push!(names, x.name), e.given_off)
-    end
-    unique!(sort!(names))
-end
-
-"""
-    segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
-                                                disagreeing)
-
-The segments of a graph of nodes and transitions, walked breadth-first along the
-transitions from each `present` node no earlier walk reached, in node order: `out[u]`
-lists the transitions that leave node `u`, in the order the walk takes them; transition
-`t` runs to node `to[t]` and takes up `change[n, t]` copies of metabolite name `n` net.
-`segment_of[u]` is node `u`'s segment (0 for a node not present), `segments` each one's
-nodes in walk order, `offsets[n, u]` the copies of name `n` the walk takes up from the
-segment's first node to `u`, `parent[u]` the transition that reached `u` (0 at a first
-node), and `disagreeing` the first transition whose offsets disagree, 0 when none does.
-Such a transition closes, with its tree path, a cycle that takes up some name net; when
-there is none, each offset is a potential and does not depend on the walk.
-"""
-function segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{Int},
-                      change::Matrix{Int})
-    nn = length(present)
-    segment_of, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
-    offsets, disagreeing = zeros(Int, size(change, 1), nn), 0
-    for root in 1:nn
-        present[root] && segment_of[root] == 0 || continue
-        members = [root]
-        push!(segments, members)
-        segment_of[root] = length(segments)
-        head = 0
-        while head < length(members)
-            head += 1
-            u = members[head]
-            for t in out[u]
-                v = to[t]
-                if segment_of[v] == 0
-                    segment_of[v], parent[v] = length(segments), t
-                    push!(members, v)
-                    for n in axes(offsets, 1)
-                        offsets[n, v] = offsets[n, u] + change[n, t]
-                    end
-                elseif disagreeing == 0 &&
-                       any(n -> offsets[n, v] != offsets[n, u] + change[n, t],
-                           axes(offsets, 1))
-                    disagreeing = t
-                end
-            end
-        end
-    end
-    (; segment_of, segments, offsets, parent, disagreeing)
-end
-
-"""
-    re_segments(m, on, re) -> (; segment_of, segments, offsets, bottom)
-
-The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by the kept
-steps that `re` flags (`segment_walk`). `segments[s]` lists segment `s`'s forms
-breadth-first from its first form, each form's steps in the order `_flat_edges` reads
-them, and the segments are numbered by their first forms; `segment_of[f]` is form `f`'s
-segment, 0 for a form no kept step touches (`present_species`). `offsets[n, f]` is how many
-more of metabolite name `n` form `f` carries than the form of its segment that carries
-fewest of it, `n` being the position of the name among the mechanism's distinct
-metabolite names, in sorted order. Within a segment, rapid equilibrium fixes each form's
-weight relative to any other as a monomial in concentrations, one factor per metabolite
-taken up or given off along the path between them; chemistry passes the counts through
-unchanged.
-
-`bottom` lists the forms of the first segment whose weights all vanish at zero products,
-or all vanish at zero substrates; it is empty when no segment does. Each metabolite name
-takes its side from `m`'s substrates and products, so a modifier copy, which shares its
-reactant's name and concentration, counts on that reactant's side even in a sub-graph
-that holds no step taking up or giving off the reactant itself. Once the weights are
-scaled to clear every negative exponent, a segment normally has a bottom form whose
-weight is free of one side's metabolites — the form the others drain to when that side is
-absent. A segment with no such form (e.g. `{E(P), E(Q), E(P, Q)}` with `E + P` and
-`E + Q` at steady state: weights `Kq·P : Kp·Q : P·Q`) is empty at zero products, and the
-rate there depends on how `E(P, Q)` splits between `E(P)` and `E(Q)` — a ratio of two
-fast release rates the RE approximation does not carry. The rate equation is `0/0`
-exactly where initial-rate data sit. A segment whose weights vanish only at a corner
-mixing a substrate and a product (a mixed abortive complex, or the ping-pong `E` /
-`E(; residual)` pair) is harmless: no turnover is possible at that corner.
-"""
-function re_segments(m::Mechanism, on::BitVector, re::BitVector)
-    nf = length(m.nodes)
-    names = _distinct_names(m)
-    nn = length(names)
-    row(x::Met) = searchsortedfirst(names, x.name)
-    # Each kept rapid-equilibrium step as two transitions, 2j - 1 in its stored direction
-    # and 2j in reverse, each listed at the form it leaves.
-    kept = [k for k in _flat_edges(m) if on[k] && re[k]]
-    out, to = [Int[] for _ in 1:nf], zeros(Int, 2 * length(kept))
-    change = zeros(Int, nn, 2 * length(kept))
-    for (j, k) in enumerate(kept)
-        e = m.steps[k]
-        t = 2j - 1
-        to[t], to[t + 1] = e.to, e.from
-        push!(out[e.from], t)
-        push!(out[e.to], t + 1)
-        for x in e.taken_up
-            change[row(x), t] += 1
-        end
-        for x in e.given_off
-            change[row(x), t] -= 1
-        end
-        for n in 1:nn
-            change[n, t + 1] = -change[n, t]
-        end
-    end
-    present = present_species(m, on)
-    (; segment_of, segments, offsets) = segment_walk(present, out, to, change)
-    for segment in segments, n in axes(offsets, 1)
-        low = minimum(f -> offsets[n, f], segment)
-        for f in segment
-            offsets[n, f] -= low
-        end
-    end
-    # Whether each metabolite name is a product, and whether a substrate.
-    products, substrates = falses(nn), falses(nn)
-    for (n, x) in enumerate(names)
-        products[n] = insorted(x, m.products)
-        substrates[n] = insorted(x, m.substrates)
-    end
-    bottomless(segment, side) = length(segment) >= 2 &&
-        all(f -> any(n -> side[n] && offsets[n, f] > 0, 1:nn), segment)
-    i = findfirst(seg -> bottomless(seg, products) || bottomless(seg, substrates), segments)
-    (; segment_of, segments, offsets, bottom = i === nothing ? Int[] : segments[i])
-end
-
-"""
-    segment_graph(m, on) -> (; segment_of, segments, offsets, bottom, steps)
-
-The steady-state graph between the rapid-equilibrium segments of the steps of `m` that
-`on` keeps, each step at its own flag: the segments (`re_segments`) and `steps`, the kept
-steady-state steps that join two segments, in step order.
-"""
-function segment_graph(m::Mechanism, on::BitVector)
-    s = re_segments(m, on, BitVector(e.rapid_equilibrium for e in m.steps))
-    steps = [k for (k, e) in enumerate(m.steps)
-             if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
-    merge(s, (; steps))
-end
-
-"""Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining
-forms `from[k]` and `to[k]` with weight `weight[k]`: giving every form a potential that
-rises by each step's weight along it then fails somewhere, which a weighted union-find in
-the buffers `parent` and `offset` (one entry per form) detects."""
-function has_unbalanced_cycle(from, to, weight, on, parent, offset)
-    parent .= eachindex(parent); fill!(offset, 0)
-    function root(x)
-        p = 0
-        while parent[x] != x
-            p += offset[x]; x = parent[x]
-        end
-        x, p
-    end
-    for k in eachindex(from)
-        on[k] || continue
-        ra, pa = root(from[k]); rb, pb = root(to[k])
-        if ra == rb
-            pb == pa + weight[k] || return true
-        else
-            parent[rb] = ra; offset[rb] = pa + weight[k] - pb
-        end
-    end
-    false
-end
-
-"""
-    has_turnover_cycle(m::Mechanism, on::BitVector) -> Bool
-
-Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
-of the forms rises along each step by its uptake of the first substrate (a modifier copy
-counting as it), which a weighted union-find finds (`has_unbalanced_cycle`). A cycle of a
-mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
-uptake of the first substrate is zero only when it turns nothing over; a hand-written
-cycle that does not is read by that uptake alone. The guard's class 1 rejects a
-mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a turnover
-cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
-"""
-function has_turnover_cycle(m::Mechanism, on::BitVector)
-    # The first substrate, whose net uptake, a modifier copy counting as it, is the rate.
-    s1 = m.substrates[1]
-    uptake(list::Vector{Met}) = count(x -> x.name === s1, list)
-    n = length(m.nodes)
-    has_unbalanced_cycle([e.from for e in m.steps], [e.to for e in m.steps],
-                         [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],
-                         on, zeros(Int, n), zeros(Int, n))
-end
-
-"""
-    excludes(m, k, c::Symbol) -> Bool
-    excludes(tag::Symbol, c::Symbol) -> Bool
-
-Whether conformation `c` (`:active` or `:inactive`) of `m` excludes step `k` of its
-catalytic graph: an `:OnlyA` group's step in the inactive conformation, an `:OnlyI`
-group's in the active one. There a plain binding loses its affinity and any other step is
-blocked (spec section 7). A plain mechanism excludes no step.
-
-With a tag, whether conformation `c` excludes a step or a regulator ligand tagged `tag`:
-the one rule by which the steps, the regulator constants and the moves' ligand states
-read the tags.
-"""
-excludes(am::AllostericMechanism, k::Int, c::Symbol) =
-    excludes(am.mwc_tags[am.catalytic.steps[k].group], c)
-excludes(::Mechanism, ::Int, c::Symbol) = (_conformation_index(c); false)
-excludes(tag::Symbol, c::Symbol) = tag === (_conformation_index(c) == 2 ? :OnlyA : :OnlyI)
-
-"""
-    exclusion_components(am, c::Symbol) -> Vector{Int}
-
-Each form's component under the edges of `am`'s catalytic graph that conformation `c`
-(`:active` or `:inactive`) keeps (`excludes`), every form included, labelled by its smallest
-form index, so free E's label is 1. Admission reads each plain binding `c` excludes as an
-arc from its unbound side's component to its bound side's (`_arcs`).
-"""
-function exclusion_components(am::AllostericMechanism, c::Symbol)
-    m = am.catalytic
-    parent = collect(eachindex(m.nodes))
-    top(i) = (while parent[i] != i; i = parent[i]; end; i)
-    for (k, e) in enumerate(m.steps)
-        excludes(am, k, c) && continue
-        a, b = top(e.from), top(e.to)
-        a == b || (parent[max(a, b)] = min(a, b))
-    end
-    [top(f) for f in eachindex(m.nodes)]
-end
-
-"""
-    conformation_steps(m, c::Symbol) -> BitVector
-
-The steps of conformation `c` (`:active` or `:inactive`) of `m`, one flag per step in
-`m`'s stored direction. For an allosteric mechanism these are the steps of its catalytic
-graph that `c` does not exclude (`excludes`: an `:OnlyI` group's from the active
-conformation, an `:OnlyA` group's from the inactive one) between forms they join to free
-E, form 1. The conformations interconvert at free E alone, so a form those steps do not
-join to it holds no enzyme of that conformation, a second free form included. The law
-deletes the excluded steps and prunes the forms this strands; admission decides when that
-is the limit of the vanishing constants (spec section 7). A plain mechanism has only the
-active conformation: every step is active and none inactive. The laws (`_law`), the joint
-solve (`_ordered_columns`), the guard's law network (`_law_network`), the copy rule
-(`_redundant_copy_groups`), the degeneracy test (`_degenerate`), the tagging move's
-stopping test (`_stops_inactive_turnover`) and the hyperbolic test
-(`_hyperbolic_catalysis`) read each conformation from it.
-"""
-function conformation_steps(am::AllostericMechanism, c::Symbol)
-    comp = exclusion_components(am, c)
-    BitVector([!excludes(am, k, c) && comp[e.from] == 1
-               for (k, e) in enumerate(am.catalytic.steps)])
-end
-conformation_steps(m::Mechanism, c::Symbol) =
-    (_conformation_index(c) == 1 ? trues : falses)(length(m.steps))
-
-"""The index of conformation `c` that `excludes` reads: 1 for `:active`, 2 for
-`:inactive`."""
-_conformation_index(c::Symbol) =
-    c === :active ? 1 : c === :inactive ? 2 :
-    throw(ArgumentError("a conformation is :active or :inactive, not :$c"))
-
 # ─── Accessors ─────────────────────────────────────────────────
 #
 # A compiled mechanism is read by lifting it to its concrete `Mechanism` or

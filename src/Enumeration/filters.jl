@@ -9,7 +9,7 @@ allosteric mechanism's test can read its active law (`_degenerate`)."""
 function _has_vmax(m::Mechanisms.Mechanism, re::BitVector, names::Vector{Symbol},
                    on::BitVector = trues(length(m.steps)))
     touches = BitVector([_exchanges(m, k, names) for k in eachindex(m.steps)])
-    !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
+    !Derivation.has_turnover_cycle(m, (re .| touches) .& on)
 end
 
 """Whether `s` holds a metabolite named in `names`, a reactant's modifier copy under its
@@ -59,7 +59,7 @@ function _chemistry_equilibrates_both_sides(
     # outside every RE isomerization is a node of its own.
     isos = BitVector([re[k] && Mechanisms.step_kind(m, k) === :isomerization
                       for k in eachindex(m.steps)])
-    s = Mechanisms.re_segments(m, isos, isos)
+    s = Derivation.re_segments(m, isos, isos)
     nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
                           if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
@@ -75,7 +75,7 @@ seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     re = _rapid_equilibrium_flags(cm)
-    on = Mechanisms.conformation_steps(m, :active)
+    on = Derivation.conformation_steps(m, :active)
     !(_has_vmax(cm, re, cm.substrates, on) &&
       _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
@@ -127,7 +127,7 @@ function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
                                on::BitVector = trues(length(m.steps)))
     on_site = on .& BitVector([!(_holds_modifier(m, e.from) || _holds_modifier(m, e.to))
                                for e in m.steps])
-    s = Mechanisms.segment_graph(m, on_site)
+    s = Derivation.segment_graph(m, on_site)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
     name_of(n) = searchsortedfirst(names, n)
@@ -173,7 +173,7 @@ half-reaction.
 """
 _hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
     all(c -> _hyperbolic_catalysis(Mechanisms.catalytic(am),
-                                   Mechanisms.conformation_steps(am, c)),
+                                   Derivation.conformation_steps(am, c)),
         (:active, :inactive))
 
 """
@@ -245,7 +245,7 @@ makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end 
 builds are found on that mechanism (`_dead_end_child`).
 """
 function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Mechanisms.re_segments(m, mask, _rapid_equilibrium_flags(m))
+    s = Derivation.re_segments(m, mask, _rapid_equilibrium_flags(m))
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
     # A form's bound names, sorted, its conformation and its residual.
@@ -401,8 +401,8 @@ function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
     end
     am = m::Mechanisms.AllostericMechanism
     equal(h) = am.mwc_tags[h] === :EqualAI
-    masks = (Mechanisms.conformation_steps(am, :active),
-             Mechanisms.conformation_steps(am, :inactive))
+    masks = (Derivation.conformation_steps(am, :active),
+             Derivation.conformation_steps(am, :inactive))
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
     twins = [_productive_twin(cm, mask) for mask in masks]
     unscaled(c) = Dict(h => (_NO_RESCALING, _NO_RESCALING)

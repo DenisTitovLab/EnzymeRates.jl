@@ -187,7 +187,7 @@ enumerator emits is. The test reads each edge's metabolite lists, so it holds fo
 and Theorell–Chance steps as well.
 """
 function _flux_carrying_edges(m::Mechanisms.Mechanism, re::BitVector)
-    s = Mechanisms.re_segments(m, trues(length(m.steps)), re)
+    s = Derivation.re_segments(m, trues(length(m.steps)), re)
     rho = _name_signs(m)
     offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
     flags = falses(length(m.steps))
@@ -296,7 +296,7 @@ end
 `re[k]` holds (`re_segments`). The flip move measures each candidate on its flags, so it
 builds only the candidates that raise the count."""
 _re_segment_count(m::Mechanisms.Mechanism, re::BitVector) =
-    length(Mechanisms.re_segments(m, trues(length(m.steps)), re).segments)
+    length(Derivation.re_segments(m, trues(length(m.steps)), re).segments)
 
 """
     _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
@@ -402,7 +402,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
     every = trues(length(cm.steps))
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
     # group, which lies on no RE cycle and so never partners a set that does not gain.
-    segment_of = Mechanisms.re_segments(cm, every, flags).segment_of
+    segment_of = Derivation.re_segments(cm, every, flags).segment_of
     segments = [flags[first(ks)] ?
                     Set{Int}(segment_of[cm.steps[k].from] for k in ks) :
                     Set{Int}() for ks in members]
@@ -709,7 +709,7 @@ cycle of the edges its law keeps (`conformation_steps`) turns the reaction over
 (`has_turnover_cycle`).
 """
 _stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    !Mechanisms.has_turnover_cycle(m, Mechanisms.conformation_steps(
+    !Derivation.has_turnover_cycle(m, Derivation.conformation_steps(
         Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[]),
         :inactive))
 
@@ -990,8 +990,8 @@ The conformations a single ligand's allosteric `state` acts on: `:active` for
 """
 function _state_conformations(state::Symbol)
     conf = Set{Symbol}()
-    Mechanisms.excludes(state, :active) || push!(conf, :active)
-    Mechanisms.excludes(state, :inactive) || push!(conf, :inactive)
+    Derivation.excludes(state, :active) || push!(conf, :active)
+    Derivation.excludes(state, :inactive) || push!(conf, :inactive)
     conf
 end
 

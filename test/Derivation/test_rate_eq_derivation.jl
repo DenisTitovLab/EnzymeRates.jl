@@ -181,7 +181,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
                                   site.mwc_tags)
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
-                    K = EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag, inactive)
+                    K = EnzymeRates.Derivation.regulator_constant(mech, lig, tag, inactive)
                     K === nothing ||
                         push!(out, Symbol("K_", lig, suffix, "_reg", j) => all_params[K])
                 end
@@ -926,7 +926,7 @@ const _testhelper_fused_cases = [
         only(f for f in eachindex(m.nodes) if ER.Mechanisms._form_name(m, f) == text)
     a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
     @test e == 1 && a_copy < ab
-    s = ER.Mechanisms.re_segments(m, trues(length(m.steps)),
+    s = ER.Derivation.re_segments(m, trues(length(m.steps)),
                                   _testhelper_flags(m))
     @test all(seg -> seg[1] == minimum(seg), s.segments)
     @test s.segments[s.segment_of[e]][1] == e
@@ -2080,9 +2080,9 @@ end
     end
     am = EnzymeRates.AllostericMechanism(allo)
     @test _testhelper_laplacian_tree_count(
-        am.catalytic, EnzymeRates.Mechanisms.conformation_steps(am, :active)) == 9
+        am.catalytic, EnzymeRates.Derivation.conformation_steps(am, :active)) == 9
     @test _testhelper_laplacian_tree_count(
-        am.catalytic, EnzymeRates.Mechanisms.conformation_steps(am, :inactive)) == 9
+        am.catalytic, EnzymeRates.Derivation.conformation_steps(am, :inactive)) == 9
     @test EnzymeRates.Derivation.rate_equation_complexity(am) == 18
 end
 

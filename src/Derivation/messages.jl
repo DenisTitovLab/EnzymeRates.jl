@@ -50,7 +50,7 @@ function _re_turnover_message(who::String, mech::_AnyMech)
     for t in cycle
         k = net.edge[t]
         line = Mechanisms.step_text(m, k)
-        Mechanisms.excludes(mech, k, _CONFORMATIONS[c]) &&
+        excludes(mech, k, _CONFORMATIONS[c]) &&
             (line *= " (whose affinity vanishes in the $state conformation)")
         push!(lines, line)
     end

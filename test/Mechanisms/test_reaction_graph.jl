@@ -857,114 +857,10 @@ end
           ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
            "E(Q)", "E(Q, Q::Mod)"]
     # Each edge's sides in its stored direction: releases stored as bindings.
-    @test [join(ER.Mechanisms._sides(m, k), " → ") for k in eachindex(m.steps)] ==
+    @test [join(ER.Mechanisms.step_sides(m, k), " → ") for k in eachindex(m.steps)] ==
           ["E_A → EA", "E_I → EI", "E_Q → EQ", "E_res_plusA_minusP_P → EA",
            "E_res_plusA_minusP_B → EB_res_plusA_minusP", "EB_res_plusA_minusP → EQ",
            "EQ_Qmod → EQQmod"]
-end
-
-@testset "a sub-graph reads the forms, segments and bottom of the edges a mask keeps" begin
-    # Random release of P and Q at rapid equilibrium between steady-state releases: the
-    # segment {E(P), E(P, Q), E(Q)} has every form holding a product.
-    m = ER.Mechanism(_testhelper_walk(:(begin
-        substrates: S
-        products: P, Q
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(P, Q) ⇌ E(Q) + P
-            E(P, Q) ⇌ E(P) + Q
-            E(P) <--> E + P
-            E(Q) <--> E + Q
-        end
-    end)))
-    names(forms) = [ER.Mechanisms._form_name(m, f) for f in forms]
-    @test names(eachindex(m.nodes)) == ["E", "EP", "EPQ", "EQ", "ES"]
-    # One edge per group, so the edges group by group are the edges in order.
-    @test [_testhelper_edge_text(m, k) for k in ER.Mechanisms._flat_edges(m)] ==
-          ["E + P <--> EP", "E + Q <--> EQ", "E + S ⇌ ES", "EP + Q ⇌ EPQ", "EQ + P ⇌ EPQ",
-           "ES <--> EPQ"]
-    @test _testhelper_flags(m) == BitVector([0, 0, 1, 1, 1, 0])
-    @test [ER.Mechanisms._is_free(f) for f in m.nodes] == [true, false, false, false, false]
-    every = trues(length(m.steps))
-    @test ER.Mechanisms.present_species(m, every) == trues(5)
-    # Each segment breadth-first from its first form; offsets per metabolite name (rows
-    # P, Q, S) above the segment's lowest.
-    s = ER.Mechanisms.re_segments(m, every, _testhelper_flags(m))
-    @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
-    @test s.segment_of == [1, 2, 2, 2, 1]
-    @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
-    # Every form of the second segment holds a product, so it has no bottom form.
-    @test names(s.bottom) == ["EP", "EPQ", "EQ"]
-    # The steady-state steps that join two segments, which are all of them here.
-    g = ER.Mechanisms.segment_graph(m, every)
-    @test g.steps == [1, 2, 6]
-    @test (g.segment_of, g.segments, g.offsets, g.bottom) ==
-          (s.segment_of, s.segments, s.offsets, s.bottom)
-    # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
-    # {E(P), E(P, Q)}.
-    no_p = BitVector([1, 1, 1, 1, 0, 1])
-    @test ER.Mechanisms.present_species(m, no_p) == trues(5)
-    s = ER.Mechanisms.re_segments(m, no_p, _testhelper_flags(m))
-    @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
-    @test isempty(s.bottom)
-    @test ER.Mechanisms.segment_graph(m, no_p).steps == [1, 2, 6]
-    # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
-    bindings = BitVector([1, 1, 0, 0, 0, 0])
-    @test ER.Mechanisms.present_species(m, bindings) == BitVector([1, 1, 0, 1, 0])
-    s = ER.Mechanisms.re_segments(m, bindings, _testhelper_flags(m))
-    @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
-    @test s.segment_of == [1, 2, 0, 3, 0]
-    @test ER.Mechanisms.segment_graph(m, bindings).steps == [1, 2]
-    # `re` picks the edges that join segments: with none, each present form stands alone.
-    @test length(ER.Mechanisms.re_segments(m, every, falses(6)).segments) == 5
-
-    # The inactive conformation keeps the edges outside :OnlyA groups between forms that
-    # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
-    # binding of A.
-    am = ER.AllostericMechanism(_testhelper_walk(:(begin
-        substrates: A
-        products: P
-        modifiers: I
-        catalytic_multiplicity: 1
-        steps: begin
-            E + A <--> E(A)                                   :: OnlyA
-            E(A) <--> E(P)                                    :: OnlyA
-            E + P ⇌ E(P)                                      :: EqualAI
-            (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
-        end
-    end); allosteric = true))
-    inactive = ER.Mechanisms.conformation_steps(am, :inactive)
-    @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
-          ["E + P ⇌ EP", "EP + I ⇌ EIP"]
-    @test [ER.Mechanisms._form_name(am.catalytic, f)
-           for f in findall(ER.Mechanisms.present_species(am.catalytic, inactive))] ==
-          ["E", "EIP", "EP"]
-end
-
-@testset "base ranks order forms and edges by content, free E among the forms" begin
-    # Free E is form 1, but by content it sorts after the free form D.
-    m = ER.Mechanism(_testhelper_walk(:(begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(P)
-            E(P) <--> D + P
-            D <--> E
-        end
-    end)))
-    @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)] ==
-          ["E", "D", "EA", "EP"]
-    @test ER.Mechanisms._base_rank(m) == [2, 1, 3, 4]
-    # P enters at D and A at E, so the isomerization runs from D (orientation tier 2).
-    texts = [_testhelper_edge_text(m, k) for k in eachindex(m.steps)]
-    @test texts == ["E + A <--> EA", "D <--> E", "D + P <--> EP", "EA <--> EP"]
-    # By base rank the edges from D come first.
-    @test ER.Mechanisms._edge_base_rank(m) == [3, 1, 2, 4]
-    @test [ER.Mechanisms._is_iso(e) for e in m.steps] == [false, true, false, true]
-    @test [ER.Mechanisms._binds_product(m, e) for e in m.steps] ==
-          [false, false, true, false]
 end
 
 """The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
@@ -1182,19 +1078,19 @@ inactive conformation's edges and their segments.
 function _testhelper_subgraphs_agree(x)
     m, g = ER.Mechanisms.catalytic(x), _testhelper_graph(x)
     # Step `j` of the reader is edge `flat[j]`.
-    flat = ER.Mechanisms._flat_edges(m)
+    flat = ER.Derivation._flat_edges(m)
     function _testhelper_segments_agree(mask, kept)
-        s = ER.Mechanisms.re_segments(m, mask, _testhelper_flags(m))
+        s = ER.Derivation.re_segments(m, mask, _testhelper_flags(m))
         segments, extras = _testhelper_re_segments(g, kept)
         present = findall(!=(0), s.segment_of)
-        names = ER.Mechanisms._distinct_names(m)
+        names = ER.Derivation._distinct_names(m)
         _testhelper_offsets(f) = Dict(names[n] => s.offsets[n, f]
                                       for n in eachindex(names) if s.offsets[n, f] > 0)
         s.segments == segments && [_testhelper_offsets(f) for f in present] == extras
     end
     _testhelper_segments_agree(trues(length(m.steps)), trues(length(flat))) || return false
     x isa ER.AllostericMechanism || return true
-    inactive = ER.Mechanisms.conformation_steps(x, :inactive)
+    inactive = ER.Derivation.conformation_steps(x, :inactive)
     kept = _testhelper_inactive_reach(g)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end

@@ -937,7 +937,7 @@ end
                    [trues(length(m.steps))]]
             net = EnzymeRates.Derivation._eps_network(m, re)
             turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
-            @test turnover == EnzymeRates.Mechanisms.has_turnover_cycle(m, re)
+            @test turnover == EnzymeRates.Derivation.has_turnover_cycle(m, re)
             push!(found, turnover)
         end
     end
@@ -1559,7 +1559,7 @@ end
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 172
-    @test all(am -> any(EnzymeRates.Mechanisms.conformation_steps(am, :inactive)), kids)
+    @test all(am -> any(EnzymeRates.Derivation.conformation_steps(am, :inactive)), kids)
     @test all(am -> isempty(EnzymeRates.Derivation._phantom_weights(
                   EnzymeRates.Derivation._law(am))), kids)
 end

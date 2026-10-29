@@ -250,11 +250,11 @@ function _law_network(am::Mechanisms.AllostericMechanism)
     n, nf = length(m.steps), length(m.nodes)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for (c, conformation) in enumerate(_CONFORMATIONS)
-        mask = Mechanisms.conformation_steps(am, conformation)
+        mask = conformation_steps(am, conformation)
         use[:, c] .= mask
         fast[:, c] .= mask .& re
         nodes = (c - 1) * nf .+ (1:nf)
-        present[nodes] .= Mechanisms.present_species(m, mask)
+        present[nodes] .= present_species(m, mask)
         present[nodes[1]] = true
     end
     _network(m, present, use, fast, falses(n, 2), falses(n, 2))
@@ -276,7 +276,7 @@ function _eps_network(am::Mechanisms.AllostericMechanism,
     n = length(m.steps)
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
     for c in 1:2, k in eachindex(m.steps)
-        excluded = Mechanisms.excludes(am, k, _CONFORMATIONS[c])
+        excluded = excludes(am, k, _CONFORMATIONS[c])
         plain = Mechanisms.step_kind(m, k) === :binding
         fast[k, c] = re[k] && (!excluded || plain)
         vanish_forward[k, c] = excluded
@@ -350,8 +350,8 @@ tree path, in cycle order.
 When `cycle` is empty, each offset is a potential: it does not depend on the walk.
 """
 function _fast_segments(net::_Network)
-    w = Mechanisms.segment_walk(net.present, _out_transitions(net, net.fast), net.to,
-                                net.change)
+    w = segment_walk(net.present, _out_transitions(net, net.fast), net.to,
+                     net.change)
     t = w.disagreeing
     cycle = t == 0 ? Int[] : _tree_cycle(net, w.parent, net.from[t], net.to[t], t)
     (; segment = w.segment_of, w.segments, offset = w.offsets, cycle)
@@ -387,7 +387,7 @@ reads the reaction graph through masks and builds nothing.
 """
 function _guard(mech::_AnyMech)
     m = Mechanisms.catalytic(mech)
-    Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
+    has_turnover_cycle(m, trues(length(m.steps))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)

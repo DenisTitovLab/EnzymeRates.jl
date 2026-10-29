@@ -198,7 +198,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
     nf, names = length(m.nodes), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
-    excluded(k, c) = Mechanisms.excludes(mech, k, _CONFORMATIONS[c])
+    excluded(k, c) = excludes(mech, k, _CONFORMATIONS[c])
     equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
                   mech.mwc_tags[g] === :EqualAI
     function drop!(row, k, c, dir)
