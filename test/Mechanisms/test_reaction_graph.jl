@@ -25,21 +25,6 @@ const _testhelper_METS = [ER.Mechanisms.Met(x, false) for x in (:A, :B, :C, :D)]
 `list`."""
 _testhelper_mets(list) = sort!([_testhelper_METS[i] for i in list])
 
-@testset "a metabolite list holds each metabolite as often as a form binds it" begin
-    s = ER.Mechanisms.Metabolites(_testhelper_mets([1, 1, 3]))
-    @test (ER.Mechanisms.copies(s, :A), ER.Mechanisms.copies(s, :B),
-           ER.Mechanisms.copies(s, :C)) == (2, 0, 1)
-    @test length(s) == 3
-    @test ER.Mechanisms.metabolite_names(s) == [:A, :A, :C]
-    none = ER.Mechanisms.Metabolites(ER.Mechanisms.Met[])
-    @test ER.Mechanisms.metabolite_names(none) == Symbol[] && length(none) == 0
-    # Fifteen copies of the last of 32 names, a count past any small field.
-    names = [Symbol("S", i) for i in 1:32]
-    top = ER.Mechanisms.Metabolites(fill(ER.Mechanisms.Met(names[32], false), 15))
-    @test ER.Mechanisms.copies(top, :S32) == 15 && length(top) == 15 &&
-          ER.Mechanisms.metabolite_names(top) == fill(:S32, 15)
-end
-
 @testset "metabolite lists order lexicographically, a list before the lists it begins" begin
     # Every list over four metabolites with at most two copies of each: nodes that differ
     # in their bound lists alone order as Julia orders the lists of metabolite indices.
@@ -146,7 +131,7 @@ end
     @test am.regulatory_sites[1].mwc_tags == [:EqualAI, :OnlyA]
     tags[1] = :OnlyA
     @test am.mwc_tags == [:EqualAI, :EqualAI, :OnlyA]
-    @test [ER.Mechanisms.tag(am, g) for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
+    @test [am.mwc_tags[g] for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
     @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
                                 "match the number of kinetic groups 3"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI], 2, sites))
@@ -322,7 +307,7 @@ _testhelper_bindings(names) = [EnzymeRates.Mechanisms.RawStep(
         [1])
     for n in (15, 16)
         m = ER.Mechanisms._canonicalize(_testhelper_holding(n)).mechanism
-        @test ER.Mechanisms.copies(ER.Mechanisms.bound(m, 1), :A) == n
+        @test count(x -> x.name === :A, m.nodes[1].bound) == n
     end
 end
 
@@ -899,13 +884,13 @@ end
     @test [_testhelper_edge_text(m, k) for k in ER.Mechanisms._flat_edges(m)] ==
           ["E + P <--> EP", "E + Q <--> EQ", "E + S ⇌ ES", "EP + Q ⇌ EPQ", "EQ + P ⇌ EPQ",
            "ES <--> EPQ"]
-    @test ER.Mechanisms.rapid_equilibrium_steps(m) == BitVector([0, 0, 1, 1, 1, 0])
+    @test _testhelper_flags(m) == BitVector([0, 0, 1, 1, 1, 0])
     @test [ER.Mechanisms._is_free(f) for f in m.nodes] == [true, false, false, false, false]
     every = trues(length(m.steps))
     @test ER.Mechanisms.present_species(m, every) == trues(5)
     # Each segment breadth-first from its first form; offsets per metabolite name (rows
     # P, Q, S) above the segment's lowest.
-    s = ER.Mechanisms.re_segments(m, every, ER.Mechanisms.rapid_equilibrium_steps(m))
+    s = ER.Mechanisms.re_segments(m, every, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
     @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
@@ -920,14 +905,14 @@ end
     # {E(P), E(P, Q)}.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
     @test ER.Mechanisms.present_species(m, no_p) == trues(5)
-    s = ER.Mechanisms.re_segments(m, no_p, ER.Mechanisms.rapid_equilibrium_steps(m))
+    s = ER.Mechanisms.re_segments(m, no_p, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
     @test isempty(s.bottom)
     @test ER.Mechanisms.segment_graph(m, no_p).steps == [1, 2, 6]
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
     @test ER.Mechanisms.present_species(m, bindings) == BitVector([1, 1, 0, 1, 0])
-    s = ER.Mechanisms.re_segments(m, bindings, ER.Mechanisms.rapid_equilibrium_steps(m))
+    s = ER.Mechanisms.re_segments(m, bindings, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
     @test s.segment_of == [1, 2, 0, 3, 0]
     @test ER.Mechanisms.segment_graph(m, bindings).steps == [1, 2]
@@ -1058,7 +1043,7 @@ end
         # Its steps are the edges in stored order and direction, labelled by group.
         c = ER.Mechanisms._canonicalize(_testhelper_plain(raw))
         @test c.edge_of == eachindex(c.edge_of) && !any(c.flipped)
-        @test c.group_of == 1:ER.Mechanisms.ngroups(ER.Mechanisms.catalytic(x))
+        @test c.group_of == 1:length(ER.Mechanisms.groups(ER.Mechanisms.catalytic(x)))
         @test _testhelper_plain(raw).modifiers ==
               ER.Mechanisms.modifiers(ER.Mechanisms.catalytic(x))
     end
@@ -1199,7 +1184,7 @@ function _testhelper_subgraphs_agree(x)
     # Step `j` of the reader is edge `flat[j]`.
     flat = ER.Mechanisms._flat_edges(m)
     function _testhelper_segments_agree(mask, kept)
-        s = ER.Mechanisms.re_segments(m, mask, ER.Mechanisms.rapid_equilibrium_steps(m))
+        s = ER.Mechanisms.re_segments(m, mask, _testhelper_flags(m))
         segments, extras = _testhelper_re_segments(g, kept)
         present = findall(!=(0), s.segment_of)
         names = ER.Mechanisms._distinct_names(m)

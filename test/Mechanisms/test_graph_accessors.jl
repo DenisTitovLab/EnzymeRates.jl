@@ -1,7 +1,10 @@
-# ABOUTME: Tests of the graph accessors of a mechanism (species, steps, kinetic groups,
-# ABOUTME: metabolite multisets, allosteric parts): exact values, and no allocation.
+# ABOUTME: Tests of what a mechanism's stored graph holds (nodes, steps, kinetic groups,
+# ABOUTME: allosteric parts), `step_kind`, `groups` and `conformation_steps`.
 
 const ER = EnzymeRates
+
+"""The names of the metabolites in `list`, in order."""
+_testhelper_names(list) = Symbol[x.name for x in list]
 
 """Bytes the call `f(args...)` allocates, after a first call compiles it."""
 function _testhelper_allocated(f, args...)
@@ -9,27 +12,10 @@ function _testhelper_allocated(f, args...)
     @allocated f(args...)
 end
 
-"""Test that the scalar graph accessors of `m`, on form `x` and step `k`, allocate
-nothing: each reads a stored value, and a multiset (`bound`, `taken_up`, `given_off`)
-wraps a stored list without copying it. `∪`, `∩` and `modifier_copies` build a new list,
-so they are not among them."""
-function _testhelper_test_graph_accessors_allocate_nothing(m, x, k)
-    M = ER.Mechanisms
-    s = M.bound(m, x)
-    @test _testhelper_allocated(M.species, m) == 0
-    @test _testhelper_allocated(M.bound, m, x) == 0
-    @test _testhelper_allocated(M.conformation, m, x) == 0
-    @test _testhelper_allocated(M.steps, m) == 0
-    @test _testhelper_allocated(M.ends, m, k) == 0
-    @test _testhelper_allocated(M.taken_up, m, k) == 0
-    @test _testhelper_allocated(M.given_off, m, k) == 0
-    @test _testhelper_allocated(M.is_rapid_equilibrium, m, k) == 0
-    @test _testhelper_allocated(M.step_kind, m, k) == 0
-    @test _testhelper_allocated(M.group, m, k) == 0
-    @test _testhelper_allocated(M.ngroups, m) == 0
-    @test _testhelper_allocated(M.copies, s, :S) == 0
-    @test _testhelper_allocated(isempty, s) == 0
-    @test _testhelper_allocated(length, s) == 0
+"""Test that `step_kind` and `catalytic` of `m`, on step `k`, allocate nothing."""
+function _testhelper_test_graph_reads_allocate_nothing(m, k)
+    @test _testhelper_allocated(ER.Mechanisms.step_kind, m, k) == 0
+    @test _testhelper_allocated(ER.Mechanisms.catalytic, m) == 0
 end
 
 @testset "graph accessors: random-order bi-bi" begin
@@ -50,59 +36,38 @@ end
     # Form numbers follow canonical form: free E, then the forms by their bound
     # metabolites read as sorted lists, so E(A, B) comes before E(B).
     @testset "species" begin
-        @test M.species(m) === 1:6
-        @test [M.metabolite_names(M.bound(m, x)) for x in M.species(m)] ==
+        @test length(m.nodes) == 6
+        @test [_testhelper_names(n.bound) for n in m.nodes] ==
               [Symbol[], [:A], [:A, :B], [:B], [:P, :Q], [:Q]]
-        @test [M.conformation(m, x) for x in M.species(m)] == fill(:E, 6)
+        @test [n.conformation for n in m.nodes] == fill(:E, 6)
     end
 
     # Step numbers and directions follow canonical form: each step is stored
     # physical-forward, so a product release is stored as the binding it reverses, and the
     # steps are sorted by their stored ends.
     @testset "steps" begin
-        @test M.steps(m) === 1:7
-        @test [M.ends(m, k) for k in M.steps(m)] ==
+        @test length(m.steps) == 7
+        @test m.steps[1].taken_up == m.nodes[2].bound
+        @test [(e.from, e.to) for e in m.steps] ==
               [(1, 2), (1, 4), (1, 6), (2, 3), (3, 5), (4, 3), (6, 5)]
-        @test [M.metabolite_names(M.taken_up(m, k)) for k in M.steps(m)] ==
+        @test [_testhelper_names(e.taken_up) for e in m.steps] ==
               [[:A], [:B], [:Q], [:B], Symbol[], [:A], [:P]]
-        @test all(isempty(M.given_off(m, k)) for k in M.steps(m))
-        @test [M.is_rapid_equilibrium(m, k) for k in M.steps(m)] ==
+        @test all(isempty(e.given_off) for e in m.steps)
+        @test [e.rapid_equilibrium for e in m.steps] ==
               [true, true, false, true, false, true, false]
-        @test M.rapid_equilibrium_steps(m) == BitVector([1, 1, 0, 1, 0, 1, 0])
-        @test [M.step_kind(m, k) for k in M.steps(m)] ==
+        @test [M.step_kind(m, k) for k in eachindex(m.steps)] ==
               [:binding, :binding, :binding, :binding, :isomerization, :binding, :binding]
     end
 
     # Kinetic groups are numbered by their first step in step order.
     @testset "groups" begin
-        @test M.ngroups(m) == 5
-        @test [M.group(m, k) for k in M.steps(m)] == [1, 2, 3, 2, 4, 1, 5]
-        @test [M.members(m, g) for g in 1:5] == [[1, 6], [2, 4], [3], [5], [7]]
+        @test length(M.groups(m)) == 5
+        @test [e.group for e in m.steps] == [1, 2, 3, 2, 4, 1, 5]
         @test M.groups(m) == [[1, 6], [2, 4], [3], [5], [7]]
     end
 
-    @testset "metabolite multisets" begin
-        EA, EAB, EB = M.bound(m, 2), M.bound(m, 3), M.bound(m, 4)
-        @test EAB isa M.Metabolites
-        @test (M.copies(EAB, :A), M.copies(EAB, :B), M.copies(EAB, :P)) == (1, 1, 0)
-        @test !isempty(EA) && isempty(M.bound(m, 1))
-        @test (length(EAB), length(EA), length(M.bound(m, 1))) == (2, 1, 0)
-        @test EA ∪ EB == EAB
-        # A multiset union holds each metabolite as often as the fuller side does.
-        @test EA ∪ EAB == EAB
-        @test EA ∩ EAB == EA
-        @test isempty(EA ∩ EB)
-        @test M.taken_up(m, 1) == EA
-        # Repeats on both sides: each metabolite as often as the fuller or emptier holds it.
-        AAB = M.Metabolites([M.Met(:A, false), M.Met(:A, false), M.Met(:B, false)])
-        AC = M.Metabolites([M.Met(:A, false), M.Met(:C, false)])
-        @test AAB ∪ AC == M.Metabolites([M.Met(:A, false), M.Met(:A, false),
-                                         M.Met(:B, false), M.Met(:C, false)])
-        @test AAB ∩ AC == M.Metabolites([M.Met(:A, false)])
-    end
-
-    @testset "scalar accessors allocate nothing" begin
-        _testhelper_test_graph_accessors_allocate_nothing(m, 3, 4)
+    @testset "step_kind and catalytic allocate nothing" begin
+        _testhelper_test_graph_reads_allocate_nothing(m, 4)
     end
 end
 
@@ -126,44 +91,39 @@ end
     # Canonical form numbers the forms E, E(P), E(S) and stores the steps E + P → E(P),
     # E + S → E(S), E(S) → E(P); each step is its own kinetic group, in that order.
     @testset "species" begin
-        @test M.species(m) === 1:3
-        @test [M.metabolite_names(M.bound(m, x)) for x in M.species(m)] ==
+        @test length(m.nodes) == 3
+        @test [_testhelper_names(n.bound) for n in m.nodes] ==
               [Symbol[], [:P], [:S]]
-        @test [M.conformation(m, x) for x in M.species(m)] == [:E, :E, :E]
+        @test [n.conformation for n in m.nodes] == [:E, :E, :E]
     end
 
     @testset "steps" begin
-        @test M.steps(m) === 1:3
-        @test [M.ends(m, k) for k in M.steps(m)] == [(1, 2), (1, 3), (3, 2)]
-        @test [M.metabolite_names(M.taken_up(m, k)) for k in M.steps(m)] ==
+        @test length(m.steps) == 3
+        @test [(e.from, e.to) for e in m.steps] == [(1, 2), (1, 3), (3, 2)]
+        @test [_testhelper_names(e.taken_up) for e in m.steps] ==
               [[:P], [:S], Symbol[]]
-        @test all(isempty(M.given_off(m, k)) for k in M.steps(m))
-        @test [M.is_rapid_equilibrium(m, k) for k in M.steps(m)] == [true, true, false]
-        @test M.rapid_equilibrium_steps(m) == BitVector([1, 1, 0])
-        @test [M.step_kind(m, k) for k in M.steps(m)] ==
+        @test all(isempty(e.given_off) for e in m.steps)
+        @test [e.rapid_equilibrium for e in m.steps] == [true, true, false]
+        @test [M.step_kind(m, k) for k in eachindex(m.steps)] ==
               [:binding, :binding, :isomerization]
     end
 
     @testset "groups" begin
-        @test M.ngroups(m) == 3
-        @test [M.group(m, k) for k in M.steps(m)] == [1, 2, 3]
-        @test [M.members(m, g) for g in 1:3] == [[1], [2], [3]]
+        @test length(M.groups(m)) == 3
+        @test [e.group for e in m.steps] == [1, 2, 3]
         @test M.groups(m) == [[1], [2], [3]]
     end
 
     @testset "allosteric parts" begin
         # Each tag follows its group to the canonical group number.
-        @test [M.tag(am, g) for g in 1:3] == [:EqualAI, :NonequalAI, :OnlyA]
-        @test M.catalytic_multiplicity(am) == 2
-        @test M.regulatory_sites(am) == [M.RegulatorySite([:R], 2, [:OnlyI])]
+        @test [am.mwc_tags[g] for g in 1:3] == [:EqualAI, :NonequalAI, :OnlyA]
+        @test am.catalytic_multiplicity == 2
+        @test am.regulatory_sites == [M.RegulatorySite([:R], 2, [:OnlyI])]
     end
 
-    @testset "scalar accessors allocate nothing" begin
-        _testhelper_test_graph_accessors_allocate_nothing(m, 3, 2)
+    @testset "step_kind and catalytic allocate nothing" begin
+        _testhelper_test_graph_reads_allocate_nothing(m, 2)
         @test _testhelper_allocated(M.catalytic, am) == 0
-        @test _testhelper_allocated(M.tag, am, 3) == 0
-        @test _testhelper_allocated(M.catalytic_multiplicity, am) == 0
-        @test _testhelper_allocated(M.regulatory_sites, am) == 0
     end
 end
 
@@ -182,13 +142,13 @@ end
     # Canonical form numbers the forms E, F, F(P). It stores the isomerization from F,
     # where only products enter or leave, to E, where only substrates do: against its
     # writing.
-    @test [M.conformation(m, x) for x in M.species(m)] == [:E, :F, :F]
-    @test [M.ends(m, k) for k in M.steps(m)] == [(1, 3), (2, 1), (2, 3)]
+    @test [n.conformation for n in m.nodes] == [:E, :F, :F]
+    @test [(e.from, e.to) for e in m.steps] == [(1, 3), (2, 1), (2, 3)]
     # A fused binding takes up one metabolite and gives off none, into a form that differs
     # from its source by more than that metabolite.
-    @test [M.step_kind(m, k) for k in M.steps(m)] ==
+    @test [M.step_kind(m, k) for k in eachindex(m.steps)] ==
           [:fused_binding, :isomerization, :binding]
-    @test [M.metabolite_names(M.taken_up(m, k)) for k in M.steps(m)] ==
+    @test [_testhelper_names(e.taken_up) for e in m.steps] ==
           [[:S], Symbol[], [:P]]
     @test _testhelper_allocated(M.step_kind, m, 1) == 0
 
@@ -204,8 +164,9 @@ end
     end)
     # Canonical form numbers the forms E, E(A), E(Q) and stores the steps E + A → E(A),
     # E + Q → E(Q), E(A) + B → E(Q) + P.
-    @test [M.ends(tc, k) for k in M.steps(tc)] == [(1, 2), (1, 3), (2, 3)]
-    @test [M.step_kind(tc, k) for k in M.steps(tc)] == [:binding, :binding, :chemistry]
+    @test [(e.from, e.to) for e in tc.steps] == [(1, 2), (1, 3), (2, 3)]
+    @test [M.step_kind(tc, k) for k in eachindex(tc.steps)] ==
+          [:binding, :binding, :chemistry]
 
     # A merged complex entered by the last substrate: a fused binding; the isomerization
     # and the plain binding of the product release keep their kinds.
@@ -219,7 +180,7 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    @test sort([M.step_kind(fused, k) for k in M.steps(fused)]) ==
+    @test sort([M.step_kind(fused, k) for k in eachindex(fused.steps)]) ==
           [:binding, :binding, :binding, :fused_binding]
 end
 
@@ -238,10 +199,10 @@ end
     # Canonical form numbers the forms E, E(; residual = A - P), E(A),
     # E(B; residual = A - P): forms of one label sort by their bound metabolites, the
     # empty list first.
-    @test [M.metabolite_names(M.bound(m, x)) for x in M.species(m)] ==
+    @test [_testhelper_names(n.bound) for n in m.nodes] ==
           [Symbol[], Symbol[], [:A], [:B]]
     # The residual: the substrates a form adds and the products it subtracts.
-    @test [M.metabolite_names.(M.residual(m, x)) for x in M.species(m)] ==
+    @test [(n.added, n.subtracted) for n in m.nodes] ==
           [(Symbol[], Symbol[]), ([:A], [:P]), (Symbol[], Symbol[]), ([:A], [:P])]
 end
 
@@ -262,30 +223,27 @@ end
     m = ER.Mechanism(em)
     # Canonical form numbers the forms E, E(P), E(S), E(S, S::Mod) and sorts the steps
     # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod).
-    ESS = M.bound(m, 4)
-    # A reactant and its modifier copy count under one name, as they share a concentration.
-    @test M.metabolite_names(ESS) == [:S, :S]
-    @test M.copies(ESS, :S) == 2 && M.copies(ESS, :P) == 0
-    @test length(ESS) == 2
-    @test M.ends(m, 4) == (3, 4)
-    @test M.metabolite_names(M.taken_up(m, 4)) == [:S]
+    ESS = m.nodes[4].bound
+    # A reactant and its modifier copy are two entries, read under one name, as they share
+    # a concentration.
+    @test ESS == [M.Met(:S, false), M.Met(:S, true)]
+    @test _testhelper_names(ESS) == [:S, :S]
+    @test (m.steps[4].from, m.steps[4].to) == (3, 4)
+    @test m.steps[4].taken_up == [M.Met(:S, true)]
     @test M.step_kind(m, 4) === :binding
     # The modifier copy is an entry of its own, so it adds to the bound S.
-    @test M.copies(M.bound(m, 3) ∪ M.taken_up(m, 4), :S) == 2
-    @test isempty(M.bound(m, 3) ∩ M.taken_up(m, 4))
+    @test count(x -> x.name === :S, [m.nodes[3].bound; m.steps[4].taken_up]) == 2
+    @test isempty(intersect(m.nodes[3].bound, m.steps[4].taken_up))
     # The copies held as modifiers: the modifier copy of S, not S itself.
-    @test M.metabolite_names(M.modifier_copies(ESS)) == [:S]
-    @test M.copies(M.modifier_copies(ESS), :S) == 1
-    @test isempty(M.modifier_copies(M.bound(m, 3)))
-    @test M.modifier_copies(M.taken_up(m, 4)) == M.taken_up(m, 4)
-    @test isempty(M.modifier_copies(M.taken_up(m, 2)))
+    @test filter(x -> x.modifier, ESS) == [M.Met(:S, true)]
+    @test isempty(filter(x -> x.modifier, m.nodes[3].bound))
+    @test all(x -> x.modifier, m.steps[4].taken_up)
+    @test isempty(filter(x -> x.modifier, m.steps[2].taken_up))
 
-    # Multisets compare by content, so two reads of one compiled mechanism agree.
+    # Two reads of one mechanism agree, and a form of another mechanism compares by content.
     other = ER.Mechanism(em)
-    @test M.bound(other, 4) == ESS && hash(M.bound(other, 4)) == hash(ESS)
-    @test M.bound(other, 3) != ESS
-    # Multisets of two mechanisms combine by content: E(S) holds S, E(S, S::Mod) holds S
-    # and its modifier copy.
+    @test other.nodes[4].bound == ESS && hash(other.nodes[4].bound) == hash(ESS)
+    @test other.nodes[3].bound != ESS
     uniuni = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -295,8 +253,7 @@ end
             E(P) ⇌ E + P
         end
     end)
-    @test ESS ∪ M.bound(uniuni, 3) == ESS
-    @test ESS ∩ M.bound(uniuni, 3) == M.bound(uniuni, 3) == M.bound(m, 3)
+    @test uniuni.nodes[3].bound == m.nodes[3].bound
 end
 
 @testset "conformation_steps" begin
@@ -316,7 +273,7 @@ end
     m = M.catalytic(am)
     # Canonical form numbers the forms E, E(I), E(I, P), E(P), E(S) and stores the steps
     # E + I → E(I), E + P → E(P), E + S → E(S), E(I) + P → E(I, P), E(S) → E(P).
-    @test [M.ends(m, k) for k in M.steps(m)] == [(1, 2), (1, 4), (1, 5), (2, 3), (5, 4)]
+    @test [(e.from, e.to) for e in m.steps] == [(1, 2), (1, 4), (1, 5), (2, 3), (5, 4)]
     # The active conformation drops the :OnlyI binding of I, which strands E(I) and so
     # also the binding of P to it.
     @test M.conformation_steps(am, :active) == BitVector([0, 1, 1, 0, 1])
@@ -334,19 +291,19 @@ net: for some name, the uptake of the kept steps is no difference of form potent
 which holds when appending the uptake column to their incidence matrix raises its rank."""
 function _testhelper_net_uptake_cycle(m, on::BitVector)
     M = ER.Mechanisms
-    kept = filter(k -> on[k], collect(M.steps(m)))
-    incidence = zeros(length(kept), length(M.species(m)))
+    kept = filter(k -> on[k], collect(eachindex(m.steps)))
+    incidence = zeros(length(kept), length(eachindex(m.nodes)))
     for (r, k) in enumerate(kept)
-        a, b = M.ends(m, k)
+        a, b = m.steps[k].from, m.steps[k].to
         incidence[r, a] -= 1
         incidence[r, b] += 1
     end
-    names = unique(reduce(vcat, [[M.metabolite_names(M.taken_up(m, k));
-                                  M.metabolite_names(M.given_off(m, k))]
-                                 for k in M.steps(m)]))
+    names = unique(reduce(vcat, [[_testhelper_names(e.taken_up);
+                                  _testhelper_names(e.given_off)]
+                                 for e in m.steps]))
     any(names) do x
-        uptake = Int[M.copies(M.taken_up(m, k), x) - M.copies(M.given_off(m, k), x)
-                     for k in kept]
+        uptake = Int[count(y -> y.name === x, m.steps[k].taken_up) -
+                     count(y -> y.name === x, m.steps[k].given_off) for k in kept]
         rank([incidence uptake]) > rank(incidence)
     end
 end
@@ -421,7 +378,7 @@ end
     ]
     for (em, cycles) in cases
         m = ER.Mechanism(em)
-        n = length(M.steps(m))
+        n = length(eachindex(m.steps))
         at = [[_testhelper_edge(m, text) for text in cycle] for cycle in cycles]
         for bits in 0:(2^n - 1)
             on = BitVector([isodd(bits >> (k - 1)) for k in 1:n])
@@ -436,10 +393,10 @@ end
     for spec in MECHANISM_TEST_SPECS
         mech = _testhelper_lift(spec.mechanism)
         m = M.catalytic(mech)
-        n = length(M.steps(m))
+        n = length(eachindex(m.steps))
         # Every mechanism turns the reaction over, and none at rapid equilibrium alone.
         @test (spec.name, M.has_turnover_cycle(m, trues(n))) == (spec.name, true)
-        @test (spec.name, M.has_turnover_cycle(m, M.rapid_equilibrium_steps(m))) ==
+        @test (spec.name, M.has_turnover_cycle(m, _testhelper_flags(m))) ==
               (spec.name, false)
         subsets = [[Int[]]; [[i] for i in 1:n]; [[i, j] for i in 1:n for j in (i + 1):n]]
         masks = [BitVector(k in s for k in 1:n) for s in subsets]
@@ -473,7 +430,7 @@ end
     end)
     on = BitVector(k in [_testhelper_edge(aq, t)
                          for t in ("E + A <--> EA", "EA + Q <--> EAQ", "EAQ <--> E")]
-                   for k in M.steps(aq))
+                   for k in eachindex(aq.steps))
     @test M.has_turnover_cycle(aq, on)
     b_only = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
@@ -489,7 +446,7 @@ end
     end)
     on = BitVector(k in [_testhelper_edge(b_only, t)
                          for t in ("E + B <--> EB", "EB <--> E")]
-                   for k in M.steps(b_only))
+                   for k in eachindex(b_only.steps))
     @test !M.has_turnover_cycle(b_only, on)
     # A mask with fewer flags than steps is out of bounds.
     @test_throws BoundsError M.has_turnover_cycle(aq, trues(2))
@@ -513,7 +470,7 @@ end
             E(Q) <--> E + Q
         end
     end
-    every = trues(length(M.steps(m)))
+    every = trues(length(eachindex(m.steps)))
     text(k) = _testhelper_edge_text(m, k)
     g = M.segment_graph(m, every)
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q).
@@ -538,9 +495,9 @@ end
     end)
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q) and stores
     # each step physical-forward, a release as the binding it reverses.
-    @test [M.form_text(m, x) for x in M.species(m)] ==
+    @test [M.form_text(m, x) for x in eachindex(m.nodes)] ==
           ["E", "E(A)", "E(A, B)", "E(B)", "E(P, Q)", "E(Q)"]
-    @test [M.step_text(m, k) for k in M.steps(m)] ==
+    @test [M.step_text(m, k) for k in eachindex(m.steps)] ==
           ["E + A ⇌ E(A)", "E + B ⇌ E(B)", "E + Q <--> E(Q)", "E(A) + B ⇌ E(A, B)",
            "E(A, B) <--> E(P, Q)", "E(B) + A ⇌ E(A, B)", "E(Q) + P <--> E(P, Q)"]
     # A residual and a modifier copy.
@@ -554,7 +511,7 @@ end
             E(B; residual = A - P) <--> E + Q
         end
     end)
-    @test [M.form_text(pingpong, x) for x in M.species(pingpong)] ==
+    @test [M.form_text(pingpong, x) for x in eachindex(pingpong.nodes)] ==
           ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)"]
     inhibited = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
@@ -587,11 +544,12 @@ end
     # E(; residual = A - P) + P → E(A), E(; residual = A - P) + B → E(B; residual = A - P).
     # The releases of P and Q run toward products against their stored direction; the
     # uptakes of A and B tie (one substrate on each side) and run as stored.
-    @test [M.step_text(m, k) for k in M.steps(m)] ==
+    @test [M.step_text(m, k) for k in eachindex(m.steps)] ==
           ["E + A <--> E(A)", "E + Q <--> E(B; residual = A - P)",
            "E(; residual = A - P) + P <--> E(A)",
            "E(; residual = A - P) + B <--> E(B; residual = A - P)"]
-    @test [M.runs_toward_products(m, k) for k in M.steps(m)] == [true, false, false, true]
+    @test [M.runs_toward_products(m, k) for k in eachindex(m.steps)] ==
+          [true, false, false, true]
 end
 
 @testset "excludes and exclusion_components: an :OnlyA dead-end binding" begin
@@ -613,12 +571,14 @@ end
     # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod). The inactive
     # conformation excludes the :OnlyA binding, which leaves E(S, S::Mod) alone.
     @test M.step_text(m, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
-    @test [M.excludes(am, k, :active) for k in M.steps(m)] == [false, false, false, false]
-    @test [M.excludes(am, k, :inactive) for k in M.steps(m)] == [false, false, false, true]
+    @test [M.excludes(am, k, :active) for k in eachindex(m.steps)] ==
+          [false, false, false, false]
+    @test [M.excludes(am, k, :inactive) for k in eachindex(m.steps)] ==
+          [false, false, false, true]
     @test M.exclusion_components(am, :active) == [1, 1, 1, 1]
     @test M.exclusion_components(am, :inactive) == [1, 1, 1, 4]
     # A plain mechanism excludes no step from either conformation.
-    @test [M.excludes(m, k, c) for k in M.steps(m) for c in (:active, :inactive)] ==
+    @test [M.excludes(m, k, c) for k in eachindex(m.steps) for c in (:active, :inactive)] ==
           falses(8)
     # The rule by tag: an :OnlyA step leaves the inactive conformation, an :OnlyI step the
     # active one; an :EqualAI or :NonequalAI step stays in both.

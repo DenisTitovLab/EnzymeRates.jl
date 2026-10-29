@@ -12,7 +12,7 @@ of its own.
 _class(m::_AnyMech, c::_Column) =
     Mechanisms.excludes(m, c.edge, c.inactive ? :inactive : :active) ?
     (c.edge, c.slot, c.inactive, true) :
-    (Mechanisms.group(Mechanisms.catalytic(m), c.edge), c.slot, c.inactive, false)
+    (Mechanisms.catalytic(m).steps[c.edge].group, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)

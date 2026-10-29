@@ -79,7 +79,7 @@
                                               [:EqualAI, :NonequalAI, :OnlyA], 2,
                                               [M.RawSite([:R], 2, [:OnlyI])])
         @test EnzymeRates.AllostericMechanism(raw) == am
-        @test M.RawSite(only(M.regulatory_sites(am))) == M.RawSite([:R], 2, [:OnlyI])
+        @test M.RawSite(only(am.regulatory_sites)) == M.RawSite([:R], 2, [:OnlyI])
     end
 end
 
@@ -171,7 +171,7 @@ end
                   E(Q) <--> E + Q
               end
           end)
-    @test M.regroup(m, [M.group(m, k) for k in M.steps(m)]) == m
+    @test M.regroup(m, [e.group for e in m.steps]) == m
 
     # Each new group of an allosteric mechanism takes the tag of its first step's group.
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
@@ -253,7 +253,7 @@ end
     @test_throws("modifier I is declared, but no step binds it",
                  EnzymeRates.Mechanism(unused))
     g = M.canonical_graph(unused)
-    @test [M.step_text(g, k) for k in M.steps(g)] ==
+    @test [M.step_text(g, k) for k in eachindex(g.steps)] ==
           ["E + P ⇌ E(P)", "E + S ⇌ E(S)", "E(S) <--> E(P)"]
     # Tied steps that make different conformational changes have no canonical graph.
     @test_throws(ErrorException(

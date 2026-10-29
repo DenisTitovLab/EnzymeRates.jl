@@ -174,7 +174,7 @@ steady-state groups only.
 Contract each rapid-equilibrium segment to one vertex (`re_segments`) and make every
 steady-state edge an edge between its two forms' segments, weighted by the substrates it
 takes up minus the products (`_uptake_weight`), plus its first end's offsets minus its
-second end's (`ends`; a modifier copy counts as its reactant). Around any cycle the
+second end's (`from`, `to`; a modifier copy counts as its reactant). Around any cycle the
 offsets telescope and the uptakes sum to the net turnover times the reactant count, so a
 cycle has weight zero exactly when it runs no net reaction. A self-loop (both forms in
 one segment) carries flux iff its weight is nonzero. Any other edge carries flux iff its
@@ -419,7 +419,7 @@ end
 
 """
 The end of step `k` of `m` that does not carry the step's free metabolites: the form they
-bind to. Its first end (`ends`) when the step takes a metabolite up (every binding, plain
+bind to. Its first end (`from`) when the step takes a metabolite up (every binding, plain
 or fused, is stored with its metabolite taken up), its second when it only gives
 metabolites off (two or more: a step giving off one is stored as the binding it
 reverses), and its first for an isomerization (both lists empty).

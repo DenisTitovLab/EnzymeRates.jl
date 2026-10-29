@@ -100,8 +100,8 @@ end
                                    EnzymeRates.Derivation._solve(m).fitted; :Keq]
             env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
                                          for x in L.vars.names)
-            H = prod(env[x] for x in EnzymeRates.Mechanisms.substrates(m)) -
-                prod(env[x] for x in EnzymeRates.Mechanisms.products(m)) / env[:Keq]
+            H = prod(env[x] for x in m.substrates) -
+                prod(env[x] for x in m.products) / env[:Keq]
             @test isapprox(_testhelper_poly_value(L.H, L.vars, env), H;
                            rtol = big(10)^-60)
             @test !iszero(L.Q) && all(>(0), values(L.Q.terms))
@@ -224,9 +224,9 @@ end
         rng = Random.MersenneTwister(600 + i)
         env = Dict{Symbol, BigFloat}(x => exp(4 * big(rand(rng)) - 2)
                                      for x in L.vars.names)
-        p1 = first(EnzymeRates.Mechanisms.products(m))
-        env[p1] = env[:Keq] * prod(env[x] for x in EnzymeRates.Mechanisms.substrates(m)) /
-                  prod((env[x] for x in EnzymeRates.Mechanisms.products(m) if x != p1);
+        p1 = first(m.products)
+        env[p1] = env[:Keq] * prod(env[x] for x in m.substrates) /
+                  prod((env[x] for x in m.products if x != p1);
                        init = big(1))
         off = copy(env)
         off[p1] /= 10
@@ -485,7 +485,7 @@ end
             cm = EnzymeRates.Mechanisms.catalytic(sub)
             onlyi =
                 Set(x for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(sub, :I))
-                    if EnzymeRates.Mechanisms.tag(sub, cm.steps[k].group) === :OnlyI
+                    if sub.mwc_tags[cm.steps[k].group] === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
             @test !isempty(onlyi)

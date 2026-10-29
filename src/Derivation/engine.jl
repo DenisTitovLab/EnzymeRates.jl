@@ -80,7 +80,7 @@ end
 The steady-state law of the edges of `m` that `mask` keeps (at least one), with one
 variable per bare constant: the concentrations `concentrations`, then variable
 `length(concentrations) + j` for slot `cols[j][2]` of edge `cols[j][1]`, in edge order.
-`num/den` is the net consumption of `substrates(m)[1]` per enzyme. Each rapid-equilibrium
+`num/den` is the net consumption of `m.substrates[1]` per enzyme. Each rapid-equilibrium
 segment (`re_segments`) is a node, rooted at its first form, so free E (form 1) roots its
 own; a form weighs its root's weight, 1, times the equilibrium ratio of each edge on its
 path from the root. The forms join the tree in `re_segments`' order, each by the first kept

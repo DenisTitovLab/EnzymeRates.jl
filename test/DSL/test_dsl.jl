@@ -76,7 +76,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         # unchecked.
         @test EnzymeRates.Derivation._guard(mech).fault ===
               EnzymeRates.Derivation._RE_TURNOVER
-        @test EnzymeRates.Mechanisms.ngroups(mech) == 3
+        @test length(EnzymeRates.Mechanisms.groups(mech)) == 3
         # Steps are canonicalized; pick each by content, not position.
         # E + S ⇌ E(S)
         es_step = _testhelper_binding_of(mech, EnzymeRates.Mechanisms.Met(:S, false))
@@ -136,7 +136,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         @test _testhelper_regulators(m) == [:I]
         # One shared 2-step kinetic group (the S-binding pair) + 3 singletons →
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
-        @test EnzymeRates.Mechanisms.ngroups(EnzymeRates.Mechanism(m)) == 4
+        @test length(EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanism(m))) == 4
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
@@ -658,8 +658,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             regulatory_site(4): I::OnlyI
         end)
         @test one_tuple == bare
-        @test EnzymeRates.Mechanisms.ngroups(
-            EnzymeRates.Mechanisms.catalytic(one_tuple)) == 3
+        @test length(
+            EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanisms.catalytic(one_tuple))) == 3
 
         # A plain mechanism has no group tags, parenthesized or not.
         @test_throws("@enzyme_mechanism: tag annotation `(E(P) ⇌ E + P)::EqualAI` is not " *
@@ -1342,8 +1342,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         roles = _testhelper_bound_roles(am)
         @test roles["EA"] === :substrate
         @test roles["EP"] === :product
-        site = only(EnzymeRates.Mechanisms.regulatory_sites(am))
-        @test Set(EnzymeRates.Mechanisms.ligands(site)) == Set([:A, :P])
+        site = only(am.regulatory_sites)
+        @test Set(site.ligands) == Set([:A, :P])
     end
 
     @testset "an allosteric regulator binds only at its regulatory site" begin
@@ -1419,8 +1419,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         @test count(
             _testhelper_binds_entry(dual.catalytic, EnzymeRates.Mechanisms.Met(:R, true)),
             dual.catalytic.steps) == 1
-        @test :R in EnzymeRates.Mechanisms.ligands(
-            only(EnzymeRates.Mechanisms.regulatory_sites(dual)))
+        @test :R in only(dual.regulatory_sites).ligands
     end
 
     @testset "X::Mod names a declared modifier" begin

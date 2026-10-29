@@ -439,7 +439,7 @@ function _testhelper_same_model_regroupings(m)
     n = EnzymeRates.Derivation.parameter_count(m)
     cm = EnzymeRates.Mechanisms.catalytic(m)
     kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-    for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
+    for g in 1:length(EnzymeRates.Mechanisms.groups(cm)),
         bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
         child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
         _testhelper_is_valid(child) &&
@@ -930,10 +930,10 @@ end
                          _testhelper_population_sample] if m isa EnzymeRates.Mechanism]
     found = Bool[]
     for m in plain
-        flags = EnzymeRates.Mechanisms.rapid_equilibrium_steps(m)
+        flags = _testhelper_flags(m)
         for re in [[flags];
                    [flags .| (EnzymeRates.Mechanisms._group_labels(m) .== g)
-                    for g in 1:EnzymeRates.Mechanisms.ngroups(m)];
+                    for g in 1:length(EnzymeRates.Mechanisms.groups(m))];
                    [trues(length(m.steps))]]
             net = EnzymeRates.Derivation._eps_network(m, re)
             turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
@@ -1293,7 +1293,7 @@ let children = [c
     @test count(!_testhelper_is_valid, children) == 0
     allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
-    @test all(c -> :OnlyI ∉ EnzymeRates.Mechanisms.mwc_tags(c), allo)
+    @test all(c -> :OnlyI ∉ c.mwc_tags, allo)
 end
 
 @testset "the guard equals the RE-speed oracle on inhibitor children's modifier faces" begin
@@ -1444,7 +1444,7 @@ end
         fault, n = EnzymeRates.Derivation._guard(m).fault,
             EnzymeRates.Derivation.parameter_count(m)
         cm = EnzymeRates.Mechanisms.catalytic(m)
-        for g in 1:EnzymeRates.Mechanisms.ngroups(cm),
+        for g in 1:length(EnzymeRates.Mechanisms.groups(cm)),
             bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
             child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
             EnzymeRates.Derivation.parameter_count(child) == n || continue

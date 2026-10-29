@@ -380,8 +380,8 @@ end
                                                         i ∉ pivots), eachindex(sys.columns))
                 n_reg = mech isa EnzymeRates.AllostericMechanism ?
                     sum((t === :NonequalAI ? 2 : 1
-                         for site in EnzymeRates.Mechanisms.regulatory_sites(mech)
-                         for t in EnzymeRates.Mechanisms.mwc_tags(site));
+                         for site in mech.regulatory_sites
+                         for t in site.mwc_tags);
                         init = 0) + 1 : 0
                 @test n_law + n_reg == _testhelper_declared_dimension(spec.mechanism)
             end

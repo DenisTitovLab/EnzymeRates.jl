@@ -57,7 +57,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         mech = ER.Mechanism(m)
         @test Set(_testhelper_edge_text(mech, k) for k in eachindex(mech.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
-        @test ER.Mechanisms.ngroups(mech) == 3
+        @test length(ER.Mechanisms.groups(mech)) == 3
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES", "EP"])
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
@@ -76,7 +76,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # Steps are canonicalized; the two R-binding steps share one kinetic
         # group → 5 steps, 4 groups (one 2-step group binding R).
         mech2 = ER.Mechanism(m2)
-        @test ER.Mechanisms.ngroups(mech2) == 4
+        @test length(ER.Mechanisms.groups(mech2)) == 4
         shared = only(ks for ks in ER.Mechanisms.groups(mech2) if length(ks) == 2)
         @test all(k -> ER.Mechanisms._is_binding(mech2.steps[k]) &&
                        only(mech2.steps[k].taken_up) == ER.Mechanisms.Met(:R, true),
@@ -120,8 +120,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
         end
         m = ER.Mechanism(em)
-        @test ER.Mechanisms.substrates(m) == [:A, :B]
-        @test ER.Mechanisms.products(m) == [:P, :Q]
+        @test m.substrates == [:A, :B]
+        @test m.products == [:P, :Q]
         @test ER.Mechanisms.modifiers(m) == [:A, :I, :J]
         @test ER.metabolites(m) == [:A, :B, :P, :Q, :I, :J]
         @test ER.metabolites(em) == (:A, :B, :P, :Q, :I, :J)
@@ -152,7 +152,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): Y::OnlyI
             regulatory_site(2): X::OnlyA, I::OnlyI
         end)
-        @test (ER.Mechanisms.substrates(am), ER.Mechanisms.products(am),
+        @test (am.catalytic.substrates, am.catalytic.products,
                ER.Mechanisms.modifiers(am)) == ([:S], [:P], [:I])
         @test ER.metabolites(am) == [:S, :P, :I, :X, :Y]
         @test Tuple(ER.metabolites(am)) == ER.metabolites(ER.compile_mechanism(am))
@@ -226,7 +226,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E + I ⇌ E(I)      :: OnlyI
             end
         end
-        @test :OnlyI in ER.Mechanisms.mwc_tags(ER.AllostericMechanism(onlyi))
+        @test :OnlyI in ER.AllostericMechanism(onlyi).mwc_tags
 
         # Build via DSL
         m = @allosteric_mechanism begin
@@ -248,12 +248,12 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         am_c = ER.AllostericMechanism(m)
         members = ER.Mechanisms.groups(am_c.catalytic)
         onlyA_g = only(g for g in eachindex(members)
-                       if ER.Mechanisms.tag(am_c, g) === :OnlyA)
+                       if am_c.mwc_tags[g] === :OnlyA)
         @test !ER.Mechanisms._is_binding(am_c.catalytic.steps[first(members[onlyA_g])])
-        @test all(ER.Mechanisms.tag(am_c, g) === :EqualAI
+        @test all(am_c.mwc_tags[g] === :EqualAI
                   for g in eachindex(members) if g != onlyA_g)
         @test ER.Mechanisms.allosteric_regulators(am_c) == [:I]
-        @test ER.Mechanisms.mwc_tags(only(ER.Mechanisms.regulatory_sites(am_c))) ==
+        @test only(am_c.regulatory_sites).mwc_tags ==
               [:OnlyI]
     end
 
@@ -689,7 +689,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test copy_first == copy_last
         for m in (copy_last, copy_first)
             segment = ER.Mechanisms.re_segments(
-                m, trues(length(m.steps)), ER.Mechanisms.rapid_equilibrium_steps(m)).bottom
+                m, trues(length(m.steps)), _testhelper_flags(m)).bottom
             @test [ER.Mechanisms._form_name(m, f) for f in segment] ==
                   ["EA", "EAB", "EB", "EAmodB"]
         end
@@ -1137,13 +1137,13 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end"""
         am = ER.AllostericMechanism(m)
         # Every catalytic state appears in mwc_tags line
-        for g in eachindex(ER.Mechanisms.mwc_tags(am))
-            @test occursin(string(ER.Mechanisms.tag(am, g)), s)
+        for g in eachindex(am.mwc_tags)
+            @test occursin(string(am.mwc_tags[g]), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
-        for site in ER.Mechanisms.regulatory_sites(am),
-            (lig, state) in zip(ER.Mechanisms.ligands(site),
-                                ER.Mechanisms.mwc_tags(site))
+        for site in am.regulatory_sites,
+            (lig, state) in zip(site.ligands,
+                                site.mwc_tags)
             @test occursin("$lig::$state", s)
         end
     end
@@ -1219,9 +1219,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         site = ER.Mechanisms.RegulatorySite(
             [lig_a, lig_b], 4, [:OnlyA, :NonequalAI],
         )
-        @test ER.Mechanisms.ligands(site) == [:A, :B]
-        @test ER.Mechanisms.multiplicity(site) == 4
-        @test ER.Mechanisms.mwc_tags(site) == [:OnlyA, :NonequalAI]
+        @test site.ligands == [:A, :B]
+        @test site.multiplicity == 4
+        @test site.mwc_tags == [:OnlyA, :NonequalAI]
 
         # Mismatched ligand / mwc_tags length → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(
@@ -1256,15 +1256,15 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # along, so the order the ligands are given in does not matter...
         site_reordered = ER.Mechanisms.RegulatorySite(
             [lig_b, lig_a], 4, [:NonequalAI, :OnlyA])
-        @test ER.Mechanisms.ligands(site_reordered) == [lig_a, lig_b]
-        @test ER.Mechanisms.mwc_tags(site_reordered) == [:OnlyA, :NonequalAI]
+        @test site_reordered.ligands == [lig_a, lig_b]
+        @test site_reordered.mwc_tags == [:OnlyA, :NonequalAI]
         @test site == site_reordered
         @test hash(site) == hash(site_reordered)
         # ...but the pairing of ligand and state does: B::OnlyA, A::NonequalAI is
         # a different site.
         site_swapped = ER.Mechanisms.RegulatorySite(
             [lig_b, lig_a], 4, [:OnlyA, :NonequalAI])
-        @test ER.Mechanisms.mwc_tags(site_swapped) == [:NonequalAI, :OnlyA]
+        @test site_swapped.mwc_tags == [:NonequalAI, :OnlyA]
         @test site != site_swapped
     end
 
@@ -1588,7 +1588,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         (; bind, iso, rel) = _testhelper_uniuni_steps()
 
         m = ER.Mechanism(_testhelper_raw_uniuni([bind, iso, rel]))
-        @test (ER.Mechanisms.substrates(m), ER.Mechanisms.products(m)) == ([:S], [:P])
+        @test (m.substrates, m.products) == ([:S], [:P])
         flat = ER.Mechanisms._flat_edges(m)
         @test Set(_testhelper_edge_text(m, k) for k in flat) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
@@ -1634,19 +1634,19 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         m = _testhelper_tagged_uniuni([bind, iso, rel], [:EqualAI, :OnlyA, :NonequalAI], 2,
                                       sites)
 
-        @test (ER.Mechanisms.substrates(m), ER.Mechanisms.products(m)) == ([:S], [:P])
+        @test (m.catalytic.substrates, m.catalytic.products) == ([:S], [:P])
         # Steps canonicalized; allosteric tags stay bound to their steps.
         @test Set(_testhelper_edge_text(m, k) for k in eachindex(m.catalytic.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         _testhelper_state_of(text) =
-            ER.Mechanisms.tag(m, m.catalytic.steps[_testhelper_edge(m, text)].group)
+            m.mwc_tags[m.catalytic.steps[_testhelper_edge(m, text)].group]
         @test _testhelper_state_of("E + S ⇌ ES") == :EqualAI
         @test _testhelper_state_of("ES <--> EP")  == :OnlyA
         @test _testhelper_state_of("E + P ⇌ EP")  == :NonequalAI
-        @test ER.Mechanisms.catalytic_multiplicity(m) == 2
-        @test ER.Mechanisms.regulatory_sites(m) ==
+        @test m.catalytic_multiplicity == 2
+        @test m.regulatory_sites ==
               [ER.Mechanisms.RegulatorySite([:I], 1, [:OnlyI])]
-        @test ER.Mechanisms.ngroups(m.catalytic) == 3
+        @test length(ER.Mechanisms.groups(m.catalytic)) == 3
         @test ER.Mechanisms.allosteric_regulators(m) == [:I]
 
         # Written in another order, each tag beside its step.
@@ -1673,7 +1673,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P
             end
         end)
-        onlyi_tags = fill(:EqualAI, ER.Mechanisms.ngroups(uni))
+        onlyi_tags = fill(:EqualAI, length(ER.Mechanisms.groups(uni)))
         onlyi_tags[uni.steps[_testhelper_edge(uni, "E + S ⇌ ES")].group] = :OnlyI
         @test_throws ErrorException(
             "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than " *
@@ -1721,19 +1721,19 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # Catalytic side lifted via Mechanism(CM())
         lifted = ER.Mechanism(cm)
         @test ER.Mechanisms.catalytic(am) == lifted
-        @test (ER.Mechanisms.substrates(am), ER.Mechanisms.products(am),
+        @test (am.catalytic.substrates, am.catalytic.products,
                ER.Mechanisms.modifiers(am)) ==
-              (ER.Mechanisms.substrates(lifted), ER.Mechanisms.products(lifted),
+              (lifted.substrates, lifted.products,
                ER.Mechanisms.modifiers(lifted))
 
         # mwc_tags and multiplicity extracted from CS
-        @test ER.Mechanisms.tag(am, 1) === :EqualAI
-        @test ER.Mechanisms.tag(am, 2) === :NonequalAI
-        @test ER.Mechanisms.tag(am, 3) === :OnlyA
-        @test ER.Mechanisms.catalytic_multiplicity(am) == 2
+        @test am.mwc_tags[1] === :EqualAI
+        @test am.mwc_tags[2] === :NonequalAI
+        @test am.mwc_tags[3] === :OnlyA
+        @test am.catalytic_multiplicity == 2
 
         # Regulatory sites: ligand names
-        sites = ER.Mechanisms.regulatory_sites(am)
+        sites = am.regulatory_sites
         @test length(sites) == 1
         @test sites[1].ligands == [:A, :B]
         @test sites[1].multiplicity == 1
@@ -1768,7 +1768,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test ER.Mechanisms.name(ER.Mechanisms.Krapid(rep_iso, :None), am) === :K_ES_to_EP
         @test ER.Mechanisms.name(ER.Mechanisms.Krev(rep_iso, :None), am) === :k_EP_to_ES
 
-        lig = first(ER.Mechanisms.regulatory_sites(am)[1].ligands)
+        lig = first(am.regulatory_sites[1].ligands)
         @test ER.Mechanisms.name(ER.Mechanisms.Kreg(lig, :A), am) === :K_A_Rreg
         @test ER.Mechanisms.name(ER.Mechanisms.Kreg(lig, :I), am) === :K_I_Rreg
 
@@ -3426,9 +3426,9 @@ end
         regulatory_site(2): I::OnlyI
     end)
     am_on_rxn = EnzymeRates.AllostericMechanism(
-        m_on_rxn, EnzymeRates.Mechanisms.mwc_tags(am),
-        EnzymeRates.Mechanisms.catalytic_multiplicity(am),
-        EnzymeRates.Mechanisms.regulatory_sites(am))
+        m_on_rxn, am.mwc_tags,
+        am.catalytic_multiplicity,
+        am.regulatory_sites)
     @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
 end
 

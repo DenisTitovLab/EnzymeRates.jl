@@ -101,7 +101,7 @@ matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
 the oracle's written site numbering after canonical site reordering.
 """
 function _testhelper_positional_site_idx(site, pos, written_sites)
-    want = Set(EnzymeRates.Mechanisms.ligands(site))
+    want = Set(site.ligands)
     j = findfirst(ws -> Set(ws.ligands) == want, written_sites)
     j === nothing ? pos : j
 end
@@ -175,10 +175,10 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
         end
     end
     if allo
-        for (pos, site) in enumerate(EnzymeRates.Mechanisms.regulatory_sites(mech))
+        for (pos, site) in enumerate(mech.regulatory_sites)
             j = _testhelper_positional_site_idx(site, pos, raw.sites)
-            for (lig, tag) in zip(EnzymeRates.Mechanisms.ligands(site),
-                                  EnzymeRates.Mechanisms.mwc_tags(site))
+            for (lig, tag) in zip(site.ligands,
+                                  site.mwc_tags)
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
                     K = EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag, inactive)
@@ -927,7 +927,7 @@ const _testhelper_fused_cases = [
     a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
     @test e == 1 && a_copy < ab
     s = ER.Mechanisms.re_segments(m, trues(length(m.steps)),
-                                  ER.Mechanisms.rapid_equilibrium_steps(m))
+                                  _testhelper_flags(m))
     @test all(seg -> seg[1] == minimum(seg), s.segments)
     @test s.segments[s.segment_of[e]][1] == e
     @test s.segment_of[a_copy] == s.segment_of[ab] == s.segment_of[e]
@@ -1128,7 +1128,7 @@ end
     cm = am.catalytic
     members = EnzymeRates.Mechanisms.groups(cm)
     onlyA_groups = [g for g in eachindex(members)
-                    if EnzymeRates.Mechanisms.tag(am, g) === :OnlyA]
+                    if am.mwc_tags[g] === :OnlyA]
     @test length(onlyA_groups) == 2
     onlyA_firsts = [cm.steps[first(members[g])] for g in onlyA_groups]
     @test count(e -> EnzymeRates.Mechanisms._is_binding(e) &&

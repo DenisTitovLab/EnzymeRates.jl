@@ -106,7 +106,7 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
                          kept::Dict{Tuple{Int, Int, Bool}, Int})
     cm = catalytic(m)
     g = cm.steps[k].group
-    group_tag = m isa AllostericMechanism ? tag(m, g) : :None
+    group_tag = m isa AllostericMechanism ? m.mwc_tags[g] : :None
     excludes(group_tag, state === :I ? :inactive : :active) && return _sides(cm, k)
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
     _sides(cm, get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
@@ -185,8 +185,8 @@ function _priority_key(m::Mechanism, k::Int, slot::Int, block::Int,
 end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
-_solve_tags(m::Mechanism) = fill(:None, ngroups(m))
-_solve_tags(am::AllostericMechanism) = mwc_tags(am)
+_solve_tags(m::Mechanism) = fill(:None, length(groups(m)))
+_solve_tags(am::AllostericMechanism) = am.mwc_tags
 
 """Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
 law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
@@ -262,7 +262,7 @@ the state its name takes: `:None` in a plain mechanism; `:I` for an inactive cop
 function _column_parameter(m::_AnyMech, c::_Column)
     cm = catalytic(m)
     state = m isa Mechanism ? :None : c.inactive ? :I :
-            tag(m, cm.steps[c.edge].group) === :EqualAI ? :EqualAI : :A
+            m.mwc_tags[cm.steps[c.edge].group] === :EqualAI ? :EqualAI : :A
     _edge_constants(cm, c.edge, state)[c.slot]
 end
 

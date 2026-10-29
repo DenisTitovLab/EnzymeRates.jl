@@ -105,6 +105,9 @@ _testhelper_written(m::EnzymeRates.Mechanism) = EnzymeRates.Mechanisms.RawMechan
 _testhelper_written(m::EnzymeRates.AllostericMechanism) =
     EnzymeRates.Mechanisms.RawAllostericMechanism(m)
 
+"""The rapid-equilibrium flag of each step of the concrete mechanism `m`."""
+_testhelper_flags(m) = BitVector(e.rapid_equilibrium for e in m.steps)
+
 """Whether the concrete mechanism `x` reads back from the text `show` prints for it
 (`DSL.parse_mechanism`) as itself."""
 _testhelper_reads_back(x) = EnzymeRates.DSL.parse_mechanism(sprint(show, x)) == x
@@ -133,7 +136,7 @@ function _testhelper_graph(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     kept = EnzymeRates.Mechanisms._kept_members(mech)
-    tags = allo ? copy(EnzymeRates.Mechanisms.mwc_tags(mech)) : Symbol[]
+    tags = allo ? copy(mech.mwc_tags) : Symbol[]
     # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates.Mechanisms._flat_edges(cm)
     _testhelper_names(k, state) =
@@ -156,19 +159,19 @@ function _testhelper_graph(m)
          inactive_names = in_law[k] ? _testhelper_names(k, shared ? :EqualAI : :I) :
                           Symbol[])
     end
-    sites = [(multiplicity = EnzymeRates.Mechanisms.multiplicity(site),
-              ligands = copy(EnzymeRates.Mechanisms.ligands(site)),
-              mwc_tags = copy(EnzymeRates.Mechanisms.mwc_tags(site)))
-             for site in (allo ? EnzymeRates.Mechanisms.regulatory_sites(mech) :
+    sites = [(multiplicity = site.multiplicity,
+              ligands = copy(site.ligands),
+              mwc_tags = copy(site.mwc_tags))
+             for site in (allo ? mech.regulatory_sites :
                                  EnzymeRates.Mechanisms.RegulatorySite[])]
     (forms = String[EnzymeRates.Mechanisms._form_name(cm, f) for f in eachindex(cm.nodes)],
      free = Bool[EnzymeRates.Mechanisms._is_free(f) for f in cm.nodes], steps, tags,
      inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
      active = Int[j for (j, k) in enumerate(edges) if in_active[k]],
      catalytic_multiplicity = allo ?
-     EnzymeRates.Mechanisms.catalytic_multiplicity(mech) : nothing,
-     sites, substrates = EnzymeRates.Mechanisms.substrates(mech),
-     products = EnzymeRates.Mechanisms.products(mech),
+     mech.catalytic_multiplicity : nothing,
+     sites, substrates = cm.substrates,
+     products = cm.products,
      modifiers = EnzymeRates.Mechanisms.modifiers(mech))
 end
 
@@ -959,8 +962,8 @@ one name being listed with the active ones."""
 function _testhelper_regulator_constants(am, state::Symbol)
     M = EnzymeRates.Mechanisms
     inactive = state === :I
-    Symbol[K for site in M.regulatory_sites(am)
-           for (lig, tag) in zip(M.ligands(site), M.mwc_tags(site))
+    Symbol[K for site in am.regulatory_sites
+           for (lig, tag) in zip(site.ligands, site.mwc_tags)
            if !(inactive && tag === :EqualAI)
            for K in (M.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
 end
@@ -970,7 +973,7 @@ catalytic graph: an `:OnlyA` group's edge in the inactive conformation, an `:Onl
 group's in the active one. A plain mechanism excludes nothing."""
 function _testhelper_excludes(m, k::Int, c::Int)
     m isa EnzymeRates.AllostericMechanism || return false
-    tag = EnzymeRates.Mechanisms.tag(m, m.catalytic.steps[k].group)
+    tag = m.mwc_tags[m.catalytic.steps[k].group]
     (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
 end
 
@@ -1004,7 +1007,7 @@ function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
                        for K in (EnzymeRates.Mechanisms.regulator_constant(mech, lig, tag,
                                                                           inactive),)
                        if K !== nothing); init = big(0)))^site.multiplicity
-             for site in EnzymeRates.Mechanisms.regulatory_sites(mech); init = big(1))
+             for site in mech.regulatory_sites; init = big(1))
     end
     point.L * _testhelper_site_factor(true) / _testhelper_site_factor(false)
 end

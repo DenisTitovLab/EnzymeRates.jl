@@ -34,10 +34,6 @@ struct RegulatorySite
     end
 end
 
-ligands(s::RegulatorySite)      = s.ligands
-multiplicity(s::RegulatorySite) = s.multiplicity
-mwc_tags(s::RegulatorySite)  = s.mwc_tags
-
 # Parameter family.
 abstract type Parameter end
 
@@ -571,7 +567,7 @@ struct AllostericMechanism
     function AllostericMechanism(catalytic::Mechanism, mwc_tags::Vector{Symbol},
                                  catalytic_multiplicity::Int,
                                  regulatory_sites::Vector{RegulatorySite})
-        _check_tags(mwc_tags, ngroups(catalytic), catalytic_multiplicity)
+        _check_tags(mwc_tags, length(groups(catalytic)), catalytic_multiplicity)
         _check_onlyi_groups(catalytic, mwc_tags)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
@@ -1231,7 +1227,7 @@ constructor's tag and site checks run."""
 function _allosteric_mechanism_from_sig(sig::Int...)
     r = _SigReader(collect(sig), 0)
     m = _read_mechanism!(r)
-    tags = [_TAG_CODES[_next!(r)] for _ in 1:ngroups(m)]
+    tags = [_TAG_CODES[_next!(r)] for _ in 1:length(groups(m))]
     multiplicity = _next!(r)
     sites = [_read_site!(r) for _ in 1:_next!(r)]
     AllostericMechanism(m, tags, multiplicity, sites)
@@ -1267,8 +1263,6 @@ compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
 
 # ─── Reads ──────────────────────────────────────────────────────────────
 
-substrates(m::Mechanism) = m.substrates
-products(m::Mechanism) = m.products
 """
 Every metabolite entry `m` holds, sorted by (name, modifier) and once each: the
 metabolites its nodes bind and its steps take up and give off, and its residual names as
@@ -1308,8 +1302,6 @@ metabolites(am::AllostericMechanism) =
 _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
 
 # An allosteric mechanism's names are its catalytic graph's, plus its site ligands.
-substrates(am::AllostericMechanism) = substrates(am.catalytic)
-products(am::AllostericMechanism) = products(am.catalytic)
 modifiers(am::AllostericMechanism) = modifiers(am.catalytic)
 """The ligands of `am`'s regulatory sites, site by site, each once."""
 allosteric_regulators(am::AllostericMechanism) =
@@ -1319,11 +1311,6 @@ const _AnyMech = Union{Mechanism, AllostericMechanism}
 
 catalytic(m::Mechanism) = m
 catalytic(am::AllostericMechanism) = am.catalytic
-mwc_tags(am::AllostericMechanism) = am.mwc_tags
-catalytic_multiplicity(am::AllostericMechanism) = am.catalytic_multiplicity
-regulatory_sites(am::AllostericMechanism) = am.regulatory_sites
-"""The number of kinetic groups of `m`."""
-ngroups(m::Mechanism) = maximum(e -> e.group, m.steps; init = 0)
 """Each step's kinetic group, in step order."""
 _group_labels(m::Mechanism) = Int[e.group for e in m.steps]
 _has_residual(n::Node) = !isempty(n.added) || !isempty(n.subtracted)
@@ -1573,7 +1560,7 @@ The steady-state graph between the rapid-equilibrium segments of the steps of `m
 steady-state steps that join two segments, in step order.
 """
 function segment_graph(m::Mechanism, on::BitVector)
-    s = re_segments(m, on, rapid_equilibrium_steps(m))
+    s = re_segments(m, on, BitVector(e.rapid_equilibrium for e in m.steps))
     steps = [k for (k, e) in enumerate(m.steps)
              if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
     merge(s, (; steps))

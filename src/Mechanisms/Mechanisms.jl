@@ -5,19 +5,14 @@ module Mechanisms
 import Unicode
 
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,
-    :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Met, :Metabolites, :Node,
-    :RawAllostericMechanism, :RawForm, :RawMechanism, :RawSite, :RawStep, :Reactant,
-    :Regulator, :RegulatorySite, :bound, :canonical_graph,
-    :catalytic, :catalytic_multiplicity, :check_conformation_label,
-    :check_decodable_names, :compile_mechanism, :conformation, :conformation_steps,
-    :constant_columns, :copies, :ends, :excludes, :exclusion_components, :form_text,
-    :given_off, :group, :groups, :has_turnover_cycle, :has_unbalanced_cycle,
-    :is_rapid_equilibrium, :label_collision_error, :ligands, :members, :metabolite_names,
-    :metabolites, :modifier_copies, :modifiers, :multiplicity, :mwc_tags, :name, :ngroups,
-    :present_species, :products, :rapid_equilibrium_steps, :re_segments, :regroup,
-    :regulator_constant, :regulatory_sites, :residual, :runs_toward_products,
-    :segment_graph, :segment_walk, :species, :Step, :step_kind, :step_text, :steps,
-    :substrates, :tag, :taken_up, :with_flags, :with_tags)
+    :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Met, :Node, :RawAllostericMechanism,
+    :RawForm, :RawMechanism, :RawSite, :RawStep, :Reactant, :Regulator, :RegulatorySite,
+    :Step, :canonical_graph, :catalytic, :check_conformation_label, :check_decodable_names,
+    :compile_mechanism, :conformation_steps, :constant_columns, :excludes,
+    :exclusion_components, :form_text, :groups, :has_turnover_cycle, :has_unbalanced_cycle,
+    :label_collision_error, :metabolites, :modifiers, :name, :present_species, :regroup,
+    :re_segments, :regulator_constant, :runs_toward_products, :segment_graph,
+    :segment_walk, :step_kind, :step_text, :with_flags, :with_tags)
 
 include("types.jl")
 include("accessors.jl")

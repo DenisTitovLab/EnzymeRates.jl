@@ -34,7 +34,7 @@ module calls its own names bare.
   raw input (`RawMechanism`, `RawStep`, `RawForm`, `RawAllostericMechanism`, `RawSite`),
   the canonical graphs `Mechanism` and `AllostericMechanism`, the singleton types and
   `compile_mechanism`, the naming rules and the printer of the DSL text. Its interface is
-  the accessors, views and writers below.
+  the reads, views and writers below.
 - **`Derivation`**: the well-posedness guard, the joint solve and the rate law with its
   code, text and key. Besides the exported `rate_equation`, `rate_equation_string` and
   `parameters` (with the kinds `IndependentParameters`, `FittedParameters` and
@@ -57,20 +57,19 @@ module calls its own names bare.
 - **The top level** (`src/EnzymeRates.jl`, `identify_rate_equation.jl`): identify and the
   exports, among them the three macros.
 
-### Accessors, views and writers
+### Reads, views and writers
 
-Code outside `Mechanisms` reads a mechanism through accessors, never through its fields,
-so the storage stays hidden: the nodes and steps, the stored direction, the form
-numbering and the canonical order. Forms and steps are integer handles, and a set of steps
-is a `BitVector` over steps.
+Code reads a mechanism's stored data with dots: `m.nodes[x].bound`, `m.steps[k].from`,
+`m.steps[k].group`, `m.substrates`, `am.mwc_tags[g]`. Forms and steps are integer indices
+into `m.nodes` and `m.steps`, and a set of steps is a `BitVector` over steps. The
+functions that compute something are:
 
-| Layer | Accessors |
+| Reads | Functions |
 |---|---|
-| Species | `species(m)`, `bound(m, x)`, `conformation(m, x)`, `residual(m, x)` |
-| Steps | `steps(m)`, `ends(m, k)`, `taken_up(m, k)`, `given_off(m, k)`, `is_rapid_equilibrium(m, k)`, `rapid_equilibrium_steps(m)`, `step_kind(m, k)` (`:isomerization`, `:binding`, `:fused_binding` or `:chemistry`), `runs_toward_products(m, k)` |
-| Groups | `group(m, k)`, `members(m, g)`, `groups(m)`, `ngroups(m)` |
-| Metabolites | `Metabolites`, a multiset with `copies`, `metabolite_names`, `modifier_copies`, `isempty`, `length`, `∪` and `∩`; `substrates(m)`, `products(m)`, `modifiers(m)` |
-| Allosteric | `catalytic(am)`, `tag(am, g)`, `mwc_tags(am)`, `catalytic_multiplicity(am)`, `regulatory_sites(am)`, `excludes(am, k, c)`, `exclusion_components(am, c)`, `conformation_steps(am, c)` |
+| Steps | `step_kind(m, k)` (`:isomerization`, `:binding`, `:fused_binding` or `:chemistry`), `runs_toward_products(m, k)` |
+| Groups | `groups(m)` |
+| Metabolites | `catalytic(am)`, `metabolites(m)`, `modifiers(m)` |
+| Allosteric | `excludes(am, k, c)`, `exclusion_components(am, c)`, `conformation_steps(am, c)` |
 
 A derived view lives in `Mechanisms` only when two modules use it; otherwise it stays
 private to its module. The shared views are `re_segments(m, on, re)` (the
@@ -85,8 +84,7 @@ the checked constructors; `with_tags(am, tags)` retags through the composition c
 `canonical_graph(raw)` builds a canonical graph with only the alignment check. The
 naming rules (`name(p, m)`, `constant_columns`, `regulator_constant`), the DSL text of
 forms and steps (`form_text`, `step_text`) complete the graph interface. The rest of
-`Mechanisms.API` is the types (`Reactant`, `Regulator`, …), the accessors of regulatory
-sites (`ligands`, `mwc_tags`, …) and the checks the DSL reader runs on names and labels
+`Mechanisms.API` is the types (`Reactant`, `Regulator`, …) and the checks the DSL reader runs on names and labels
 (`check_decodable_names`, `check_conformation_label`, `label_collision_error`).
 
 ### The boundary test
@@ -97,8 +95,7 @@ package, and fails on:
 1. a name of another module, as `Mod.name` or imported by `using`, that the module's
    `API` list lacks;
 2. a module naming a module it may not depend on;
-3. a field of a mechanism type (`Mechanism`, `AllostericMechanism`, `Met`, `Metabolites`,
-   `RegulatorySite` or a `Raw*` type) read outside `Mechanisms`;
+3. a field of a mechanism type (a `Raw*` type) read outside `Mechanisms`;
 4. an underscore name in an `API` list or used across modules;
 5. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
@@ -298,8 +295,8 @@ of metabolites (`Met`: a name, and whether it binds as a modifier, so a reactant
 modifier copy are two metabolites) and of names is sorted. It holds no reaction, and `==`
 and `hash` read its fields alone, alike in every process. An `AllostericMechanism` holds
 a catalytic `Mechanism`, one allosteric tag per kinetic group, the catalytic multiplicity
-and the regulatory sites. Only `Mechanisms` reads these fields; the other modules use its
-accessors (see [Accessors, views and writers](@ref)).
+and the regulatory sites. Every module reads these fields with dots (see
+[Reads, views and writers](@ref)).
 
 The macros, the parser and the moves that change flags, groups or steps write a mechanism as
 raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`):

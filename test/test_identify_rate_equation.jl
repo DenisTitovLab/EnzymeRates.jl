@@ -2748,7 +2748,7 @@ end
     end
     cm, on = tc_route.catalytic,
              EnzymeRates.Mechanisms.conformation_steps(tc_route, :active)
-    re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
+    re = _testhelper_flags(cm)
     @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
     @test !EnzymeRates.Enumeration._degenerate(tc_route)
@@ -2773,8 +2773,8 @@ end
     end
     cm, on = merged_route.catalytic,
              EnzymeRates.Mechanisms.conformation_steps(merged_route, :active)
-    re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
-    subs = EnzymeRates.Mechanisms.substrates(cm)
+    re = _testhelper_flags(cm)
+    subs = cm.substrates
     @test EnzymeRates.Mechanisms.form_text.(
         Ref(cm), EnzymeRates.Enumeration._merged_complexes(cm, subs)) == ["E(P, X)"]
     @test isempty(EnzymeRates.Enumeration._merged_complexes(cm, subs, on))
@@ -2802,7 +2802,7 @@ end
     end
     cm, on = re_tc_route.catalytic,
              EnzymeRates.Mechanisms.conformation_steps(re_tc_route, :active)
-    re = EnzymeRates.Mechanisms.rapid_equilibrium_steps(cm)
+    re = _testhelper_flags(cm)
     @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
     @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&

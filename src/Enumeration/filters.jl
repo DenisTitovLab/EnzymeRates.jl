@@ -292,7 +292,7 @@ end
         -> Union{Dict{Int, Tuple{_GaugeClass, _GaugeClass}}, Nothing}
 
 The dwell gauge of the modifier copy bound by kinetic group `g` of `m`, in one
-conformational state's graph, whose groups hold the edges `members`: the rescaling each
+conformational state's graph, whose groups hold the edges `groups(m)` lists: the rescaling each
 nonempty kinetic group needs, or `nothing` when the gauge does not exist. It does not
 exist when group `g` binds no modifier or a complex it forms has no productive twin
 (`_all_twin`, with `twin` a `_productive_twin` of that graph), or when some group would
