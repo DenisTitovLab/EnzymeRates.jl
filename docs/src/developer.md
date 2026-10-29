@@ -67,8 +67,8 @@ is a `BitVector` over steps.
 | Layer | Accessors |
 |---|---|
 | Species | `species(m)`, `bound(m, x)`, `conformation(m, x)`, `residual(m, x)` |
-| Steps | `steps(m)`, `ends(m, k)`, `taken_up(m, k)`, `given_off(m, k)`, `is_rapid_equilibrium(m, k)`, `rapid_equilibrium_steps(m)`, `step_kind(m, k)`, `is_binding(m, k)`, `runs_toward_products(m, k)` |
-| Groups | `group(m, k)`, `members(m, g)`, `ngroups(m)` |
+| Steps | `steps(m)`, `ends(m, k)`, `taken_up(m, k)`, `given_off(m, k)`, `is_rapid_equilibrium(m, k)`, `rapid_equilibrium_steps(m)`, `step_kind(m, k)` (`:isomerization`, `:binding`, `:fused_binding` or `:chemistry`), `runs_toward_products(m, k)` |
+| Groups | `group(m, k)`, `members(m, g)`, `groups(m)`, `ngroups(m)` |
 | Metabolites | `Metabolites`, a multiset with `copies`, `metabolite_names`, `modifier_copies`, `isempty`, `length`, `∪` and `∩`; `substrates(m)`, `products(m)`, `modifiers(m)` |
 | Allosteric | `catalytic(am)`, `tag(am, g)`, `mwc_tags(am)`, `catalytic_multiplicity(am)`, `regulatory_sites(am)`, `excludes(am, k, c)`, `exclusion_components(am, c)`, `conformation_steps(am, c)` |
 
@@ -313,14 +313,14 @@ regulatory sites compose the parent's catalytic graph with other tags or sites t
 composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)` (directly or by
 `with_tags`), which runs only its tag and site checks. Going `from → to`, a step takes up
 the metabolites in `taken_up` and gives off those in `given_off`. Steps are classified by
-these lists. A binding takes up exactly one metabolite and gives off none (`is_binding`). It
-is plain when its target form is its source form with that metabolite added, the residual
-unchanged and the conformation free to change (`_is_plain_binding`), and fused otherwise, as
+these lists. A binding takes up exactly one metabolite and gives off none. It
+is plain (`:binding`) when its target form is its source form with that metabolite added, the residual
+unchanged and the conformation free to change (`_is_plain_binding`), and fused (`:fused_binding`) otherwise, as
 when the last substrate binds straight into the product-bound form (`E(A) + B → E(P, Q)`).
 The constructor rejects a binding whose forms match a plain binding by name but not by role,
 such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
-Theorell–Chance step takes up one metabolite and gives off another. `_is_chemistry` is true
-for every edge but a plain binding; the allosteric moves (`_chemistry_groups`, in
+Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
+`_is_chemistry` is true for every edge but a plain binding; the allosteric moves (`_chemistry_groups`, in
 `Enumeration`, through `step_kind`), admission, the joint solve's priority (`_priority_key`)
 and `_merged_complexes` read it to tell catalysis from binding. The derivation reads every
 binding alike, so a fused binding's rapid-equilibrium constant is a dissociation constant

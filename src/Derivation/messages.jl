@@ -29,8 +29,8 @@ class 2's fix holds whichever step of the cycle is picked."""
 function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
     m = Mechanisms.catalytic(mech)
     for t in cycle
-        re = Mechanisms.rapid_equilibrium_steps(m)
-        re[Mechanisms.members(m, Mechanisms.group(m, net.edge[t]))] .= false
+        re = _re_flags(m)
+        re[findall(s -> s.group == m.steps[net.edge[t]].group, m.steps)] .= false
         isempty(_re_turnover_transitions(_eps_network(mech, re))) || return false
     end
     true
@@ -102,7 +102,8 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         bindings = unique!([net.edge[t] for t in eachindex(net.from)
                             if net.fast[t] && net.edge[t] != 0 &&
                                s.segment[net.from[t]] == s.bottomless &&
-                               Mechanisms.is_binding(m, net.edge[t])])
+                               Mechanisms.step_kind(m, net.edge[t]) in
+                                  (:binding, :fused_binding)])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :
               " Make the group of $(Mechanisms.step_text(m, bindings[k])) steady-state."

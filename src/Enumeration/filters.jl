@@ -270,11 +270,12 @@ end
 _holds_modifier(m::Mechanisms.Mechanism, x::Int) =
     !isempty(Mechanisms.modifier_copies(Mechanisms.bound(m, x)))
 
-"""The name of the modifier copy that step `k` of `m` binds (`is_binding`), or `nothing`
-when the step binds no modifier copy."""
+"""The name of the modifier copy that step `k` of `m` binds (a `:binding` or
+`:fused_binding` step), or `nothing` when the step binds no modifier copy."""
 function _bound_copy(m::Mechanisms.Mechanism, k::Int)
     t = Mechanisms.taken_up(m, k)
-    Mechanisms.is_binding(m, k) && !isempty(Mechanisms.modifier_copies(t)) ?
+    Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
+        !isempty(Mechanisms.modifier_copies(t)) ?
         only(Mechanisms.metabolite_names(t)) : nothing
 end
 
@@ -333,7 +334,8 @@ function _gauge_rescaling(m::Mechanisms.Mechanism, members::Vector{Vector{Int}},
     binding_group = Dict{Tuple{Int, Int}, Int}()
     for (h, ks) in enumerate(members), k in ks
         t = Mechanisms.taken_up(m, k)
-        Mechanisms.is_rapid_equilibrium(m, k) && Mechanisms.is_binding(m, k) &&
+        Mechanisms.is_rapid_equilibrium(m, k) &&
+            Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
             isempty(Mechanisms.modifier_copies(t)) && Mechanisms.copies(t, ligand) == 1 &&
             (binding_group[Mechanisms.ends(m, k)] = h)
     end
@@ -391,7 +393,7 @@ per state.
 function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = _group_members(cm)
+    members = Mechanisms.groups(cm)
     any(ks -> _bound_copy(cm, first(ks)) !== nothing, members) || return Int[]
     if m isa Mechanisms.Mechanism
         twin = _productive_twin(cm, trues(length(Mechanisms.steps(cm))))
@@ -452,7 +454,7 @@ children; the other moves preserve both rules.
 function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = _group_members(cm)
+    members = Mechanisms.groups(cm)
     # A group as its steps' DSL lines (`step_text`).
     label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
     flux = _flux_carrying_groups(cm, Mechanisms.rapid_equilibrium_steps(cm))

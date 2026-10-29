@@ -356,14 +356,13 @@ function _eliminate_form(raw::Mechanisms.RawMechanism, x::Mechanisms.RawForm)
 end
 
 """The merged complexes of graph `m`, each once: the forms that a fused binding of a
-substrate enters, a binding (`is_binding`) of kind `:chemistry` (`step_kind`) that takes up
-a metabolite named in `subs`. Only the edges `on` flags count."""
+substrate enters, a `:fused_binding` (`step_kind`) that takes up a metabolite named in
+`subs`. Only the edges `on` flags count."""
 _merged_complexes(m::Mechanisms.Mechanism, subs::Vector{Symbol},
                   on::BitVector = trues(length(Mechanisms.steps(m)))) =
     unique(Mechanisms.ends(m, k)[2] for k in Mechanisms.steps(m)
-           if on[k] && Mechanisms.is_binding(m, k) &&
-              _holds(Mechanisms.taken_up(m, k), subs) &&
-              Mechanisms.step_kind(m, k) === :chemistry)
+           if on[k] && Mechanisms.step_kind(m, k) === :fused_binding &&
+              _holds(Mechanisms.taken_up(m, k), subs))
 
 """
 The tests of `_seed_variants` that build nothing, for the graph `m` of one base of a

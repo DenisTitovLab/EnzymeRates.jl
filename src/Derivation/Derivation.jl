@@ -21,6 +21,13 @@ const _Column = @NamedTuple{edge::Int, slot::Int, inactive::Bool}
 """The two conformations by the index the guard gives them: 1 active, 2 inactive."""
 const _CONFORMATIONS = (:active, :inactive)
 
+"""The number of copies of metabolite `name` in `held`, a reactant's modifier copies
+included."""
+_copies(held::Vector{Mechanisms.Met}, name::Symbol) = count(x -> x.name === name, held)
+
+"""The rapid-equilibrium flag of each step of `m`."""
+_re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)
+
 include("rate_eq_derivation.jl")
 include("thermo.jl")
 include("poly.jl")

@@ -101,24 +101,30 @@ rapid_equilibrium_steps(m::Mechanism) =
     BitVector([is_rapid_equilibrium(m, k) for k in steps(m)])
 
 """
-What step `k` of `m` does: `:isomerization` when it takes up and gives off nothing
-(`_is_iso`), `:binding` when it is a plain binding (`_is_chemistry` fails), else
-`:chemistry`.
+What step `k` of `m` does: `:isomerization` when it takes up and gives off nothing,
+`:binding` when it is a plain binding (`_is_plain_binding`), `:fused_binding` when it
+takes up one metabolite and gives off none but its two forms differ by more than that
+metabolite, else `:chemistry`.
 """
 function step_kind(m::Mechanism, k::Int)
     e = m.steps[k]
-    _is_iso(e) ? :isomerization : _is_chemistry(m, e) ? :chemistry : :binding
+    _is_iso(e) ? :isomerization : _is_plain_binding(m, e) ? :binding :
+        _is_binding(e) ? :fused_binding : :chemistry
 end
-
-"""Whether step `k` of `m` is a binding: it takes up one metabolite and gives off none,
-whether or not its two forms differ by that metabolite alone (a fused binding is of kind
-`:chemistry`, `step_kind`)."""
-is_binding(m::Mechanism, k::Int) = _is_binding(m.steps[k])
 
 # ─── Kinetic groups ─────────────────────────────────────────────────────
 
 """The kinetic group of step `k` of `m`."""
 group(m::Mechanism, k::Int) = m.steps[k].group
+
+"""Each kinetic group's steps, in step order."""
+function groups(m::Mechanism)
+    members = [Int[] for _ in 1:ngroups(m)]
+    for (k, e) in enumerate(m.steps)
+        push!(members[e.group], k)
+    end
+    members
+end
 
 """The steps of kinetic group `g` of `m`, in step order."""
 members(m::Mechanism, g::Int) = findall(e -> e.group == g, m.steps)

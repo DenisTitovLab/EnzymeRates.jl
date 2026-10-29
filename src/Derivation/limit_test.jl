@@ -195,26 +195,25 @@ concentrations `conc` per name, zero on the face.
 """
 function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueStream)
     m = Mechanisms.catalytic(mech)
-    nf, names = length(Mechanisms.species(m)), _guard_names(m)
+    nf, names = length(m.nodes), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
     excluded(k, c) = Mechanisms.excludes(mech, k, _CONFORMATIONS[c])
     equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
-                  Mechanisms.tag(mech, g) === :EqualAI
+                  mech.mwc_tags[g] === :EqualAI
     function drop!(row, k, c, dir)
-        a, b = Mechanisms.ends(m, k)
+        a, b = m.steps[k].from, m.steps[k].to
         row[(c - 1) * nf + a] += dir
         row[(c - 1) * nf + b] -= dir
-        up, off = Mechanisms.taken_up(m, k), Mechanisms.given_off(m, k)
+        up, off = m.steps[k].taken_up, m.steps[k].given_off
         for (n, name) in enumerate(names)
             row[ncopies * nf + n] +=
-                dir * (Mechanisms.copies(up, name) - Mechanisms.copies(off, name))
+                dir * (_copies(up, name) - _copies(off, name))
         end
         row
     end
     ties = Vector{Int}[]
-    for g in 1:Mechanisms.ngroups(m), c in 1:ncopies
-        members = Mechanisms.members(m, g)
+    for (g, members) in enumerate(Mechanisms.groups(m)), c in 1:ncopies
         lead = first(members)
         excluded(lead, c) && continue
         for k in members[2:end]
@@ -231,19 +230,20 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
     t = [_residue!(rng) for _ in axes(B, 2)]
     x = [reduce(_mulp, (_powp(t[j], B[i, j]) for j in axes(B, 2) if B[i, j] != 0);
                 init = Int64(1)) for i in 1:nv]
-    K = ones(Int64, length(Mechanisms.steps(m)), ncopies)
+    K = ones(Int64, length(m.steps), ncopies)
     xnames = view(x, (ncopies * nf + 1):nv)
-    for k in Mechanisms.steps(m), c in 1:ncopies
-        a, b = Mechanisms.ends(m, k)
-        num = _mul_held(x[(c - 1) * nf + a], Mechanisms.taken_up(m, k), names, xnames)
-        den = _mul_held(x[(c - 1) * nf + b], Mechanisms.given_off(m, k), names, xnames)
+    for k in eachindex(m.steps), c in 1:ncopies
+        a, b = m.steps[k].from, m.steps[k].to
+        num = _mul_held(x[(c - 1) * nf + a], m.steps[k].taken_up, names, xnames)
+        den = _mul_held(x[(c - 1) * nf + b], m.steps[k].given_off, names, xnames)
         K[k, c] = _mulp(num, _invp(den))
     end
-    ss = [_residue!(rng) for _ in 1:Mechanisms.ngroups(m), _ in 1:ncopies]
-    for g in 1:Mechanisms.ngroups(m)
+    ngroups = length(Mechanisms.groups(m))
+    ss = [_residue!(rng) for _ in 1:ngroups, _ in 1:ncopies]
+    for g in 1:ngroups
         ncopies == 2 && equal_ai(g) && (ss[g, 2] = ss[g, 1])
     end
-    re = [_residue!(rng) for _ in Mechanisms.steps(m), _ in 1:ncopies]
+    re = [_residue!(rng) for _ in eachindex(m.steps), _ in 1:ncopies]
     flip = _residue!(rng)
     L = ncopies == 2 ? _mulp(x[1], _invp(x[nf + 1])) : Int64(1)
     conc = [_zeroes(face, n) ? Int64(0) : _residue!(rng) for n in 1:nnames]
@@ -252,9 +252,9 @@ end
 
 """`r` times `value[n]` once for each copy of name `n` of `names` (`_guard_names`) that
 `held` holds, mod p."""
-function _mul_held(r::Int64, held::Mechanisms.Metabolites, names::Vector{Symbol},
+function _mul_held(r::Int64, held::Vector{Mechanisms.Met}, names::Vector{Symbol},
                    value::AbstractVector{Int64})
-    for (n, x) in enumerate(names), _ in 1:Mechanisms.copies(held, x)
+    for (n, x) in enumerate(names), _ in 1:_copies(held, x)
         r = _mulp(r, value[n])
     end
     r
@@ -276,9 +276,9 @@ function _rates_p(m::Mechanisms.Mechanism, net::_Network, pt, conc::Vector{Int64
         if k == 0
             r[t] = net.forward[t] ? _mulp(pt.flip, pt.L) : pt.flip
         else
-            speed = net.fast[t] ? pt.re[k, c] : pt.ss[Mechanisms.group(m, k), c]
+            speed = net.fast[t] ? pt.re[k, c] : pt.ss[m.steps[k].group, c]
             r[t] = net.forward[t] ? _mulp(speed, pt.K[k, c]) : speed
-            held = net.forward[t] ? Mechanisms.taken_up(m, k) : Mechanisms.given_off(m, k)
+            held = net.forward[t] ? m.steps[k].taken_up : m.steps[k].given_off
             r[t] = _mul_held(r[t], held, names, conc)
         end
         net.fast[t] && Λ != 0 && (r[t] = _mulp(r[t], Λ))

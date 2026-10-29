@@ -11,7 +11,7 @@ const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMe
     :catalytic, :catalytic_multiplicity, :check_conformation_label,
     :check_decodable_names, :compile_mechanism, :conformation, :conformation_steps,
     :constant_columns, :copies, :ends, :excludes, :exclusion_components, :form_text,
-    :given_off, :group, :has_turnover_cycle, :has_unbalanced_cycle, :is_binding,
+    :given_off, :group, :groups, :has_turnover_cycle, :has_unbalanced_cycle,
     :is_rapid_equilibrium, :label_collision_error, :ligands, :members, :metabolite_names,
     :metabolites, :modifier_copies, :modifiers, :multiplicity, :mwc_tags, :name, :ngroups,
     :present_species, :products, :rapid_equilibrium_steps, :re_segments, :regroup,

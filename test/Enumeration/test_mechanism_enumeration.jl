@@ -136,7 +136,7 @@ _testhelper_holds_iso(m) =
 # The rapid-equilibrium flags of each kinetic group's edges of `m`, group by group.
 _testhelper_group_flags(m) = (cm = EnzymeRates.Mechanisms.catalytic(m);
                               [[cm.steps[k].rapid_equilibrium for k in ks]
-                               for ks in EnzymeRates.Mechanisms._group_members(cm)])
+                               for ks in EnzymeRates.Mechanisms.groups(cm)])
 
 # The steps of mechanism `m` apart from their kinetic groups: what a regrouping move keeps.
 _testhelper_ungrouped(m) =
@@ -1729,7 +1729,7 @@ end
             Estar(B) ⇌ E(Q)
         end
     end)
-    members = EnzymeRates.Mechanisms._group_members(m)
+    members = EnzymeRates.Mechanisms.groups(m)
     flanks = Set(members[g] for g in EnzymeRates.Enumeration._chain_flank_groups(m))
     @test length(flanks) == 2
     @test all(ks -> length(ks) == 1 &&
@@ -2417,7 +2417,7 @@ end
         [r for r in result
          if EnzymeRates.Mechanisms.ngroups(r) == EnzymeRates.Mechanisms.ngroups(m) + 1 &&
              any(ks -> _testhelper_lone_ss_a(r, ks),
-                 EnzymeRates.Mechanisms._group_members(r))]
+                 EnzymeRates.Mechanisms.groups(r))]
     @test length(a_split) == 1
 end
 
@@ -8952,7 +8952,7 @@ end
     # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
     _testhelper_onlya_mets(am) = (cm = am.catalytic;
         Set(only(cm.steps[first(ks)].taken_up).name
-            for (g, ks) in enumerate(EnzymeRates.Mechanisms._group_members(cm))
+            for (g, ks) in enumerate(EnzymeRates.Mechanisms.groups(cm))
             if am.mwc_tags[g] === :OnlyA &&
                !EnzymeRates.Mechanisms._is_iso(cm.steps[first(ks)])))
 
@@ -9020,7 +9020,7 @@ end
             degree[e.from] += 1; degree[e.to] += 1
         end
         count(ks -> all(k -> degree[m.steps[k].to] == 1, ks),
-              EnzymeRates.Mechanisms._group_members(m))
+              EnzymeRates.Mechanisms.groups(m))
     end
     counts = Set{Int}()
     tally = Dict{Tuple{Symbol, Int}, Int}()
@@ -9101,7 +9101,7 @@ _testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].grou
 function _testhelper_test_no_inactive_constants(am, g)
     cm = EnzymeRates.Mechanisms.catalytic(am)
     i_names = EnzymeRates.Mechanisms.name.(EnzymeRates.Mechanisms._edge_constants(
-        cm, first(EnzymeRates.Mechanisms._group_members(cm)[g]), :I), Ref(am))
+        cm, first(EnzymeRates.Mechanisms.groups(cm)[g]), :I), Ref(am))
     @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
     nonequal = EnzymeRates.Mechanisms.with_tags(am,
         replace(EnzymeRates.Mechanisms.mwc_tags(am), :OnlyA => :NonequalAI))
@@ -9355,7 +9355,7 @@ end
     end)
     # Each group's first edge.
     _testhelper_firsts(m) =
-        [m.steps[first(ks)] for ks in EnzymeRates.Mechanisms._group_members(m)]
+        [m.steps[first(ks)] for ks in EnzymeRates.Mechanisms.groups(m)]
     ss_binding(e) = EnzymeRates.Mechanisms._is_binding(e) && !e.rapid_equilibrium
     flags = EnzymeRates.Enumeration._flux_carrying_groups(
         shunt, EnzymeRates.Mechanisms.rapid_equilibrium_steps(shunt))
@@ -10686,7 +10686,7 @@ end
         end
     end)
     g3 = _testhelper_copy_group(case3)
-    @test ER.Enumeration._all_twin(case3, ER.Mechanisms._group_members(case3)[g3],
+    @test ER.Enumeration._all_twin(case3, ER.Mechanisms.groups(case3)[g3],
                                    _testhelper_twin(case3))
     @test isempty(ER.Enumeration._redundant_copy_groups(case3))
     @test _testhelper_fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
@@ -10732,7 +10732,7 @@ end
         end
     end)
     gh = _testhelper_copy_group(h1)
-    @test ER.Enumeration._all_twin(h1, ER.Mechanisms._group_members(h1)[gh],
+    @test ER.Enumeration._all_twin(h1, ER.Mechanisms.groups(h1)[gh],
                                    _testhelper_twin(h1))
     @test isempty(ER.Enumeration._redundant_copy_groups(h1))
     @test _testhelper_fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
@@ -10924,7 +10924,7 @@ end
             E + P <--> E(P)
         end
     end)
-    members = ER.Mechanisms._group_members(fused_re)
+    members = ER.Mechanisms.groups(fused_re)
     copy_g = _testhelper_copy_group(fused_re)
     fused_k = _testhelper_edge(fused_re, "E + A ⇌ EP")
     fused_g = fused_re.steps[fused_k].group
@@ -11076,7 +11076,7 @@ end
             (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod), E(A) + P::Mod ⇌ E(A, P::Mod))
         end
     end)
-    members = ER.Mechanisms._group_members(m)
+    members = ER.Mechanisms.groups(m)
     copy_g = m.steps[_testhelper_edge(m, "E + Amod ⇌ EAmod")].group
     twin = _testhelper_twin(m)
     @test copy_g == 2
@@ -11542,7 +11542,7 @@ end
     # the count agrees with the segmentation the test reader's steps of the flipped graph
     # give (`_testhelper_re_segments`).
     flips = [(seed, g) for seed in EnzymeRates.Enumeration.init_mechanisms(bi_bi_rxn)
-             for (g, ks) in enumerate(EnzymeRates.Mechanisms._group_members(seed))
+             for (g, ks) in enumerate(EnzymeRates.Mechanisms.groups(seed))
              if all(k -> seed.steps[k].rapid_equilibrium, ks)]
     @test length(flips) == 508
     @test all(flips) do (seed, g)
@@ -11920,7 +11920,7 @@ end
         end)
         kids = EnzymeRates.Enumeration._expand_re_to_ss(m)
         @test EnzymeRates.Enumeration._chain_flank_groups(m) ==
-              Set(g for (g, ks) in enumerate(EnzymeRates.Mechanisms._group_members(m))
+              Set(g for (g, ks) in enumerate(EnzymeRates.Mechanisms.groups(m))
                   if !EnzymeRates.Mechanisms._is_iso(m.steps[only(ks)]))
         @test isempty(kids)
         @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
@@ -12309,7 +12309,7 @@ end
         C = (:C, Set([:E, :EA, :EB, :EAB]))
         P, Q, R = (:P, Set([:EQR])), (:Q, Set([:ER])), (:R, Set([:E]))
         _testhelper_group_of(key) =
-            only(g for (g, ks) in enumerate(EnzymeRates.Mechanisms._group_members(m))
+            only(g for (g, ks) in enumerate(EnzymeRates.Mechanisms.groups(m))
                  if _testhelper_group_key(m, ks) == key)
         flip(keys...) = _testhelper_flip_groups(m, [_testhelper_group_of(k) for k in keys])
         expected = [
@@ -12326,7 +12326,7 @@ end
         @test Set(kids) == Set(expected)
         for c in kids
             ss = count((A1, A2, B1, B2)) do key
-                ks = only(ks for ks in EnzymeRates.Mechanisms._group_members(c)
+                ks = only(ks for ks in EnzymeRates.Mechanisms.groups(c)
                           if _testhelper_group_key(c, ks) == key)
                 !any(k -> c.steps[k].rapid_equilibrium, ks)
             end
@@ -13664,7 +13664,7 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    chemistry = [m.steps[ks] for ks in EnzymeRates.Mechanisms._group_members(m)
+    chemistry = [m.steps[ks] for ks in EnzymeRates.Mechanisms.groups(m)
                  if any(k -> EnzymeRates.Mechanisms._is_chemistry(m, m.steps[k]), ks)]
     @test length(chemistry) == 2
     @test all(es -> EnzymeRates.Mechanisms._is_binding(first(es)) &&
@@ -14670,7 +14670,7 @@ end
     # binding to ≥2 bound complexes (no free-E member) — the split the `:OnlyA`
     # orphaning would otherwise break.
     _testhelper_has_lumped_bound_group(m) =
-        any(EnzymeRates.Mechanisms._group_members(m)) do ks
+        any(EnzymeRates.Mechanisms.groups(m)) do ks
         length(ks) ≥ 2 && all(k -> !isempty(m.nodes[m.steps[k].from].bound), ks)
     end
     # Whether the first step of a group, edges `ks` of `m`, binds into a form that holds
@@ -14681,7 +14681,7 @@ end
     for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
         _testhelper_has_lumped_bound_group(m) || continue
         pn = _testhelper_fitted(m)
-        free_e = Set(g for (g, ks) in enumerate(EnzymeRates.Mechanisms._group_members(m))
+        free_e = Set(g for (g, ks) in enumerate(EnzymeRates.Mechanisms.groups(m))
                      if _testhelper_is_free_e_binding(m, ks))
         iso = Set(_testhelper_iso_groups(m))
         children = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)

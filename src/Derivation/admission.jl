@@ -7,7 +7,7 @@
 order: admission's arcs, each stored as its uptake, unbound side first."""
 function _arcs(am::Mechanisms.AllostericMechanism, c::Int)
     m = Mechanisms.catalytic(am)
-    [k for k in Mechanisms.steps(m)
+    [k for k in eachindex(m.steps)
      if Mechanisms.excludes(am, k, _CONFORMATIONS[c]) &&
         Mechanisms.step_kind(m, k) === :binding]
 end
@@ -16,7 +16,7 @@ end
 excludes none."""
 _first_excluded(am::Mechanisms.AllostericMechanism, c::Int) =
     something(findfirst(k -> Mechanisms.excludes(am, k, _CONFORMATIONS[c]),
-                        Mechanisms.steps(Mechanisms.catalytic(am))), 0)
+                        eachindex(Mechanisms.catalytic(am).steps)), 0)
 
 """
 The arcs of one directed cycle that `arcs` close over the components `comp` (each arc an
@@ -25,8 +25,8 @@ empty when they close none. Kahn's algorithm removes every component no cycle fe
 walk back along the remaining arcs then lands on a cycle.
 """
 function _arc_cycle(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int})
-    tail(k) = comp[Mechanisms.ends(m, k)[1]]
-    head(k) = comp[Mechanisms.ends(m, k)[2]]
+    tail(k) = comp[m.steps[k].from]
+    head(k) = comp[m.steps[k].to]
     indeg = zeros(Int, length(comp))
     for k in arcs
         indeg[head(k)] += 1
@@ -65,7 +65,7 @@ from their unbound side's component to their bound side's."""
 function _reached_components(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int})
     next = [Int[] for _ in comp]
     for k in arcs
-        a, b = Mechanisms.ends(m, k)
+        a, b = m.steps[k].from, m.steps[k].to
         push!(next[comp[a]], comp[b])
     end
     _reached(next, [comp[1]])
@@ -82,9 +82,9 @@ function _island_edge(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{I
                       reached::BitVector)
     m = Mechanisms.catalytic(am)
     best, rank = 0, 4
-    for k in Mechanisms.steps(m)
+    for k in eachindex(m.steps)
         Mechanisms.excludes(am, k, _CONFORMATIONS[c]) || continue
-        from, to = Mechanisms.ends(m, k)
+        from, to = m.steps[k].from, m.steps[k].to
         a, b = reached[comp[from]], reached[comp[to]]
         a == b && continue
         r = Mechanisms.step_kind(m, k) === :binding ? 3 :
@@ -120,7 +120,7 @@ function _admission_interior(am::Mechanisms.AllostericMechanism)
         comp = Mechanisms.exclusion_components(am, _CONFORMATIONS[c])
         arcs = _arcs(am, c)
         for k in arcs
-            a, b = Mechanisms.ends(m, k)
+            a, b = m.steps[k].from, m.steps[k].to
             comp[a] == comp[b] && return _Verdict(_NO_LIMIT, _LIMIT_UNTESTED, 0, c, k)
         end
         cycle = _arc_cycle(m, comp, arcs)
@@ -140,7 +140,7 @@ catalytic graph that conformation `c` keeps, in path order; empty when `a == b`.
 pass two forms those edges join."""
 function _kept_path(am::Mechanisms.AllostericMechanism, c::Int, a::Int, b::Int)
     m = Mechanisms.catalytic(am)
-    nforms = length(Mechanisms.species(m))
+    nforms = length(m.nodes)
     via = zeros(Int, nforms)
     seen = falses(nforms)
     seen[a] = true
@@ -149,9 +149,9 @@ function _kept_path(am::Mechanisms.AllostericMechanism, c::Int, a::Int, b::Int)
     while !seen[b]
         head += 1
         u = queue[head]
-        for k in Mechanisms.steps(m)
+        for k in eachindex(m.steps)
             Mechanisms.excludes(am, k, _CONFORMATIONS[c]) && continue
-            from, to = Mechanisms.ends(m, k)
+            from, to = m.steps[k].from, m.steps[k].to
             v = from == u ? to : to == u ? from : 0
             (v == 0 || seen[v]) && continue
             seen[v] = true
@@ -164,7 +164,7 @@ function _kept_path(am::Mechanisms.AllostericMechanism, c::Int, a::Int, b::Int)
     while f != a
         k = via[f]
         pushfirst!(path, k)
-        from, to = Mechanisms.ends(m, k)
+        from, to = m.steps[k].from, m.steps[k].to
         f = from == f ? to : from
     end
     path
@@ -175,8 +175,8 @@ Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the
 (`_guard`). Every fix that retags steps in admission's messages is checked this way.
 """
 function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
-    states = copy(Mechanisms.mwc_tags(am))
-    states[[Mechanisms.group(Mechanisms.catalytic(am), k) for k in ks]] .= tag
+    states = copy(am.mwc_tags)
+    states[[Mechanisms.catalytic(am).steps[k].group for k in ks]] .= tag
     _guard(Mechanisms.with_tags(am, states)) === _WELL_POSED
 end
 
@@ -187,8 +187,8 @@ Whether `mech` with the kinetic group of edge `k` made steady-state passes the g
 """
 function _steady_state_passes(mech::_AnyMech, k::Int)
     m = Mechanisms.catalytic(mech)
-    re = Mechanisms.rapid_equilibrium_steps(m)
-    re[Mechanisms.members(m, Mechanisms.group(m, k))] .= false
+    re = _re_flags(m)
+    re[findall(s -> s.group == m.steps[k].group, m.steps)] .= false
     _guard(Mechanisms.with_flags(mech, re)) === _WELL_POSED
 end
 
@@ -225,8 +225,8 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
               "thermodynamics keeps its affinity finite and the binding has no limit " *
               "there."
         c == 2 || return msg
-        return msg * fixes([k], "its group", _kept_path(am, c, Mechanisms.ends(m, k)...),
-                           "its sides")
+        return msg * fixes([k], "its group",
+                           _kept_path(am, c, m.steps[k].from, m.steps[k].to), "its sides")
     elseif v.fault === _ARC_CYCLE
         cycle = _arc_cycle(m, Mechanisms.exclusion_components(am, _CONFORMATIONS[c]),
                            _arcs(am, c))
@@ -238,19 +238,19 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         joins = Int[]
         for (i, j) in enumerate(cycle)
             next = cycle[mod1(i + 1, length(cycle))]
-            append!(joins, _kept_path(am, c, Mechanisms.ends(m, j)[2],
-                                      Mechanisms.ends(m, next)[1]))
+            append!(joins, _kept_path(am, c, m.steps[j].to,
+                                      m.steps[next].from))
         end
         return msg * fixes(cycle, "them", unique!(joins), "them")
     elseif v.fault === _ISLAND
         comp = Mechanisms.exclusion_components(am, _CONFORMATIONS[c])
         reached = _reached_components(m, comp, _arcs(am, c))
-        from, to = Mechanisms.ends(m, k)
+        from, to = m.steps[k].from, m.steps[k].to
         lost = reached[comp[from]] ? comp[to] : comp[from]
         fixable = c == 2 && untag_passes([k])
         msg = "AllostericMechanism: in the $conf conformation the forms " *
               join([Mechanisms.form_text(m, f)
-                    for f in Mechanisms.species(m) if comp[f] == lost], ", ") *
+                    for f in eachindex(m.nodes) if comp[f] == lost], ", ") *
               " join free E only through $tag steps that are not bindings toward them, " *
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
         msg = c == 2 && fixable ?
@@ -259,9 +259,10 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         # covalent forms between the halves; the roadmap lists what would hold them.
         neither = c == 2 && all(j -> Mechanisms.step_kind(m, j) === :binding ||
                                      Mechanisms.excludes(am, j, :inactive),
-                                Mechanisms.steps(m))
-        covalent = any(f -> comp[f] == lost && !all(isempty, Mechanisms.residual(m, f)),
-                       Mechanisms.species(m))
+                                eachindex(m.steps))
+        covalent = any(f -> comp[f] == lost && !(isempty(m.nodes[f].added) &&
+                                                 isempty(m.nodes[f].subtracted)),
+                       eachindex(m.nodes))
         return neither && covalent ?
                msg * " An inactive conformation that runs neither half-reaction of a " *
                      "ping-pong is not supported yet (see the Roadmap page)." : msg
@@ -286,7 +287,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
             out = "which leave only through the vanishing $(steps(exits)) while " *
                   "nothing runs back the way it came, so admission cannot show that " *
                   "their weight does not depend on how fast $(vanish(exits))"
-            from, to = Mechanisms.ends(m, k)
+            from, to = m.steps[k].from, m.steps[k].to
             inside = s.stranded[_node(eps, from, c)] && s.stranded[_node(eps, to, c)]
             return "AllostericMechanism: $(phrase)$(line(k)) " *
                    (inside ? "runs one way among" : "feeds") * " the forms " *
@@ -312,7 +313,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         return _steady_state_passes(am, k) ?
                msg * " Make the group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER
-        ks = [j for j in Mechanisms.steps(m) if Mechanisms.excludes(am, j, :active)]
+        ks = [j for j in eachindex(m.steps) if Mechanisms.excludes(am, j, :active)]
         msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
               "conformation turns no substrate into product, and only the active " *
               "conformation may catalyze."

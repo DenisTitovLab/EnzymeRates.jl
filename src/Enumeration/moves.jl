@@ -3,10 +3,6 @@
 
 # ─── Kinetic groups ──────────────────────────────────────────
 
-"""Each kinetic group's steps of graph `m`, in step order (`members`)."""
-_group_members(m::Mechanisms.Mechanism) =
-    [Mechanisms.members(m, g) for g in 1:Mechanisms.ngroups(m)]
-
 """Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
 function _groups_with(pred, m::Mechanisms.Mechanism)
     out = falses(Mechanisms.ngroups(m))
@@ -105,7 +101,7 @@ subunit a flank's flip can be visible through the two conformations.
 function _chain_flank_groups(m::Mechanisms.Mechanism)
     # The group of each edge alone in its group, 0 for any other edge.
     lone = zeros(Int, length(Mechanisms.steps(m)))
-    for (g, ks) in enumerate(_group_members(m))
+    for (g, ks) in enumerate(Mechanisms.groups(m))
         length(ks) == 1 && (lone[only(ks)] = g)
     end
     at = [Int[] for _ in Mechanisms.species(m)]
@@ -118,7 +114,8 @@ function _chain_flank_groups(m::Mechanisms.Mechanism)
         rest = filter(!=(k0), at[x])
         length(rest) == 1 || return 0
         k = only(rest)
-        Mechanisms.is_binding(m, k) && Mechanisms.ends(m, k)[2] == x ? lone[k] : 0
+        Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
+            Mechanisms.ends(m, k)[2] == x ? lone[k] : 0
     end
     out = Set{Int}()
     for k0 in Mechanisms.steps(m)
@@ -149,7 +146,7 @@ function _minimal_flips(admissible,
                         eligible = _ -> true)
     cm = Mechanisms.catalytic(m)
     flags = Mechanisms.rapid_equilibrium_steps(cm)
-    members = _group_members(cm)
+    members = Mechanisms.groups(cm)
     flux = _flux_carrying_groups(cm, falses(length(Mechanisms.steps(cm))))
     units = [g for g in eachindex(members)
              if all(k -> flags[k], members[g]) && flux[g] && eligible(g)]
@@ -374,7 +371,7 @@ constructor, since a regrouping can turn a tied group's member.
 function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
                                                Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = _group_members(cm)
+    members = Mechanisms.groups(cm)
     flags = Mechanisms.rapid_equilibrium_steps(cm)
     flux = _flux_carrying_edges(cm, flags)
     units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
@@ -462,7 +459,7 @@ function _context_bipartitions(m::Mechanisms.Mechanism, g::Int)
     ks = Mechanisms.members(m, g)
     # The group's own bound ligand, as (name, copy), when its first edge is a binding.
     first_up = Mechanisms.taken_up(m, first(ks))
-    own = Mechanisms.is_binding(m, first(ks)) ?
+    own = Mechanisms.step_kind(m, first(ks)) in (:binding, :fused_binding) ?
         (only(Mechanisms.metabolite_names(first_up)),
          !isempty(Mechanisms.modifier_copies(first_up))) : nothing
     forms = [_context_form(m, k) for k in ks]
@@ -495,7 +492,7 @@ it.
 function _bipartitioned_groups(m::Mechanisms.Mechanism, selection)
     second = Dict(g => last(bp) for (g, bp) in selection)
     group, n = zeros(Int, length(Mechanisms.steps(m))), 0
-    for (g, ks) in enumerate(_group_members(m))
+    for (g, ks) in enumerate(Mechanisms.groups(m))
         group[ks] .= (n += 1)
         haskey(second, g) && (group[second[g]] .= (n += 1))
     end
@@ -596,7 +593,7 @@ function _dead_end_child(m::Mechanisms.Mechanism, raw::Mechanisms.RawMechanism,
     twin = _productive_twin(cm, trues(length(Mechanisms.steps(cm))))
     binding = findfirst(k -> _held_copies(Mechanisms.taken_up(cm, k), reg, true) > 0,
                         Mechanisms.steps(cm))::Int
-    _gauge_rescaling(cm, _group_members(cm), Mechanisms.group(cm, binding), twin,
+    _gauge_rescaling(cm, Mechanisms.groups(cm), Mechanisms.group(cm, binding), twin,
                      _one_state_class) === nothing || return nothing
     Mechanisms.Mechanism(raw)
 end

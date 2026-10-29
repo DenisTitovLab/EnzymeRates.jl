@@ -32,7 +32,7 @@ difference for it: that double-counts metabolites already accounted for by the b
 and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
 """
 function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
-    forms = Mechanisms.species(m)
+    forms = eachindex(m.nodes)
     path = [zeros(Int, length(flat)) for _ in forms]   # signed tree edges from the root
     seen, tree = falses(length(forms)), falses(length(flat))
     for root in forms
@@ -41,7 +41,7 @@ function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
         while grown
             grown = false
             for (j, k) in enumerate(flat)
-                a, b = Mechanisms.ends(m, k)
+                a, b = m.steps[k].from, m.steps[k].to
                 seen[a] == seen[b] && continue
                 from, to, sgn = seen[a] ? (a, b, 1) : (b, a, -1)
                 path[to] .= path[from]
@@ -51,21 +51,21 @@ function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
         end
     end
     net = Dict{Symbol, Int}()
-    foreach(x -> net[x] = -1, Mechanisms.substrates(m))
-    foreach(x -> net[x] = 1, Mechanisms.products(m))
-    x1 = first(Mechanisms.substrates(m))
+    foreach(x -> net[x] = -1, m.substrates)
+    foreach(x -> net[x] = 1, m.products)
+    x1 = first(m.substrates)
     rows, multiples = Vector{Int}[], Int[]
     for (j, k) in enumerate(flat)
         tree[j] && continue
-        a, b = Mechanisms.ends(m, k)
+        a, b = m.steps[k].from, m.steps[k].to
         z = path[a] - path[b]
         z[j] += 1
         change = Dict{Symbol, Int}(x => 0 for x in keys(net))
         for (i, kk) in enumerate(flat)
             z[i] == 0 && continue
-            up, off = Mechanisms.taken_up(m, kk), Mechanisms.given_off(m, kk)
+            up, off = m.steps[kk].taken_up, m.steps[kk].given_off
             for x in keys(net)
-                change[x] += z[i] * (Mechanisms.copies(off, x) - Mechanisms.copies(up, x))
+                change[x] += z[i] * (_copies(off, x) - _copies(up, x))
             end
         end
         c = change[x1] * net[x1]
@@ -109,8 +109,9 @@ function _joint_system(m::_AnyMech, cols = Mechanisms.constant_columns(m))
         for (j, k) in enumerate(flat)
             z = Z[i, j]
             z == 0 && continue
-            re = Mechanisms.is_rapid_equilibrium(cm, k)
-            row[column(k, 1, inactive)] += re && Mechanisms.is_binding(cm, k) ? -z : z
+            re = cm.steps[k].rapid_equilibrium
+            binds = Mechanisms.step_kind(cm, k) in (:binding, :fused_binding)
+            row[column(k, 1, inactive)] += re && binds ? -z : z
             re || (row[column(k, 2, inactive)] -= z)
         end
         push!(rows, row)
@@ -289,9 +290,9 @@ those of the active conformation, then the inactive conformation's own, site by 
 none."""
 _regulator_names(::Mechanisms.Mechanism) = Symbol[]
 function _regulator_names(am::Mechanisms.AllostericMechanism)
-    names(inactive) = Symbol[K for site in Mechanisms.regulatory_sites(am)
-                             for (lig, tag) in zip(Mechanisms.ligands(site),
-                                                   Mechanisms.mwc_tags(site))
+    names(inactive) = Symbol[K for site in am.regulatory_sites
+                             for (lig, tag) in zip(site.ligands,
+                                                   site.mwc_tags)
                              if !(inactive && tag === :EqualAI)
                              for K in (Mechanisms.regulator_constant(am, lig, tag,
                                                                      inactive),)

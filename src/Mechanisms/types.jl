@@ -965,9 +965,9 @@ function _check_representation(m::Mechanism, misaligned::Vector{Step},
     end
     _check_aligned(m, misaligned)
     _check_distinct_form_names(m)
-    groups = _group_members(m)
-    _check_uniform_groups(m, groups)
-    _check_each_reaction_once(m, groups)
+    by_group = groups(m)
+    _check_uniform_groups(m, by_group)
+    _check_each_reaction_once(m, by_group)
     _check_free_E(m)
     _check_connected(m)
     _check_declared_used(m, modifiers)
@@ -1276,17 +1276,16 @@ non-modifier entries. A reactant and its modifier copy are two entries.
 """
 function _table(m::Mechanism)
     table = Met[]
-    add(x::Met) = x in table || push!(table, x)
     for n in m.nodes
-        foreach(add, n.bound)
-        foreach(x -> add(Met(x, false)), n.added)
-        foreach(x -> add(Met(x, false)), n.subtracted)
+        append!(table, n.bound)
+        foreach(x -> push!(table, Met(x, false)), n.added)
+        foreach(x -> push!(table, Met(x, false)), n.subtracted)
     end
     for e in m.steps
-        foreach(add, e.taken_up)
-        foreach(add, e.given_off)
+        append!(table, e.taken_up)
+        append!(table, e.given_off)
     end
-    sort!(table)
+    unique!(sort!(table))
 end
 """Every name bound as a modifier, reactant copies included, sorted. It reads the nodes and
 steps without building `_table`: the guard asks for it many times per mechanism."""
@@ -1327,14 +1326,6 @@ regulatory_sites(am::AllostericMechanism) = am.regulatory_sites
 ngroups(m::Mechanism) = maximum(e -> e.group, m.steps; init = 0)
 """Each step's kinetic group, in step order."""
 _group_labels(m::Mechanism) = Int[e.group for e in m.steps]
-"""Each kinetic group's steps, in step order."""
-function _group_members(m::Mechanism)
-    members = [Int[] for _ in 1:ngroups(m)]
-    for (k, e) in enumerate(m.steps)
-        push!(members[e.group], k)
-    end
-    members
-end
 _has_residual(n::Node) = !isempty(n.added) || !isempty(n.subtracted)
 """Whether step `e` takes up one metabolite and gives off none."""
 _is_binding(e::Step) = isempty(e.given_off) && length(e.taken_up) == 1
@@ -1395,7 +1386,7 @@ function runs_toward_products(m::Mechanism, k::Int)
 end
 """The steps group by group, each group in step order: the order the joint solve and the
 derivation read them in."""
-_flat_edges(m::Mechanism) = reduce(vcat, _group_members(m); init = Int[])
+_flat_edges(m::Mechanism) = reduce(vcat, groups(m); init = Int[])
 """Whether `n` is a free node: nothing bound and no residual, whatever its label."""
 _is_free(n::Node) = isempty(n.bound) && !_has_residual(n)
 """Whether `n` is free E: label `E`, nothing bound and no residual."""
@@ -1434,9 +1425,21 @@ function present_species(m::Mechanism, on::BitVector)
     present
 end
 
-"""The distinct metabolite names of `m` (`_table`), sorted: a reactant and its modifier
-copy share one, as they share a concentration."""
-_distinct_names(m::Mechanism) = unique!([x.name for x in _table(m)])
+"""The distinct metabolite names of `m` (the names of `_table`), sorted: a reactant and its
+modifier copy share one, as they share a concentration."""
+function _distinct_names(m::Mechanism)
+    names = Symbol[]
+    for n in m.nodes
+        foreach(x -> push!(names, x.name), n.bound)
+        append!(names, n.added)
+        append!(names, n.subtracted)
+    end
+    for e in m.steps
+        foreach(x -> push!(names, x.name), e.taken_up)
+        foreach(x -> push!(names, x.name), e.given_off)
+    end
+    unique!(sort!(names))
+end
 
 """
     segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
@@ -1520,7 +1523,7 @@ function re_segments(m::Mechanism, on::BitVector, re::BitVector)
     nf = length(m.nodes)
     names = _distinct_names(m)
     nn = length(names)
-    row(x::Met) = findfirst(n -> n === x.name, names)::Int
+    row(x::Met) = searchsortedfirst(names, x.name)
     # Each kept rapid-equilibrium step as two transitions, 2j - 1 in its stored direction
     # and 2j in reverse, each listed at the form it leaves.
     kept = [k for k in _flat_edges(m) if on[k] && re[k]]

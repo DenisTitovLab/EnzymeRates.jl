@@ -149,7 +149,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
         error("raw writes another mechanism than m")
     # The test reader's steps run group by group, each group in edge order.
     flat = reduce(
-        vcat, EnzymeRates.Mechanisms._group_members(EnzymeRates.Mechanisms.catalytic(mech)))
+        vcat, EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanisms.catalytic(mech)))
     out = Pair{Symbol, Any}[]
     for i in eachindex(c.edge_of)
         s = g.steps[findfirst(==(c.edge_of[i]), flat)]
@@ -1126,7 +1126,7 @@ end
     hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
     am = EnzymeRates.AllostericMechanism(hk.mechanism)
     cm = am.catalytic
-    members = EnzymeRates.Mechanisms._group_members(cm)
+    members = EnzymeRates.Mechanisms.groups(cm)
     onlyA_groups = [g for g in eachindex(members)
                     if EnzymeRates.Mechanisms.tag(am, g) === :OnlyA]
     @test length(onlyA_groups) == 2

@@ -17,7 +17,7 @@ end
 """The variables of `vars` that hold `m`'s substrates (the unit rule's `substrates`)."""
 _substrate_vars(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
                 vars::_Vars) =
-    Int[vars.index[x] for x in Mechanisms.substrates(m)]
+    Int[vars.index[x] for x in Mechanisms.catalytic(m).substrates]
 
 """
     _term_key(mo, vars, substrates) -> key

@@ -219,7 +219,7 @@ function _testhelper_check_stored_orientation(m)
     # The written form holds edge `k` as step `k`.
     flipped = EnzymeRates.Mechanisms._canonicalize(cat).flipped
     for members in
-        EnzymeRates.Mechanisms._group_members(EnzymeRates.Mechanisms.catalytic(mech))
+        EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanisms.catalytic(mech))
         @test !any(flipped[members])
     end
     written = EnzymeRates.Mechanisms.RawMechanism(

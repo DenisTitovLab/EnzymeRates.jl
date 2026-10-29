@@ -126,9 +126,9 @@ function _edge_names(m::_AnyMech, state::Symbol, cols = Mechanisms.constant_colu
     column(k, slot) = get(() -> index[_Column((k, slot, false))], index,
                           _Column((k, slot, state === :I)))
     [mask[k] ? Symbol[cols.names[column(k, slot)]
-                      for slot in 1:(Mechanisms.is_rapid_equilibrium(cm, k) ? 1 : 2)] :
+                      for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)] :
                Symbol[]
-     for k in Mechanisms.steps(cm)]
+     for k in eachindex(cm.steps)]
 end
 
 # ─── Steady-state rate-constant names ──────────────────────────
@@ -145,7 +145,7 @@ function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMech
     states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
     cols = Mechanisms.constant_columns(m)
     Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, cols))
-                if !Mechanisms.is_rapid_equilibrium(cm, k) for n in ns)
+                if !cm.steps[k].rapid_equilibrium for n in ns)
 end
 
 """

@@ -77,7 +77,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # group → 5 steps, 4 groups (one 2-step group binding R).
         mech2 = ER.Mechanism(m2)
         @test ER.Mechanisms.ngroups(mech2) == 4
-        shared = only(ks for ks in ER.Mechanisms._group_members(mech2) if length(ks) == 2)
+        shared = only(ks for ks in ER.Mechanisms.groups(mech2) if length(ks) == 2)
         @test all(k -> ER.Mechanisms._is_binding(mech2.steps[k]) &&
                        only(mech2.steps[k].taken_up) == ER.Mechanisms.Met(:R, true),
                   shared)
@@ -246,7 +246,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
         # canonical, so identify the tagged group by its step, not its position.
         am_c = ER.AllostericMechanism(m)
-        members = ER.Mechanisms._group_members(am_c.catalytic)
+        members = ER.Mechanisms.groups(am_c.catalytic)
         onlyA_g = only(g for g in eachindex(members)
                        if ER.Mechanisms.tag(am_c, g) === :OnlyA)
         @test !ER.Mechanisms._is_binding(am_c.catalytic.steps[first(members[onlyA_g])])
@@ -2269,7 +2269,7 @@ end
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
     pm = ER.Mechanism(pingpong)
     @test length(pp_names) == sum(pm.steps[first(ks)].rapid_equilibrium ? 1 : 2
-                                  for ks in ER.Mechanisms._group_members(pm))
+                                  for ks in ER.Mechanisms.groups(pm))
 end
 
 @testset "a modifier-only name is bare in constant names, a reactant's copy is Xmod" begin
@@ -2409,7 +2409,7 @@ end
     end
     m = ER.Mechanism(ss)
     label(f) = m.nodes[f].conformation
-    mirror = only(m.steps[ks] for ks in ER.Mechanisms._group_members(m)
+    mirror = only(m.steps[ks] for ks in ER.Mechanisms.groups(m)
                   if length(ks) == 2 && all(k -> ER.Mechanisms._is_iso(m.steps[k]), ks))
     @test all(e -> label(e.from) == :F && label(e.to) == :E, mirror)
     @test !occursin("Wegscheider", rate_equation_string(ss))
@@ -2460,7 +2460,7 @@ end
 # isomerizes, and what each takes up and gives off.
 function _testhelper_exchanges(mech)
     cm = ER.Mechanisms.catalytic(mech)
-    group = only(ks for ks in ER.Mechanisms._group_members(cm) if !any(
+    group = only(ks for ks in ER.Mechanisms.groups(cm) if !any(
         k -> ER.Mechanisms._is_iso(cm.steps[k]) || ER.Mechanisms._is_binding(cm.steps[k]),
         ks))
     [(e.taken_up, e.given_off) for e in cm.steps[group]]
@@ -2714,7 +2714,7 @@ end
     # names differ in the bound form (k_E_A_to_EA, k_E_A_to_EstarA).
     m = _testhelper_written(:(E + A <--> E(A)), :(E + A <--> Estar(A)),
                             :(E(A) <--> E(P)), :(E + P <--> E(P)))
-    names = [ER.Mechanisms.name(p, m) for members in ER.Mechanisms._group_members(m)
+    names = [ER.Mechanisms.name(p, m) for members in ER.Mechanisms.groups(m)
              for p in ER.Mechanisms._edge_constants(m, first(members), :None)]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)

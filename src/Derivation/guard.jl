@@ -149,7 +149,7 @@ _guard_names(m::Mechanisms.Mechanism) = sort!(Mechanisms.metabolites(m))
 """The guard's name (`_guard_names`) of `m`'s first substrate, whose uptake counts
 turnover."""
 _turnover_name(m::Mechanisms.Mechanism) =
-    searchsortedfirst(_guard_names(m), first(Mechanisms.substrates(m)))
+    searchsortedfirst(_guard_names(m), first(m.substrates))
 
 """The node of form `f` in copy `c` of `net`."""
 _node(net::_Network, f::Int, c::Int) = (c - 1) * net.nforms + f
@@ -198,7 +198,7 @@ gives off nothing.
 """
 function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
                   fast::BitMatrix, vanish_forward::BitMatrix, vanish_reverse::BitMatrix)
-    nf, ncopies = length(Mechanisms.species(m)), size(use, 2)
+    nf, ncopies = length(m.nodes), size(use, 2)
     names = _guard_names(m)
     nt = 2 * count(use) + (ncopies == 2 ? 2 : 0)
     from, to, edge, conformation = zeros(Int, nt), zeros(Int, nt), zeros(Int, nt),
@@ -206,18 +206,18 @@ function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
     forward, isfast, vanishing = falses(nt), falses(nt), falses(nt)
     change, takes = zeros(Int, length(names), nt), zeros(UInt64, nt)
     t = 0
-    for c in 1:ncopies, k in Mechanisms.steps(m)
+    for c in 1:ncopies, k in eachindex(m.steps)
         use[k, c] || continue
-        a, b = (c - 1) * nf .+ Mechanisms.ends(m, k)
-        up, off = Mechanisms.taken_up(m, k), Mechanisms.given_off(m, k)
+        a, b = (c - 1) * nf .+ (m.steps[k].from, m.steps[k].to)
+        up, off = m.steps[k].taken_up, m.steps[k].given_off
         for (u, v, gain, loss, gone) in ((a, b, up, off, vanish_forward[k, c]),
                                          (b, a, off, up, vanish_reverse[k, c]))
             t += 1
             from[t], to[t], edge[t], conformation[t] = u, v, k, c
             forward[t], isfast[t], vanishing[t] = u == a, fast[k, c], gone
             for (n, x) in enumerate(names)
-                taken = Mechanisms.copies(gain, x)
-                change[n, t] = taken - Mechanisms.copies(loss, x)
+                taken = _copies(gain, x)
+                change[n, t] = taken - _copies(loss, x)
                 taken > 0 && (takes[t] |= UInt64(1) << (n - 1))
             end
         end
@@ -237,17 +237,17 @@ holding the steps of its conformation (`conformation_steps`) and the forms they 
 (`present_species`), free E always, joined by the flip at free E.
 """
 function _law_network(m::Mechanisms.Mechanism,
-                      re::BitVector = Mechanisms.rapid_equilibrium_steps(m))
-    n = length(Mechanisms.steps(m))
+                      re::BitVector = _re_flags(m))
+    n = length(m.steps)
     fast = falses(n, 1)
     fast[:, 1] .= re
-    _network(m, trues(length(Mechanisms.species(m))), trues(n, 1), fast, falses(n, 1),
+    _network(m, trues(length(m.nodes)), trues(n, 1), fast, falses(n, 1),
              falses(n, 1))
 end
 function _law_network(am::Mechanisms.AllostericMechanism)
     m = Mechanisms.catalytic(am)
-    re = Mechanisms.rapid_equilibrium_steps(m)
-    n, nf = length(Mechanisms.steps(m)), length(Mechanisms.species(m))
+    re = _re_flags(m)
+    n, nf = length(m.steps), length(m.nodes)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for (c, conformation) in enumerate(_CONFORMATIONS)
         mask = Mechanisms.conformation_steps(am, conformation)
@@ -268,21 +268,21 @@ other excluded edge is slow and vanishes both ways. A plain mechanism's ε-netwo
 law network.
 """
 _eps_network(m::Mechanisms.Mechanism,
-             re::BitVector = Mechanisms.rapid_equilibrium_steps(m)) = _law_network(m, re)
+             re::BitVector = _re_flags(m)) = _law_network(m, re)
 function _eps_network(am::Mechanisms.AllostericMechanism,
                       re::BitVector =
-                          Mechanisms.rapid_equilibrium_steps(Mechanisms.catalytic(am)))
+                          _re_flags(Mechanisms.catalytic(am)))
     m = Mechanisms.catalytic(am)
-    n = length(Mechanisms.steps(m))
+    n = length(m.steps)
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
-    for c in 1:2, k in Mechanisms.steps(m)
+    for c in 1:2, k in eachindex(m.steps)
         excluded = Mechanisms.excludes(am, k, _CONFORMATIONS[c])
         plain = Mechanisms.step_kind(m, k) === :binding
         fast[k, c] = re[k] && (!excluded || plain)
         vanish_forward[k, c] = excluded
         vanish_reverse[k, c] = excluded && !plain
     end
-    _network(m, trues(2 * length(Mechanisms.species(m))), trues(n, 2), fast, vanish_forward,
+    _network(m, trues(2 * length(m.nodes)), trues(n, 2), fast, vanish_forward,
              vanish_reverse)
 end
 
@@ -297,7 +297,7 @@ product.
 """
 function _faces(m::Mechanisms.Mechanism)
     names = _guard_names(m)
-    substrates, products = Mechanisms.substrates(m), Mechanisms.products(m)
+    substrates, products = m.substrates, m.products
     bit(x::Symbol) = UInt64(1) << (searchsortedfirst(names, x) - 1)
     side(xs::Vector{Symbol}) = reduce(|, (bit(x) for x in xs); init = UInt64(0))
     base = UInt64[0, side(products), side(substrates)]
@@ -387,7 +387,7 @@ reads the reaction graph through masks and builds nothing.
 """
 function _guard(mech::_AnyMech)
     m = Mechanisms.catalytic(mech)
-    Mechanisms.has_turnover_cycle(m, trues(length(Mechanisms.steps(m)))) ||
+    Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)

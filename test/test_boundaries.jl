@@ -62,8 +62,12 @@ const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
         "s.name"]),
 )
 
-const _testhelper_MECHANISM_TYPES = (:Mechanism, :AllostericMechanism, :Met, :Metabolites,
-    :RegulatorySite, :RawForm, :RawStep, :RawMechanism, :RawSite, :RawAllostericMechanism)
+const _testhelper_MECHANISM_TYPES = (:RawForm, :RawStep, :RawMechanism, :RawSite,
+    :RawAllostericMechanism)
+
+# Types whose fields are public: a field name they share with a banned type is not banned.
+const _testhelper_PUBLIC_TYPES = (:Met, :Node, :Step, :Mechanism, :AllostericMechanism,
+    :RegulatorySite)
 
 """Calls `visit(ex, line)` on every `Expr` below `ex`, children before parents; `line` is
 the source line of the statement holding `ex`."""
@@ -258,7 +262,8 @@ function _testhelper_field_violations(root, ban, allowed)
     found
 end
 
-"""The field names of the mechanism types, from their `struct` definitions under `root`."""
+"""The field names of the banned mechanism types that no public type also has, from their
+`struct` definitions under `root`."""
 function _testhelper_mechanism_fields(root)
     structs = Dict{Symbol, Vector{Symbol}}()
     for file in _testhelper_source_files(root)
@@ -266,7 +271,9 @@ function _testhelper_mechanism_fields(root)
     end
     missing_types = [t for t in _testhelper_MECHANISM_TYPES if !haskey(structs, t)]
     isempty(missing_types) || error("no struct definition found for $missing_types")
-    Set{Symbol}(f for t in _testhelper_MECHANISM_TYPES for f in structs[t])
+    public = Set{Symbol}(f for t in _testhelper_PUBLIC_TYPES for f in structs[t])
+    Set{Symbol}(f for t in _testhelper_MECHANISM_TYPES for f in structs[t]
+                if !(f in public))
 end
 
 const _testhelper_SRC = normpath(joinpath(@__DIR__, "..", "src"))
@@ -364,12 +371,11 @@ end
               Dict(:A => [:x, :y, :z], :B => [:w])
     end
     @testset "mechanism fields come from the struct definitions" begin
-        @test issubset([:substrates, :nodes, :group, :bound, :from, :to, :consumed,
-            :released, :ligands, :multiplicity, :catalytic, :name, :modifier,
-            :steps, :sites, :regulatory_sites, :mwc_tags, :mets],
+        @test issubset([:consumed, :released, :modifiers, :sites],
             _testhelper_MECHANISM_FIELDS)
-        # A node's and a step's own fields are not banned.
-        @test isdisjoint([:taken_up, :given_off], _testhelper_MECHANISM_FIELDS)
+        # A field a public type has is not banned.
+        @test isdisjoint([:taken_up, :given_off, :steps, :from, :substrates, :mwc_tags],
+            _testhelper_MECHANISM_FIELDS)
     end
 
     cleanly_layered = (

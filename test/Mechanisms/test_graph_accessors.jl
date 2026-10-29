@@ -25,7 +25,6 @@ function _testhelper_test_graph_accessors_allocate_nothing(m, x, k)
     @test _testhelper_allocated(M.given_off, m, k) == 0
     @test _testhelper_allocated(M.is_rapid_equilibrium, m, k) == 0
     @test _testhelper_allocated(M.step_kind, m, k) == 0
-    @test _testhelper_allocated(M.is_binding, m, k) == 0
     @test _testhelper_allocated(M.group, m, k) == 0
     @test _testhelper_allocated(M.ngroups, m) == 0
     @test _testhelper_allocated(M.copies, s, :S) == 0
@@ -72,8 +71,6 @@ end
         @test M.rapid_equilibrium_steps(m) == BitVector([1, 1, 0, 1, 0, 1, 0])
         @test [M.step_kind(m, k) for k in M.steps(m)] ==
               [:binding, :binding, :binding, :binding, :isomerization, :binding, :binding]
-        @test [M.is_binding(m, k) for k in M.steps(m)] ==
-              [true, true, true, true, false, true, true]
     end
 
     # Kinetic groups are numbered by their first step in step order.
@@ -81,6 +78,7 @@ end
         @test M.ngroups(m) == 5
         @test [M.group(m, k) for k in M.steps(m)] == [1, 2, 3, 2, 4, 1, 5]
         @test [M.members(m, g) for g in 1:5] == [[1, 6], [2, 4], [3], [5], [7]]
+        @test M.groups(m) == [[1, 6], [2, 4], [3], [5], [7]]
     end
 
     @testset "metabolite multisets" begin
@@ -95,6 +93,12 @@ end
         @test EA ∩ EAB == EA
         @test isempty(EA ∩ EB)
         @test M.taken_up(m, 1) == EA
+        # Repeats on both sides: each metabolite as often as the fuller or emptier holds it.
+        AAB = M.Metabolites([M.Met(:A, false), M.Met(:A, false), M.Met(:B, false)])
+        AC = M.Metabolites([M.Met(:A, false), M.Met(:C, false)])
+        @test AAB ∪ AC == M.Metabolites([M.Met(:A, false), M.Met(:A, false),
+                                         M.Met(:B, false), M.Met(:C, false)])
+        @test AAB ∩ AC == M.Metabolites([M.Met(:A, false)])
     end
 
     @testset "scalar accessors allocate nothing" begin
@@ -144,6 +148,7 @@ end
         @test M.ngroups(m) == 3
         @test [M.group(m, k) for k in M.steps(m)] == [1, 2, 3]
         @test [M.members(m, g) for g in 1:3] == [[1], [2], [3]]
+        @test M.groups(m) == [[1], [2], [3]]
     end
 
     @testset "allosteric parts" begin
@@ -179,16 +184,15 @@ end
     # writing.
     @test [M.conformation(m, x) for x in M.species(m)] == [:E, :F, :F]
     @test [M.ends(m, k) for k in M.steps(m)] == [(1, 3), (2, 1), (2, 3)]
+    # A fused binding takes up one metabolite and gives off none, into a form that differs
+    # from its source by more than that metabolite.
     @test [M.step_kind(m, k) for k in M.steps(m)] ==
-          [:chemistry, :isomerization, :binding]
-    # A fused binding takes up one metabolite and gives off none: a binding, of kind
-    # :chemistry.
-    @test [M.is_binding(m, k) for k in M.steps(m)] == [true, false, true]
+          [:fused_binding, :isomerization, :binding]
     @test [M.metabolite_names(M.taken_up(m, k)) for k in M.steps(m)] ==
           [[:S], Symbol[], [:P]]
     @test _testhelper_allocated(M.step_kind, m, 1) == 0
 
-    # A Theorell–Chance step takes up B and gives off P: no binding.
+    # A Theorell–Chance step takes up B and gives off P: chemistry, no binding.
     tc = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -201,7 +205,22 @@ end
     # Canonical form numbers the forms E, E(A), E(Q) and stores the steps E + A → E(A),
     # E + Q → E(Q), E(A) + B → E(Q) + P.
     @test [M.ends(tc, k) for k in M.steps(tc)] == [(1, 2), (1, 3), (2, 3)]
-    @test [M.is_binding(tc, k) for k in M.steps(tc)] == [true, true, false]
+    @test [M.step_kind(tc, k) for k in M.steps(tc)] == [:binding, :binding, :chemistry]
+
+    # A merged complex entered by the last substrate: a fused binding; the isomerization
+    # and the plain binding of the product release keep their kinds.
+    fused = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(P, Q)
+            E(P, Q) ⇌ E(Q) + P
+            E(Q) ⇌ E + Q
+        end
+    end)
+    @test sort([M.step_kind(fused, k) for k in M.steps(fused)]) ==
+          [:binding, :binding, :binding, :fused_binding]
 end
 
 @testset "graph accessors: a ping-pong's residual" begin

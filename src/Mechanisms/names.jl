@@ -126,8 +126,8 @@ name(p::Krev, m::_AnyMech, kept = _kept_members(m)) =
                      p.state)
 function name(p::Krapid, m::_AnyMech, kept = _kept_members(m))
     s = _constant_sides(m, p.edge, 1, p.state, kept)
-    _render_reaction("K_", is_binding(catalytic(m), p.edge) ? reverse(s) : s,
-                     p.state)
+    binds = step_kind(catalytic(m), p.edge) in (:binding, :fused_binding)
+    _render_reaction("K_", binds ? reverse(s) : s, p.state)
 end
 
 """
@@ -188,12 +188,13 @@ end
 _solve_tags(m::Mechanism) = fill(:None, ngroups(m))
 _solve_tags(am::AllostericMechanism) = mwc_tags(am)
 
-"""Whether the active column of edge `k`, in a group `group[k]` tagged `tags`, enters the
+"""Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
 law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
 edge of the inactive conformation's law (`law`), whose one constant the inactive law
 reads."""
-_in_active_law(k::Int, group::Vector{Int}, tags::Vector{Symbol}, law::BitVector,
-               alaw::BitVector) = alaw[k] || (tags[group[k]] === :EqualAI && law[k])
+_in_active_law(cm::Mechanism, k::Int, tags::Vector{Symbol}, law::BitVector,
+               alaw::BitVector) =
+    alaw[k] || (tags[cm.steps[k].group] === :EqualAI && law[k])
 
 """Whether the steps of a group with allosteric tag `tag` take their own constants in the
 inactive conformation: those of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group do; an
@@ -219,17 +220,17 @@ function _ordered_columns(m::_AnyMech)
     law = conformation_steps(m, :inactive)
     alaw = conformation_steps(m, :active)
     allosteric = m isa AllostericMechanism
-    group = _group_labels(cm)
     columns = _Column[]
     for k in flat, inactive in (false, true)
-        inactive && !(allosteric && _has_inactive_columns(tags[group[k]])) && continue
+        inactive && !(allosteric && _has_inactive_columns(tags[cm.steps[k].group])) &&
+            continue
         for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)
             push!(columns, _Column((k, slot, inactive)))
         end
     end
     rank = _edge_base_rank(cm)
     block(c) = c.inactive ? (law[c.edge] ? 1 : 2) :
-               _in_active_law(c.edge, group, tags, law, alaw) ? 0 : 2
+               _in_active_law(cm, c.edge, tags, law, alaw) ? 0 : 2
     priorities = [_priority_key(cm, c.edge, c.slot, block(c), rank) for c in columns]
     (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
 end
@@ -244,10 +245,10 @@ edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an 
 edge's active one) is a class of its own, so neither of these appears.
 """
 function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
-    group = _group_labels(catalytic(m))
+    cm = catalytic(m)
     kept = Dict{Tuple{Int, Int, Bool}, Int}()
     for c in cols.columns
-        g = group[c.edge]
+        g = cm.steps[c.edge].group
         tag = cols.tags[g]
         (c.inactive ? !(tag in (:NonequalAI, :OnlyI)) : tag === :OnlyI) && continue
         kept[(g, c.slot, c.inactive)] = c.edge
@@ -288,10 +289,10 @@ the inactive conformation (`conformation_steps`).
 function constant_columns(m::_AnyMech)
     cols = _ordered_columns(m)
     kept = _kept_members(m, cols)
-    group = _group_labels(catalytic(m))
+    cm = catalytic(m)
     names = [name(_column_parameter(m, c), m, kept) for c in cols.columns]
     in_law = BitVector([c.inactive ? cols.law[c.edge] :
-                        _in_active_law(c.edge, group, cols.tags, cols.law, cols.alaw)
+                        _in_active_law(cm, c.edge, cols.tags, cols.law, cols.alaw)
                         for c in cols.columns])
     (; cols.columns, names, in_law, cols.flat, cols.tags, cols.law)
 end
