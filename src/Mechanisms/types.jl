@@ -244,7 +244,7 @@ it to `EnzymeRates.Enumeration.init_mechanisms` to enumerate candidate mechanism
   product)` pairs that bind the same catalytic site, and so are never both
   bound to it at once.
 
-Construct one with the [`@enzyme_reaction`](@ref EnzymeRates.@enzyme_reaction) DSL. Each
+Construct one with the [`@enzyme_reaction`](@ref EnzymeRates.DSL.@enzyme_reaction) DSL. Each
 reactant takes an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
 ping-pong and multi-substrate reactions. Substrates, products and regulators are
 sorted by name in the constructor, a name's competitive inhibitor before its

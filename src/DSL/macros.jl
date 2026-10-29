@@ -11,8 +11,9 @@
         shared_catalytic_site: (S, P), ...
     end
 
-Build the [`EnzymeReaction`](@ref) that the mechanism search starts from: its reactants
-with their atoms, and the regulators and oligomeric states the search may use.
+Build the [`EnzymeReaction`](@ref EnzymeRates.Mechanisms.EnzymeReaction) that the
+mechanism search starts from: its reactants with their atoms, and the regulators and
+oligomeric states the search may use.
 
 - `substrates:` and `products:` (required) list each reactant with its atoms, one
   chemical formula in brackets: `S[C6H12O6]`. The atoms of the two sides balance, and a
@@ -78,8 +79,9 @@ end
     end
 
 Build a mechanism from its elementary steps. The value is an `EnzymeMechanism`, the
-compiled form that [`rate_equation`](@ref) evaluates without allocating. It prints as the
-block that builds it, each list sorted and one line per kinetic group in canonical order.
+compiled form that [`rate_equation`](@ref EnzymeRates.Derivation.rate_equation)
+evaluates without allocating. It prints as the block that builds it, each list sorted and
+one line per kinetic group in canonical order.
 
 Labels:
 - `substrates:` and `products:` (required) name the reactants, without atoms; atoms
@@ -177,9 +179,9 @@ end
 Build a two-conformation (MWC) mechanism: the enzyme is active (A) or inactive (I), the
 free enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory
 sites apart from the catalytic one. The value is an `AllostericEnzymeMechanism`, the
-compiled form that [`rate_equation`](@ref) evaluates without allocating. It prints as the
-block that builds it, each list sorted, `catalytic_multiplicity:` written out and one line
-per kinetic group in canonical order.
+compiled form that [`rate_equation`](@ref EnzymeRates.Derivation.rate_equation)
+evaluates without allocating. It prints as the block that builds it, each list sorted,
+`catalytic_multiplicity:` written out and one line per kinetic group in canonical order.
 
 It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
 - `allosteric_regulators:` names the metabolites that bind regulatory sites. An

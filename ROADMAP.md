@@ -12,9 +12,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
   only the ratio of its two rate constants enters the rate law.
   `parameters(m, FittedParameters())` lists both, and the law carries their common factor
-  uncancelled in numerator and denominator. One constant, the step's equilibrium constant, describes it. Only
-  hand-written mechanisms meet this: enumerated dead-end bindings stay at rapid
-  equilibrium.
+  uncancelled in numerator and denominator. One constant, the step's equilibrium
+  constant, describes it. Only hand-written mechanisms meet this: enumerated dead-end
+  bindings stay at rapid equilibrium.
 - **A fit is not thread-safe.**
   `loss!` (`src/Fitting/fitting.jl`) writes its problem's shared `log_ratios_buffer`, and
   `_fit_loss` copies each point into the one `x_buf` of its `FitObjective`, so an

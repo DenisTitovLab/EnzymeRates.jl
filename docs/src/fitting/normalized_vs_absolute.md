@@ -51,15 +51,15 @@ fp = FittingProblem(m, data; Keq = 2.0,
 ```
 
 The fit multiplies every steady-state rate constant by the geometric mean of measured over
-predicted turnover at the anchors; several anchors combine in log space. A fit whose predicted turnover at an anchor is zero,
-non-finite or of the other sign has no such factor, for example a law that needs a
-substrate the anchor leaves at zero. Such a fit fails: `fit_rate_equation` returns its
-constants unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and identify drops
-the mechanism from the search. Name every substrate and every essential activator in an
-anchor so each candidate law runs there: a law that needs an activator predicts zero
-turnover where the anchor leaves it at zero, and its fit fails. In identify, a mechanism
-that leaves out an optional regulator ignores that regulator's concentration in the
-anchors.
+predicted turnover at the anchors; several anchors combine in log space. A fit whose
+predicted turnover at an anchor is zero, non-finite or of the other sign has no such factor,
+for example a law that needs a substrate the anchor leaves at zero. Such a fit fails:
+`fit_rate_equation` returns its constants unscaled, with `loss = Inf` and
+`retcode = :ReferenceFailed`, and identify drops the mechanism from the search. Name every
+substrate and every essential activator in an anchor so each candidate law runs there: a law
+that needs an activator predicts zero turnover where the anchor leaves it at zero, and its
+fit fails. In identify, a mechanism that leaves out an optional regulator ignores that
+regulator's concentration in the anchors.
 
 Without a `reference` the fit multiplies every steady-state rate constant by one factor
 so that the largest absolute rate the mechanism predicts over your data's concentration
