@@ -1721,10 +1721,13 @@ end
     end
 
     @testset "the walker returns each block as written" begin
-        # Steps keep their written order and direction, each statement is one kinetic
-        # group label, and a metabolite is a modifier when written bare under
-        # `modifiers:` or as a reactant's X::Mod.
-        M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
+        # Steps keep their written order and direction, each joining its two written
+        # ends, nodes 2j - 1 and 2j; each statement is one kinetic group label, and a
+        # metabolite is a modifier when written bare under `modifiers:` or as a
+        # reactant's X::Mod.
+        M, St = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.Step
+        F(c, bound, added = Symbol[], subtracted = Symbol[]) =
+            EnzymeRates.Mechanisms.Node(c, bound, added, subtracted)
         s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
         raw = EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
@@ -1737,15 +1740,13 @@ end
                 E + S::Mod ⇌ E(S::Mod)
             end
         end, false)
-        @test raw == EnzymeRates.Mechanisms.RawMechanism(
-            [:S], [:P], [:I, :S],
-            [EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, M[]), M[], [s], true),
-             EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [i]), [i], M[], true),
-             EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, [i, s]), [i], M[], true),
-             EnzymeRates.Mechanisms.RawStep(
-                 F(:E, [s]), F(:Estar, M[], [:S], [:P]), M[], [p], false),
-             EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [smod]), [smod], M[], true)],
-            [1, 2, 2, 3, 4])
+        @test raw == (; substrates = [:S], products = [:P], modifiers = [:I, :S],
+            nodes = [F(:E, [s]), F(:E, M[]), F(:E, M[]), F(:E, [i]), F(:E, [s]),
+                     F(:E, [i, s]), F(:E, [s]), F(:Estar, M[], [:S], [:P]), F(:E, M[]),
+                     F(:E, [smod])],
+            steps = [St(1, 2, M[], [s], true, 1), St(3, 4, [i], M[], true, 2),
+                     St(5, 6, [i], M[], true, 2), St(7, 8, M[], [p], false, 3),
+                     St(9, 10, [smod], M[], true, 4)])
         # An allosteric block adds a tag per group label, the catalytic multiplicity
         # (1 when omitted) and its sites, each ligand list as written.
         allo = EnzymeRates.DSL.raw_mechanism(quote
@@ -1759,14 +1760,14 @@ end
             end
             regulatory_site(2): Y::OnlyI, X::OnlyA
         end, true)
-        @test allo == EnzymeRates.Mechanisms.RawAllostericMechanism(
-            EnzymeRates.Mechanisms.RawMechanism([:S], [:P], Symbol[], [
-                EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
-                EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
-                EnzymeRates.Mechanisms.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
-                [1, 2, 3]),
-            [:EqualAI, :OnlyA, :NonequalAI], 1,
-            [EnzymeRates.Mechanisms.RawSite([:Y, :X], 2, [:OnlyI, :OnlyA])])
+        @test allo == (; substrates = [:S], products = [:P], modifiers = Symbol[],
+            nodes = [F(:E, M[]), F(:E, [s]), F(:E, [s]), F(:E, [p]), F(:E, [p]),
+                     F(:E, M[])],
+            steps = [St(1, 2, [s], M[], true, 1), St(3, 4, M[], M[], false, 2),
+                     St(5, 6, M[], [p], true, 3)],
+            mwc_tags = [:EqualAI, :OnlyA, :NonequalAI], catalytic_multiplicity = 1,
+            regulatory_sites = [(; ligands = [:Y, :X], multiplicity = 2,
+                                 mwc_tags = [:OnlyI, :OnlyA])])
     end
 
     @testset "::Mod marks a substrate or product under modifiers: only" begin
@@ -2036,7 +2037,8 @@ end
             end
         end)))
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
-        M, F = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RawForm
+        M, St = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.Step
+        F(c, bound) = EnzymeRates.Mechanisms.Node(c, bound, Symbol[], Symbol[])
         s, p = M(:S, false), M(:P, false)
         @test EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
@@ -2046,13 +2048,13 @@ end
                 E(S) <--> E(P)      :: OnlyA
                 E(P) ⇌ (E + P)      :: EqualAI
             end
-        end, true) == EnzymeRates.Mechanisms.RawAllostericMechanism(
-            EnzymeRates.Mechanisms.RawMechanism([:S], [:P], Symbol[], [
-                EnzymeRates.Mechanisms.RawStep(F(:E, M[]), F(:E, [s]), [s], M[], true),
-                EnzymeRates.Mechanisms.RawStep(F(:E, [s]), F(:E, [p]), M[], M[], false),
-                EnzymeRates.Mechanisms.RawStep(F(:E, [p]), F(:E, M[]), M[], [p], true)],
-                [1, 2, 3]),
-            [:EqualAI, :OnlyA, :EqualAI], 1, EnzymeRates.Mechanisms.RawSite[])
+        end, true) == (; substrates = [:S], products = [:P], modifiers = Symbol[],
+            nodes = [F(:E, M[]), F(:E, [s]), F(:E, [s]), F(:E, [p]), F(:E, [p]),
+                     F(:E, M[])],
+            steps = [St(1, 2, [s], M[], true, 1), St(3, 4, M[], M[], false, 2),
+                     St(5, 6, M[], [p], true, 3)],
+            mwc_tags = [:EqualAI, :OnlyA, :EqualAI], catalytic_multiplicity = 1,
+            regulatory_sites = EnzymeRates.DSL._WrittenSite[])
         @test_throws "@enzyme_mechanism: a parenthesized group holds no step" eval(
             :(@enzyme_mechanism begin
                 substrates: S
@@ -2430,14 +2432,15 @@ end
         competitive_inhibitors: I
     end
 
-    # A mechanism block as written: each step in written order and direction, one group
-    # label per statement.
+    # A mechanism block as written: each step in written order and direction between its
+    # two written ends, one group label per statement.
     S, P = M.Met(:S, false), M.Met(:P, false)
-    E, ES, EP = M.RawForm(:E, M.Met[]), M.RawForm(:E, [S]), M.RawForm(:E, [P])
-    steps = [M.RawStep(E, ES, [S], M.Met[], true),
-             M.RawStep(ES, EP, M.Met[], M.Met[], false),
-             M.RawStep(EP, E, M.Met[], [P], true)]
-    plain = M.RawMechanism([:S], [:P], Symbol[], steps, [1, 2, 3])
+    E, ES, EP = (M.Node(:E, x, Symbol[], Symbol[]) for x in (M.Met[], [S], [P]))
+    plain = (; substrates = [:S], products = [:P], modifiers = Symbol[],
+             nodes = [E, ES, ES, EP, EP, E],
+             steps = [M.Step(1, 2, [S], M.Met[], true, 1),
+                      M.Step(3, 4, M.Met[], M.Met[], false, 2),
+                      M.Step(5, 6, M.Met[], [P], true, 3)])
     @test DSL.raw_mechanism(:(begin
         substrates: S
         products: P
@@ -2459,23 +2462,76 @@ end
         end
         regulatory_site(2): R::OnlyI
     end), true)
-    @test allosteric == M.RawAllostericMechanism(plain, [:NonequalAI, :OnlyA, :EqualAI], 2,
-                                                 [M.RawSite([:R], 2, [:OnlyI])])
+    @test allosteric == (; plain..., mwc_tags = [:NonequalAI, :OnlyA, :EqualAI],
+                         catalytic_multiplicity = 2,
+                         regulatory_sites = [(; ligands = [:R], multiplicity = 2,
+                                              mwc_tags = [:OnlyI])])
 
     # Names that spell every string one way pass; Ac + CoA and AcCoA spell AcCoA twice.
     @test DSL.check_uniquely_decodable(plain) === nothing
     @test DSL.check_uniquely_decodable(allosteric) === nothing
     Ac, CoA, AcCoA = M.Met(:Ac, false), M.Met(:CoA, false), M.Met(:AcCoA, false)
-    EAc, EAcCoA = M.RawForm(:E, [Ac]), M.RawForm(:E, [Ac, CoA])
-    clash = M.RawMechanism([:Ac, :CoA], [:AcCoA], Symbol[],
-                           [M.RawStep(E, EAc, [Ac], M.Met[], true),
-                            M.RawStep(EAc, EAcCoA, [CoA], M.Met[], true),
-                            M.RawStep(EAcCoA, E, M.Met[], [AcCoA], false)], [1, 2, 3])
+    EAc, EAcCoA = M.Node(:E, [Ac], Symbol[], Symbol[]), M.Node(:E, [Ac, CoA], Symbol[],
+                                                                Symbol[])
+    clash = (; substrates = [:Ac, :CoA], products = [:AcCoA], modifiers = Symbol[],
+             nodes = [E, EAc, EAc, EAcCoA, EAcCoA, E],
+             steps = [M.Step(1, 2, [Ac], M.Met[], true, 1),
+                      M.Step(3, 4, [CoA], M.Met[], true, 2),
+                      M.Step(5, 6, M.Met[], [AcCoA], false, 3)])
     two_ways = ErrorException(
         "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
         "constants join the names of the metabolites they bind without a separator, so " *
         "two forms would share a name; rename a metabolite")
     @test_throws two_ways DSL.check_uniquely_decodable(clash)
     @test_throws two_ways DSL.check_uniquely_decodable(
-        M.RawAllostericMechanism(clash, [:EqualAI, :EqualAI, :EqualAI], 1, M.RawSite[]))
+        (; clash..., mwc_tags = [:EqualAI, :EqualAI, :EqualAI], catalytic_multiplicity = 1,
+         regulatory_sites = DSL._WrittenSite[]))
+
+    # The constructors build the value a block writes (`_construct`) from its nodes and
+    # steps; the reader checks the names under `modifiers:`, which the constructors take
+    # no list of: each is listed once, and some step binds each as a modifier.
+    @test DSL._construct(plain) == EnzymeRates.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    @test_throws(ErrorException("Mechanism: duplicate modifier names"),
+                 @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, I
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E + I ⇌ E(I)
+        end
+    end)
+    @test_throws(ErrorException("Mechanism: modifier I is declared, but no step binds it"),
+                 DSL._construct(DSL.raw_mechanism(:(begin
+        substrates: S
+        products: P
+        modifiers: I, P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E + P::Mod ⇌ E(P::Mod)
+        end
+    end), false)))
+    @test_throws(ErrorException("Mechanism: modifier P is declared, but no step binds it"),
+                 @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
 end

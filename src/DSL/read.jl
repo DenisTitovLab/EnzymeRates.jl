@@ -221,13 +221,18 @@ end
 # ─── Mechanism macro blocks as written ─────────────────────────────────
 
 """
-    raw_mechanism(block, allosteric::Bool) -> RawMechanism or RawAllostericMechanism
+    raw_mechanism(block, allosteric::Bool) -> NamedTuple
 
-The mechanism a mechanism macro's `begin ... end` block writes, as raw input:
+The mechanism a mechanism macro's `begin ... end` block writes, as written:
 `@allosteric_mechanism`'s grammar when `allosteric`, else `@enzyme_mechanism`'s. It reads
 the block's expression without evaluating it or building code, and throws the DSL's
-syntax errors; the constructors (`Mechanism(raw)`, `AllostericMechanism(raw)`) and the
-boundary check (`check_valid_rate_equation`) check the mechanism.
+syntax errors; the constructors (`_construct`) and the boundary check
+(`check_valid_rate_equation`) check the mechanism. The value holds the declared
+`substrates`, `products` and `modifiers`, and the steps as `nodes` and `steps`
+(`_raw_steps`): step `j` joins nodes `2j - 1` and `2j`, its written ends, in its written
+direction, and its `group` is the label of its statement. An allosteric block adds the
+tag of each group label (`mwc_tags`), the `catalytic_multiplicity` and the
+`regulatory_sites`, each as written (`_raw_site`).
 
 `substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
 holds one `begin ... end` block (`_raw_steps`). `@allosteric_mechanism` adds
@@ -240,7 +245,7 @@ function raw_mechanism(block, allosteric::Bool)
     block isa Expr && block.head === :block ||
         error("$macro_name: expected a `begin ... end` block, got $block")
     substrates, products, modifiers, regulators = Symbol[], Symbol[], Symbol[], Symbol[]
-    steps_block, multiplicity, sites = nothing, nothing, Mechanisms.RawSite[]
+    steps_block, multiplicity, sites = nothing, nothing, _WrittenSite[]
     for arg in block.args
         arg isa LineNumberNode && continue
         label, values = _parse_labeled_line(arg)
@@ -294,27 +299,29 @@ function raw_mechanism(block, allosteric::Bool)
     isempty(products) && error("$macro_name: `products:` not specified.")
     steps_block === nothing && error("$macro_name: `steps:` not specified.")
     names = (; substrates, products, modifiers, regulators)
-    steps, group, tags = _raw_steps(steps_block, names, macro_name, allosteric)
-    raw = Mechanisms.RawMechanism(substrates, products, modifiers, steps, group)
-    allosteric || return raw
+    nodes, steps, tags = _raw_steps(steps_block, names, macro_name, allosteric)
+    allosteric || return (; substrates, products, modifiers, nodes, steps)
     _check_site_ligands(regulators, sites)
-    Mechanisms.RawAllostericMechanism(raw, tags, something(multiplicity, 1), sites)
+    (; substrates, products, modifiers, nodes, steps, mwc_tags = tags,
+     catalytic_multiplicity = something(multiplicity, 1), regulatory_sites = sites)
 end
 
-"""
-    check_uniquely_decodable(raw::Union{RawMechanism, RawAllostericMechanism})
+"""A regulatory site as written: its ligands in written order, its multiplicity and each
+ligand's tag."""
+const _WrittenSite = NamedTuple{(:ligands, :multiplicity, :mwc_tags),
+                                Tuple{Vector{Symbol}, Int, Vector{Symbol}}}
 
-Error unless the names `raw` declares spell every string one way
-(`check_decodable_names`): its substrates and products, and the names under
-`modifiers:`. An allosteric mechanism's catalytic part is checked; its regulatory-site
-ligands bind no form. The macros check every mechanism they read this way before
-building it.
 """
-check_uniquely_decodable(raw::Mechanisms.RawMechanism) =
+    check_uniquely_decodable(raw)
+
+Error unless the names `raw` (`raw_mechanism`) declares spell every string one way
+(`check_decodable_names`): its substrates and products, and the names under
+`modifiers:`. An allosteric mechanism's regulatory-site ligands bind no form, so they
+take no part. The macros check every mechanism they read this way before building it.
+"""
+check_uniquely_decodable(raw::NamedTuple) =
     Mechanisms.check_decodable_names([raw.substrates; raw.products], raw.modifiers,
                                      "Mechanism")
-check_uniquely_decodable(raw::Mechanisms.RawAllostericMechanism) =
-    check_uniquely_decodable(raw.catalytic)
 
 """
 A `regulatory_site(n): X::Tag, ...` line as written: `label` is its `regulatory_site(n)`
@@ -338,7 +345,7 @@ function _raw_site(label, values)
         push!(ligands, v.args[1])
         push!(tags, v.args[2])
     end
-    Mechanisms.RawSite(ligands, multiplicity, tags)
+    _WrittenSite((ligands, multiplicity, tags))
 end
 
 """
@@ -346,7 +353,7 @@ Error unless the `regulatory_site(n):` lines `sites` place each allosteric regul
 `regulators`, the names `allosteric_regulators:` lists once each, exactly once, and list
 no other ligand.
 """
-function _check_site_ligands(regulators::Vector{Symbol}, sites::Vector{Mechanisms.RawSite})
+function _check_site_ligands(regulators::Vector{Symbol}, sites::Vector{_WrittenSite})
     repeated = unique(n for (i, n) in enumerate(regulators)
                       if n in view(regulators, 1:i-1))
     isempty(repeated) ||
@@ -369,15 +376,16 @@ function _check_site_ligands(regulators::Vector{Symbol}, sites::Vector{Mechanism
 end
 
 """
-The steps of a `steps:` block as written, each statement's group label per step and,
-for an allosteric block, each statement's tag: `(steps, group, tags)`. A statement is
-one kinetic group: a step (`lhs ⇌ rhs` rapid equilibrium, `lhs <--> rhs` steady state)
-or a parenthesized tuple of steps (`(step,)` for one). An allosteric statement ends in
-its tag (`step :: Tag`, `(step, step) :: Tag`); a plain one carries none. `names` holds
-the block's declared names.
+The steps of a `steps:` block as written and, for an allosteric block, each statement's
+tag: `(nodes, steps, tags)`. Each step joins its two written ends, which it adds to
+`nodes` (`_raw_step!`), and its `group` is its statement's label, the statements
+numbered from 1. A statement is one kinetic group: a step (`lhs ⇌ rhs` rapid
+equilibrium, `lhs <--> rhs` steady state) or a parenthesized tuple of steps (`(step,)` for
+one). An allosteric statement ends in its tag (`step :: Tag`, `(step, step) :: Tag`); a
+plain one carries none. `names` holds the block's declared names.
 """
 function _raw_steps(steps_block, names, macro_name, allosteric::Bool)
-    steps, group, tags = Mechanisms.RawStep[], Int[], Symbol[]
+    nodes, steps, tags = Mechanisms.Node[], Mechanisms.Step[], Symbol[]
     missing_tag = "its tag, `:: EqualAI`, `:: NonequalAI` or `:: OnlyA`; add it after"
     n = 0
     for arg in steps_block.args
@@ -409,8 +417,7 @@ function _raw_steps(steps_block, names, macro_name, allosteric::Bool)
                 error("$macro_name: step `$arg` is missing $missing_tag the step " *
                       "expression.")
             end
-            push!(steps, _raw_step(op, lhs, rhs, names, macro_name))
-            push!(group, n)
+            push!(steps, _raw_step!(nodes, op, lhs, rhs, n, names, macro_name))
             continue
         else
             error("$macro_name: expected step or step-group; got $arg")
@@ -418,11 +425,11 @@ function _raw_steps(steps_block, names, macro_name, allosteric::Bool)
         isempty(members) && error("$macro_name: a parenthesized group holds no step; a " *
                                   "kinetic group holds at least one step.")
         for s in members
-            push!(steps, _raw_step(_step_parts(s, macro_name)..., names, macro_name))
-            push!(group, n)
+            push!(steps, _raw_step!(nodes, _step_parts(s, macro_name)..., n, names,
+                                    macro_name))
         end
     end
-    steps, group, tags
+    nodes, steps, tags
 end
 
 """A step expression's operator, `⇌` or `<-->`, and the terms of its two sides; a side
@@ -459,22 +466,24 @@ function _peel_tag!(rhs::Vector{Any})
 end
 
 """
-One step as written: `op` is `⇌` (rapid equilibrium) or `<-->` (steady state), `lhs`
-and `rhs` the terms of its two sides. Each side holds exactly one enzyme form and any
-number of metabolites (`_raw_met`): the left-hand metabolites are consumed, the
-right-hand ones released. Every term of both sides is read before either side's enzyme
-forms are counted, so a misspelled bound metabolite is reported as undeclared rather
-than as a second enzyme form. Each form's conformation label is checked
-(`check_conformation_label`).
+One step as written, in kinetic group `group`: `op` is `⇌` (rapid equilibrium) or
+`<-->` (steady state), `lhs` and `rhs` the terms of its two sides. Each side holds
+exactly one enzyme form and any number of metabolites (`_raw_met`): the left-hand
+metabolites are taken up, the right-hand ones given off. The left-hand form and then the
+right-hand one are added to `nodes`, and the step joins them. Every term of both sides is
+read before either side's enzyme forms are counted, so a misspelled bound metabolite is
+reported as undeclared rather than as a second enzyme form. Each form's conformation
+label is checked (`check_conformation_label`).
 """
-function _raw_step(op, lhs, rhs, names, macro_name)
+function _raw_step!(nodes::Vector{Mechanisms.Node}, op, lhs, rhs, group::Int, names,
+                    macro_name)
     is_met(t) = t isa Symbol ? _is_declared(t, names) : t isa Expr && t.head === :(::)
     read_term(t) = is_met(t) ? _raw_met(t, names, macro_name) :
                    _raw_form(t, names, macro_name)
     term_name(t) = t isa Expr && !isempty(t.args) ? t.args[1] : t
     parsed = (Any[read_term(t) for t in lhs], Any[read_term(t) for t in rhs])
-    (from, consumed), (to, released) = map((lhs, rhs), parsed) do terms, side
-        i = findall(x -> x isa Mechanisms.RawForm, side)
+    (from, taken_up), (to, given_off) = map((lhs, rhs), parsed) do terms, side
+        i = findall(x -> x isa Mechanisms.Node, side)
         isempty(i) && error("$macro_name: step side has no enzyme-form term (terms: " *
                             "$(join(term_name.(terms), ", "))).")
         length(i) == 1 ||
@@ -482,9 +491,11 @@ function _raw_step(op, lhs, rhs, names, macro_name)
                   "($(term_name(terms[i[1]])), $(term_name(terms[i[2]]))); each " *
                   "elementary step has exactly one enzyme form per side.")
         Mechanisms.check_conformation_label(side[only(i)].conformation, macro_name)
-        side[only(i)], Mechanisms.Met[x for x in side if x isa Mechanisms.Met]
+        side[only(i)], sort!(Mechanisms.Met[x for x in side if x isa Mechanisms.Met])
     end
-    Mechanisms.RawStep(from, to, consumed, released, op === :⇌)
+    push!(nodes, from, to)
+    Mechanisms.Step(length(nodes) - 1, length(nodes), taken_up, given_off, op === :⇌,
+                    group)
 end
 
 """Whether `x` is a name the block declares (`names`: substrates, products, modifiers
@@ -533,11 +544,11 @@ function _raw_met(t, names, macro_name, species = nothing)
 end
 
 """
-An enzyme-form term as written: a bare conformation label `E`, or a call
-`E(S, X::Mod; residual = A - P)` whose head is the conformation label, whose positional
-arguments are the bound metabolites (`_raw_met`) and whose `residual` lists the
-substrates added to and the products subtracted from the enzyme (`_read_residual!`). A
-conformation label may not be a declared name.
+An enzyme-form term as written, a node with each list sorted: a bare conformation label
+`E`, or a call `E(S, X::Mod; residual = A - P)` whose head is the conformation label,
+whose positional arguments are the bound metabolites (`_raw_met`) and whose `residual`
+lists the substrates added to and the products subtracted from the enzyme
+(`_read_residual!`). A conformation label may not be a declared name.
 """
 function _raw_form(t, names, macro_name)
     t isa Symbol || t isa Expr && t.head === :call && t.args[1] isa Symbol ||
@@ -562,7 +573,7 @@ function _raw_form(t, names, macro_name)
             push!(bound, _raw_met(a, names, macro_name, t))
         end
     end
-    Mechanisms.RawForm(conformation, bound, added, subtracted)
+    Mechanisms.Node(conformation, sort!(bound), sort!(added), sort!(subtracted))
 end
 
 """
@@ -598,17 +609,39 @@ end
 The mechanism that `raw`, the walker's value for a mechanism block (`raw_mechanism`),
 writes, checked: its names must spell every string one way only
 (`check_uniquely_decodable`, as a reaction's are checked), then the constructors
-(`Mechanism(raw)`, `AllostericMechanism(raw)`) and the boundary check
-(`check_valid_rate_equation`) check the mechanism. The macros (`_compiled_mechanism`) and
-the parser (`parse_mechanism`) build every mechanism through it, so they accept the same
-mechanisms.
+(`_construct`) and the boundary check (`check_valid_rate_equation`) check the mechanism.
+The macros (`_compiled_mechanism`) and the parser (`parse_mechanism`) build every
+mechanism through it, so they accept the same mechanisms.
 """
-function _checked_mechanism(raw::Union{Mechanisms.RawMechanism,
-                                        Mechanisms.RawAllostericMechanism})
+function _checked_mechanism(raw::NamedTuple)
     check_uniquely_decodable(raw)
-    m = raw isa Mechanisms.RawMechanism ? Mechanisms.Mechanism(raw) :
-                                         Mechanisms.AllostericMechanism(raw)
+    m = _construct(raw)
     Derivation.check_valid_rate_equation(m)
+    m
+end
+
+"""
+    _construct(raw) -> Mechanism or AllostericMechanism
+
+The mechanism that `raw` (`raw_mechanism`) writes, built and checked by the constructors
+from its nodes and steps (an allosteric one with its tags by group label, its
+multiplicity and its regulatory sites). The names under `modifiers:` are checked here,
+since the constructors take every name bound as a modifier as one: each is listed once,
+and some step binds each as a modifier.
+"""
+function _construct(raw::NamedTuple)
+    allunique(raw.modifiers) || error("Mechanism: duplicate modifier names")
+    m = !hasproperty(raw, :mwc_tags) ?
+        Mechanisms.Mechanism(raw.substrates, raw.products, raw.nodes, raw.steps) :
+        Mechanisms.AllostericMechanism(raw.substrates, raw.products, raw.nodes, raw.steps,
+            raw.mwc_tags, raw.catalytic_multiplicity,
+            [Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags)
+             for s in raw.regulatory_sites])
+    bound = Mechanisms.modifiers(Mechanisms.catalytic(m))
+    unused = findfirst(∉(bound), raw.modifiers)
+    unused === nothing ||
+        error("Mechanism: modifier $(raw.modifiers[unused]) is declared, but no step " *
+              "binds it")
     m
 end
 

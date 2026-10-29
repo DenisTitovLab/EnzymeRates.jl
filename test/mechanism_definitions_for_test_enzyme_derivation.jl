@@ -40,15 +40,14 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     expected_factored_num::Union{String,Nothing} = nothing
     expected_factored_denom::Union{String,Nothing} = nothing
 
-    # The mechanism as written, the DSL walker's raw value: its steps and, for an
-    # allosteric mechanism, its regulatory sites in written order, before the
-    # constructors canonicalize them. Positional textbook oracles number k1,k2,… (and
-    # reg1,reg2,…) by written order; `_testhelper_written_params` reads it to take each
-    # written step's constants from its stored step, by role. The reaction-graph tests
-    # build each spec's graph from it. Every spec fills it, through
+    # The mechanism as written, the DSL walker's raw value (`raw_mechanism`): its
+    # nodes and steps and, for an allosteric mechanism, its regulatory sites in written
+    # order, before the constructors canonicalize them. Positional textbook oracles
+    # number k1,k2,… (and reg1,reg2,…) by written order; `_testhelper_written_params`
+    # reads it to take each written step's constants from its stored step, by role. The
+    # reaction-graph tests build each spec's graph from it. Every spec fills it, through
     # `@_testhelper_with_raw`.
-    raw::Union{EnzymeRates.Mechanisms.RawMechanism,
-               EnzymeRates.Mechanisms.RawAllostericMechanism}
+    raw::NamedTuple
 end
 
 """
@@ -98,6 +97,11 @@ _testhelper_lift(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.Mechanism(m)
 _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
+
+"""The canonical form (`_canonicalize`) of the catalytic nodes and steps of `raw`, the
+DSL walker's value (`raw_mechanism`)."""
+_testhelper_canonicalize(raw::NamedTuple) =
+    EnzymeRates.Mechanisms._canonicalize(raw.substrates, raw.products, raw.nodes, raw.steps)
 
 """`m` as raw input: `RawMechanism(m)` for a plain mechanism, `RawAllostericMechanism(m)`
 for an allosteric one."""
@@ -928,13 +932,12 @@ _testhelper_is_valid(m) = EnzymeRates.Derivation.check_valid_rate_equation(m; th
     @_testhelper_unguarded call
 
 The concrete mechanism that `call`, an `@enzyme_mechanism` or `@allosteric_mechanism`
-call, writes: the constructors on the DSL walker's raw value, without the well-posedness
-check the macros run, so a test can hold a mechanism the macros refuse.
+call, writes: the constructors on the DSL walker's raw value (`_construct`), without the
+well-posedness check the macros run, so a test can hold a mechanism the macros refuse.
 """
 macro _testhelper_unguarded(call)
-    allosteric, raw = _testhelper_mechanism_call(call, "@_testhelper_unguarded")
-    esc(allosteric ? :(EnzymeRates.AllostericMechanism($raw)) :
-                     :(EnzymeRates.Mechanism($raw)))
+    _, raw = _testhelper_mechanism_call(call, "@_testhelper_unguarded")
+    esc(:(EnzymeRates.DSL._construct($raw)))
 end
 
 """
@@ -1765,7 +1768,7 @@ end
 `:EqualAI` and `:NonequalAI`, 4 × 27 = 108 allosteric mechanisms, built unguarded."""
 function _testhelper_uniuni_grid()
     tags = (:OnlyA, :EqualAI, :NonequalAI)
-    [EnzymeRates.AllostericMechanism(EnzymeRates.DSL.raw_mechanism(Meta.parse("""
+    [EnzymeRates.DSL._construct(EnzymeRates.DSL.raw_mechanism(Meta.parse("""
          begin
              substrates: S
              products: P

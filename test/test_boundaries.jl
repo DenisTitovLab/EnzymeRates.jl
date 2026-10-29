@@ -23,11 +23,9 @@ const _testhelper_LAYERS = Dict(
 # Enumeration's filters read too. Fitting and identify read the rate table's `group`
 # column.
 const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
-    # The reader reads the raw input it builds (`Raw*` values) and the declared names it
-    # collects (`names`).
-    "DSL/read.jl" => Set(["(side[only(i)]).conformation", "names.modifiers",
-        "names.products", "names.substrates", "raw.catalytic", "raw.modifiers",
-        "raw.products", "raw.substrates", "site.ligands"]),
+    # The reader reads the names under `modifiers:` that it collects (`names`) and keeps
+    # in the value it writes (`raw`).
+    "DSL/read.jl" => Set(["names.modifiers", "raw.modifiers"]),
     "Derivation/admission.jl" => Set(["eps.from", "eps.to", "net.conformation", "net.from",
         "net.to", "v.conformation"]),
     "Derivation/codegen.jl" => Set(["A.sites"]),

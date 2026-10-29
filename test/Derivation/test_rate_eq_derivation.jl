@@ -144,7 +144,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
     mech = _testhelper_lift(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     g = _testhelper_graph(mech)
-    c = EnzymeRates.Mechanisms._canonicalize(allo ? raw.catalytic : raw)
+    c = _testhelper_canonicalize(raw)
     c.mechanism == EnzymeRates.Mechanisms.catalytic(mech) ||
         error("raw writes another mechanism than m")
     # The test reader's steps run group by group, each group in edge order.
@@ -176,7 +176,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
     end
     if allo
         for (pos, site) in enumerate(mech.regulatory_sites)
-            j = _testhelper_positional_site_idx(site, pos, raw.sites)
+            j = _testhelper_positional_site_idx(site, pos, raw.regulatory_sites)
             for (lig, tag) in zip(site.ligands,
                                   site.mwc_tags)
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
@@ -1818,7 +1818,7 @@ end
     # A mechanism the guard rejects (a bottomless rapid-equilibrium segment) is among
     # them.
     D = EnzymeRates.Derivation
-    rejected = EnzymeRates.Mechanism(EnzymeRates.DSL.raw_mechanism(:(begin
+    rejected = EnzymeRates.DSL._construct(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S
         products: P, Q
         steps: begin
@@ -2259,34 +2259,30 @@ end)
 """The raw value of `_testhelper_relabelled_block(label)`, written field by field so that
 no label check reads it."""
 function _testhelper_relabelled_raw(label)
-    R = EnzymeRates
-    b, eb, none = R.Mechanisms.Met(:b, false), R.Mechanisms.Met(:Eb, false),
-        R.Mechanisms.Met[]
-    steps = [R.Mechanisms.RawStep(R.Mechanisms.RawForm(:E, none),
-                                  R.Mechanisms.RawForm(:E, [b]), [b], none, true),
-             R.Mechanisms.RawStep(R.Mechanisms.RawForm(:E, [b]),
-                                  R.Mechanisms.RawForm(label, [eb]), none, none, false),
-             R.Mechanisms.RawStep(R.Mechanisms.RawForm(label, [eb]),
-                                  R.Mechanisms.RawForm(label, none), none, [eb], false),
-             R.Mechanisms.RawStep(R.Mechanisms.RawForm(label, none),
-                                  R.Mechanisms.RawForm(:E, none), none, none, true)]
-    R.Mechanisms.RawAllostericMechanism(
-        R.Mechanisms.RawMechanism([:b], [:Eb], Symbol[], steps, [1, 2, 3, 4]),
-        [:EqualAI, :NonequalAI, :EqualAI, :EqualAI], 1, R.Mechanisms.RawSite[])
+    M = EnzymeRates.Mechanisms
+    b, eb, none = M.Met(:b, false), M.Met(:Eb, false), M.Met[]
+    node(c, bound) = M.Node(c, bound, Symbol[], Symbol[])
+    (; substrates = [:b], products = [:Eb], modifiers = Symbol[],
+     nodes = [node(:E, none), node(:E, [b]), node(:E, [b]), node(label, [eb]),
+              node(label, [eb]), node(label, none), node(label, none), node(:E, none)],
+     steps = [M.Step(1, 2, [b], none, true, 1), M.Step(3, 4, none, none, false, 2),
+              M.Step(5, 6, none, [eb], false, 3), M.Step(7, 8, none, none, true, 4)],
+     mwc_tags = [:EqualAI, :NonequalAI, :EqualAI, :EqualAI], catalytic_multiplicity = 1,
+     regulatory_sites = EnzymeRates.DSL._WrittenSite[])
 end
 
 """The allosteric graph `raw` writes, in canonical form and composed with its tags,
 multiplicity and sites, with no representation check: the constructors' label check
 would reject it."""
-function _testhelper_unchecked(raw::EnzymeRates.Mechanisms.RawAllostericMechanism)
-    c = EnzymeRates.Mechanisms._canonicalize(raw.catalytic)
+function _testhelper_unchecked(raw::NamedTuple)
+    c = _testhelper_canonicalize(raw)
     tags = similar(raw.mwc_tags)
     for (l, t) in enumerate(raw.mwc_tags)
         tags[c.group_of[l]] = t
     end
     EnzymeRates.AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity,
         [EnzymeRates.Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags)
-         for s in raw.sites])
+         for s in raw.regulatory_sites])
 end
 
 @testset "constants that would share a name are rejected" begin
@@ -2310,7 +2306,7 @@ end
             end
         end)))
         @test_throws(ErrorException("Mechanism: " * reason),
-                     EnzymeRates.AllostericMechanism(_testhelper_relabelled_raw(label)))
+                     EnzymeRates.DSL._construct(_testhelper_relabelled_raw(label)))
     end
 
     # The derivation checks the names of a graph built without the label check. The

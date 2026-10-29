@@ -256,6 +256,4 @@ end
 The compiled mechanism of `raw` (`_checked_mechanism`): the macros' expansion calls it,
 so its checks run when the expanded code runs.
 """
-_compiled_mechanism(raw::Union{Mechanisms.RawMechanism,
-                               Mechanisms.RawAllostericMechanism}) =
-    Mechanisms.compile_mechanism(_checked_mechanism(raw))
+_compiled_mechanism(raw::NamedTuple) = Mechanisms.compile_mechanism(_checked_mechanism(raw))

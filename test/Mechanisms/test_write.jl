@@ -234,18 +234,14 @@ end
 
 @testset "canonical_graph: the canonical graph of raw input, aligned but unchecked" begin
     M = EnzymeRates.Mechanisms
-    # Uni-uni written with its release first: the graph is the mechanism the checked
-    # constructor builds.
-    block = :(begin
-        substrates: S
-        products: P
-        steps: begin
-            E(P) ⇌ E + P
-            E(S) <--> E(P)
-            E + S ⇌ E(S)
-        end
-    end)
-    raw = EnzymeRates.DSL.raw_mechanism(block, false)
+    # Uni-uni written with its release first, E(P) ⇌ E + P, E(S) <--> E(P), E + S ⇌ E(S):
+    # the graph is the mechanism the checked constructor builds.
+    S, P, A, none = M.Met(:S, false), M.Met(:P, false), M.Met(:A, false), M.Met[]
+    E, ES, EP = M.RawForm(:E, none), M.RawForm(:E, [S]), M.RawForm(:E, [P])
+    raw = M.RawMechanism([:S], [:P], Symbol[],
+                         [M.RawStep(EP, E, none, [P], true),
+                          M.RawStep(ES, EP, none, none, false),
+                          M.RawStep(E, ES, [S], none, true)], [1, 2, 3])
     @test M.canonical_graph(raw) == EnzymeRates.Mechanism(raw)
     # A declared modifier that no step binds fails the checked constructor; the graph
     # still builds.
@@ -255,19 +251,19 @@ end
     g = M.canonical_graph(unused)
     @test [M.step_text(g, k) for k in eachindex(g.steps)] ==
           ["E + P ⇌ E(P)", "E + S ⇌ E(S)", "E(S) <--> E(P)"]
-    # Tied steps that make different conformational changes have no canonical graph.
+    # Tied steps that make different conformational changes have no canonical graph:
+    # E + A <--> E(A), E(A) <--> E(P), E(P) <--> E + P, then (E ⇌ F, F ⇌ G, G ⇌ E).
+    EA, F, G = M.RawForm(:E, [A]), M.RawForm(:F, none), M.RawForm(:G, none)
     @test_throws(ErrorException(
         "Mechanism: a kinetic group holds E → F and F → G, which make different " *
         "conformational changes; the steps of a kinetic group share their constants, so " *
         "they must make the same conformational change"),
-        M.canonical_graph(EnzymeRates.DSL.raw_mechanism(:(begin
-            substrates: A
-            products: P
-            steps: begin
-                E + A <--> E(A)
-                E(A) <--> E(P)
-                E(P) <--> E + P
-                (E ⇌ F, F ⇌ G, G ⇌ E)
-            end
-        end), false)))
+        M.canonical_graph(M.RawMechanism([:A], [:P], Symbol[],
+                                         [M.RawStep(E, EA, [A], none, false),
+                                          M.RawStep(EA, EP, none, none, false),
+                                          M.RawStep(EP, E, none, [P], false),
+                                          M.RawStep(E, F, none, none, true),
+                                          M.RawStep(F, G, none, none, true),
+                                          M.RawStep(G, E, none, none, true)],
+                                         [1, 2, 3, 4, 4, 4])))
 end

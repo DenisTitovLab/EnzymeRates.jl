@@ -397,10 +397,10 @@ function Base.show(io::IO, r::EnzymeReaction)
     print(io, "\nend")
 end
 
-# ─── Raw input: a mechanism as the DSL writes it ─────────────────────
+# ─── Raw input: a mechanism as forms and steps ──────────────────────
 #
-# The mechanism macros read a block into these plain values (`raw_mechanism`), before
-# any constructor orients, sorts or checks it; `Mechanism(raw)` and
+# A mechanism written as plain values, each step between two forms, before any
+# constructor orients, sorts or checks it; `Mechanism(raw)` and
 # `AllostericMechanism(raw)` build the mechanism they write.
 
 """
@@ -520,8 +520,9 @@ A mechanism as its reaction graph, in canonical form: two writings of one mechan
 equal fields. `substrates` and `products` are sorted; `nodes` hold free E first, then the
 other nodes in content order (`isless(::Node)`); `steps` run physical-forward, in content
 order (`isless(::Step)`), the kinetic groups numbered by their first step.
-`Mechanism(raw::RawMechanism)` builds one and checks it; the field constructor checks
-nothing and serves canonical form and the Sig decoder. Lift it to its compiled type with
+`Mechanism(substrates, products, nodes, steps)` builds one from nodes and steps written
+any way and checks it; `_unchecked_mechanism` takes canonical fields and checks nothing,
+for canonical form and the Sig decoder. Lift it to its compiled type with
 `EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
 """
 struct Mechanism
@@ -529,6 +530,9 @@ struct Mechanism
     products::Vector{Symbol}
     nodes::Vector{Node}
     steps::Vector{Step}
+    global _unchecked_mechanism(substrates::Vector{Symbol}, products::Vector{Symbol},
+                                nodes::Vector{Node}, steps::Vector{Step}) =
+        new(substrates, products, nodes, steps)
 end
 
 """
@@ -614,52 +618,68 @@ _reversed(e::Step) =
 # ─── Canonical form ─────────────────────────────────────────────────────
 
 """
-    _canonicalize(raw::RawMechanism)
-        -> (; mechanism, edge_of, flipped, group_of, form_of, misaligned)
+    _canonicalize(substrates, products, nodes, steps)
+        -> (; mechanism, edge_of, flipped, group_of, node_of, misaligned)
 
-The canonical `Mechanism` that `raw` writes, with no representation check. `edge_of[j]`
-is the step written step `j` became, `flipped[j]` whether that step runs against step
-`j` as written, `group_of[l]` the kinetic group written label `l` became,
-`form_of[2j - 1]` and `form_of[2j]` the nodes step `j`'s two written ends became, and
-`misaligned` the lead and member of a tied kinetic group that no orientation aligns, or
-no step. Alignment stops at that group, so a result with a misaligned pair is not
-canonical. The checked constructors build on it. The nodes and steps share the sorted
-lists of `raw`'s forms and steps, which the `RawForm` and `RawStep` constructors made.
+The canonical `Mechanism` that `nodes` and `steps` write, with no representation check:
+the nodes in any order, a node any number of times, each step between two of them in
+either direction, its `group` a written kinetic group label (1, 2, …, each used), and
+every list of a node or a step sorted. `edge_of[j]` is the step written step `j` became,
+`flipped[j]` whether that step runs against step `j` as written, `group_of[l]` the
+kinetic group written label `l` became, `node_of[i]` the node written node `i` became,
+and `misaligned` the lead and member of a tied kinetic group that no orientation aligns,
+or no step. Alignment stops at that group, so a result with a misaligned pair is not
+canonical. The checked constructors build on it. The nodes and steps share the lists of
+`nodes` and `steps`.
 """
-function _canonicalize(raw::RawMechanism)
-    substrates, products = sort(raw.substrates), sort(raw.products)
-    n = length(raw.steps)
-    ends = Vector{Node}(undef, 2n)
-    for (j, s) in enumerate(raw.steps)
-        ends[2j - 1] = _node(s.from)
-        ends[2j] = _node(s.to)
-    end
-    nodes, form_of = _sorted_nodes(ends)
-    written = [Step(form_of[2j - 1], form_of[2j], s.consumed, s.released,
-                    s.rapid_equilibrium, raw.group[j]) for (j, s) in enumerate(raw.steps)]
-    fwd, misaligned = _orientation(nodes, written, substrates)
-    stored = [fwd[j] ? written[j] : _reversed(written[j]) for j in 1:n]
+function _canonicalize(substrates::Vector{Symbol}, products::Vector{Symbol},
+                       nodes::Vector{Node}, steps::Vector{Step})
+    distinct, node_of = _sorted_nodes(nodes)
+    written = [Step(node_of[e.from], node_of[e.to], e.taken_up, e.given_off,
+                    e.rapid_equilibrium, e.group) for e in steps]
+    substrates = sort(substrates)
+    fwd, misaligned = _orientation(distinct, written, substrates)
+    stored = [fwd[j] ? written[j] : _reversed(written[j]) for j in eachindex(written)]
     p = sortperm(stored)
     group, group_of = _number_groups([stored[i].group for i in p],
-                                     maximum(raw.group; init = 0))
-    steps = [Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, group[k])
-             for (k, e) in enumerate(view(stored, p))]
-    m = Mechanism(substrates, products, nodes, steps)
-    (; mechanism = m, edge_of = invperm(p), flipped = .!fwd, group_of, form_of,
+                                     maximum(e -> e.group, steps; init = 0))
+    canonical = [Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, group[k])
+                 for (k, e) in enumerate(view(stored, p))]
+    m = _unchecked_mechanism(substrates, sort(products), distinct, canonical)
+    (; mechanism = m, edge_of = invperm(p), flipped = .!fwd, group_of, node_of,
      misaligned)
+end
+
+"""`raw`'s canonical graph (`_canonicalize`) of its written nodes and steps
+(`_written_graph`)."""
+_canonicalize(raw::RawMechanism) =
+    _canonicalize(raw.substrates, raw.products, _written_graph(raw)...)
+
+"""`raw`'s forms and steps as nodes and steps: step `j` joins written nodes `2j - 1` and
+`2j`, its two forms, and each list is the one the `RawForm` or `RawStep` constructor
+sorted."""
+function _written_graph(raw::RawMechanism)
+    nodes = Vector{Node}(undef, 2 * length(raw.steps))
+    for (j, s) in enumerate(raw.steps)
+        nodes[2j - 1] = _node(s.from)
+        nodes[2j] = _node(s.to)
+    end
+    steps = [Step(2j - 1, 2j, s.consumed, s.released, s.rapid_equilibrium, raw.group[j])
+             for (j, s) in enumerate(raw.steps)]
+    nodes, steps
 end
 
 """Form `f` as a node, sharing its sorted lists."""
 _node(f::RawForm) = Node(f.conformation, f.bound, f.added, f.subtracted)
 
-"""The distinct nodes of `ends` in canonical order, free E (label `E`, nothing bound, no
-residual) first, and the index each end became. A search keeps every mechanism it
-emits, so the nodes, built in a vector grown past its length, are stored as a copy at
-its length."""
-function _sorted_nodes(ends::Vector{Node})
-    nodes, node_of = Node[], Vector{Int}(undef, length(ends))
-    for t in sortperm(ends; by = n -> (!_is_free_E(n), n))
-        (isempty(nodes) || nodes[end] != ends[t]) && push!(nodes, ends[t])
+"""The distinct nodes of `written` in canonical order, free E (label `E`, nothing bound,
+no residual) first, and the index each written node became. A search keeps every
+mechanism it emits, so the nodes, built in a vector grown past its length, are stored as
+a copy at its length."""
+function _sorted_nodes(written::Vector{Node})
+    nodes, node_of = Node[], Vector{Int}(undef, length(written))
+    for t in sortperm(written; by = n -> (!_is_free_E(n), n))
+        (isempty(nodes) || nodes[end] != written[t]) && push!(nodes, written[t])
         node_of[t] = length(nodes)
     end
     copy(nodes), node_of
@@ -768,17 +788,45 @@ end
 # ─── Constructors and their checks ──────────────────────────────────────
 
 """
+    Mechanism(substrates, products, nodes::Vector{Node}, steps::Vector{Step})
+
+The mechanism that `nodes` and `steps` write, in canonical form, checked. The nodes come
+in any order, a node any number of times, and each list of a node or a step in any
+order; a step joins two of the nodes (`from` and `to` index `nodes`) in either direction,
+and its `group` is a kinetic group label, the labels running 1, 2, … with each used.
+Every name a node or a step binds as a modifier is a modifier. It checks the
+declarations (`_check_declarations`), then the representation (`_check_representation`).
+Whether its rate law is defined is the boundary check's question, not the constructor's.
+"""
+Mechanism(substrates::Vector{Symbol}, products::Vector{Symbol}, nodes::Vector{Node},
+          steps::Vector{Step}) = _checked(substrates, products, nodes, steps).mechanism
+
+"""
     Mechanism(raw::RawMechanism)
 
-The mechanism `raw` writes, in canonical form, checked: its declarations
-(`_check_declarations`), then its representation (`_check_representation`). Whether its
-rate law is defined is the boundary check's question, not the constructor's.
+The mechanism `raw` writes, checked as the nodes-and-steps constructor checks it, with
+`raw.modifiers` as its declared modifiers: each must be bound as a modifier, and only
+they may be.
 """
-function Mechanism(raw::RawMechanism)
-    _check_declarations(raw)
-    c = _canonicalize(raw)
-    _check_representation(c.mechanism, c.misaligned, raw.modifiers)
-    c.mechanism
+Mechanism(raw::RawMechanism) = _checked(raw).mechanism
+
+"""
+    AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
+                        catalytic_multiplicity, regulatory_sites)
+
+The allosteric mechanism whose catalytic part `nodes` and `steps` write, as
+`Mechanism(substrates, products, nodes, steps)` builds and checks it, with
+`mwc_tags[l]` the tag of written group label `l`: it checks the tags, then the catalytic
+part, then moves each tag to the canonical group its label became and composes.
+"""
+function AllostericMechanism(substrates::Vector{Symbol}, products::Vector{Symbol},
+                             nodes::Vector{Node}, steps::Vector{Step},
+                             mwc_tags::Vector{Symbol}, catalytic_multiplicity::Int,
+                             regulatory_sites::Vector{RegulatorySite})
+    _check_tags(mwc_tags, maximum(e -> e.group, steps; init = 0), catalytic_multiplicity)
+    c = _checked(substrates, products, nodes, steps)
+    AllostericMechanism(c.mechanism, _tags_by_group(c.group_of, mwc_tags),
+                        catalytic_multiplicity, regulatory_sites)
 end
 
 """
@@ -792,14 +840,57 @@ function AllostericMechanism(raw::RawAllostericMechanism)
     sites = [RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags) for s in raw.sites]
     _check_tags(raw.mwc_tags, maximum(raw.catalytic.group; init = 0),
                 raw.catalytic_multiplicity)
-    _check_declarations(raw.catalytic)
-    c = _canonicalize(raw.catalytic)
-    _check_representation(c.mechanism, c.misaligned, raw.catalytic.modifiers)
-    tags = similar(raw.mwc_tags)
-    for (l, g) in enumerate(c.group_of)
-        tags[g] = raw.mwc_tags[l]
+    c = _checked(raw.catalytic)
+    AllostericMechanism(c.mechanism, _tags_by_group(c.group_of, raw.mwc_tags),
+                        raw.catalytic_multiplicity, sites)
+end
+
+"""The canonical form (`_canonicalize`) of the mechanism that `nodes` and `steps` write,
+checked: each step's ends index `nodes`, each list is sorted into a fresh vector, the
+names bound as modifiers are taken as its modifiers, then its declarations and its
+representation are checked."""
+function _checked(substrates::Vector{Symbol}, products::Vector{Symbol},
+                  nodes::Vector{Node}, steps::Vector{Step})
+    for (k, e) in enumerate(steps)
+        e.from in eachindex(nodes) && e.to in eachindex(nodes) && continue
+        error("Step $k: its ends are nodes $(e.from) and $(e.to), but there are " *
+              "$(length(nodes)) nodes; a step's ends index the nodes")
     end
-    AllostericMechanism(c.mechanism, tags, raw.catalytic_multiplicity, sites)
+    nodes = [Node(n.conformation, sort(n.bound), sort(n.added), sort(n.subtracted))
+             for n in nodes]
+    steps = [Step(e.from, e.to, sort(e.taken_up), sort(e.given_off), e.rapid_equilibrium,
+                  e.group) for e in steps]
+    modifiers = _modifiers(nodes, steps)
+    _check_declarations(substrates, products, modifiers, Int[e.group for e in steps],
+                        length(steps))
+    _checked_graph(substrates, products, nodes, steps, modifiers)
+end
+
+"""The canonical form (`_canonicalize`) of `raw`, checked with its declared modifiers."""
+function _checked(raw::RawMechanism)
+    _check_declarations(raw.substrates, raw.products, raw.modifiers, raw.group,
+                        length(raw.steps))
+    _checked_graph(raw.substrates, raw.products, _written_graph(raw)..., raw.modifiers)
+end
+
+"""The canonical form of `nodes` and `steps`, each list sorted, whose declared modifiers
+are `modifiers`, checked for its representation (`_check_representation`)."""
+function _checked_graph(substrates::Vector{Symbol}, products::Vector{Symbol},
+                        nodes::Vector{Node}, steps::Vector{Step},
+                        modifiers::Vector{Symbol})
+    c = _canonicalize(substrates, products, nodes, steps)
+    _check_representation(c.mechanism, c.misaligned, modifiers)
+    c
+end
+
+"""The tags by canonical group: `mwc_tags[l]`, the tag of written label `l`, moved to
+group `group_of[l]`."""
+function _tags_by_group(group_of::Vector{Int}, mwc_tags::Vector{Symbol})
+    tags = similar(mwc_tags)
+    for (l, g) in enumerate(group_of)
+        tags[g] = mwc_tags[l]
+    end
+    tags
 end
 
 # ─── Checks ─────────────────────────────────────────────────────────────
@@ -859,29 +950,31 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     nothing
 end
 
-"""Error unless `raw` declares substrates and products, each name once, no name both a
-substrate and a product, gives each step one kinetic group label from 1 to the number of
-groups, every label used, and declares only names a metabolite can take
+"""Error unless `substrates` and `products` are not empty, the declared `substrates`,
+`products` and `modifiers` name each name once, no name is both a substrate and a
+product, `labels` gives each of the `n` steps one kinetic group label from 1 to the
+number of groups, every label used, and every declared name is one a metabolite can take
 (`_check_metabolite_names`)."""
-function _check_declarations(raw::RawMechanism)
-    isempty(raw.substrates) && error("Mechanism: substrates must not be empty")
-    isempty(raw.products) && error("Mechanism: products must not be empty")
-    for (names, kind) in ((raw.substrates, "substrate"), (raw.products, "product"),
-                          (raw.modifiers, "modifier"))
+function _check_declarations(substrates::Vector{Symbol}, products::Vector{Symbol},
+                             modifiers::Vector{Symbol}, labels::Vector{Int}, n::Int)
+    isempty(substrates) && error("Mechanism: substrates must not be empty")
+    isempty(products) && error("Mechanism: products must not be empty")
+    for (names, kind) in ((substrates, "substrate"), (products, "product"),
+                          (modifiers, "modifier"))
         allunique(names) || error("Mechanism: duplicate $kind names")
     end
-    both = findfirst(in(raw.products), raw.substrates)
+    both = findfirst(in(products), substrates)
     both === nothing ||
-        error("Mechanism: $(raw.substrates[both]) named as both a substrate and a " *
+        error("Mechanism: $(substrates[both]) named as both a substrate and a " *
               "product; concentrations and constants are keyed by name")
-    length(raw.group) == length(raw.steps) && all(≥(1), raw.group) ||
+    length(labels) == n && all(≥(1), labels) ||
         error("Mechanism: each step takes one kinetic group label from 1 to the number " *
               "of groups")
-    empty = findfirst(∉(raw.group), 1:maximum(raw.group; init = 0))
+    empty = findfirst(∉(labels), 1:maximum(labels; init = 0))
     empty === nothing ||
         error("Mechanism: kinetic group $empty is empty; a kinetic group holds at least " *
               "one step")
-    for names in (raw.substrates, raw.products, raw.modifiers)
+    for names in (substrates, products, modifiers)
         _check_metabolite_names("Mechanism", names)
     end
 end
@@ -1183,7 +1276,7 @@ function _read_mechanism!(r::_SigReader)
     nodes = [Node(names[_next!(r)], mets(), symbols(), symbols()) for _ in 1:_next!(r)]
     steps = [Step(_next!(r), _next!(r), mets(), mets(), _next!(r) == 1, _next!(r))
              for _ in 1:_next!(r)]
-    Mechanism(substrates, products, nodes, steps)
+    _unchecked_mechanism(substrates, products, nodes, steps)
 end
 
 function _read_site!(r::_SigReader)
@@ -1263,12 +1356,14 @@ function _table(m::Mechanism)
 end
 """Every name bound as a modifier, reactant copies included, sorted. It reads the nodes and
 steps without building `_table`: the guard asks for it many times per mechanism."""
-function modifiers(m::Mechanism)
+modifiers(m::Mechanism) = _modifiers(m.nodes, m.steps)
+"""Every name `nodes` and `steps` bind as a modifier, sorted, each once."""
+function _modifiers(nodes::Vector{Node}, steps::Vector{Step})
     names = Symbol[]
     add(list::Vector{Met}) =
         foreach(x -> x.modifier && !(x.name in names) && push!(names, x.name), list)
-    foreach(n -> add(n.bound), m.nodes)
-    foreach(e -> (add(e.taken_up); add(e.given_off)), m.steps)
+    foreach(n -> add(n.bound), nodes)
+    foreach(e -> (add(e.taken_up); add(e.given_off)), steps)
     sort!(names)
 end
 # The concentration names in the order the rate law reads them: substrates, products,

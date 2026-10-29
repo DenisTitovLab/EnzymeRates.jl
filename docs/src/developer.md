@@ -82,10 +82,10 @@ conformations an allosteric mechanism's tags define (`excludes(tag, c)`,
 each form's offsets), `segment_graph(m, on)` (the steady-state steps between them) and
 `has_turnover_cycle(m, on)`. Enumeration reads them as `Derivation.x`.
 
-The writers rebuild a mechanism through its written form. `RawMechanism(m)`,
-`RawStep(m, k)` and `RawForm(m, x)` give that form; `with_flags(m, re)` and
-`regroup(m, groups, re)` build a mechanism with the given flags or kinetic groups through
-the checked constructors; `with_tags(am, tags)` retags through the composition constructor;
+The writers rebuild a mechanism. `RawMechanism(m)`, `RawStep(m, k)` and `RawForm(m, x)`
+give its written form; `with_flags(m, re)` and `regroup(m, groups, re)` build a mechanism
+with the given flags or kinetic groups through the checked constructors;
+`with_tags(am, tags)` retags through the composition constructor;
 `canonical_graph(raw)` builds a canonical graph with only the alignment check. The
 DSL text of forms and steps (`form_text`, `step_text`) completes the graph interface.
 The rest of `Mechanisms.API` is the types (`Reactant`, `Regulator`, …) and the checks the
@@ -108,8 +108,8 @@ To use another module's function, add it to that module's `API` list under a nam
 without an underscore. Rule 3 matches field names, not types, so the test lists by file
 the reads it lets through (`_testhelper_FIELD_ALLOWED`). The list takes only values the
 reading module owns: Derivation's networks, verdicts and laws, the steps of
-`segment_graph`'s result, the rate table's `group` column, the raw input the DSL reader
-builds and the written form the seed builder assembles and transforms.
+`segment_graph`'s result, the rate table's `group` column, the declared names the DSL
+reader collects and the written form the seed builder assembles and transforms.
 
 ## Derivation architecture
 
@@ -304,14 +304,20 @@ a catalytic `Mechanism`, one allosteric tag per kinetic group, the catalytic mul
 and the regulatory sites. Every module reads these fields with dots (see
 [Reads, views and writers](@ref)).
 
-The macros, the parser and the moves that change flags, groups or steps write a mechanism as
-raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`):
-its steps in written order and direction. `Mechanism(raw)` and `AllostericMechanism(raw)`
-build its canonical graph (`_canonicalize`) and check it; `canonical_graph(raw)` builds it
-with only the alignment check, for the seed bases and the dead-end move's candidates. The
-written form of a built mechanism is `RawMechanism(m)` (`RawForm(m, x)`, `RawStep(m, k)`),
-and the writers `with_flags(m, re)` and `regroup(m, groups, re)` rebuild a mechanism with
-the given flags or kinetic groups through it. The moves that tag a mechanism or change its
+The macros, the parser and the writers build a mechanism from nodes and steps.
+`Mechanism(substrates, products, nodes, steps)` takes the nodes in any order, a node any
+number of times, and each step in either direction with its kinetic group label (1, 2, …,
+each used); `AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
+multiplicity, sites)` takes the tag of each written group label. Both build the canonical
+graph (`_canonicalize`) and check it; the macros check the names under `modifiers:`
+themselves. The seeds and the dead-end move write a mechanism as raw input
+(`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`): its steps
+in written order and direction. `Mechanism(raw)` and `AllostericMechanism(raw)` build it
+the same way; `canonical_graph(raw)` builds it with only the alignment check, for the
+seed bases and the dead-end move's candidates. The written form of a built mechanism is
+`RawMechanism(m)` (`RawForm(m, x)`, `RawStep(m, k)`). The writers `with_flags(m, re)` and
+`regroup(m, groups, re)` rebuild a mechanism with the given flags or kinetic groups from
+its nodes and steps. The moves that tag a mechanism or change its
 regulatory sites compose the parent's catalytic graph with other tags or sites through the
 composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)` (directly or by
 `with_tags`), which runs only its tag and site checks. Going `from → to`, a step takes up

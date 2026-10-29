@@ -77,13 +77,15 @@ _written(m::Mechanism, re::BitVector, groups::Vector{Int}) =
 
 """`am` as written (`RawAllostericMechanism`), its catalytic graph as `_written` writes it
 and each label tagged as the group of its first step."""
-function _written(am::AllostericMechanism, re::BitVector, groups::Vector{Int})
-    cm = am.catalytic
-    tags = Symbol[am.mwc_tags[cm.steps[findfirst(==(l), groups)].group]
-                  for l in 1:maximum(groups; init = 0)]
-    RawAllostericMechanism(_written(cm, re, groups), tags, am.catalytic_multiplicity,
-                           RawSite.(am.regulatory_sites))
-end
+_written(am::AllostericMechanism, re::BitVector, groups::Vector{Int}) =
+    RawAllostericMechanism(_written(am.catalytic, re, groups), _label_tags(am, groups),
+                           am.catalytic_multiplicity, RawSite.(am.regulatory_sites))
+
+"""The tag of each label of `groups`, a kinetic group label per step of `am`'s catalytic
+graph: the tag of the group of the label's first step."""
+_label_tags(am::AllostericMechanism, groups::Vector{Int}) =
+    Symbol[am.mwc_tags[am.catalytic.steps[findfirst(==(l), groups)].group]
+           for l in 1:maximum(groups; init = 0)]
 
 """
     RawSite(s::RegulatorySite)
@@ -109,16 +111,26 @@ with_flags(m::_AnyMech, re::BitVector) = regroup(m, _group_labels(catalytic(m)),
 rapid equilibrium where `re[k]` holds (by default, where it already is); the labels run
 from 1 and each is used. Each new
 group of an allosteric mechanism takes the tag of its first step's group, so the parts of
-a split group keep its tag. The rest is `m`'s. The child is built and checked through
-`Mechanism(raw)` (`AllostericMechanism(raw)`), so it is in canonical form: a new grouping
-can turn a tied step and renumber the steps.
+a split group keep its tag. The rest is `m`'s. The child is built and checked by the
+nodes-and-steps constructors, so it is in canonical form: a new grouping can turn a tied
+step and renumber the steps.
 """
 regroup(m::Mechanism, groups::Vector{Int},
         re::BitVector = BitVector(e.rapid_equilibrium for e in m.steps)) =
-    Mechanism(_written(m, re, groups))
-regroup(am::AllostericMechanism, groups::Vector{Int},
-        re::BitVector = BitVector(e.rapid_equilibrium for e in am.catalytic.steps)) =
-    AllostericMechanism(_written(am, re, groups))
+    Mechanism(m.substrates, m.products, m.nodes, _relabelled(m, groups, re))
+function regroup(am::AllostericMechanism, groups::Vector{Int},
+                 re::BitVector = BitVector(e.rapid_equilibrium for e in am.catalytic.steps))
+    cm = am.catalytic
+    AllostericMechanism(cm.substrates, cm.products, cm.nodes, _relabelled(cm, groups, re),
+                        _label_tags(am, groups), am.catalytic_multiplicity,
+                        am.regulatory_sites)
+end
+
+"""The steps of `m`, step `k` labelled `groups[k]` and at rapid equilibrium where `re[k]`
+holds."""
+_relabelled(m::Mechanism, groups::Vector{Int}, re::BitVector) =
+    Step[Step(e.from, e.to, e.taken_up, e.given_off, re[k], groups[k])
+         for (k, e) in enumerate(m.steps)]
 
 """
     with_tags(am::AllostericMechanism, tags::Vector{Symbol})

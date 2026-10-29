@@ -470,12 +470,15 @@ end
                  modifiers = EnzymeRates.Mechanisms.modifiers(cm),
                  regulators = mech isa EnzymeRates.AllostericMechanism ?
                               EnzymeRates.Mechanisms.allosteric_regulators(mech) : Symbol[])
-        raw = EnzymeRates.Mechanisms.RawMechanism(cm)
-        for k in eachindex(cm.steps)
+        for (k, e) in enumerate(cm.steps)
             op, lhs, rhs = EnzymeRates.DSL._step_parts(
                 Meta.parse(EnzymeRates.Mechanisms.step_text(cm, k)), "@enzyme_mechanism")
-            @test EnzymeRates.DSL._raw_step(op, lhs, rhs, names,
-                                                   "@enzyme_mechanism") == raw.steps[k]
+            nodes = EnzymeRates.Mechanisms.Node[]
+            s = EnzymeRates.DSL._raw_step!(nodes, op, lhs, rhs, e.group, names,
+                                           "@enzyme_mechanism")
+            @test nodes == cm.nodes[[e.from, e.to]] &&
+                  s == EnzymeRates.Mechanisms.Step(1, 2, e.taken_up, e.given_off,
+                                                   e.rapid_equilibrium, e.group)
         end
     end
     line(m, text) = EnzymeRates.Mechanisms.step_text(m, _testhelper_edge(m, text))
@@ -1685,7 +1688,7 @@ for label in (:D, :Ca, :Ea, :F, :Z), chem in (:NonequalAI, :OnlyA)
         end
     end
     _testhelper_tag_sets["AD13_$(chem)_$label"] =
-        EnzymeRates.AllostericMechanism(EnzymeRates.DSL.raw_mechanism(block, true))
+        EnzymeRates.DSL._construct(EnzymeRates.DSL.raw_mechanism(block, true))
 end
 _testhelper_tag_sets["AD14"] = @_testhelper_unguarded @allosteric_mechanism begin
     substrates: S

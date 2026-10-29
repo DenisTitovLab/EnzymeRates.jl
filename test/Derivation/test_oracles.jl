@@ -295,7 +295,7 @@ end
                 F(S) <--> F + P
             end
         end)
-        two_enzymes = EnzymeRates.Mechanisms._canonicalize(
+        two_enzymes = _testhelper_canonicalize(
             EnzymeRates.DSL.raw_mechanism(:(begin
             substrates: S
             products: P
@@ -563,7 +563,7 @@ end
         end
     end
     @test r2 isa EnzymeRates.AllostericMechanism
-    @test r2 == EnzymeRates.AllostericMechanism(
+    @test r2 == EnzymeRates.DSL._construct(
         EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S
         products: P

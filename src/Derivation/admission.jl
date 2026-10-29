@@ -177,7 +177,10 @@ Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the
 function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
     states = copy(am.mwc_tags)
     states[[Mechanisms.catalytic(am).steps[k].group for k in ks]] .= tag
-    _guard(Mechanisms.with_tags(am, states)) === _WELL_POSED
+    retagged = Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), states,
+                                              am.catalytic_multiplicity,
+                                              am.regulatory_sites)
+    _guard(retagged) === _WELL_POSED
 end
 
 """
@@ -187,10 +190,21 @@ Whether `mech` with the kinetic group of edge `k` made steady-state passes the g
 """
 function _steady_state_passes(mech::_AnyMech, k::Int)
     m = Mechanisms.catalytic(mech)
-    re = _re_flags(m)
-    re[findall(s -> s.group == m.steps[k].group, m.steps)] .= false
-    _guard(Mechanisms.with_flags(mech, re)) === _WELL_POSED
+    g = m.steps[k].group
+    steps = [Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off,
+                             s.rapid_equilibrium && s.group != g, s.group) for s in m.steps]
+    _guard(_with_steps(mech, steps)) === _WELL_POSED
 end
+
+"""`m` with the catalytic steps `steps`, each in the kinetic group its `group` labels,
+built by the constructors; an allosteric mechanism keeps its tags, multiplicity and
+sites."""
+_with_steps(m::Mechanisms.Mechanism, steps::Vector{Mechanisms.Step}) =
+    Mechanisms.Mechanism(m.substrates, m.products, m.nodes, steps)
+_with_steps(am::Mechanisms.AllostericMechanism, steps::Vector{Mechanisms.Step}) =
+    Mechanisms.AllostericMechanism(am.catalytic.substrates, am.catalytic.products,
+                                   am.catalytic.nodes, steps, am.mwc_tags,
+                                   am.catalytic_multiplicity, am.regulatory_sites)
 
 """
 The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
