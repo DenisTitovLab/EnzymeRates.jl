@@ -945,7 +945,8 @@ function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
     end
     k = findfirst(n -> !used(Met(n, true)), modifiers)
     k === nothing ||
-        error("Mechanism: modifier $(modifiers[k]) is bound at a node, but no step binds it")
+        error("Mechanism: modifier $(modifiers[k]) is bound at a node, " *
+              "but no step binds it")
 end
 
 """Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member

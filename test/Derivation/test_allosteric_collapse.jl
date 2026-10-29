@@ -1,5 +1,5 @@
 # ABOUTME: Allosteric :NonequalAI split regression — a split with no thermodynamic freedom
-# ABOUTME: collapses to K_I=K_A; an identifiable split stays free; all equations thermo-consistent.
+# ABOUTME: collapses to K_I=K_A, an identifiable one stays free, all laws thermo-consistent.
 module AllostericCollapseTests
 using Test, EnzymeRates, Random
 const ER = EnzymeRates
@@ -92,7 +92,8 @@ end
 
     @testset "binding-Wegscheider single inner edge -> full collapse" begin
         # random-order bi-bi (two Wegscheider boxes); tag ONE inner box-independent
-        # edge (EB+A->EAB) :NonequalAI, rest :EqualAI -> its split is forbidden -> collapses.
+        # edge (EB+A->EAB) :NonequalAI, rest :EqualAI -> its split is forbidden ->
+        # collapses.
         st=fill(:EqualAI,9); st[3]=:NonequalAI
         am=_testhelper_ro_bibi(st)
         fp,v,veq = _testhelper_evalrate(am)

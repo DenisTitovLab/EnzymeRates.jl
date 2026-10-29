@@ -126,19 +126,19 @@ function _testhelper_stored_params(m, all_params::NamedTuple)
 end
 
 """
-The constants of `m` (values by name in `all_params`, from `parameters(m, params)`)
-under the positional names a textbook rate law reads, by role. Written step `i`
-(in the order of `raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in
-the written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium
-`K{i}`, a binding's dissociation constant or, for any other step, the equilibrium
-constant of the written direction. The inactive law's kept steps in a `:NonequalAI` group
-add `k{i}f_T`, `k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a
-non-binding step against its stored direction, so the suite never inverts `K` or swaps
-`k{i}f` and `k{i}r` for such a step. A ligand of regulatory site `j` (the written order
-of `raw`'s sites) gives `K_<ligand>_reg{j}` and, when its inactive conformation has a
-constant of its own, `K_<ligand>_T_reg{j}`. `raw` is the mechanism as written, the DSL
-walker's value (`_testhelper_MechanismTestSpec.raw`); errors unless its catalytic steps
-canonicalize to `m`'s catalytic graph. Every entry of `all_params` passes through.
+The constants of `m` (values by name in `all_params`, from `parameters(m, params)`) under
+the positional names a textbook rate law reads, by role. Written step `i` (in the order of
+`raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in the
+written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`, a
+binding's dissociation constant or, for any other step, the equilibrium constant of the
+written direction. The inactive law's kept steps in a `:NonequalAI` group add `k{i}f_T`,
+`k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a non-binding step against
+its stored direction, so the suite never inverts `K` or swaps `k{i}f` and `k{i}r` for such a
+step. A ligand of regulatory site `j` (the written order of `raw`'s sites) gives
+`K_<ligand>_reg{j}` and, when its inactive conformation has a constant of its own,
+`K_<ligand>_T_reg{j}`. `raw` is the mechanism as written, the DSL walker's value
+(`_testhelper_MechanismTestSpec.raw`); errors unless its catalytic steps canonicalize to
+`m`'s catalytic graph. Every entry of `all_params` passes through.
 """
 function _testhelper_written_params(m, all_params::NamedTuple; raw)
     mech = _testhelper_lift(m)

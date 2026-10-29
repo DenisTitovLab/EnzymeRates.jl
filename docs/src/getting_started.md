@@ -135,8 +135,8 @@ one `E_total`, a `Rate` column with measured rates, and one column per
 metabolite or regulator name (here `S` and `P`). `Keq` is a required keyword,
 always user-supplied. The fit removes each group's arbitrary scale, and `reference`, a
 turnover at stated concentrations (here the first data row), sets the scale of the
-returned rate constants (omit it and the largest predicted rate over the data rows, at `E_total = 1`, is scaled
-to 1); see [Normalized vs absolute rate](@ref).
+returned rate constants (omit it and the largest predicted rate over the data rows, at
+`E_total = 1`, is scaled to 1); see [Normalized vs absolute rate](@ref).
 
 ---
 

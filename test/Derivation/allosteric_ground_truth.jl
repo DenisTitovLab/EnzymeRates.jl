@@ -1,5 +1,5 @@
 # ABOUTME: n=1 two-conformation mass-action ground truth for allosteric MWC rate equations.
-# ABOUTME: Small explicit networks solved as a linear steady state; the acceptance gate for the normalization fix.
+# ABOUTME: Small explicit networks, solved as a linear steady state, check the derived laws.
 using Test, EnzymeRates, LinearAlgebra, Random
 const ER = EnzymeRates
 
@@ -9,8 +9,9 @@ const ER = EnzymeRates
 # steady state, and return the net catalytic flux Σ(kf·c[reactant] − kr·c[product])
 # over the catalytic (product-forming) edges — the reaction velocity.
 #
-# `species`  :: Vector{Symbol}                            (species[1] carries the conservation row)
-# `edges`    :: Vector of (from::Symbol, to::Symbol, rate::Float64)   directed, rate = pseudo-first-order
+# `species`  :: Vector{Symbol}   (species[1] carries the conservation row)
+# `edges`    :: Vector of (from::Symbol, to::Symbol, rate::Float64), directed,
+#               rate = pseudo-first-order
 # `cat_edges`:: Vector of (reactant::Symbol, product::Symbol, kf::Float64, kr::Float64)
 "Net catalytic flux at steady state for an explicit two-conformation network."
 function _testhelper_mwc_ground_truth_flux(species, edges, cat_edges, Etot)
@@ -398,7 +399,8 @@ end
         concs = (A=0.5+2rand(rng), B=0.5+2rand(rng), P=0.5+2rand(rng), Q=0.5+2rand(rng))
         pn = NamedTuple{(fpn..., :Keq, :E_total)}(((vals[s] for s in fpn)..., Keq, 1.0))
         vn = real(ER.rate_equation(nonallo, concs, pn))
-        for L in (0.7, 5.0)          # all-:EqualAI is L-independent and equals non-allosteric
+        # all-:EqualAI is L-independent and equals non-allosteric
+        for L in (0.7, 5.0)
             pa = NamedTuple{(fpa..., :Keq, :E_total)}(
                 ((s === :L ? L : vals[s] for s in fpa)..., Keq, 1.0))
             @test isapprox(real(ER.rate_equation(alloEq, concs, pa)), vn; rtol=1e-6)

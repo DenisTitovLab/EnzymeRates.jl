@@ -4047,8 +4047,8 @@ end
 
 @testset "check_valid_rate_equation returns a Bool" begin
     # A mechanism whose law, on a face (face 2), has several closed classes in its
-    # segment chain (`_LAW_MULTI`) fails the guard; with `throw = false` the verdict comes back as a Bool
-    # and nothing is thrown.
+    # segment chain (`_LAW_MULTI`) fails the guard; with `throw = false` the verdict comes
+    # back as a Bool and nothing is thrown.
     good = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P

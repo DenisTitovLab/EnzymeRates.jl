@@ -13,46 +13,98 @@ The two halves and the optimizer layer are described below.
 
 EnzymeRates is six submodules and a top level. Each submodule lives in `src/<Module>/`:
 `<Module>.jl` declares the module, includes its files and lists its interface as
-`const API = (...)`. Its tests live in `test/<Module>/`.
+`const API = (...)`. Its tests live in `test/<Module>/`. The tables below list every
+exported name, every name one module takes from another and every module's whole `API`;
+`test/test_boundaries.jl` fails when they disagree with `src/`.
+
+### What `using EnzymeRates` exports
+
+`src/EnzymeRates.jl` exports 19 names, each defined in a submodule or at the top level.
+
+| Name | Module | What it does |
+|:-----|:-------|:-------------|
+| `EnzymeReaction` | Mechanisms | A reaction and its regulators |
+| `EnzymeMechanism` | Mechanisms | A plain mechanism as a singleton type |
+| `AllostericEnzymeMechanism` | Mechanisms | An MWC mechanism as a singleton type |
+| `metabolites` | Mechanisms | The rate law's concentration names |
+| `rate_equation` | Derivation | Evaluates the rate law, allocation-free |
+| `rate_equation_string` | Derivation | The rate law as text |
+| `parameters` | Derivation | Parameter names by kind, or dependent values |
+| `IndependentParameters` | Derivation | Kind: fitted constants, `Keq`, `E_total` |
+| `FittedParameters` | Derivation | Kind: the constants a fit estimates |
+| `AllParameters` | Derivation | Kind: every constant, the dependent ones last |
+| `FittingProblem` | Fitting | A compiled mechanism with its `RateData` |
+| `fit_rate_equation` | Fitting | Fits a problem with an optimizer |
+| `test_rate_equation` | Fitting | The loss of given parameters on a rate table |
+| `@enzyme_reaction` | DSL | Builds an `EnzymeReaction` |
+| `@enzyme_mechanism` | DSL | Builds, checks and compiles a mechanism |
+| `@allosteric_mechanism` | DSL | Builds, checks and compiles an MWC mechanism |
+| `IdentifyRateEquationProblem` | top level | A reaction with its checked `RateData` |
+| `IdentifyRateEquationResults` | top level | The selected mechanism and the CV table |
+| `identify_rate_equation` | top level | Searches mechanisms, selects one by CV |
 
 ### The module map
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ top level: identify_rate_equation and the exported names                                 │
-└┬────────────────────────────────┬─────────────────────────────┬──────────────────────────┘
- │ check_valid_rate_equation,     │ base_mechanisms,            │ FittingProblem,
- │ parameters,                    │ expand_mechanisms           │ fit_rate_equation,
- │ rate_equation_string,          │                             │ test_rate_equation
- │ rate_equation_dedup_key        │                             │
- │                                │                             │
- │                                ▼                             ▼
- │ ┌─────┐                 ┌─────────────┐                 ┌─────────┐              ┌──────┐
- │ │ DSL │                 │ Enumeration │                 │ Fitting │─ RateData ──►│ Data │
- │ └──┬──┘                 └──────┬──────┘                 └────┬────┘              └──────┘
- │    │ check_valid_rate_equation │ check_valid_rate_equation,  │ parameters,
- │    │                           │ parameter_count,            │ rate_equation,
- │    │                           │ conformation_steps,         │ scale_rate_constants
- │    │                           │ re_segments, …              │
- ▼    ▼                           ▼                             ▼
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ Derivation: the guard, the joint solve, the parameter names, the rate law                │
-└─────────────────────────────────┬────────────────────────────────────────────────────────┘
-                                  │ step_kind, groups, step_sides,
-                                  │ step_text, runs_toward_products
-                                  ▼
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ Mechanisms: the data model; every module but Data reads its types                        │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ top level                                                                              │
+└──┬───────┬─────────┬─────────────┬─────────────────────┬─────────────────────┬─────────┘
+   │       ▼         │             ▼                     ▼                     ▼
+   │  ┌─────────┐    │      ┌─────────────┐         ┌─────────┐           ┌────────┐
+   │  │   DSL   │    │      │ Enumeration │         │ Fitting │──────────►│  Data  │
+   │  └─┬─────┬─┘    │      └───┬─────┬───┘         └─┬─────┬─┘           └────────┘
+   │    │     │      │          │     │               │     │
+   │    │     │      │          │     └───────────────┼───┐ │
+   │    │     ▼      ▼          ▼                     ▼   │ │
+   │    │  ┌────────────────────────────────────────────┐ │ │
+   │    │  │ Derivation                                 │ │ │
+   │    │  └─────────────────────┬──────────────────────┘ │ │
+   ▼    ▼                        ▼                        ▼ ▼
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ Mechanisms                                                                             │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-An arrow points from a module to a module it calls, and its label names the main calls.
-Every module but `Data` also reads the `Mechanisms` types. The diagram omits those arrows
-and shows only `Derivation`'s. A submodule names only the modules its arrows reach, plus
-`Mechanisms`; `Mechanisms` and `Data` name none. The top level names all six: it also holds
-a `RateData` in `IdentifyRateEquationProblem`, re-exports the `DSL` macros, which users call
-directly. Inside a module, code calls its own names bare; a
-call into another module is qualified: `Derivation.check_valid_rate_equation(m)`.
+An arrow points from a module to a module whose names it uses. A submodule names only the
+modules its arrows reach; `Mechanisms` and `Data` name none. Inside a module, code calls
+its own names bare; a call into another module is qualified:
+`Derivation.check_valid_rate_equation(m)`. The table lists, for each arrow, every name the
+first module takes from the second.
+
+| From → To | Names |
+|:----------|:------|
+| top level → Data | `RateData` |
+| top level → DSL | `@enzyme_reaction`, `@enzyme_mechanism`, `@allosteric_mechanism` |
+| top level → Enumeration | `base_mechanisms`, `expand_mechanisms` |
+| top level → Fitting | `FittingProblem`, `fit_rate_equation`, `test_rate_equation` |
+| top level → Derivation | `rate_equation`, `rate_equation_string`, `parameters`, |
+| | `IndependentParameters`, `FittedParameters`, `AllParameters`, |
+| | `check_valid_rate_equation`, `rate_equation_complexity`, |
+| | `rate_equation_dedup_key` |
+| top level → Mechanisms | `EnzymeReaction`, `Mechanism`, `AllostericMechanism`, |
+| | `AbstractEnzymeMechanism`, `EnzymeMechanism`, `AllostericEnzymeMechanism`, |
+| | `compile_mechanism`, `metabolites` |
+| DSL → Derivation | `check_valid_rate_equation` |
+| DSL → Mechanisms | `EnzymeReaction`, `Reactant`, `Regulator`, `Mechanism`, |
+| | `AllostericMechanism`, `Node`, `Step`, `Met`, `RegulatorySite`, |
+| | `compile_mechanism`, `modifiers`, `catalytic`, `check_decodable_names`, |
+| | `check_conformation_label` |
+| Enumeration → Derivation | `check_valid_rate_equation`, `parameter_count`, `excludes`, |
+| | `conformation_steps`, `re_segments`, `segment_graph`, `has_turnover_cycle`, |
+| | `has_unbalanced_cycle` |
+| Enumeration → Mechanisms | `EnzymeReaction`, `Mechanism`, `AllostericMechanism`, `Node`, |
+| | `Step`, `Met`, `RegulatorySite`, `metabolites`, `catalytic`, `groups`, |
+| | `step_kind`, `form_text`, `step_text` |
+| Fitting → Data | `RateData` |
+| Fitting → Derivation | `rate_equation`, `parameters`, `FittedParameters`, |
+| | `scale_rate_constants` |
+| Fitting → Mechanisms | `Mechanism`, `AllostericMechanism`, `AbstractEnzymeMechanism`, |
+| | `compile_mechanism`, `metabolites` |
+| Derivation → Mechanisms | `Mechanism`, `AllostericMechanism`, `Step`, `Met`, |
+| | `RegulatorySite`, `AbstractEnzymeMechanism`, `EnzymeMechanism`, |
+| | `AllostericEnzymeMechanism`, `compile_mechanism`, `metabolites`, `catalytic`, |
+| | `groups`, `step_kind`, `runs_toward_products`, `step_sides`, `form_text`, |
+| | `step_text` |
 
 ### What each module does
 
@@ -90,89 +142,103 @@ law, cross-validation and the CSV output.
 
 ### Interfaces
 
-Each table lists a module's whole `API`. "Used by" names the modules that call each name,
-and "users" marks a name that `using EnzymeRates` brings in. The tests call more.
+Each table lists a module's whole `API`; the top level's lists the names it defines and
+exports. "Used by" names the modules that call each name, and ✓ marks a name that
+`using EnzymeRates` brings in. The tests call more.
 
 **`Data`**
 
-| Name | What it does | Used by |
-|:-----|:-------------|:--------|
-| `RateData` | A checked rate table with `Keq` and reference anchors | Fitting, top level |
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `RateData` | A checked rate table with `Keq` and its anchors | Fitting, top level | |
 
 **`Mechanisms`**
 
-| Name | What it does | Used by |
-|:-----|:-------------|:--------|
-| `EnzymeReaction` | A reaction and its regulators | DSL, Enumeration, top level, users |
-| `Reactant` | A substrate or product with its atoms | DSL |
-| `Regulator` | A declared regulator with its kind and effect | DSL |
-| `Mechanism` | A reaction graph in canonical form | all but Data |
-| `AllostericMechanism` | A `Mechanism` with MWC tags and sites | all but Data |
-| `Node` | An enzyme form | DSL, Enumeration |
-| `Step` | A step between two nodes | DSL, Derivation, Enumeration |
-| `Met` | A metabolite in a node or a step | DSL, Derivation, Enumeration |
-| `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration |
-| `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level |
-| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, users |
-| `AllostericEnzymeMechanism` | An MWC mechanism as a singleton type | Derivation, users |
-| `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, top level |
-| `metabolites` | The rate law's concentration names | all but Data and DSL, users |
-| `modifiers` | Every name bound as a modifier | DSL |
-| `catalytic` | The catalytic `Mechanism` of a mechanism | DSL, Derivation, Enumeration |
-| `groups` | The steps of each kinetic group | Derivation, Enumeration |
-| `step_kind` | A step's kind: `:binding`, `:chemistry`, … | Derivation, Enumeration |
-| `runs_toward_products` | Whether a step, as stored, runs toward products | Derivation |
-| `step_sides` | The names of a step's two sides, which name its constants | Derivation |
-| `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration |
-| `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration |
-| `check_decodable_names` | Errors when names could spell one string two ways | DSL |
-| `check_conformation_label` | Errors on a malformed conformation label | DSL |
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `EnzymeReaction` | A reaction and its regulators | DSL, Enumeration, top level | ✓ |
+| `Reactant` | A substrate or product with its atoms | DSL | |
+| `Regulator` | A declared regulator with its kind and effect | DSL | |
+| `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | |
+| | | Fitting, top level | |
+| `AllostericMechanism` | A `Mechanism` with MWC tags and sites | DSL, Derivation, | |
+| | | Enumeration, Fitting, top level | |
+| `Node` | An enzyme form | DSL, Enumeration | |
+| `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
+| `Met` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
+| `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
+| `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level | |
+| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, top level | ✓ |
+| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, top level | ✓ |
+| `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, | |
+| | | top level | |
+| `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
+| | | Fitting, top level | |
+| `modifiers` | Every name bound as a modifier | DSL | |
+| `catalytic` | The catalytic `Mechanism` of a mechanism | DSL, Derivation, Enumeration | |
+| `groups` | The steps of each kinetic group | Derivation, Enumeration | |
+| `step_kind` | A step's kind: `:isomerization`, `:binding`, | Derivation, Enumeration | |
+| | `:fused_binding` or `:chemistry` | | |
+| `runs_toward_products` | Whether a step, as stored, runs toward products | Derivation | |
+| `step_sides` | The names of a step's two sides, which name its constants | Derivation | |
+| `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
+| `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
+| `check_decodable_names` | Errors when names could spell one string two ways | DSL | |
+| `check_conformation_label` | Errors on a malformed conformation label | DSL | |
 
 **`Derivation`**
 
-| Name | What it does | Used by |
-|:-----|:-------------|:--------|
-| `rate_equation` | Evaluates the rate law, allocation-free | Fitting, users |
-| `rate_equation_string` | The rate law as text | top level, users |
-| `parameters` | Parameter names by kind, or dependent values | Fitting, top level, users |
-| `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | users |
-| `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level, users |
-| `AllParameters` | Kind: every constant, the dependent ones last | users |
-| `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level |
-| `parameter_count` | The number of fitted constants, from the joint solve | Enumeration |
-| `rate_equation_complexity` | The law's term count, V×τ, before derivation | top level |
-| `rate_equation_dedup_key` | The law's key: one key, one fit | top level |
-| `scale_rate_constants` | Scales the steady-state rate constants | Fitting |
-| `excludes` | Whether a conformation excludes a step or a tag | Enumeration |
-| `conformation_steps` | The steps of one conformation | Enumeration |
-| `re_segments` | The rapid-equilibrium segments of a set of steps | Enumeration |
-| `segment_graph` | The steady-state steps between those segments | Enumeration |
-| `has_turnover_cycle` | Whether some cycle of steps turns the reaction over | Enumeration |
-| `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Enumeration |
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `rate_equation` | Evaluates the rate law, allocation-free | Fitting, top level | ✓ |
+| `rate_equation_string` | The rate law as text | top level | ✓ |
+| `parameters` | Parameter names by kind, or dependent values | Fitting, top level | ✓ |
+| `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
+| `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
+| `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
+| `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
+| `parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
+| `rate_equation_complexity` | The law's term count, V×τ, before derivation | top level | |
+| `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
+| `scale_rate_constants` | Scales the steady-state rate constants | Fitting | |
+| `excludes` | Whether a conformation excludes a step or a tag | Enumeration | |
+| `conformation_steps` | The steps of one conformation | Enumeration | |
+| `re_segments` | The rapid-equilibrium segments of a set of steps | Enumeration | |
+| `segment_graph` | The steady-state steps between those segments | Enumeration | |
+| `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Enumeration | |
+| `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Enumeration | |
 
 **`Fitting`**
 
-| Name | What it does | Used by |
-|:-----|:-------------|:--------|
-| `FittingProblem` | A compiled mechanism with its `RateData` | top level, users |
-| `fit_rate_equation` | Fits a problem with an optimizer | top level, users |
-| `test_rate_equation` | The loss of given parameters on a rate table | top level, users |
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `FittingProblem` | A compiled mechanism with its `RateData` | top level | ✓ |
+| `fit_rate_equation` | Fits a problem with an optimizer | top level | ✓ |
+| `test_rate_equation` | The loss of given parameters on a rate table | top level | ✓ |
 
 **`Enumeration`**
 
-| Name | What it does | Used by |
-|:-----|:-------------|:--------|
-| `base_mechanisms` | The mechanisms identify fits first | top level |
-| `expand_mechanisms` | The children of each parent, by every expansion move | top level |
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `base_mechanisms` | The mechanisms identify fits first | top level | |
+| `expand_mechanisms` | The children of each parent, by every expansion move | top level | |
 
 **`DSL`**
 
-| Name | What it does | Used by |
-|:-----|:-------------|:--------|
-| `@enzyme_reaction` | Builds an `EnzymeReaction` | users |
-| `@enzyme_mechanism` | Builds, checks and compiles a mechanism | users |
-| `@allosteric_mechanism` | Builds, checks and compiles an MWC mechanism | users |
-| `parse_mechanism` | Reads a mechanism's printed text back | tests |
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `@enzyme_reaction` | Builds an `EnzymeReaction` | top level | ✓ |
+| `@enzyme_mechanism` | Builds, checks and compiles a mechanism | top level | ✓ |
+| `@allosteric_mechanism` | Builds, checks and compiles an MWC mechanism | top level | ✓ |
+| `parse_mechanism` | Reads a mechanism's printed text back | | |
+
+**The top level**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `IdentifyRateEquationProblem` | A reaction with its checked `RateData` | | ✓ |
+| `IdentifyRateEquationResults` | The selected mechanism and the CV table | | ✓ |
+| `identify_rate_equation` | Searches mechanisms, selects one by CV | | ✓ |
 
 ### The mechanism data model
 
@@ -200,7 +266,8 @@ only for a fact the fields do not store, such as `step_kind(m, k)`.
 | | `nodes::Vector{Node}` | free E first, then the other forms in content order |
 | | `steps::Vector{Step}` | each step physical-forward, in content order |
 | `AllostericMechanism` | `catalytic::Mechanism` | the catalytic graph |
-| | `mwc_tags::Vector{Symbol}` | one tag per kinetic group (`:EqualAI`, `:OnlyA`, …) |
+| | `mwc_tags::Vector{Symbol}` | one tag per kinetic group: `:OnlyA`, `:OnlyI`, |
+| | | `:EqualAI` or `:NonequalAI` |
 | | `catalytic_multiplicity::Int` | the number of catalytic subunits |
 | | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
 | `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
@@ -269,7 +336,8 @@ package, and fails on:
 4. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
 To use another module's function, add it to that module's `API` list under a name
-without an underscore.
+without an underscore. The test also parses this page and fails when a table under
+"Modules" disagrees with `src/`, naming the module and the names to add or remove.
 
 ## Derivation architecture
 
@@ -487,12 +555,12 @@ Theorell–Chance step takes up one metabolite and gives off another (`:chemistr
 Every edge but a plain binding (`step_kind` other than `:binding`) is chemistry; the
 allosteric moves (`_chemistry_groups`, in `Enumeration`), admission, the joint solve's
 priority (`_priority_key`) and `_merged_complexes` read `step_kind` to tell catalysis from
-binding. The
-derivation reads every binding alike, so a fused binding's rapid-equilibrium constant is a dissociation constant
-and its steady-state pair a binding and a release rate constant. Every step's constants are
-named by the two sides of its kinetic class's kept member — each side's enzyme form followed
-by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for
-`E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`).
+binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
+constant is a dissociation constant and its steady-state pair a binding and a release rate
+constant. Every step's constants are named by the two sides of its kinetic class's kept
+member — each side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for
+`E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for
+`E(A) + B <--> E(Q) + P`).
 
 Like the singleton types, the graph is canonical, so the order or direction in which
 steps are written does not change the resulting mechanism. `_canonicalize` stores free E
