@@ -1565,7 +1565,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         s2 = @enzyme_mechanism begin
             substrates: A; products: P
             steps: begin
-                E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; E <--> F   # last step flipped
+                E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; E <--> F  # last flipped
             end
         end
         m = ER.Mechanism(s2)

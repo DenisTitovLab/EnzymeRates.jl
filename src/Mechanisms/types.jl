@@ -450,7 +450,9 @@ other nodes in content order (`isless(::Node)`); `steps` run physical-forward, i
 order (`isless(::Step)`), the kinetic groups numbered by their first step.
 `Mechanism(substrates, products, nodes, steps)` builds one from nodes and steps written
 any way and checks it; `_unchecked_mechanism` takes canonical fields and checks nothing,
-for canonical form and the Sig decoder. Lift it to its compiled type with
+for canonical form and the Sig decoder. Do not mutate the vectors of a built mechanism in
+place: its canonical form, hash, compiled Sig and memo entries depend on them; build a new
+one with the constructor. Lift it to its compiled type with
 `EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
 """
 struct Mechanism
@@ -943,7 +945,7 @@ function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
     end
     k = findfirst(n -> !used(Met(n, true)), modifiers)
     k === nothing ||
-        error("Mechanism: modifier $(modifiers[k]) is declared, but no step binds it")
+        error("Mechanism: modifier $(modifiers[k]) is bound at a node, but no step binds it")
 end
 
 """Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member
@@ -1301,6 +1303,7 @@ end
 _is_free(n::Node) = isempty(n.bound) && !_has_residual(n)
 """Whether `n` is free E: label `E`, nothing bound and no residual."""
 _is_free_E(n::Node) = n.conformation === :E && _is_free(n)
+
 # ─── Accessors ─────────────────────────────────────────────────
 #
 # A compiled mechanism is read by lifting it to its concrete `Mechanism` or

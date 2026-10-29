@@ -104,6 +104,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   CSVs are right. A phantom's source is usually fitted a batch earlier, so no identify run
   in the suite reaches this path; the fix (print the header before `_process_batch` and let
   `log` only indent) needs an identify fixture that does.
+- **A hand-built step that does not balance fails only inside the joint solve.**
+  A step whose sides take up and give off different net metabolites, such as `E(P) → E`
+  taking up `P`, passes the `Mechanism` constructor and the guard. It fails later, in the
+  joint solve, with "Cycle 1 produces metabolite change not proportional to net
+  reaction". The constructor or the guard should reject it with a message that names the
+  step. Only hand-built mechanisms meet this: the macros and the enumerator write balanced
+  steps.
 
 ## Planned
 

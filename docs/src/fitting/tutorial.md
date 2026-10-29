@@ -46,8 +46,8 @@ metabolites(uni_uni)
 A missing required column, a missing metabolite column, a metabolite named `group` or
 `Rate`, a zero, non-finite or missing `Rate`, a concentration that is not a finite
 number ≥ 0, a `Keq` that is not positive and finite, a `reference` passed with
-`absolute = true`, or a `reference` that names an unknown metabolite, a concentration that is not a finite number ≥ 0 or a zero or non-finite
-turnover each raises an `ErrorException` at construction — the check runs before any
+`absolute = true`, or a `reference` that names an unknown metabolite, has a concentration
+that is not a finite number ≥ 0, or has a zero or non-finite turnover each raises an `ErrorException` at construction — the check runs before any
 fitting.
 
 ## Building the `FittingProblem`

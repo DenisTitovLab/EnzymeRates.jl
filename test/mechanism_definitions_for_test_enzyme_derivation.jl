@@ -23,7 +23,8 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
     # Constraint expectations
     expected_n_haldane_constraints::Int       # RHS references Keq (catalytic-cycle closure)
     expected_n_mirror_constraints::Int = 0    # RHS is a single Symbol: a tie K_a = K_b
-    expected_n_wegscheider_constraints::Int = 0   # RHS Expr without Keq (multi-cycle futile-cycle closure)
+    # RHS Expr without Keq (multi-cycle futile-cycle closure)
+    expected_n_wegscheider_constraints::Int = 0
     expected_n_independent_params::Int        # 2*n_steps - n_constraints
 
     # Test configuration (optional)
@@ -4573,7 +4574,8 @@ let
         k2r = k2f * K3 / (Keq * K1)
 
         Q_cat_R = 1 + S/K1 + P/K3
-        Q_cat_T = 1 + S/K1                    # E(P) unreachable in T-state (catalysis + P-binding :OnlyA)
+        # E(P) unreachable in T-state (catalysis + P-binding :OnlyA)
+        Q_cat_T = 1 + S/K1
 
         N_R = k2f * S/K1 - k2r * P/K3
         # N_T = 0: the T-state cycle is dead (catalysis group 2 is :OnlyA)

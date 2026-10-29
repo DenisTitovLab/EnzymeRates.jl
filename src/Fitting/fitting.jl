@@ -11,8 +11,9 @@ rate constants.
 - `mechanism`: an `AbstractEnzymeMechanism` instance
 - `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
   `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
-  loss, fit scaled to the reference turnovers or, without any, to the fastest data row);
-  `true` selects absolute per-enzyme turnover mode (uncentered loss, no scale).
+  loss, fit scaled to the reference turnovers or, without any, so the largest predicted
+  rate over the data rows at `E_total = 1` is 1); `true` selects absolute per-enzyme
+  turnover mode (uncentered loss, no scale).
   `reference` holds the anchors `concentrations => turnover` that set a relative fit's
   scale; empty in absolute mode and when a relative table gives none
 - `group_point_indexes`: row indices grouped by unique `group` values

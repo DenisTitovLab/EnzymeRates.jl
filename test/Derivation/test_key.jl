@@ -439,7 +439,7 @@ end
         EnzymeRates.Derivation._phantom_weights(_testhelper_exponent_toy_law(p, q)))
 end
 
-@testset "rate_equation_dedup_key gives a phantom its own key and its active law's fit" begin
+@testset "rate_equation_dedup_key: a phantom has its own key and its active law's fit" begin
     # The merged uni-uni K-type at one catalytic subunit is an L phantom: its active law,
     # its law at L = 0, holds every fitted constant but L and is the law of the plain
     # merged uni-uni, so it reads that law's fit. Its own key, under which identify

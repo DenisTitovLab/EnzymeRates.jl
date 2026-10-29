@@ -464,8 +464,8 @@ function _context_form(m::Mechanisms.Mechanism, k::Int)
     isempty(m.steps[k].taken_up) && !isempty(m.steps[k].given_off) ? to : from
 end
 
-"""The copies of metabolite `name` that `s` holds as a modifier when `copy` holds, else those
-it holds productively."""
+"""The copies of metabolite `name` that `s` holds as a modifier when `copy` holds, else
+those it holds productively."""
 function _held_copies(s::Vector{Mechanisms.Met}, name::Symbol, copy::Bool)
     modifier = count(x -> x.modifier && x.name === name, s)
     copy ? modifier : _copies(s, name) - modifier

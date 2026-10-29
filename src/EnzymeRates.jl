@@ -31,8 +31,7 @@ include("Derivation/Derivation.jl")
 using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
     IndependentParameters, FittedParameters, AllParameters
 include("DSL/DSL.jl")
-using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism,
-    parse_mechanism
+using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation,
     test_rate_equation

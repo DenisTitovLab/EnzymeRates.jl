@@ -167,7 +167,7 @@ The steady-state graph between the rapid-equilibrium segments of the steps of `m
 steady-state steps that join two segments, in step order.
 """
 function segment_graph(m::Mechanisms.Mechanism, on::BitVector)
-    s = re_segments(m, on, BitVector(e.rapid_equilibrium for e in m.steps))
+    s = re_segments(m, on, _re_flags(m))
     steps = [k for (k, e) in enumerate(m.steps)
              if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
     merge(s, (; steps))

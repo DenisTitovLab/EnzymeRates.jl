@@ -186,7 +186,7 @@ end
         @test fp_conc.rate_data.absolute === false && fp_conc.rate_data.reference == ref
         @test FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
                              absolute=true).rate_data.absolute === true
-        # There is no kcat keyword: measured kcats rescale a fit afterwards.
+        # There is no kcat keyword: a `reference` sets the scale.
         @test_throws MethodError FittingProblem(uni_uni, ok_data; Keq=1.0, reference=ref,
                                                 scale_k_to_kcat=1.0)
     end
@@ -197,8 +197,10 @@ end
     # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
     # Three sub-cases exercise each kind of mismatch that sets buf[i] = 10.0:
     #   (i)  pred == 0.0            (S=0, P=0)
-    #   (ii) pred < 0, Rate > 0     (S=0, P>0: only reverse term survives → pred always negative)
-    #   (iii) pred > 0, Rate < 0    (S>0, P=0: only forward term survives → pred always positive)
+    #   (ii) pred < 0, Rate > 0     (S=0, P>0: only the reverse term survives, so pred
+    #        is always negative)
+    #   (iii) pred > 0, Rate < 0    (S>0, P=0: only the forward term survives, so pred
+    #        is always positive)
     # In all cases every point in the group is a mismatch so the expected
     # loss is: (0 from centering + 100.0 × n_mismatch) / n_data = 100.0
     @testset "All-mismatch group not cancelled by centering" begin
@@ -382,7 +384,8 @@ end
             best_us = min(best_us, t / 2000 * 1e6)
         end
         isfinite(acc) || error("loss! produced a non-finite result")
-        @test best_us < 70  # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
+        # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
+        @test best_us < 70
     end
 
     # ── fit_rate_equation: relative fits come back at the reference turnover ──

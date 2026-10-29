@@ -3583,8 +3583,8 @@ end
         @test Set(result) == Set(EnzymeRates.Mechanism(em) for em in expected)
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against ground-truth
-        # `parameters(compile_mechanism(...), FittedParameters())` — the canonical source for
-        # exact parameter counts.
+        # `parameters(compile_mechanism(...), FittedParameters())` — the canonical source
+        # for exact parameter counts.
         @test _testhelper_param_deltas(m, result) == fill(1, n_variants)
 
         # 3. compilability
@@ -8787,7 +8787,8 @@ end
         end
     end)
 
-    # Raw children reproduce expand_mechanisms' moves on a Mechanism without the filter.
+    # Unfiltered children reproduce expand_mechanisms' moves on a Mechanism without the
+    # filter.
     raw_act = _testhelper_plain_moves(seed, rxn_act)
     raw_plain = _testhelper_plain_moves(seed, rxn_plain)
 
@@ -14585,7 +14586,7 @@ end
         @test key(m_ordered) != key(m_random)
     end
 
-    @testset "LDH Pattern-A: graph-distinct mechanisms with equivalent v share a dedup key" begin
+    @testset "LDH Pattern-A: graph-distinct mechanisms of equal v share a dedup key" begin
         # LDH Pattern-A pair (11 steps each). m_a and m_b differ in step
         # ordering AND in which intermediate forms appear (m_a has
         # Lactate-binding via E_NADH only; m_b adds a Lactate-binding via

@@ -18,8 +18,9 @@ constant for rate equation identification.
 - `rate_data`: the validated table (`NamedTuple` of column vectors with `:group`, `:Rate`
   and metabolite columns), `Keq` (fixed equilibrium constant), `absolute` and
   `reference`, as a `RateData`. `absolute = false` (the default) treats the data as
-  relative and scales every fit to the reference turnovers, or to the fastest data row
-  without any; `true` treats it as absolute per-enzyme turnover (see `FittingProblem`).
+  relative and scales every fit to the reference turnovers, or, without any, so the
+  largest rate it predicts over the data rows (`E_total = 1`) is 1; `true` treats it as
+  absolute per-enzyme turnover (see `FittingProblem`).
   `reference` holds the anchors `concentrations => turnover` that set every relative
   fit's scale (see `FittingProblem`), keyed by the reaction's metabolites, with any
   metabolite left out at zero; empty in absolute mode and when a relative table gives none
@@ -1054,10 +1055,10 @@ end
 
 Cross-validate the candidates of `pool` (the cv pool `_beam_search` returns) by leaving
 one group of `prob.rate_data.data` out at a time, select one by the 1-SE rule
-(`_select_best_row`) and write `loocv_results.csv` and `best_equation.csv` to `save_dir`. A candidate's fold
-losses come from fitting, on each fold, the source of the fit it reads
-(`memo[e.fit_key].source`), so candidates that read one fit share their fold losses and
-each fit's folds run once.
+(`_select_best_row`) and write `loocv_results.csv` and `best_equation.csv` to
+`save_dir`. A candidate's fold losses come from fitting, on each fold, the source of the
+fit it reads (`memo[e.fit_key].source`), so candidates that read one fit share their fold
+losses and each fit's folds run once.
 """
 function _cv_model_selection(
     pool::Vector{BatchEntry}, memo::Dict{String,_Fit},

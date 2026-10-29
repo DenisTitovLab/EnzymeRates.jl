@@ -51,7 +51,7 @@ Every module but `Data` also reads the `Mechanisms` types. The diagram omits tho
 and shows only `Derivation`'s. A submodule names only the modules its arrows reach, plus
 `Mechanisms`; `Mechanisms` and `Data` name none. The top level names all six: it also holds
 a `RateData` in `IdentifyRateEquationProblem`, re-exports the `DSL` macros, which users call
-directly, and imports `parse_mechanism`. Inside a module, code calls its own names bare; a
+directly. Inside a module, code calls its own names bare; a
 call into another module is qualified: `Derivation.check_valid_rate_equation(m)`.
 
 ### What each module does
@@ -225,7 +225,8 @@ canonical form and checks them.
 takes one tag per written group label, and
 `AllostericMechanism(catalytic, mwc_tags, multiplicity, sites)` composes a canonical
 catalytic mechanism with tags and sites. To change a mechanism, copy `m.nodes` and `m.steps`
-with new fields and call the constructor.
+with new fields and call the constructor. Never mutate a built mechanism's vectors in
+place: its canonical form, hash, compiled Sig and memo entries depend on them.
 
 ### One request through the modules
 
@@ -487,8 +488,7 @@ Every edge but a plain binding (`step_kind` other than `:binding`) is chemistry;
 allosteric moves (`_chemistry_groups`, in `Enumeration`), admission, the joint solve's
 priority (`_priority_key`) and `_merged_complexes` read `step_kind` to tell catalysis from
 binding. The
-derivation reads every
-binding alike, so a fused binding's rapid-equilibrium constant is a dissociation constant
+derivation reads every binding alike, so a fused binding's rapid-equilibrium constant is a dissociation constant
 and its steady-state pair a binding and a release rate constant. Every step's constants are
 named by the two sides of its kinetic class's kept member — each side's enzyme form followed
 by its free metabolites (`K_ES_to_E_S` for `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for

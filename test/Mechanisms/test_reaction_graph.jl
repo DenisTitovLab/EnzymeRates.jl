@@ -802,9 +802,9 @@ end
     # Declared names no step exchanges: a substrate, a product; a substrate exchanged
     # only as its modifier copy; a modifier, and a reactant's modifier copy, bound only
     # in a node.
-    _testhelper_unused(kind, x) = ErrorException(
-        "Mechanism: $kind $x is declared, but no step " *
-        (kind == "modifier" ? "binds" : "uses") * " it")
+    _testhelper_unused(kind, x) = ErrorException(kind == "modifier" ?
+        "Mechanism: modifier $x is bound at a node, but no step binds it" :
+        "Mechanism: $kind $x is declared, but no step uses it")
     @test_throws(_testhelper_unused("substrate", :T),
                  _testhelper_uniuni(substrates = [:S, :T]))
     @test_throws(_testhelper_unused("product", :Q), _testhelper_uniuni(products = [:P, :Q]))

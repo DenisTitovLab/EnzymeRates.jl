@@ -127,8 +127,8 @@ end
 
 """
 The constants of `m` (values by name in `all_params`, from `parameters(m, params)`)
-under the positional names a textbook rate law reads, by role. Written step `i` (in the order of
-`raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in
+under the positional names a textbook rate law reads, by role. Written step `i`
+(in the order of `raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in
 the written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium
 `K{i}`, a binding's dissociation constant or, for any other step, the equilibrium
 constant of the written direction. The inactive law's kept steps in a `:NonequalAI` group
@@ -1610,7 +1610,8 @@ end
 
 """Whether each reference line of `m`'s printed law, read back in 256-bit BigFloat
 (`_testhelper_eval_rate_lines`), equals the dependent constant `parameters(m, params)`
-computes, to 1e-12 relative, at a random point; false when the law prints no reference line."""
+computes, to 1e-12 relative, at a random point; false when the law prints no reference
+line."""
 function _testhelper_reference_lines_match(m)
     rng = Random.MersenneTwister(4)
     p = _testhelper_random_independent_params(m; rng)

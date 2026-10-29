@@ -11,7 +11,8 @@ EnzymeRates.jl handles both cases through two `FittingProblem` keywords, `absolu
 `reference`. With the default `absolute = false` the data is relative: the fit ignores an
 arbitrary factor on each group's rates, and `reference`, one or more turnovers
 measured at stated concentrations, sets the scale of the returned rate constants. Without
-a `reference` the fastest data row sets it.
+a `reference` the scale is set so that the largest rate the mechanism predicts over the
+data rows, at `E_total = 1`, is 1.
 With `absolute = true` the data is per-enzyme turnover: the fit scores absolute
 magnitudes, returns the constants as fitted and takes no `reference`.
 `IdentifyRateEquationProblem` takes the same keywords.

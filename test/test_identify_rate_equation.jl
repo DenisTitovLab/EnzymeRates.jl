@@ -723,6 +723,8 @@ end
           [(S = 2.0,) => 0.8]
     prob_abs = IdentifyRateEquationProblem(rxn, data; Keq=10.0, absolute=true)
     @test EnzymeRates._fit_keywords(plain, prob_abs) == (; Keq = 10.0, absolute = true)
+    prob_none = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
+    @test EnzymeRates._fit_keywords(plain, prob_none) == (; Keq = 10.0, absolute = false)
 end
 
 @testset "_cross_validation_loss: the held-out loss of the fit on the other groups" begin
@@ -794,6 +796,21 @@ end
                                            absolute=true)
     res = mktempdir() do tmp
         identify_rate_equation(prob_abs; optimizer=CMAEvolutionStrategyOpt(),
+            min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
+            max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
+            save_dir=tmp, show_progress=false)
+    end
+    @test res isa IdentifyRateEquationResults
+    @test nrow(res.cv_results) >= 1
+    @test all(isfinite, res.cv_results.cv_score)
+end
+
+@testset "identify_rate_equation selects a mechanism in relative mode, no reference" begin
+    data = _testhelper_uni_prob(NamedTuple).rate_data.data
+    prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0)
+    @test isempty(prob.rate_data.reference)
+    res = mktempdir() do tmp
+        identify_rate_equation(prob; optimizer=CMAEvolutionStrategyOpt(),
             min_beam_width=1, loss_rel_threshold=1.0, loss_abs_threshold=0.0,
             max_param_count=3, n_cv_candidates=1, n_restarts=1, maxtime=1.0,
             save_dir=tmp, show_progress=false)

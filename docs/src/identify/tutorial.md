@@ -112,8 +112,8 @@ value becomes one cross-validation fold, so at least two groups are required.
 - In relative mode, the default, `reference` is optional: anchors
   `concentrations => turnover` in the reaction's metabolites, which set the scale of
   every fit's rate constants (see [Normalized vs absolute rate](@ref)). Without it the
-  fastest data row sets the scale. Each anchor's concentrations must be finite and ≥ 0
-  and its turnover finite and nonzero.
+  largest rate a mechanism predicts over the data rows, at `E_total = 1`, is scaled to 1.
+  Each anchor's concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
 
 The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
 rejects a metabolite named `L`, the conformational constant of the allosteric
