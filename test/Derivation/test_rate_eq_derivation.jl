@@ -1061,20 +1061,16 @@ const _testhelper_tc_cases = (
 end
 
 @testset "reversing written steps changes nothing" begin
-    _testhelper_rev(s) = ER.Mechanisms.RawStep(s.to, s.from, s.released, s.consumed,
-                                               s.rapid_equilibrium)
     rng = Random.MersenneTwister(7)
-    # The raw input `raw` written as `steps`, labelled `group`.
-    _testhelper_rewritten(raw, steps, group) = ER.Mechanisms.RawMechanism(
-        raw.substrates, raw.products, raw.modifiers, steps, group)
-    # Every step reversed, a random subset, and every group's steps in reverse order.
+    # The written form `raw` (`_testhelper_written`) with every step reversed, a random
+    # subset, and every group's steps in reverse order.
     function _testhelper_variants(raw)
-        within = reduce(vcat,
-                        [reverse(findall(==(l), raw.group)) for l in unique(raw.group)])
-        (_testhelper_rewritten(raw, _testhelper_rev.(raw.steps), raw.group),
-         _testhelper_rewritten(raw, [rand(rng, Bool) ? _testhelper_rev(s) : s
-                                     for s in raw.steps], raw.group),
-         _testhelper_rewritten(raw, raw.steps[within], raw.group[within]))
+        group = [e.group for e in raw.steps]
+        within = reduce(vcat, [reverse(findall(==(l), group)) for l in unique(group)])
+        ((; raw..., steps = _testhelper_turned.(raw.steps)),
+         (; raw..., steps = [rand(rng, Bool) ? _testhelper_turned(e) : e
+                             for e in raw.steps]),
+         (; raw..., steps = raw.steps[within]))
     end
     # The Theorell–Chance step of `tc_ss` written backwards.
     tc_backwards = @enzyme_mechanism begin
@@ -1094,8 +1090,8 @@ end
     append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = ER.Mechanism(em)
-        for flipped in _testhelper_variants(ER.Mechanisms.RawMechanism(m))
-            m2 = ER.Mechanism(flipped)
+        for flipped in _testhelper_variants(_testhelper_written(m))
+            m2 = _testhelper_build(flipped)
             @test m2 == m
             @test ER.rate_equation_string(ER.compile_mechanism(m2)) ==
                   ER.rate_equation_string(em)
@@ -1104,10 +1100,8 @@ end
     for spec in MECHANISM_TEST_SPECS
         spec.mechanism isa ER.AllostericEnzymeMechanism || continue
         am = ER.AllostericMechanism(spec.mechanism)
-        raw = ER.Mechanisms.RawAllostericMechanism(am)
-        for flipped in _testhelper_variants(raw.catalytic)
-            am2 = ER.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(flipped,
-                raw.mwc_tags, raw.catalytic_multiplicity, raw.sites))
+        for flipped in _testhelper_variants(_testhelper_written(am))
+            am2 = _testhelper_build(flipped)
             @test am2 == am
             @test ER.rate_equation_string(ER.compile_mechanism(am2)) ==
                   ER.rate_equation_string(spec.mechanism)

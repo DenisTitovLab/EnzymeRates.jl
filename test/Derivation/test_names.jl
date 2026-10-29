@@ -217,7 +217,8 @@ end
     # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = ER.Mechanism(m)
-    k = only(k for (k, e) in enumerate(mech.steps) if ER.Mechanisms._is_chemistry(mech, e))
+    k = only(k for k in eachindex(mech.steps)
+             if ER.Mechanisms.step_kind(mech, k) !== :binding)
     kon, koff = ER.Derivation._edge_constants(mech, k, :None)
     @test kon isa ER.Derivation.Kfor && koff isa ER.Derivation.Krev
     @test ER.Derivation.name(kon, mech) == :k_EQ_P_to_EAB &&

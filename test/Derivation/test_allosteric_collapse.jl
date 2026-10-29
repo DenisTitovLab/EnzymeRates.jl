@@ -3,21 +3,27 @@
 module AllostericCollapseTests
 using Test, EnzymeRates, Random
 const ER = EnzymeRates
-const M=ER.Mechanisms.Met; const RS=ER.Mechanisms.RawStep
+const M=ER.Mechanisms.Met
 # A form in conformation E that holds the substrates and products `xs`.
-_testhelper_form(xs...) = ER.Mechanisms.RawForm(:E, M[M(x, false) for x in xs])
+_testhelper_form(xs...) =
+    ER.Mechanisms.Node(:E, sort!(M[M(x, false) for x in xs]), Symbol[], Symbol[])
+# A step written from form `f` to form `t`, taking up `up` and giving off `off`, at rapid
+# equilibrium when `re` holds.
+_testhelper_step(f, t, up, off, re) = (; f, t, up, off, re)
 # The allosteric mechanism over substrates `subs` and products `prods`, catalytic
 # multiplicity 2, whose steps are `steps`, step `j` alone in group `j`, tagged `states[j]`.
 _testhelper_one_step_groups(subs, prods, steps, states) =
-    ER.AllostericMechanism(ER.Mechanisms.RawAllostericMechanism(
-        ER.Mechanisms.RawMechanism(subs, prods, Symbol[], steps, collect(eachindex(steps))),
-        collect(Symbol, states), 2, ER.Mechanisms.RawSite[]))
+    ER.AllostericMechanism(subs, prods, [n for s in steps for n in (s.f, s.t)],
+        [ER.Mechanisms.Step(2j - 1, 2j, s.up, s.off, s.re, j)
+         for (j, s) in enumerate(steps)],
+        collect(Symbol, states), 2, ER.Mechanisms.RegulatorySite[])
 # `re` flags which of the S-binding, chemistry and P-release steps are rapid
 # equilibrium; a steady-state binding carries kon/koff.
 function _testhelper_uni(states; re=(true,false,true))
     E=_testhelper_form(); ES=_testhelper_form(:S); EP=_testhelper_form(:P)
-    steps=[RS(E,ES,[M(:S,false)],M[],re[1]),RS(ES,EP,M[],M[],re[2]),
-           RS(EP,E,M[],[M(:P,false)],re[3])]
+    steps=[_testhelper_step(E,ES,[M(:S,false)],M[],re[1]),
+           _testhelper_step(ES,EP,M[],M[],re[2]),
+           _testhelper_step(EP,E,M[],[M(:P,false)],re[3])]
     _testhelper_one_step_groups([:S], [:P], steps, states)
 end
 # Random-order bi-bi with two Wegscheider boxes; `states` tags its nine one-step groups.
@@ -26,11 +32,11 @@ function _testhelper_ro_bibi(states)
     EAB=_testhelper_form(:A,:B); EPQ=_testhelper_form(:P,:Q); EP=_testhelper_form(:P)
     EQ=_testhelper_form(:Q)
     A=M(:A,false); B=M(:B,false); P=M(:P,false); Q=M(:Q,false)
-    sd=[RS(E,EA,[A],M[],true),RS(E,EB,[B],M[],true),
-        RS(EB,EAB,[A],M[],true),RS(EA,EAB,[B],M[],true),
-        RS(EAB,EPQ,M[],M[],false),RS(EP,EPQ,[Q],M[],true),
-        RS(EQ,EPQ,[P],M[],true),RS(E,EP,[P],M[],true),
-        RS(E,EQ,[Q],M[],true)]
+    sd=[_testhelper_step(E,EA,[A],M[],true),_testhelper_step(E,EB,[B],M[],true),
+        _testhelper_step(EB,EAB,[A],M[],true),_testhelper_step(EA,EAB,[B],M[],true),
+        _testhelper_step(EAB,EPQ,M[],M[],false),_testhelper_step(EP,EPQ,[Q],M[],true),
+        _testhelper_step(EQ,EPQ,[P],M[],true),_testhelper_step(E,EP,[P],M[],true),
+        _testhelper_step(E,EQ,[Q],M[],true)]
     _testhelper_one_step_groups([:A, :B], [:P, :Q], sd, states)
 end
 function _testhelper_evalrate(am; seed=1, split=nothing)

@@ -99,15 +99,32 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
 """The canonical form (`_canonicalize`) of the catalytic nodes and steps of `raw`, the
-DSL walker's value (`raw_mechanism`)."""
+DSL walker's value (`raw_mechanism`) or `_testhelper_written`'s."""
 _testhelper_canonicalize(raw::NamedTuple) =
     EnzymeRates.Mechanisms._canonicalize(raw.substrates, raw.products, raw.nodes, raw.steps)
 
-"""`m` as raw input: `RawMechanism(m)` for a plain mechanism, `RawAllostericMechanism(m)`
-for an allosteric one."""
-_testhelper_written(m::EnzymeRates.Mechanism) = EnzymeRates.Mechanisms.RawMechanism(m)
-_testhelper_written(m::EnzymeRates.AllostericMechanism) =
-    EnzymeRates.Mechanisms.RawAllostericMechanism(m)
+"""`m` written as the DSL walker writes a block (`raw_mechanism`): its substrates,
+products, modifiers, nodes and steps, each step labelled by its kinetic group, and for an
+allosteric mechanism the tag of each group, the multiplicity and the regulatory sites.
+Every vector is fresh."""
+_testhelper_written(m::EnzymeRates.Mechanism) =
+    (; substrates = copy(m.substrates), products = copy(m.products),
+     modifiers = EnzymeRates.Mechanisms.modifiers(m), nodes = copy(m.nodes),
+     steps = copy(m.steps))
+_testhelper_written(am::EnzymeRates.AllostericMechanism) =
+    (; _testhelper_written(am.catalytic)..., mwc_tags = copy(am.mwc_tags),
+     catalytic_multiplicity = am.catalytic_multiplicity,
+     regulatory_sites = copy(am.regulatory_sites))
+
+"""The graph that `raw`, a value of the DSL walker (`raw_mechanism`) or of
+`_testhelper_written`, writes, built and checked by the constructors (`_construct`)."""
+_testhelper_build(raw::NamedTuple) = EnzymeRates.DSL._construct(raw)
+
+"""Step `e` written the other way round: its ends swapped, and what it takes up and gives
+off swapped."""
+_testhelper_turned(e::EnzymeRates.Mechanisms.Step) =
+    EnzymeRates.Mechanisms.Step(e.to, e.from, e.given_off, e.taken_up,
+                                e.rapid_equilibrium, e.group)
 
 """The rapid-equilibrium flag of each step of the concrete mechanism `m`."""
 _testhelper_flags(m) = BitVector(e.rapid_equilibrium for e in m.steps)
@@ -214,30 +231,21 @@ end
 
 """
 Test that `m` stores its steps in the direction the orientation tiers give: `m` written
-back as raw input (`_testhelper_written`), each step as stored, has no step that
+back as nodes and steps (`_testhelper_written`), each step as stored, has no step that
 canonical form turns (`_canonicalize`), group by group, and writing every step the other
 way round, in the reverse order, builds the same mechanism.
 """
 function _testhelper_check_stored_orientation(m)
     mech = _testhelper_lift(m)
     raw = _testhelper_written(mech)
-    allo = raw isa EnzymeRates.Mechanisms.RawAllostericMechanism
-    cat = allo ? raw.catalytic : raw
     # The written form holds edge `k` as step `k`.
-    flipped = EnzymeRates.Mechanisms._canonicalize(cat).flipped
+    flipped = _testhelper_canonicalize(raw).flipped
     for members in
         EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanisms.catalytic(mech))
         @test !any(flipped[members])
     end
-    written = EnzymeRates.Mechanisms.RawMechanism(
-        cat.substrates, cat.products, cat.modifiers,
-        reverse([EnzymeRates.Mechanisms.RawStep(s.to, s.from, s.released, s.consumed,
-                                                s.rapid_equilibrium) for s in cat.steps]),
-        reverse(cat.group))
-    rebuilt = !allo ? EnzymeRates.Mechanism(written) :
-        EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-            written, raw.mwc_tags, raw.catalytic_multiplicity, raw.sites))
-    @test rebuilt == mech
+    @test _testhelper_build((; raw..., steps = reverse(_testhelper_turned.(raw.steps)))) ==
+          mech
 end
 
 # ── Exact steady-state oracle ───────────────────────────────────────────────

@@ -178,13 +178,8 @@ end
     for spec in MECHANISM_TEST_SPECS
         m = _testhelper_lift(spec.mechanism)
         m isa EnzymeRates.Mechanism || continue
-        raw = EnzymeRates.Mechanisms.RawMechanism(m)
-        back = EnzymeRates.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
-                                         raw.substrates, raw.products, raw.modifiers,
-                                         reverse([EnzymeRates.Mechanisms.RawStep(
-                                             s.to, s.from, s.released, s.consumed,
-                                             s.rapid_equilibrium) for s in raw.steps]),
-                                         reverse(raw.group)))
+        back = EnzymeRates.Mechanism(m.substrates, m.products, m.nodes,
+                                     reverse(_testhelper_turned.(m.steps)))
         @test EnzymeRates.Derivation._law(back) == EnzymeRates.Derivation._law(m)
     end
     # A same-model regrouping: the binding square ties B's two dissociation constants,

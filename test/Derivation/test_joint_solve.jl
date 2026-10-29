@@ -322,7 +322,7 @@ end
             end
         end)
         kept = EnzymeRates.Derivation._kept_members(am)
-        group = EnzymeRates.Mechanisms._group_labels(am.catalytic)
+        group = [e.group for e in am.catalytic.steps]
         g = only(g for (g, members) in enumerate(
             EnzymeRates.Mechanisms.groups(am.catalytic)) if length(members) == 2)
         # Active: E(A) + I sorts before E(P) + I (A before P), so it is kept; inactive:
@@ -396,8 +396,7 @@ end
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
                 # `_kept_members` leaves out.
-                group = EnzymeRates.Mechanisms._group_labels(
-                    EnzymeRates.Mechanisms.catalytic(mech))
+                group = [e.group for e in EnzymeRates.Mechanisms.catalytic(mech).steps]
                 last_of_class = Dict{Tuple{Int, Int, Bool}, Int}()
                 for c in sys.columns
                     g = group[c.edge]

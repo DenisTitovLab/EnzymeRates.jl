@@ -932,7 +932,7 @@ end
     for m in plain
         flags = _testhelper_flags(m)
         for re in [[flags];
-                   [flags .| (EnzymeRates.Mechanisms._group_labels(m) .== g)
+                   [flags .| ([e.group for e in m.steps] .== g)
                     for g in 1:length(EnzymeRates.Mechanisms.groups(m))];
                    [trues(length(m.steps))]]
             net = EnzymeRates.Derivation._eps_network(m, re)
@@ -1168,41 +1168,28 @@ const _testhelper_inhibitor_rxn = @enzyme_reaction begin
     competitive_inhibitors: A, I
 end
 
-"""`m` built by the constructors, without the guard, from its raw form
-(`_testhelper_written`) with `graph` applied to its catalytic `RawMechanism` and `site` to
-each `RawSite`."""
-function _testhelper_rebuilt(m, graph, site = identity)
-    raw = _testhelper_written(m)
-    m isa EnzymeRates.Mechanism && return EnzymeRates.Mechanism(graph(raw))
-    EnzymeRates.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-        graph(raw.catalytic), raw.mwc_tags, raw.catalytic_multiplicity,
-        EnzymeRates.Mechanisms.RawSite[site(s) for s in raw.sites]))
-end
+"""`m` built by the constructors, without the guard, from its written form
+(`_testhelper_written`) with `rewrite` applied to it."""
+_testhelper_rebuilt(m, rewrite) = _testhelper_build(rewrite(_testhelper_written(m)))
 
-"""`m` with every metabolite renamed by `rename`, built by the constructors from its raw
-form (`_testhelper_written`), without the guard."""
+"""`m` with every metabolite renamed by `rename`, built by the constructors from its
+written form (`_testhelper_written`), without the guard."""
 function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
-    r(x::Symbol) = get(rename, x, x)
-    met(x::EnzymeRates.Mechanisms.Met) = EnzymeRates.Mechanisms.Met(r(x.name), x.modifier)
-    _testhelper_raw_form(f::EnzymeRates.Mechanisms.RawForm) =
-        EnzymeRates.Mechanisms.RawForm(
-            f.conformation, EnzymeRates.Mechanisms.Met[met(x) for x in f.bound],
-            Symbol[r(x) for x in f.added], Symbol[r(x) for x in f.subtracted])
-    _testhelper_raw_step(s::EnzymeRates.Mechanisms.RawStep) =
-        EnzymeRates.Mechanisms.RawStep(
-            _testhelper_raw_form(s.from), _testhelper_raw_form(s.to),
-            EnzymeRates.Mechanisms.Met[met(x) for x in s.consumed],
-            EnzymeRates.Mechanisms.Met[met(x) for x in s.released], s.rapid_equilibrium)
-    _testhelper_raw_graph(c::EnzymeRates.Mechanisms.RawMechanism) =
-        EnzymeRates.Mechanisms.RawMechanism(
-            Symbol[r(x) for x in c.substrates], Symbol[r(x) for x in c.products],
-            Symbol[r(x) for x in c.modifiers],
-            EnzymeRates.Mechanisms.RawStep[_testhelper_raw_step(s) for s in c.steps],
-            c.group)
-    _testhelper_raw_site(s::EnzymeRates.Mechanisms.RawSite) =
-        EnzymeRates.Mechanisms.RawSite(Symbol[r(x) for x in s.ligands], s.multiplicity,
-                                       s.mwc_tags)
-    _testhelper_rebuilt(m, _testhelper_raw_graph, _testhelper_raw_site)
+    r(xs::Vector{Symbol}) = Symbol[get(rename, x, x) for x in xs]
+    met(xs) = EnzymeRates.Mechanisms.Met[
+        EnzymeRates.Mechanisms.Met(get(rename, x.name, x.name), x.modifier) for x in xs]
+    node(n) = EnzymeRates.Mechanisms.Node(n.conformation, met(n.bound), r(n.added),
+                                          r(n.subtracted))
+    step(e) = EnzymeRates.Mechanisms.Step(e.from, e.to, met(e.taken_up), met(e.given_off),
+                                          e.rapid_equilibrium, e.group)
+    site(s) = EnzymeRates.Mechanisms.RegulatorySite(r(s.ligands), s.multiplicity,
+                                                    s.mwc_tags)
+    sites(w) = hasproperty(w, :regulatory_sites) ?
+        (; regulatory_sites = site.(w.regulatory_sites)) : (;)
+    _testhelper_rebuilt(m, w -> (; w..., substrates = r(w.substrates),
+                                 products = r(w.products), modifiers = r(w.modifiers),
+                                 nodes = node.(w.nodes), steps = step.(w.steps),
+                                 sites(w)...))
 end
 
 """The renaming of `m`'s metabolites that reverses their name order, so the table order and
@@ -1217,17 +1204,11 @@ function _testhelper_reversing_rename(m)
     Dict(zip(names, [:Z, :Y, :X, :W, :U, :T, :R, :M, :H, :G][1:length(names)]))
 end
 
-"""`m` built by the constructors from its raw form with its steps in reverse order, each
-written the other way round, without the guard: canonical form gives `m` back."""
-function _testhelper_written_backwards(m)
-    _testhelper_turn(s::EnzymeRates.Mechanisms.RawStep) = EnzymeRates.Mechanisms.RawStep(
-        s.to, s.from, s.released, s.consumed, s.rapid_equilibrium)
-    _testhelper_raw_graph(c::EnzymeRates.Mechanisms.RawMechanism) =
-        EnzymeRates.Mechanisms.RawMechanism(c.substrates, c.products, c.modifiers,
-                                            reverse(_testhelper_turn.(c.steps)),
-                                            reverse(c.group))
-    _testhelper_rebuilt(m, _testhelper_raw_graph)
-end
+"""`m` built by the constructors from its written form with its steps in reverse order,
+each written the other way round (`_testhelper_turned`), without the guard: canonical form
+gives `m` back."""
+_testhelper_written_backwards(m) =
+    _testhelper_rebuilt(m, w -> (; w..., steps = reverse(_testhelper_turned.(w.steps))))
 
 @testset "the guard equals the RE-speed oracle on every face of the population sample" begin
     # The guard admits each of the 120 sampled mechanisms, as the exits they passed

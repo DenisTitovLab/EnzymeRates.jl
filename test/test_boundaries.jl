@@ -1,5 +1,5 @@
-# ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, field
-# ABOUTME: access, underscore names, exports), and that public names resolve and show docs.
+# ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers,
+# ABOUTME: underscore names, exports), and that public names resolve and show docs.
 
 # The six submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
@@ -15,57 +15,6 @@ const _testhelper_LAYERS = Dict(
     :Fitting => [:Mechanisms, :Derivation, :Data],
     :DSL => [:Mechanisms, :Derivation],
 )
-
-# Per file (path relative to src/), the expressions allowed despite a banned name,
-# such as "data.group". In Derivation they read its own values: the guard's networks
-# (`_Network`'s `from`, `to` and `conformation`), its verdicts (`_Verdict.conformation`),
-# the MWC law (`_AlloLaw.sites`) and the steps of `segment_graph`'s result, which
-# Enumeration's filters read too. Fitting and identify read the rate table's `group`
-# column.
-const _testhelper_FIELD_ALLOWED = Dict{String, Set{String}}(
-    # The reader reads the names under `modifiers:` that it collects (`names`) and keeps
-    # in the value it writes (`raw`).
-    "DSL/read.jl" => Set(["names.modifiers", "raw.modifiers"]),
-    "Derivation/admission.jl" => Set(["eps.from", "eps.to", "net.conformation", "net.from",
-        "net.to", "v.conformation"]),
-    "Derivation/codegen.jl" => Set(["A.sites"]),
-    "Derivation/engine.jl" => Set(["a.sites", "b.sites", "s.steps"]),
-    "Derivation/guard.jl" => Set(["net.conformation", "net.from", "net.to"]),
-    "Derivation/key.jl" => Set(["A.sites"]),
-    "Derivation/limit_test.jl" => Set(["net.conformation", "net.from", "net.to"]),
-    "Derivation/messages.jl" => Set(["net.conformation", "net.from", "v.conformation"]),
-    "Derivation/print.jl" => Set(["A.sites"]),
-    # The reaction's declared fields (`EnzymeReaction`'s substrates and products, and the
-    # names of `Reactant` and `Regulator`) share names with mechanism fields.
-    "Enumeration/filters.jl" => Set(["s.steps", "ra.name", "reaction.products",
-        "reaction.substrates", "reg.name"]),
-    "Enumeration/moves.jl" => Set(["p.name", "reg.name", "rxn.products", "rxn.substrates",
-        "s.name"]),
-    "Fitting/fitting.jl" => Set(["data.group"]),
-    "identify_rate_equation.jl" => Set(["data.group", "rate_data.data.group",
-        "prob.rate_data.data.group", "r.name", "reg.name", "rxn.products",
-        "rxn.substrates"]),
-    # The seed builder reads the written form (`RawStep`, `RawForm`, `RawMechanism`, `Met`)
-    # that it assembles and transforms.
-    "Enumeration/seeds.jl" => Set([
-        "(raw.steps[j]).consumed", "(raw.steps[j]).released", "(raw.steps[j]).to",
-        "(s.consumed[1]).name", "cur.bound", "entry.consumed", "entry.from", "f.added",
-        "f.bound", "f.conformation", "f.subtracted", "f1.added", "f1.conformation",
-        "f1.subtracted", "f2.added", "f2.conformation", "f2.subtracted", "joined.group",
-        "joined.modifiers", "joined.products", "joined.steps", "joined.substrates",
-        "raw.group", "raw.modifiers", "raw.products", "raw.steps", "raw.substrates",
-        "release.consumed", "release.from", "s.consumed", "s.from", "s.rapid_equilibrium",
-        "s.released", "s.to", "s0.from", "s0.to", "x.name", "y.modifier", "y.name",
-        "p.name", "r.products", "r.substrates", "reaction.products", "reaction.substrates",
-        "s.name"]),
-)
-
-const _testhelper_MECHANISM_TYPES = (:RawForm, :RawStep, :RawMechanism, :RawSite,
-    :RawAllostericMechanism)
-
-# Types whose fields are public: a field name they share with a banned type is not banned.
-const _testhelper_PUBLIC_TYPES = (:Met, :Node, :Step, :Mechanism, :AllostericMechanism,
-    :RegulatorySite)
 
 """Calls `visit(ex, line)` on every `Expr` below `ex`, children before parents; `line` is
 the source line of the statement holding `ex`."""
@@ -120,44 +69,6 @@ function _testhelper_cross_refs(src::AbstractString)
         end
     end
     refs
-end
-
-"""`(name, line, expression text)` for each `x.name` in the source text with
-`name ∈ fields`, apart from `Mod.name` of a module. Destructuring (`(; edges) = m`) and
-`getfield` are not seen."""
-function _testhelper_field_accesses(src::AbstractString, fields)
-    accesses = Tuple{Symbol, Int, String}[]
-    _testhelper_walk(Meta.parseall(src)) do ex, line
-        if ex.head === :. && length(ex.args) == 2 && ex.args[2] isa QuoteNode &&
-           ex.args[2].value in fields && _testhelper_module_head(ex) === nothing
-            push!(accesses, (ex.args[2].value, line, string(ex)))
-        end
-    end
-    accesses
-end
-
-"""`(name, line)` for each `x.name` in the source text with `name ∈ fields`."""
-_testhelper_field_refs(src::AbstractString, fields) =
-    [(name, line) for (name, line, _) in _testhelper_field_accesses(src, fields)]
-
-"""The field names of each `struct` in the source text, by struct name."""
-function _testhelper_struct_fields(src::AbstractString)
-    structs = Dict{Symbol, Vector{Symbol}}()
-    _testhelper_walk(Meta.parseall(src)) do ex, _
-        ex.head === :struct || return
-        name = ex.args[2]
-        while name isa Expr
-            name = name.args[1]
-        end
-        fields = get!(structs, name, Symbol[])
-        for item in ex.args[3].args
-            item isa Expr && item.head === :const && (item = item.args[1])
-            item isa Symbol && push!(fields, item)
-            item isa Expr && item.head === :(::) && item.args[1] isa Symbol &&
-                push!(fields, item.args[1])
-        end
-    end
-    structs
 end
 
 _testhelper_source_files(dir) = sort!(String[joinpath(d, f)
@@ -243,57 +154,16 @@ function _testhelper_export_violations(root)
     found
 end
 
-"""Banned field accesses outside `Mechanisms` that `allowed` does not list."""
-function _testhelper_field_violations(root, ban, allowed)
-    found = NamedTuple{(:user, :file, :name, :line, :text),
-        Tuple{Symbol, String, Symbol, Int, String}}[]
-    for file in _testhelper_source_files(root)
-        user = _testhelper_owner(root, file)
-        banned = get(ban, user, Set{Symbol}())
-        (user === :Mechanisms || isempty(banned)) && continue
-        rel = _testhelper_relpath(root, file)
-        for (name, line, text) in _testhelper_field_accesses(read(file, String), banned)
-            text in get(allowed, rel, Set{String}()) ||
-                push!(found, (; user, file = rel, name, line, text))
-        end
-    end
-    found
-end
-
-"""The field names of the banned mechanism types that no public type also has, from their
-`struct` definitions under `root`."""
-function _testhelper_mechanism_fields(root)
-    structs = Dict{Symbol, Vector{Symbol}}()
-    for file in _testhelper_source_files(root)
-        merge!(structs, _testhelper_struct_fields(read(file, String)))
-    end
-    missing_types = [t for t in _testhelper_MECHANISM_TYPES if !haskey(structs, t)]
-    isempty(missing_types) || error("no struct definition found for $missing_types")
-    public = Set{Symbol}(f for t in _testhelper_PUBLIC_TYPES for f in structs[t])
-    Set{Symbol}(f for t in _testhelper_MECHANISM_TYPES for f in structs[t]
-                if !(f in public))
-end
-
 const _testhelper_SRC = normpath(joinpath(@__DIR__, "..", "src"))
-const _testhelper_MECHANISM_FIELDS = _testhelper_mechanism_fields(_testhelper_SRC)
 
-# Per owner (a module or :EnzymeRates for the top level), the field names banned there.
-const _testhelper_FIELD_BAN = Dict(:Derivation => _testhelper_MECHANISM_FIELDS,
-    :Enumeration => _testhelper_MECHANISM_FIELDS, :Fitting => _testhelper_MECHANISM_FIELDS,
-    :DSL => _testhelper_MECHANISM_FIELDS,
-    :EnzymeRates => _testhelper_MECHANISM_FIELDS)
-
-"""Runs the five rules over the tree at `root`."""
-function _testhelper_check_boundaries(root, ban, allowed)
+"""Runs the four rules over the tree at `root`."""
+function _testhelper_check_boundaries(root)
     modules = sort!(collect(keys(_testhelper_module_sources(root))))
     @testset "every cross-module name is in its API list" begin
         @test isempty(_testhelper_api_violations(root))
     end
     @testset "modules respect the layers" begin
         @test isempty(_testhelper_layer_violations(root))
-    end
-    @testset "no mechanism field access outside Mechanisms" begin
-        @test isempty(_testhelper_field_violations(root, ban, allowed))
     end
     @testset "no cross-module underscore names" begin
         underscore = _testhelper_underscore_violations(root)
@@ -343,38 +213,6 @@ end
         @test Set(_testhelper_cross_refs("a = 1\nFitting.fit(\"\$(Derivation.f(x))\")")) ==
               Set([(:Derivation, :f, 2), (:Fitting, :fit, 2)])
     end
-    @testset "field_refs" begin
-        @test _testhelper_field_refs("x.edges[k].from", Set([:edges, :from])) ==
-              [(:edges, 1), (:from, 1)]
-        @test _testhelper_field_refs("a = 1\nx.edges", Set([:from])) == []
-        @test _testhelper_field_refs("Mechanisms.edges", Set([:edges])) == []
-        @test isempty(_testhelper_field_refs("using LinearAlgebra: dot", Set([:dot])))
-        @test _testhelper_field_refs("EnzymeRates.Mechanisms.edges", Set([:edges])) == []
-        @test _testhelper_field_accesses("data.group", Set([:group])) ==
-              [(:group, 1, "data.group")]
-    end
-    @testset "struct_fields" begin
-        src = """
-        struct A
-            x::Int
-            const y::Vector{Int}
-            z
-            A(x) = new(x, [x], x)
-        end
-        struct B{T} <: Any
-            w::T
-        end
-        """
-        @test _testhelper_struct_fields(src) ==
-              Dict(:A => [:x, :y, :z], :B => [:w])
-    end
-    @testset "mechanism fields come from the struct definitions" begin
-        @test issubset([:consumed, :released, :modifiers, :sites],
-            _testhelper_MECHANISM_FIELDS)
-        # A field a public type has is not banned.
-        @test isdisjoint([:taken_up, :given_off, :steps, :from, :substrates, :mwc_tags],
-            _testhelper_MECHANISM_FIELDS)
-    end
 
     cleanly_layered = (
         "Mechanisms/Mechanisms.jl" => "const API = (:Mechanism, :compile_mechanism)",
@@ -408,8 +246,6 @@ end
         _testhelper_with_tree(cleanly_layered...) do root
             @test isempty(_testhelper_api_violations(root))
             @test isempty(_testhelper_layer_violations(root))
-            @test isempty(_testhelper_field_violations(root,
-                Dict(:Derivation => Set([:edges])), Dict{String, Set{String}}()))
             @test all(isempty, values(_testhelper_underscore_violations(root)))
             @test isempty(_testhelper_export_violations(root))
         end
@@ -434,19 +270,7 @@ end
                   Set([(:Mechanisms, :Derivation), (:Derivation, :Fitting)])
         end
     end
-    @testset "rule 3 finds a banned field outside Mechanisms unless allowed" begin
-        _testhelper_with_tree(cleanly_layered...,
-            "Mechanisms/uses.jl" => "f(m) = m.edges",
-            "Fitting/data.jl" => "f(m, data) = (m.edges, data.group)",
-            "identify.jl" => "f(m) = m.edges") do root
-            ban = Dict(:Fitting => Set([:edges, :group]), :EnzymeRates => Set([:edges]))
-            allowed = Dict("Fitting/data.jl" => Set(["data.group"]))
-            found = _testhelper_field_violations(root, ban, allowed)
-            @test Set((u.file, u.text) for u in found) == Set([
-                ("Fitting/data.jl", "m.edges"), ("identify.jl", "m.edges")])
-        end
-    end
-    @testset "rule 4 finds underscore names in an API list or used across modules" begin
+    @testset "rule 3 finds underscore names in an API list or used across modules" begin
         _testhelper_with_tree(
             "Mechanisms/Mechanisms.jl" => "const API = (:Mechanism, :_raw)",
             "Derivation/Derivation.jl" => "const API = (:_guard, :ok, :_guard)",
@@ -456,7 +280,7 @@ end
                 :Mechanisms => [:_raw], :Derivation => [:_guard], :Fitting => [])
         end
     end
-    @testset "rule 5 finds an export in a module, not at the top level" begin
+    @testset "rule 4 finds an export in a module, not at the top level" begin
         _testhelper_with_tree(cleanly_layered...,
             "Derivation/api.jl" => "f() = 1\n\nexport f, g",
             "EnzymeRates.jl" => "export fit") do root
@@ -466,8 +290,19 @@ end
 end
 
 @testset "module boundaries" begin
-    _testhelper_check_boundaries(_testhelper_SRC, _testhelper_FIELD_BAN,
-        _testhelper_FIELD_ALLOWED)
+    _testhelper_check_boundaries(_testhelper_SRC)
+end
+
+@testset "Mechanisms API is the data model" begin
+    # The types of a mechanism and a reaction, the functions that compute on them, and the
+    # two name checks the DSL runs while it reads a block, so that their errors name the
+    # macro: a conformation label's shape and the decodability of the declared names.
+    @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Met, :Node, :Step,
+        :Mechanism, :RegulatorySite, :AllostericMechanism, :Reactant, :Regulator,
+        :EnzymeReaction, :EnzymeMechanism, :AllostericEnzymeMechanism,
+        :AbstractEnzymeMechanism, :step_kind, :groups, :metabolites, :modifiers, :catalytic,
+        :compile_mechanism, :form_text, :step_text, :step_sides, :runs_toward_products,
+        :check_conformation_label, :check_decodable_names])
 end
 
 @testset "documented internal paths resolve" begin

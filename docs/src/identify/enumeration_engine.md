@@ -282,7 +282,7 @@ dissociation constant `K_R`).
 
 Converts a `Mechanism` to `AllostericMechanism` variants, each built on a **base** tag set
 (`_tagging_bases`). A chemistry group holds an isomerization, a fused binding or a
-Theorell–Chance step (`_is_chemistry`); every other group is a binding group. The first
+Theorell–Chance step (`_chemistry_groups`); every other group is a binding group. The first
 candidate base tags every chemistry group `:OnlyA` and every binding group `:EqualAI`: an
 inactive conformation that binds ligands but runs no chemistry. When the well-posedness
 guard accepts it (admission included; see [Mechanisms with allosteric regulators](@ref)),
@@ -443,8 +443,8 @@ with random-order steady-state binding still derives and fits.
 **Every step but a plain binding is chemistry.** A binding takes up exactly one
 metabolite and gives off none. It is plain when its product form is its source
 form with that metabolite added, the conformation free to change, and fused
-otherwise. The moves tell catalysis from binding by `_is_chemistry`, true for
-every step but a plain binding: isomerizations, fused bindings and
+otherwise. The moves tell catalysis from binding by `step_kind`, a plain binding
+being `:binding` and every other step chemistry: isomerizations, fused bindings and
 Theorell–Chance steps. Kinetic groups go by stoichiometry instead: a group's
 steps take up and give off the same metabolites, so a fused and a plain binding
 of one metabolite may share its constant, as the B group of a merged seed with a

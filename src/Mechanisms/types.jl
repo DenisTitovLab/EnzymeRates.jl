@@ -1,5 +1,5 @@
 # ABOUTME: Value types: EnzymeReaction, and the mechanism as a reaction graph in canonical
-# ABOUTME: form, with its raw input, checks, identity and Sig.
+# ABOUTME: form, built from nodes and steps, with its checks, identity and Sig.
 
 # ─── Concrete types ───────────────────────────────────────────────────
 
@@ -170,9 +170,8 @@ end
 
 """Error that the conformation label `c` also names a metabolite, which `kind` calls a
 `"declared metabolite"` or a `"ligand"`: a form's text starts with its label, so a DSL
-text would read the label as the metabolite. `who` names the macro or the constructor
-that checks."""
-label_collision_error(c::Symbol, who::String, kind::String) =
+text would read the label as the metabolite. `who` names the constructor that checks."""
+_label_collision_error(c::Symbol, who::String, kind::String) =
     error("$who: conformation label `$c` collides with $kind `$c`; choose a different " *
           "conformation label.")
 
@@ -397,11 +396,7 @@ function Base.show(io::IO, r::EnzymeReaction)
     print(io, "\nend")
 end
 
-# ─── Raw input: a mechanism as forms and steps ──────────────────────
-#
-# A mechanism written as plain values, each step between two forms, before any
-# constructor orients, sorts or checks it; `Mechanism(raw)` and
-# `AllostericMechanism(raw)` build the mechanism they write.
+# ─── The reaction graph ───────────────────────────────────────────────
 
 """
 A metabolite as a form holds it or a step exchanges it: its name, and whether it binds
@@ -414,73 +409,6 @@ struct Met
 end
 Base.isless(x::Met, y::Met) = isless((x.name, x.modifier), (y.name, y.modifier))
 Base.hash(x::Met, h::UInt) = hash(x.modifier, hash(x.name, hash(:Met, h)))
-
-"""An enzyme form as written: its conformation label, its bound metabolites and its
-residual (the substrates it adds, the products it subtracts). The constructor sorts each
-list, so two writings of one form are `==`."""
-struct RawForm
-    conformation::Symbol
-    bound::Vector{Met}
-    added::Vector{Symbol}
-    subtracted::Vector{Symbol}
-    RawForm(conformation::Symbol, bound::Vector{Met},
-            added::Vector{Symbol} = Symbol[], subtracted::Vector{Symbol} = Symbol[]) =
-        new(conformation, sort(bound), sort(added), sort(subtracted))
-end
-
-"""A step as written, in its written direction: going `from → to` it takes up `consumed`
-and gives off `released`; `rapid_equilibrium` marks `⇌`. The constructor sorts both
-lists; it neither turns the step nor checks it."""
-struct RawStep
-    from::RawForm
-    to::RawForm
-    consumed::Vector{Met}
-    released::Vector{Met}
-    rapid_equilibrium::Bool
-    RawStep(from::RawForm, to::RawForm, consumed::Vector{Met}, released::Vector{Met},
-            rapid_equilibrium::Bool) =
-        new(from, to, sort(consumed), sort(released), rapid_equilibrium)
-end
-
-"""
-A plain mechanism as written: the declared substrates, products and modifiers (every
-name under `modifiers:`, a reactant that binds as a modifier included), the steps in
-written order and direction, and `group[j]`, the kinetic group label of step `j`: labels
-run 1, 2, … in order of first appearance, one per written statement (a step or a
-parenthesized group).
-"""
-struct RawMechanism
-    substrates::Vector{Symbol}
-    products::Vector{Symbol}
-    modifiers::Vector{Symbol}
-    steps::Vector{RawStep}
-    group::Vector{Int}
-end
-
-"""A regulatory site as written: its ligands, its multiplicity (an `Int`; the constructor
-converts no `Bool`) and each ligand's tag."""
-struct RawSite
-    ligands::Vector{Symbol}
-    multiplicity::Int
-    mwc_tags::Vector{Symbol}
-    RawSite(ligands::Vector{Symbol}, multiplicity::Int, mwc_tags::Vector{Symbol}) =
-        new(ligands, multiplicity, mwc_tags)
-end
-
-"""An allosteric mechanism as written: its catalytic part, the tag of each written
-group label (`mwc_tags[l]`), the catalytic multiplicity (an `Int`, 1 when the DSL
-omits it; the constructor converts no `Bool`) and the regulatory sites."""
-struct RawAllostericMechanism
-    catalytic::RawMechanism
-    mwc_tags::Vector{Symbol}
-    catalytic_multiplicity::Int
-    sites::Vector{RawSite}
-    RawAllostericMechanism(catalytic::RawMechanism, mwc_tags::Vector{Symbol},
-                           catalytic_multiplicity::Int, sites::Vector{RawSite}) =
-        new(catalytic, mwc_tags, catalytic_multiplicity, sites)
-end
-
-# ─── The reaction graph ───────────────────────────────────────────────
 
 """
     Node
@@ -650,28 +578,6 @@ function _canonicalize(substrates::Vector{Symbol}, products::Vector{Symbol},
      misaligned)
 end
 
-"""`raw`'s canonical graph (`_canonicalize`) of its written nodes and steps
-(`_written_graph`)."""
-_canonicalize(raw::RawMechanism) =
-    _canonicalize(raw.substrates, raw.products, _written_graph(raw)...)
-
-"""`raw`'s forms and steps as nodes and steps: step `j` joins written nodes `2j - 1` and
-`2j`, its two forms, and each list is the one the `RawForm` or `RawStep` constructor
-sorted."""
-function _written_graph(raw::RawMechanism)
-    nodes = Vector{Node}(undef, 2 * length(raw.steps))
-    for (j, s) in enumerate(raw.steps)
-        nodes[2j - 1] = _node(s.from)
-        nodes[2j] = _node(s.to)
-    end
-    steps = [Step(2j - 1, 2j, s.consumed, s.released, s.rapid_equilibrium, raw.group[j])
-             for (j, s) in enumerate(raw.steps)]
-    nodes, steps
-end
-
-"""Form `f` as a node, sharing its sorted lists."""
-_node(f::RawForm) = Node(f.conformation, f.bound, f.added, f.subtracted)
-
 """The distinct nodes of `written` in canonical order, free E (label `E`, nothing bound,
 no residual) first, and the index each written node became. A search keeps every
 mechanism it emits, so the nodes, built in a vector grown past its length, are stored as
@@ -802,15 +708,6 @@ Mechanism(substrates::Vector{Symbol}, products::Vector{Symbol}, nodes::Vector{No
           steps::Vector{Step}) = _checked(substrates, products, nodes, steps).mechanism
 
 """
-    Mechanism(raw::RawMechanism)
-
-The mechanism `raw` writes, checked as the nodes-and-steps constructor checks it, with
-`raw.modifiers` as its declared modifiers: each must be bound as a modifier, and only
-they may be.
-"""
-Mechanism(raw::RawMechanism) = _checked(raw).mechanism
-
-"""
     AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
                         catalytic_multiplicity, regulatory_sites)
 
@@ -829,22 +726,6 @@ function AllostericMechanism(substrates::Vector{Symbol}, products::Vector{Symbol
                         catalytic_multiplicity, regulatory_sites)
 end
 
-"""
-    AllostericMechanism(raw::RawAllostericMechanism)
-
-The allosteric mechanism `raw` writes: its regulatory sites, its tags (each written
-group label's), then its catalytic part as `Mechanism(raw.catalytic)` checks it, each
-tag moved to the canonical group its label became.
-"""
-function AllostericMechanism(raw::RawAllostericMechanism)
-    sites = [RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags) for s in raw.sites]
-    _check_tags(raw.mwc_tags, maximum(raw.catalytic.group; init = 0),
-                raw.catalytic_multiplicity)
-    c = _checked(raw.catalytic)
-    AllostericMechanism(c.mechanism, _tags_by_group(c.group_of, raw.mwc_tags),
-                        raw.catalytic_multiplicity, sites)
-end
-
 """The canonical form (`_canonicalize`) of the mechanism that `nodes` and `steps` write,
 checked: each step's ends index `nodes`, each list is sorted into a fresh vector, the
 names bound as modifiers are taken as its modifiers, then its declarations and its
@@ -861,23 +742,7 @@ function _checked(substrates::Vector{Symbol}, products::Vector{Symbol},
     steps = [Step(e.from, e.to, sort(e.taken_up), sort(e.given_off), e.rapid_equilibrium,
                   e.group) for e in steps]
     modifiers = _modifiers(nodes, steps)
-    _check_declarations(substrates, products, modifiers, Int[e.group for e in steps],
-                        length(steps))
-    _checked_graph(substrates, products, nodes, steps, modifiers)
-end
-
-"""The canonical form (`_canonicalize`) of `raw`, checked with its declared modifiers."""
-function _checked(raw::RawMechanism)
-    _check_declarations(raw.substrates, raw.products, raw.modifiers, raw.group,
-                        length(raw.steps))
-    _checked_graph(raw.substrates, raw.products, _written_graph(raw)..., raw.modifiers)
-end
-
-"""The canonical form of `nodes` and `steps`, each list sorted, whose declared modifiers
-are `modifiers`, checked for its representation (`_check_representation`)."""
-function _checked_graph(substrates::Vector{Symbol}, products::Vector{Symbol},
-                        nodes::Vector{Node}, steps::Vector{Step},
-                        modifiers::Vector{Symbol})
+    _check_declarations(substrates, products, modifiers, Int[e.group for e in steps])
     c = _canonicalize(substrates, products, nodes, steps)
     _check_representation(c.mechanism, c.misaligned, modifiers)
     c
@@ -940,7 +805,7 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     _check_metabolite_names("AllostericMechanism", ligs)
     for l in ligs
         any(n -> n.conformation === l, catalytic.nodes) &&
-            label_collision_error(l, "AllostericMechanism", "ligand")
+            _label_collision_error(l, "AllostericMechanism", "ligand")
     end
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
     dup === nothing ||
@@ -950,24 +815,23 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     nothing
 end
 
-"""Error unless `substrates` and `products` are not empty, the declared `substrates`,
-`products` and `modifiers` name each name once, no name is both a substrate and a
-product, `labels` gives each of the `n` steps one kinetic group label from 1 to the
-number of groups, every label used, and every declared name is one a metabolite can take
+"""Error unless `substrates` and `products` are not empty, the declared `substrates` and
+`products` name each name once, no name is both a substrate and a product, `labels`, one
+per step, are kinetic group labels from 1 to the number of groups, every label used, and
+every declared name and every name of `modifiers` is one a metabolite can take
 (`_check_metabolite_names`)."""
 function _check_declarations(substrates::Vector{Symbol}, products::Vector{Symbol},
-                             modifiers::Vector{Symbol}, labels::Vector{Int}, n::Int)
+                             modifiers::Vector{Symbol}, labels::Vector{Int})
     isempty(substrates) && error("Mechanism: substrates must not be empty")
     isempty(products) && error("Mechanism: products must not be empty")
-    for (names, kind) in ((substrates, "substrate"), (products, "product"),
-                          (modifiers, "modifier"))
+    for (names, kind) in ((substrates, "substrate"), (products, "product"))
         allunique(names) || error("Mechanism: duplicate $kind names")
     end
     both = findfirst(in(products), substrates)
     both === nothing ||
         error("Mechanism: $(substrates[both]) named as both a substrate and a " *
               "product; concentrations and constants are keyed by name")
-    length(labels) == n && all(≥(1), labels) ||
+    all(≥(1), labels) ||
         error("Mechanism: each step takes one kinetic group label from 1 to the number " *
               "of groups")
     empty = findfirst(∉(labels), 1:maximum(labels; init = 0))
@@ -982,14 +846,14 @@ end
 """
 Error unless the canonical mechanism `m` represents one: conformation labels shaped as
 labels (`check_conformation_label`), none a metabolite's name; every name declared (in
-`modifiers`, the declared modifiers, or among its substrates and products), a modifier
-entry only for a declared modifier and a plain entry only for a reactant, residuals that
-add substrates and subtract products; no step joining a node to itself, taking up and
-giving off one metabolite, or binding a metabolite into a node that holds it in another
-role; tied steps that make one conformational change (`misaligned`, from
-`_canonicalize`); no two nodes that render one name; each kinetic group one kind of step
-with one flag; each reaction once; free E; one connected graph; and a step that
-exchanges each declared name, a modifier as a modifier.
+`modifiers`, the names bound as modifiers, or among its substrates and products), a plain
+entry only for a reactant, residuals that add substrates and subtract products; no step
+joining a node to itself, taking up and giving off one metabolite, or binding a
+metabolite into a node that holds it in another role; tied steps that make one
+conformational change (`misaligned`, from `_canonicalize`); no two nodes that render one
+name; each kinetic group one kind of step with one flag; each reaction once; free E; one
+connected graph; and a step that exchanges each declared name and each name of
+`modifiers`, a modifier as a modifier.
 """
 function _check_representation(m::Mechanism, misaligned::Vector{Step},
                                modifiers::Vector{Symbol})
@@ -997,15 +861,12 @@ function _check_representation(m::Mechanism, misaligned::Vector{Step},
     for c in sort!(unique!([n.conformation for n in m.nodes]))
         check_conformation_label(c, "Mechanism")
         any(x -> x.name === c, table) &&
-            label_collision_error(c, "Mechanism", "declared metabolite")
+            _label_collision_error(c, "Mechanism", "declared metabolite")
     end
     for x in table
         _is_reactant(m, x.name) || x.name in modifiers ||
             error("Mechanism: $(x.name) is not declared; declare it under substrates:, " *
                   "products: or modifiers:")
-        x.modifier && !(x.name in modifiers) &&
-            error("Mechanism: $(x.name) binds as a modifier, but modifiers: does not " *
-                  "declare it")
         x.modifier || _is_reactant(m, x.name) ||
             error("Mechanism: $(x.name) is a modifier, so it binds only as a modifier")
     end
@@ -1159,12 +1020,11 @@ end
 # `==` and `hash` by content for every value type whose fields hold vectors or structs,
 # whose default `==` would compare identity: each field in declaration order, `hash`
 # seeded with the type's name. A struct's default hash mixes in its type's identity,
-# which changes between precompile sessions; a graph's hash and a raw value's read only
-# symbols, integers and flags, so every process agrees on them. `Met` keeps Julia's `==`,
+# which changes between precompile sessions; a value's hash reads only symbols, integers
+# and flags, so every process agrees on it. `Met` keeps Julia's `==`,
 # which compares its two fields, and has its own `hash`.
-for T in (RegulatorySite, Reactant, Regulator,
-          EnzymeReaction, RawForm, RawStep, RawMechanism, RawSite, RawAllostericMechanism,
-          Node, Step, Mechanism, AllostericMechanism)
+for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, Node, Step, Mechanism,
+          AllostericMechanism)
     fs = fieldnames(T)
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
@@ -1382,12 +1242,8 @@ modifiers(am::AllostericMechanism) = modifiers(am.catalytic)
 allosteric_regulators(am::AllostericMechanism) =
     unique(Symbol[l for s in am.regulatory_sites for l in s.ligands])
 
-const _AnyMech = Union{Mechanism, AllostericMechanism}
-
 catalytic(m::Mechanism) = m
 catalytic(am::AllostericMechanism) = am.catalytic
-"""Each step's kinetic group, in step order."""
-_group_labels(m::Mechanism) = Int[e.group for e in m.steps]
 _has_residual(n::Node) = !isempty(n.added) || !isempty(n.subtracted)
 """Whether step `e` takes up one metabolite and gives off none."""
 _is_binding(e::Step) = isempty(e.given_off) && length(e.taken_up) == 1
@@ -1426,11 +1282,6 @@ function _binds_by_name(m::Mechanism, e::Step)
     names(n::Int) = Symbol[x.name for x in m.nodes[n].bound]
     names(e.to) == sort!(push!(names(e.from), only(e.taken_up).name))
 end
-"""Whether `e` of `m` is anything but a plain binding (`_is_plain_binding`): an
-isomerization, a fused binding (`E(A) + B → E(P, Q)`), a Theorell–Chance step or a step
-with several metabolites on a side. The allosteric moves (`_chemistry_groups`) tell
-catalysis from binding by it."""
-_is_chemistry(m::Mechanism, e::Step) = !_is_plain_binding(m, e)
 """
     runs_toward_products(m, k) -> Bool
 

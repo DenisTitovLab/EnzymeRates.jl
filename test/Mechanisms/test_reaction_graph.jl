@@ -239,10 +239,6 @@ function _testhelper_rewrite(raw::NamedTuple; order = true, direction = true,
                          for s in reverse(raw.regulatory_sites)])
 end
 
-"""The catalytic part of `raw`, raw input."""
-_testhelper_plain(raw::EnzymeRates.Mechanisms.RawMechanism) = raw
-_testhelper_plain(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) = raw.catalytic
-
 @testset "every writing of a mechanism gives one canonical graph" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         m = _testhelper_canonicalize(spec.raw).mechanism
@@ -340,51 +336,35 @@ end
                            ER.Mechanisms.Step(4, 5, none, none, true, 4)]
 end
 
-"""Bindings of each name of `names` to free E, at rapid equilibrium."""
-_testhelper_bindings(names) = [EnzymeRates.Mechanisms.RawStep(
-    EnzymeRates.Mechanisms.RawForm(:E, EnzymeRates.Mechanisms.Met[]),
-    EnzymeRates.Mechanisms.RawForm(:E, [EnzymeRates.Mechanisms.Met(x, false)]),
-    [EnzymeRates.Mechanisms.Met(x, false)], EnzymeRates.Mechanisms.Met[], true)
-                               for x in names]
+"""Bindings of each metabolite of `mets` to free E, node 1, each into a node of its own and
+in a group of its own, at rapid equilibrium: the nodes and the steps."""
+function _testhelper_bindings(mets::Vector{ER.Mechanisms.Met})
+    M = ER.Mechanisms
+    nodes = [M.Node(:E, M.Met[], Symbol[], Symbol[]);
+             [M.Node(:E, [x], Symbol[], Symbol[]) for x in mets]]
+    nodes, [M.Step(1, i + 1, [x], M.Met[], true, i) for (i, x) in enumerate(mets)]
+end
 
 @testset "a graph holds any number of metabolites and of copies of one" begin
+    M = ER.Mechanisms
     names = [Symbol("S", i) for i in 1:32]
-    _testhelper_raw(n) = EnzymeRates.Mechanisms.RawMechanism(
-        names[1:(n - 1)], [:P], Symbol[], _testhelper_bindings([names[1:(n - 1)]; :P]),
-        collect(1:n))
-    _testhelper_entries(raw) =
-        length(ER.Mechanisms._table(ER.Mechanisms._canonicalize(raw).mechanism))
-    @test _testhelper_entries(_testhelper_raw(32)) == 32
-    @test _testhelper_entries(_testhelper_raw(33)) == 33
+    plain(xs) = [M.Met(x, false) for x in xs]
+    _testhelper_entries(substrates, mets) = length(M._table(
+        M._canonicalize(substrates, [:P], _testhelper_bindings(mets)...).mechanism))
+    @test _testhelper_entries(names[1:31], plain([names[1:31]; :P])) == 32
+    @test _testhelper_entries(names, plain([names; :P])) == 33
     # A reactant and its modifier copy are two entries.
-    _testhelper_copy_of(x) = EnzymeRates.Mechanisms.RawStep(
-        EnzymeRates.Mechanisms.RawForm(:E, EnzymeRates.Mechanisms.Met[]),
-        EnzymeRates.Mechanisms.RawForm(:E, [EnzymeRates.Mechanisms.Met(x, true)]),
-        [EnzymeRates.Mechanisms.Met(x, true)], EnzymeRates.Mechanisms.Met[], true)
-    both = EnzymeRates.Mechanisms.RawMechanism(names[1:16], [:P], names[1:16],
-                                               [_testhelper_bindings([names[1:16]; :P]);
-                                                _testhelper_copy_of.(names[1:16])],
-                                               collect(1:33))
-    @test _testhelper_entries(both) == 33
-    _testhelper_holding(n) = EnzymeRates.Mechanisms.RawMechanism(
-        [:A], [:P], Symbol[],
-        [EnzymeRates.Mechanisms.RawStep(
-         EnzymeRates.Mechanisms.RawForm(:E, fill(EnzymeRates.Mechanisms.Met(:A, false), n)),
-         EnzymeRates.Mechanisms.RawForm(:F, fill(EnzymeRates.Mechanisms.Met(:A, false), n)),
-         EnzymeRates.Mechanisms.Met[], EnzymeRates.Mechanisms.Met[], false)],
-        [1])
+    @test _testhelper_entries(names[1:16], [plain([names[1:16]; :P]);
+                                            [M.Met(x, true) for x in names[1:16]]]) == 33
+    _testhelper_holding(n) = M._canonicalize(
+        [:A], [:P],
+        [M.Node(c, fill(M.Met(:A, false), n), Symbol[], Symbol[]) for c in (:E, :F)],
+        [M.Step(1, 2, M.Met[], M.Met[], false, 1)])
     for n in (15, 16)
-        m = ER.Mechanisms._canonicalize(_testhelper_holding(n)).mechanism
+        m = _testhelper_holding(n).mechanism
         @test count(x -> x.name === :A, m.nodes[1].bound) == n
     end
 end
-
-"""The graph that `raw` writes, built and checked: a spec's raw value or another value of
-the DSL walker (`raw_mechanism`) through the constructors (`_construct`), or raw input."""
-_testhelper_build(raw::NamedTuple) = EnzymeRates.DSL._construct(raw)
-_testhelper_build(raw::EnzymeRates.Mechanisms.RawMechanism) = ER.Mechanism(raw)
-_testhelper_build(raw::EnzymeRates.Mechanisms.RawAllostericMechanism) =
-    ER.AllostericMechanism(raw)
 
 """The raw value of `block`, a mechanism macro's block, read by the DSL walker."""
 _testhelper_walk(block; allosteric = false) =
@@ -446,21 +426,29 @@ _testhelper_stored_at_length(am::ER.AllostericMechanism) =
 end
 
 @testset "the constructors reject what no graph represents, each with its message" begin
-    # Uni-uni as raw input: E + S ⇌ E(S), E(S) <--> E(P), E(P) ⇌ E + P.
-    _testhelper_uniuni_raw(; substrates = [:S], products = [:P], modifiers = Symbol[],
-                           group = [1, 2, 3]) = let M = EnzymeRates.Mechanisms
-        S, P, none = M.Met(:S, false), M.Met(:P, false), M.Met[]
-        E, ES, EP = M.RawForm(:E, none), M.RawForm(:E, [S]), M.RawForm(:E, [P])
-        M.RawMechanism(substrates, products, modifiers,
-                       [M.RawStep(E, ES, [S], none, true),
-                        M.RawStep(ES, EP, none, none, false),
-                        M.RawStep(EP, E, none, [P], true)], group)
-    end
+    # Uni-uni, E + S ⇌ E(S), E(S) <--> E(P), E(P) ⇌ E + P, nodes 1 to 3, with the nodes
+    # `extra` (4, 5, …) and `steps` added; every name a node or a step binds as a modifier
+    # is a modifier.
+    M = ER.Mechanisms
+    S, P, I, Imod, none = M.Met(:S, false), M.Met(:P, false), M.Met(:I, false),
+                          M.Met(:I, true), M.Met[]
+    node(c, bound...) = M.Node(c, collect(M.Met, bound), Symbol[], Symbol[])
+    nodes = [node(:E), node(:E, S), node(:E, P)]
+    uniuni = [M.Step(1, 2, [S], none, true, 1), M.Step(2, 3, none, none, false, 2),
+              M.Step(3, 1, none, [P], true, 3)]
+    _testhelper_uniuni(extra = M.Node[], steps...; substrates = [:S], products = [:P],
+                       group = [1, 2, 3]) =
+        ER.Mechanism(substrates, products, [nodes; extra],
+                     [[M.Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, g)
+                       for (e, g) in zip(uniuni, group)]; steps...])
+    # Uni-uni with `x` bound to free E by a step of its own.
+    _testhelper_binding(x; kw...) =
+        _testhelper_uniuni([node(:E, x)], M.Step(1, 4, [x], none, true, 4); kw...)
     _testhelper_allosteric(tags, n, sites) =
-        ER.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-            _testhelper_uniuni_raw(), tags, n, sites))
+        ER.AllostericMechanism([:S], [:P], nodes, uniuni, tags, n, sites)
     tags = [:EqualAI, :OnlyA, :EqualAI]
-    site(ligands, n, states) = EnzymeRates.Mechanisms.RawSite(ligands, n, states)
+    site = M.RegulatorySite
+    @test _testhelper_uniuni() == _testhelper_graph_uniuni()
     # Regulatory sites.
     @test_throws(ErrorException("RegulatorySite: needs at least one ligand"),
                  _testhelper_allosteric(tags, 2, [site(Symbol[], 2, Symbol[])]))
@@ -490,66 +478,64 @@ end
     # Tags, by written group label: label 2 is canonical group 3.
     @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
                                 "match the number of kinetic groups 3"),
-                 _testhelper_allosteric(tags[1:2], 2, EnzymeRates.Mechanisms.RawSite[]))
+                 _testhelper_allosteric(tags[1:2], 2, M.RegulatorySite[]))
     @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
                                 "1, got 0"),
-                 _testhelper_allosteric(tags, 0, EnzymeRates.Mechanisms.RawSite[]))
+                 _testhelper_allosteric(tags, 0, M.RegulatorySite[]))
     # A Bool is no multiplicity: each constructor takes an Int and converts no Bool.
     @test_throws MethodError site([:R], true, [:OnlyA])
-    @test_throws MethodError EnzymeRates.Mechanisms.RawAllostericMechanism(
-        _testhelper_uniuni_raw(), tags, true, EnzymeRates.Mechanisms.RawSite[])
-    @test_throws MethodError EnzymeRates.Mechanisms.RegulatorySite([:R], true, [:OnlyA])
-    @test_throws MethodError ER.AllostericMechanism(
-        ER.Mechanism(_testhelper_uniuni_raw()), tags, true,
-        EnzymeRates.Mechanisms.RegulatorySite[])
+    @test_throws MethodError _testhelper_allosteric(tags, true, M.RegulatorySite[])
+    @test_throws MethodError ER.AllostericMechanism(_testhelper_uniuni(), tags, true,
+                                                    M.RegulatorySite[])
     @test_throws(ErrorException(
         "AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does more than bind a " *
         "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
         "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
                  _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2,
-                                        EnzymeRates.Mechanisms.RawSite[]))
+                                        M.RegulatorySite[]))
     # Declarations and group labels.
     @test_throws(ErrorException("Mechanism: substrates must not be empty"),
-                 ER.Mechanism(_testhelper_uniuni_raw(substrates = Symbol[])))
+                 _testhelper_uniuni(substrates = Symbol[]))
     @test_throws(ErrorException("Mechanism: products must not be empty"),
-                 ER.Mechanism(_testhelper_uniuni_raw(products = Symbol[])))
+                 _testhelper_uniuni(products = Symbol[]))
     @test_throws(ErrorException("Mechanism: duplicate substrate names"),
-                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :S])))
+                 _testhelper_uniuni(substrates = [:S, :S]))
     @test_throws(ErrorException("Mechanism: duplicate product names"),
-                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :P])))
-    @test_throws(ErrorException("Mechanism: duplicate modifier names"),
-                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:I, :I])))
+                 _testhelper_uniuni(products = [:P, :P]))
     @test_throws(ErrorException("Mechanism: S named as both a substrate and a product; " *
                                 "concentrations and constants are keyed by name"),
-                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :S])))
-    for group in ([1, 2], [1, 2, 3, 3], [0, 1, 2])
-        @test_throws(ErrorException("Mechanism: each step takes one kinetic group label " *
-                                    "from 1 to the number of groups"),
-                     ER.Mechanism(_testhelper_uniuni_raw(; group)))
-    end
+                 _testhelper_uniuni(products = [:P, :S]))
+    @test_throws(ErrorException("Mechanism: each step takes one kinetic group label " *
+                                "from 1 to the number of groups"),
+                 _testhelper_uniuni(group = [0, 1, 2]))
     @test_throws(ErrorException("Mechanism: kinetic group 2 is empty; a kinetic group " *
                                 "holds at least one step"),
-                 ER.Mechanism(_testhelper_uniuni_raw(group = [1, 3, 3])))
-    # Declared names a metabolite cannot take: no identifier, a keyword, E, a reserved
-    # name, a name holding `_`.
+                 _testhelper_uniuni(group = [1, 3, 3]))
+    # A step's ends index the nodes.
+    for (from, to) in ((2, 4), (0, 1))
+        @test_throws(ErrorException("Step 4: its ends are nodes $from and $to, but there " *
+                                    "are 3 nodes; a step's ends index the nodes"),
+                     _testhelper_uniuni(M.Node[], M.Step(from, to, none, none, false, 4)))
+    end
+    # Declared and bound names a metabolite cannot take: no identifier, a keyword, E, a
+    # reserved name, a name holding `_`.
     _testhelper_unwritable(x) = ErrorException(
         "Mechanism: \"$x\" cannot name a metabolite; a metabolite name is an identifier " *
         "that is no keyword")
     @test_throws(_testhelper_unwritable("1I"),
-                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("1I")])))
-    @test_throws(_testhelper_unwritable("end"),
-                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :end])))
+                 _testhelper_binding(M.Met(Symbol("1I"), true)))
+    @test_throws(_testhelper_unwritable("end"), _testhelper_uniuni(products = [:P, :end]))
     @test_throws(ErrorException("Mechanism: E cannot name a metabolite; it labels the " *
                                 "free enzyme form"),
-                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :E])))
+                 _testhelper_uniuni(substrates = [:S, :E]))
     @test_throws(ErrorException("Mechanism: Keq is a reserved name; E_total, Keq, L, N, " *
                                 "params, concs and v are kept for a rate equation's " *
                                 "constants and local names"),
-                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :Keq])))
+                 _testhelper_uniuni(substrates = [:S, :Keq]))
     @test_throws(ErrorException("Mechanism: the metabolite name S_1 holds `_`; constant " *
                                 "names join metabolite names with `_`, so a metabolite " *
                                 "name holds none"),
-                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:S_1])))
+                 _testhelper_binding(M.Met(:S_1, true)))
     # A name Julia reads as another (a micro sign as μ, a decomposed é as one character)
     # prints as text that builds another mechanism, so no DSL text can write it. The
     # strings are written with escapes: Julia would read the characters themselves as
@@ -558,59 +544,37 @@ end
         "$who: Julia reads the name \"$x\" as \"$read\", so no DSL text can write it; " *
         "use \"$read\"")
     @test_throws(_testhelper_read_as("Mechanism", "\u00b5M", "\u03bcM"),
-                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [Symbol("\u00b5M")])))
+                 _testhelper_binding(M.Met(Symbol("\u00b5M"), true)))
     @test_throws(_testhelper_read_as("Mechanism", "e\u0301", "\u00e9"),
-                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, Symbol("e\u0301")])))
+                 _testhelper_uniuni(substrates = [:S, Symbol("e\u0301")]))
     @test_throws(_testhelper_read_as("AllostericMechanism", "\u025b", "\u03b5"),
                  _testhelper_allosteric(tags, 2, [site([Symbol("\u025b")], 2, [:OnlyA])]))
-    # Names: undeclared; a modifier entry of a name modifiers: does not list; a plain
-    # entry of a modifier-only name; residuals by role.
+    # Names: undeclared; a reactant's modifier copy; a plain entry of a name bound as a
+    # modifier; residuals by role.
     @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *
                                 "substrates:, products: or modifiers:"),
-                 ER.Mechanism(_testhelper_uniuni_raw(products = [:Q])))
-    mod_P = EnzymeRates.Mechanisms.Met(:P, true)
-    free = EnzymeRates.Mechanisms.RawForm(:E, EnzymeRates.Mechanisms.Met[])
-    copy_binding =
-        EnzymeRates.Mechanisms.RawStep(free, EnzymeRates.Mechanisms.RawForm(:E, [mod_P]),
-                                       [mod_P], EnzymeRates.Mechanisms.Met[], true)
-    _testhelper_adding(raw, steps...) = EnzymeRates.Mechanisms.RawMechanism(
-        raw.substrates, raw.products, raw.modifiers, [raw.steps; steps...],
-        [raw.group; length(raw.steps) .+ (1:length(steps))])
-    @test_throws(ErrorException("Mechanism: P binds as a modifier, but modifiers: does " *
-                                "not declare it"),
-                 ER.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(), copy_binding)))
-    @test ER.Mechanism(_testhelper_adding(_testhelper_uniuni_raw(modifiers = [:P]),
-                                          copy_binding)) isa ER.Mechanism
-    I = EnzymeRates.Mechanisms.Met(:I, false)
-    @test_throws(
-        ErrorException("Mechanism: I is a modifier, so it binds only as a " *
-                       "modifier"),
-        ER.Mechanism(_testhelper_adding(
-            _testhelper_uniuni_raw(modifiers = [:I]),
-            EnzymeRates.Mechanisms.RawStep(free, EnzymeRates.Mechanisms.RawForm(:E, [I]),
-                                           [I], EnzymeRates.Mechanisms.Met[], true))))
-    S = EnzymeRates.Mechanisms.Met(:S, false)
+                 _testhelper_uniuni(products = [:Q]))
+    @test _testhelper_binding(M.Met(:P, true)) isa ER.Mechanism
+    @test _testhelper_binding(Imod) isa ER.Mechanism
+    @test_throws(ErrorException("Mechanism: I is a modifier, so it binds only as a " *
+                                "modifier"),
+                 _testhelper_uniuni([node(:E, Imod), node(:E, I)],
+                                    M.Step(1, 4, [Imod], none, true, 4),
+                                    M.Step(1, 5, [I], none, true, 5)))
     for (added, subtracted, verb, x) in (([:P], Symbol[], "adds", :P),
                                          (Symbol[], [:S], "subtracts", :S))
-        residual = EnzymeRates.Mechanisms.RawForm(
-            :E, EnzymeRates.Mechanisms.Met[], added, subtracted)
         @test_throws(
             ErrorException("Mechanism: a residual adds substrates and subtracts " *
                            "products; one $verb $x"),
-            ER.Mechanism(_testhelper_adding(
-                _testhelper_uniuni_raw(),
-                EnzymeRates.Mechanisms.RawStep(EnzymeRates.Mechanisms.RawForm(:E, [S]),
-                                               residual, EnzymeRates.Mechanisms.Met[],
-                                               EnzymeRates.Mechanisms.Met[], false))))
+            _testhelper_uniuni([M.Node(:E, none, added, subtracted)],
+                               M.Step(2, 4, none, none, false, 4)))
     end
     # Steps: a self-loop, a metabolite taken up and given off, a role change.
-    EA = EnzymeRates.Mechanisms.RawForm(:E, [EnzymeRates.Mechanisms.Met(:A, false)])
     @test_throws(ErrorException("Step: both ends are the form EA; a step joins two forms"),
-                 ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
-                     [:A], [:P], Symbol[],
-                     [EnzymeRates.Mechanisms.RawStep(EA, EA, EnzymeRates.Mechanisms.Met[],
-                                                     EnzymeRates.Mechanisms.Met[], false)],
-                     [1])))
+                 ER.Mechanism([:A], [:P], [node(:E, M.Met(:A, false))],
+                              [M.Step(1, 1, none, none, false, 1)]))
+    @test_throws(ErrorException("Step: both ends are the form ES; a step joins two forms"),
+                 _testhelper_uniuni(M.Node[], M.Step(2, 2, none, none, false, 4)))
     @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
                  _testhelper_build(_testhelper_walk(:(begin
                      substrates: A, B
@@ -790,8 +754,7 @@ end
     # with nothing bound only where it holds a residual.
     no_free_E = ErrorException("Mechanism: no free enzyme form E; every mechanism holds " *
                                "the free form E, with nothing bound and no residual")
-    @test_throws no_free_E ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
-        [:S], [:P], Symbol[], EnzymeRates.Mechanisms.RawStep[], Int[]))
+    @test_throws no_free_E ER.Mechanism([:S], [:P], M.Node[], M.Step[])
     @test_throws no_free_E _testhelper_build(_testhelper_walk(:(begin
         substrates: S
         products: P
@@ -836,124 +799,53 @@ end
             Estar(S) <--> Estar(P)
         end
     end))))
-    # Declared names no step exchanges: a substrate, a product, a modifier; a substrate
-    # exchanged only as its modifier copy; a reactant declared a modifier whose copy no
-    # step binds.
+    # Declared names no step exchanges: a substrate, a product; a substrate exchanged
+    # only as its modifier copy; a modifier, and a reactant's modifier copy, bound only
+    # in a node.
     _testhelper_unused(kind, x) = ErrorException(
         "Mechanism: $kind $x is declared, but no step " *
         (kind == "modifier" ? "binds" : "uses") * " it")
     @test_throws(_testhelper_unused("substrate", :T),
-                 ER.Mechanism(_testhelper_uniuni_raw(substrates = [:S, :T])))
-    @test_throws(_testhelper_unused("product", :Q),
-                 ER.Mechanism(_testhelper_uniuni_raw(products = [:P, :Q])))
-    @test_throws(_testhelper_unused("modifier", :I),
-                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:I])))
-    mod_T = EnzymeRates.Mechanisms.Met(:T, true)
+                 _testhelper_uniuni(substrates = [:S, :T]))
+    @test_throws(_testhelper_unused("product", :Q), _testhelper_uniuni(products = [:P, :Q]))
     @test_throws(_testhelper_unused("substrate", :T),
-                 ER.Mechanism(_testhelper_adding(
-                     _testhelper_uniuni_raw(substrates = [:S, :T], modifiers = [:T]),
-                     EnzymeRates.Mechanisms.RawStep(
-                         free, EnzymeRates.Mechanisms.RawForm(:E, [mod_T]), [mod_T],
-                         EnzymeRates.Mechanisms.Met[], true))))
-    @test_throws(_testhelper_unused("modifier", :P),
-                 ER.Mechanism(_testhelper_uniuni_raw(modifiers = [:P])))
+                 _testhelper_binding(M.Met(:T, true); substrates = [:S, :T]))
+    for x in (Imod, M.Met(:P, true))
+        @test_throws(_testhelper_unused("modifier", x.name),
+                     _testhelper_uniuni([node(:E, S, x)],
+                                        M.Step(2, 4, none, none, false, 4)))
+    end
     # Conformation labels: a label shaped otherwise than E, Estar or F2; an opaque
     # bound-form name; A or I, which constant names use as conformation tags; a
     # metabolite's name, of the catalytic graph or of a ligand.
-    _testhelper_turning_to(label) = _testhelper_adding(
-        _testhelper_uniuni_raw(),
-        EnzymeRates.Mechanisms.RawStep(
-            free, EnzymeRates.Mechanisms.RawForm(label, EnzymeRates.Mechanisms.Met[]),
-            EnzymeRates.Mechanisms.Met[], EnzymeRates.Mechanisms.Met[], false))
+    _testhelper_turning_to(label) =
+        _testhelper_uniuni([node(label)], M.Step(1, 4, none, none, false, 4))
     @test_throws(ErrorException("Mechanism: `Ex_1` is not a conformation label: a " *
                                 "conformation label is a capital letter followed by " *
                                 "lowercase letters and digits, such as `E`, `Estar` or " *
                                 "`F2`."),
-                 ER.Mechanism(_testhelper_turning_to(:Ex_1)))
+                 _testhelper_turning_to(:Ex_1))
     @test_throws(ErrorException("Mechanism: `ES` looks like an opaque bound-form name; " *
                                 "write it as decomposed call notation, e.g. `E(S)` or " *
                                 "`E(A, B)`."),
-                 ER.Mechanism(_testhelper_turning_to(:ES)))
+                 _testhelper_turning_to(:ES))
     for label in (:A, :I)
         @test_throws(ErrorException("Mechanism: `$label` cannot be a conformation label: " *
                                     "constant names tag a conformation with A_ or I_ " *
                                     "(`k_A_ES_to_EP`), so the labels A and I could give " *
                                     "two constants one name; choose another label."),
-                     ER.Mechanism(_testhelper_turning_to(label)))
+                     _testhelper_turning_to(label))
     end
     @test_throws(ErrorException("Mechanism: conformation label `S` collides with " *
                                 "declared metabolite `S`; choose a different " *
                                 "conformation label."),
-                 ER.Mechanism(_testhelper_turning_to(:S)))
+                 _testhelper_turning_to(:S))
     @test_throws(ErrorException("AllostericMechanism: conformation label `F` collides " *
                                 "with ligand `F`; choose a different conformation " *
                                 "label."),
-                 ER.AllostericMechanism(EnzymeRates.Mechanisms.RawAllostericMechanism(
-                     _testhelper_turning_to(:F), [tags; :EqualAI], 2,
-                     [site([:F], 2, [:OnlyA])])))
-end
-
-@testset "the nodes-and-steps constructors reject what no graph represents" begin
-    # Uni-uni, E + S ⇌ E(S), E(S) <--> E(P), E(P) ⇌ E + P, nodes 1 to 3, with the nodes
-    # `extra` (4, 5, …) and `steps` added; the constructors run the checks raw input
-    # meets, with the same messages, and take every name bound as a modifier for a
-    # declared modifier.
-    M = ER.Mechanisms
-    S, P, I, Imod, none = M.Met(:S, false), M.Met(:P, false), M.Met(:I, false),
-                          M.Met(:I, true), M.Met[]
-    node(c, bound...) = M.Node(c, collect(M.Met, bound), Symbol[], Symbol[])
-    nodes = [node(:E), node(:E, S), node(:E, P)]
-    uniuni = [M.Step(1, 2, [S], none, true, 1), M.Step(2, 3, none, none, false, 2),
-              M.Step(3, 1, none, [P], true, 3)]
-    _testhelper_uniuni(extra = M.Node[], steps...; substrates = [:S], products = [:P],
-                       group = [1, 2, 3]) =
-        ER.Mechanism(substrates, products, [nodes; extra],
-                     [[M.Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, g)
-                       for (e, g) in zip(uniuni, group)]; steps...])
-    @test _testhelper_uniuni() == _testhelper_graph_uniuni()
-    @test_throws(ErrorException("Mechanism: substrates must not be empty"),
-                 _testhelper_uniuni(substrates = Symbol[]))
-    @test_throws(ErrorException("Mechanism: duplicate product names"),
-                 _testhelper_uniuni(products = [:P, :P]))
-    @test_throws(ErrorException("Mechanism: each step takes one kinetic group label " *
-                                "from 1 to the number of groups"),
-                 _testhelper_uniuni(group = [0, 1, 2]))
-    @test_throws(ErrorException("Mechanism: kinetic group 2 is empty; a kinetic group " *
-                                "holds at least one step"),
-                 _testhelper_uniuni(group = [1, 3, 3]))
-    @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *
-                                "substrates:, products: or modifiers:"),
-                 _testhelper_uniuni(products = [:Q]))
-    # A name bound as a modifier is a modifier: its name is checked, a step exchanges it,
-    # and it binds nowhere else.
-    S_1 = M.Met(:S_1, true)
-    @test_throws(ErrorException("Mechanism: the metabolite name S_1 holds `_`; constant " *
-                                "names join metabolite names with `_`, so a metabolite " *
-                                "name holds none"),
-                 _testhelper_uniuni([node(:E, S_1)], M.Step(1, 4, [S_1], none, true, 4)))
-    @test_throws(ErrorException("Mechanism: modifier I is declared, but no step binds it"),
-                 _testhelper_uniuni([node(:E, S, Imod)],
-                                    M.Step(2, 4, none, none, false, 4)))
-    @test_throws(ErrorException("Mechanism: I is a modifier, so it binds only as a " *
-                                "modifier"),
-                 _testhelper_uniuni([node(:E, Imod), node(:E, I)],
-                                    M.Step(1, 4, [Imod], none, true, 4),
-                                    M.Step(1, 5, [I], none, true, 5)))
-    @test _testhelper_uniuni([node(:E, Imod)], M.Step(1, 4, [Imod], none, true, 4)) isa
-          ER.Mechanism
-    @test_throws(ErrorException("Step: both ends are the form ES; a step joins two forms"),
-                 _testhelper_uniuni(M.Node[], M.Step(2, 2, none, none, false, 4)))
-    # A step's ends index the nodes.
-    for (from, to) in ((2, 4), (0, 1))
-        @test_throws(ErrorException("Step 4: its ends are nodes $from and $to, but there " *
-                                    "are 3 nodes; a step's ends index the nodes"),
-                     _testhelper_uniuni(M.Node[], M.Step(from, to, none, none, false, 4)))
-    end
-    # The tags of an allosteric mechanism follow its written group labels.
-    @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must match the " *
-                                "number of kinetic groups 3"),
-                 ER.AllostericMechanism([:S], [:P], nodes, uniuni, [:EqualAI, :OnlyA], 2,
-                                        M.RegulatorySite[]))
+                 ER.AllostericMechanism([:S], [:P], [nodes; node(:F)],
+                                        [uniuni; M.Step(1, 4, none, none, false, 4)],
+                                        [tags; :EqualAI], 2, [site([:F], 2, [:OnlyA])]))
 end
 
 @testset "a form's name and text read as constants and the macros write them" begin
@@ -1011,8 +903,8 @@ _testhelper_decode(::ER.AllostericMechanism, @nospecialize(sig)) =
     @test ER.AllostericMechanism(aem) == am
     # A name outside ASCII, sorting last among 32 metabolite entries.
     names = [[Symbol("S", i) for i in 1:30]; :αKG]
-    wide = ER.Mechanism(EnzymeRates.Mechanisms.RawMechanism(
-        names, [:P], Symbol[], _testhelper_bindings([names; :P]), collect(1:32)))
+    wide = ER.Mechanism(names, [:P], _testhelper_bindings(
+        [EnzymeRates.Mechanisms.Met(x, false) for x in [names; :P]])...)
     @test ER.Mechanisms._table(wide)[32] == EnzymeRates.Mechanisms.Met(:αKG, false)
     @test _testhelper_decode(wide, ER.Mechanisms._sig_of(wide)) == wide
 end
@@ -1052,32 +944,17 @@ end
     end
 end
 
-@testset "a graph written back as raw input builds the same graph" begin
+@testset "a graph written back as its nodes and steps builds the same graph" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_build(spec.raw)
         raw = _testhelper_written(x)
         @test _testhelper_build(raw) == x
         # Its steps are the edges in stored order and direction, labelled by group.
-        c = ER.Mechanisms._canonicalize(_testhelper_plain(raw))
+        c = _testhelper_canonicalize(raw)
         @test c.edge_of == eachindex(c.edge_of) && !any(c.flipped)
         @test c.group_of == 1:length(ER.Mechanisms.groups(ER.Mechanisms.catalytic(x)))
-        @test _testhelper_plain(raw).modifiers ==
-              ER.Mechanisms.modifiers(ER.Mechanisms.catalytic(x))
+        @test c.node_of == eachindex(c.node_of)
     end
-    # Every vector is fresh: editing the raw value leaves the graph as it was.
-    am = ER.AllostericMechanism(_testhelper_graph_uniuni(), [:EqualAI, :OnlyA, :OnlyA], 2,
-                                [EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:OnlyI])])
-    before = deepcopy(am)
-    raw = ER.Mechanisms.RawAllostericMechanism(am)
-    for v in (raw.catalytic.substrates, raw.catalytic.products, raw.catalytic.modifiers,
-              raw.sites[1].ligands)
-        push!(v, :X)
-    end
-    push!(raw.catalytic.group, 4)
-    push!(raw.mwc_tags, :EqualAI)
-    raw.sites[1].mwc_tags[1] = :OnlyA
-    empty!(raw.catalytic.steps)
-    @test am == before
 end
 
 # ── The canonical form pinned as text, and the sub-graph reads against oracles ──
@@ -1253,7 +1130,7 @@ let population = _testhelper_census_population(),
                            ER.Mechanisms.Node(:D, none, Symbol[], Symbol[])]
     @test _testhelper_graph(x).forms[1:2] == ["E", "D"]
     # The census's first populations: each graph decodes from its Sig and builds again
-    # from the raw input it writes back.
+    # from the nodes and steps it writes back.
     @test length(population) == 5508 + 5505
     @test all(_testhelper_decode(x, ER.Mechanisms._sig_of(x)) == x for x in population)
     @test all(_testhelper_build(_testhelper_written(x)) == x for x in population)

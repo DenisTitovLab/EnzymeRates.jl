@@ -1474,7 +1474,7 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    candidate(re) = EnzymeRates.Mechanisms.with_flags(ldh, re)
+    candidate(re) = EnzymeRates.Enumeration._with_flags(ldh, re)
     flags = _testhelper_flags(ldh)
     @test EnzymeRates.Derivation._guard(candidate(flags)).fault ===
           EnzymeRates.Derivation._TRAP

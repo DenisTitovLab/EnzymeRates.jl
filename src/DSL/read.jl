@@ -548,15 +548,13 @@ An enzyme-form term as written, a node with each list sorted: a bare conformatio
 `E`, or a call `E(S, X::Mod; residual = A - P)` whose head is the conformation label,
 whose positional arguments are the bound metabolites (`_raw_met`) and whose `residual`
 lists the substrates added to and the products subtracted from the enzyme
-(`_read_residual!`). A conformation label may not be a declared name.
+(`_read_residual!`). The constructors reject a conformation label that is a declared name.
 """
 function _raw_form(t, names, macro_name)
     t isa Symbol || t isa Expr && t.head === :call && t.args[1] isa Symbol ||
         error("$macro_name: expected metabolite Symbol or species expression on step " *
               "side; got $t")
     conformation, args = t isa Symbol ? (t, Any[]) : (t.args[1], t.args[2:end])
-    _is_declared(conformation, names) &&
-        Mechanisms.label_collision_error(conformation, macro_name, "declared metabolite")
     bound, added, subtracted = Mechanisms.Met[], Symbol[], Symbol[]
     for a in args
         if a isa Expr && a.head === :parameters

@@ -31,10 +31,9 @@ module calls its own names bare.
   and reference anchors, which `FittingProblem` and identify's problem each hold; it names
   no other module.
 - **`Mechanisms`**: reactions and mechanisms as values. It holds `EnzymeReaction`, the
-  raw input (`RawMechanism`, `RawStep`, `RawForm`, `RawAllostericMechanism`, `RawSite`),
-  the canonical graphs `Mechanism` and `AllostericMechanism`, the singleton types and
-  `compile_mechanism`, the form names and the printer of the DSL text. Its interface is
-  the reads and writers below.
+  canonical graphs `Mechanism` and `AllostericMechanism` with their nodes and steps
+  (`Node`, `Step`, `Met`), the singleton types and `compile_mechanism`, the form names and
+  the printer of the DSL text. Its interface is the types and the reads below.
 - **`Derivation`**: the well-posedness guard, the joint solve and the rate law with its
   code, text and key. Besides the exported `rate_equation`, `rate_equation_string` and
   `parameters` (with the kinds `IndependentParameters`, `FittedParameters` and
@@ -62,7 +61,7 @@ module calls its own names bare.
 - **The top level** (`src/EnzymeRates.jl`, `identify_rate_equation.jl`): identify and the
   exports, among them the three macros.
 
-### Reads and writers
+### Reading a mechanism
 
 Code reads a mechanism's stored data with dots: `m.nodes[x].bound`, `m.steps[k].from`,
 `m.steps[k].group`, `m.substrates`, `am.mwc_tags[g]`. Forms and steps are integer indices
@@ -82,15 +81,12 @@ conformations an allosteric mechanism's tags define (`excludes(tag, c)`,
 each form's offsets), `segment_graph(m, on)` (the steady-state steps between them) and
 `has_turnover_cycle(m, on)`. Enumeration reads them as `Derivation.x`.
 
-The writers rebuild a mechanism. `RawMechanism(m)`, `RawStep(m, k)` and `RawForm(m, x)`
-give its written form; `with_flags(m, re)` and `regroup(m, groups, re)` build a mechanism
-with the given flags or kinetic groups through the checked constructors;
-`with_tags(am, tags)` retags through the composition constructor;
-`canonical_graph(raw)` builds a canonical graph with only the alignment check. The
-DSL text of forms and steps (`form_text`, `step_text`) completes the graph interface.
-The rest of `Mechanisms.API` is the types (`Reactant`, `Regulator`, …) and the checks the
-DSL reader runs on names and labels (`check_decodable_names`, `check_conformation_label`,
-`label_collision_error`).
+A caller rebuilds a mechanism by copying `m.nodes` and `m.steps` with changed fields and
+calling the constructor. The DSL text of forms and steps (`form_text`, `step_text`)
+completes the graph interface. The rest of `Mechanisms.API` is the types (`Reactant`,
+`Regulator`, …) and the two checks the DSL reader runs on names and labels while it reads
+a block, so that their errors name the macro (`check_decodable_names`,
+`check_conformation_label`).
 
 ### The boundary test
 
@@ -100,16 +96,11 @@ package, and fails on:
 1. a name of another module, as `Mod.name` or imported by `using`, that the module's
    `API` list lacks;
 2. a module naming a module it may not depend on;
-3. a field of a mechanism type (a `Raw*` type) read outside `Mechanisms`;
-4. an underscore name in an `API` list or used across modules;
-5. an `export` in a module, which would let `using ..Mod` bring in bare names.
+3. an underscore name in an `API` list or used across modules;
+4. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
 To use another module's function, add it to that module's `API` list under a name
-without an underscore. Rule 3 matches field names, not types, so the test lists by file
-the reads it lets through (`_testhelper_FIELD_ALLOWED`). The list takes only values the
-reading module owns: Derivation's networks, verdicts and laws, the steps of
-`segment_graph`'s result, the rate table's `group` column, the declared names the DSL
-reader collects and the written form the seed builder assembles and transforms.
+without an underscore.
 
 ## Derivation architecture
 
@@ -302,25 +293,20 @@ modifier copy are two metabolites) and of names is sorted. It holds no reaction,
 and `hash` read its fields alone, alike in every process. An `AllostericMechanism` holds
 a catalytic `Mechanism`, one allosteric tag per kinetic group, the catalytic multiplicity
 and the regulatory sites. Every module reads these fields with dots (see
-[Reads, views and writers](@ref)).
+[Reading a mechanism](@ref)).
 
-The macros, the parser and the writers build a mechanism from nodes and steps.
+The macros, the parser and the enumeration build a mechanism from nodes and steps.
 `Mechanism(substrates, products, nodes, steps)` takes the nodes in any order, a node any
 number of times, and each step in either direction with its kinetic group label (1, 2, …,
 each used); `AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
 multiplicity, sites)` takes the tag of each written group label. Both build the canonical
 graph (`_canonicalize`) and check it; the macros check the names under `modifiers:`
-themselves. The seeds and the dead-end move write a mechanism as raw input
-(`RawMechanism` of `RawStep`s between `RawForm`s, and `RawAllostericMechanism`): its steps
-in written order and direction. `Mechanism(raw)` and `AllostericMechanism(raw)` build it
-the same way; `canonical_graph(raw)` builds it with only the alignment check, for the
-seed bases and the dead-end move's candidates. The written form of a built mechanism is
-`RawMechanism(m)` (`RawForm(m, x)`, `RawStep(m, k)`). The writers `with_flags(m, re)` and
-`regroup(m, groups, re)` rebuild a mechanism with the given flags or kinetic groups from
-its nodes and steps. The moves that tag a mechanism or change its
-regulatory sites compose the parent's catalytic graph with other tags or sites through the
-composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)` (directly or by
-`with_tags`), which runs only its tag and site checks. Going `from → to`, a step takes up
+themselves. The seeds write their topologies, dead ends and bases as nodes and steps; the
+moves copy a parent's `m.nodes` and `m.steps` with new flags, groups or bound inhibitors
+(`_regrouped`, `_with_flags`, `_dead_end_graph`). The moves that tag a mechanism or change
+its regulatory sites compose the parent's catalytic graph with other tags or sites through
+the composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)`, which
+runs only its tag and site checks. Going `from → to`, a step takes up
 the metabolites in `taken_up` and gives off those in `given_off`. Steps are classified by
 these lists. A binding takes up exactly one metabolite and gives off none. It
 is plain (`:binding`) when its target form is its source form with that metabolite added, the residual
@@ -329,9 +315,10 @@ when the last substrate binds straight into the product-bound form (`E(A) + B �
 The constructor rejects a binding whose forms match a plain binding by name but not by role,
 such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
-`_is_chemistry` is true for every edge but a plain binding; the allosteric moves (`_chemistry_groups`, in
-`Enumeration`, through `step_kind`), admission, the joint solve's priority (`_priority_key`,
-through `step_kind`) and `_merged_complexes` read it to tell catalysis from binding. The
+Every edge but a plain binding (`step_kind` other than `:binding`) is chemistry; the
+allosteric moves (`_chemistry_groups`, in `Enumeration`), admission, the joint solve's
+priority (`_priority_key`) and `_merged_complexes` read `step_kind` to tell catalysis from
+binding. The
 derivation reads every
 binding alike, so a fused binding's rapid-equilibrium constant is a dissociation constant
 and its steady-state pair a binding and a release rate constant. Every step's constants are

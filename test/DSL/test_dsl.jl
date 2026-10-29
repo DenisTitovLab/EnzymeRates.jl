@@ -2170,6 +2170,37 @@ end
         _testhelper_check_law_against_oracle(m)
     end
 
+    @testset "a conformation label that names a declared metabolite or a ligand" begin
+        # A form's text starts with its label, so a DSL text would read the label as the
+        # metabolite; the constructors reject the label.
+        @test_throws("Mechanism: conformation label `S` collides with declared " *
+                     "metabolite `S`; choose a different conformation label.",
+                     eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ E(S)
+                E(S) <--> S(P)
+                S(P) ⇌ E(P)
+                E(P) ⇌ E + P
+            end
+        end)))
+        @test_throws("AllostericMechanism: conformation label `F` collides with ligand " *
+                     "`F`; choose a different conformation label.",
+                     eval(:(@allosteric_mechanism begin
+            substrates: S
+            products:   P
+            allosteric_regulators: F
+            steps: begin
+                E + S ⇌ E(S)      :: EqualAI
+                E(S) <--> F(P)    :: EqualAI
+                F(P) ⇌ E(P)       :: EqualAI
+                E(P) ⇌ E + P      :: EqualAI
+            end
+            regulatory_site(1): F::OnlyI
+        end)))
+    end
+
     @testset "constructor errors throw when the expanded code runs" begin
         # The walker reads the block at expansion; the constructors check the mechanism
         # when the macro's code runs, so these throw outside `eval`.

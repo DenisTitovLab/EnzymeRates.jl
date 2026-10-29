@@ -3,13 +3,29 @@
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
 
-"""Whether raw step `s` takes up and gives off nothing: an isomerization."""
-_is_iso(s::Mechanisms.RawStep) = isempty(s.consumed) && isempty(s.released)
+"""Whether step `s` takes up and gives off nothing: an isomerization."""
+_is_iso(s::Mechanisms.Step) = isempty(s.taken_up) && isempty(s.given_off)
 
-"""Group labels renumbered 1, 2, … in order of first occurrence."""
-function _numbered_groups(labels::Vector{Int})
-    first_seen = unique(labels)
-    [findfirst(==(l), first_seen) for l in labels]
+"""`steps` with their group labels renumbered 1, 2, … in order of first occurrence."""
+function _numbered_groups(steps::Vector{Mechanisms.Step})
+    number = Dict{Int, Int}()
+    Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
+                                    e.rapid_equilibrium,
+                                    get!(number, e.group, length(number) + 1))
+                    for e in steps]
+end
+
+"""
+The written graph of `steps` between `nodes`, as `(; nodes, steps)`: the nodes some step
+joins, in the order of `nodes`, and `steps` with their ends indexing them.
+"""
+function _trimmed(nodes::Vector{Mechanisms.Node}, steps::Vector{Mechanisms.Step})
+    used = sort!(unique!([x for e in steps for x in (e.from, e.to)]))
+    at = zeros(Int, length(nodes))
+    at[used] = eachindex(used)
+    (; nodes = nodes[used],
+     steps = Mechanisms.Step[Mechanisms.Step(at[e.from], at[e.to], e.taken_up, e.given_off,
+                                             e.rapid_equilibrium, e.group) for e in steps])
 end
 
 """All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
@@ -28,38 +44,45 @@ function _weak_orderings(items::Vector{Symbol})
 end
 
 """
-    _catalytic_topologies(reaction) -> Vector{Vector{RawStep}}
+    _catalytic_topologies(reaction) -> Vector{@NamedTuple{nodes, steps}}
 
-Build catalytic cycle topologies by constructive backtracking. Each topology is a set of
-raw steps forming one or more complete catalytic cycles (E -> ... -> E), every release
-written as the binding it reverses, so every binding takes its metabolite up. Errors
-when the reaction has none.
+Build catalytic cycle topologies by constructive backtracking. Each topology is a written
+graph (`_trimmed`), each of its nodes once: steps forming one or more complete catalytic
+cycles (E -> ... -> E), every release written as the binding it reverses, so every
+binding takes its metabolite up. Each step's group is 0, for `_seed_groups` to label.
+Errors when the reaction has none.
 """
 function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     sub_names = Symbol[s.name for s in reaction.substrates]
     prod_names = Symbol[p.name for p in reaction.products]
+    forms = Mechanisms.Node[]
+    index = Dict{Mechanisms.Node, Int}()
 
-    # The form on :E binding `on_subs` and `on_prods` after a route consumed `consumed`
-    # and released `released`. Its covalent residual adds the consumed substrates not
-    # bound and subtracts the released and bound products; it has none exactly when
-    # their atoms cancel (no covalent residue remains).
+    # The index in `forms` of the form on :E binding `on_subs` and `on_prods` after a
+    # route consumed `consumed` and released `released`, the form added when new. Its
+    # covalent residual adds the consumed substrates not bound and subtracts the released
+    # and bound products; it has none exactly when their atoms cancel (no covalent
+    # residue remains).
     function form(consumed, released, on_subs, on_prods)
         added, subtracted = setdiff(consumed, on_subs), [released; on_prods]
-        bound = Mechanisms.Met[Mechanisms.Met.(on_subs, false);
-                               Mechanisms.Met.(on_prods, false)]
-        isempty(_net_atoms(reaction, added, subtracted)) ? Mechanisms.RawForm(:E, bound) :
-            Mechanisms.RawForm(:E, bound, added, subtracted)
+        bound = sort!(Mechanisms.Met[Mechanisms.Met.(on_subs, false);
+                                     Mechanisms.Met.(on_prods, false)])
+        n = isempty(_net_atoms(reaction, added, subtracted)) ?
+            Mechanisms.Node(:E, bound, Symbol[], Symbol[]) :
+            Mechanisms.Node(:E, bound, sort!(added), sort!(subtracted))
+        get!(() -> (push!(forms, n); length(forms)), index, n)
     end
 
-    # Collect all complete catalytic paths as raw step lists. A route starts at free E,
-    # binds substrates, isomerizes a substrate-bound form to a product-bound one, releases
-    # those products one at a time in every order, and repeats until it has consumed
-    # every substrate and released every product. `cur` is the current form, `consumed`
-    # and `released` are the route's history, and `on_subs` and `on_prods` are what `cur`
-    # binds; the atoms on the enzyme are those of `consumed` minus those of `released`.
-    paths = Vector{Mechanisms.RawStep}[]
+    # Collect all complete catalytic paths as step lists between `forms`. A route starts
+    # at free E, binds substrates, isomerizes a substrate-bound form to a product-bound
+    # one, releases those products one at a time in every order, and repeats until it has
+    # consumed every substrate and released every product. `cur` is the index of the
+    # current form, `consumed` and `released` are the route's history, and `on_subs` and
+    # `on_prods` are what `cur` binds; the atoms on the enzyme are those of `consumed`
+    # minus those of `released`.
+    paths = Vector{Mechanisms.Step}[]
     function walk!(cur, consumed, released, on_subs, on_prods, path)
-        if isempty(cur.bound) && length(consumed) == length(sub_names) &&
+        if isempty(forms[cur].bound) && length(consumed) == length(sub_names) &&
                 length(released) == length(prod_names)
             push!(paths, copy(path))
             return
@@ -71,8 +94,8 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
                        on_p)
             to = form(con, rel, on_s, on_p)
             push!(path,
-                  release ? Mechanisms.RawStep(to, cur, takes_up, Mechanisms.Met[], true) :
-                            Mechanisms.RawStep(cur, to, takes_up, Mechanisms.Met[], true))
+                  release ? Mechanisms.Step(to, cur, takes_up, Mechanisms.Met[], true, 0) :
+                            Mechanisms.Step(cur, to, takes_up, Mechanisms.Met[], true, 0))
             walk!(to, con, rel, on_s, on_p, path)
             pop!(path)
         end
@@ -107,14 +130,14 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
         end
     end
     # Start from free enzyme (:E, no bound metabolites).
-    walk!(Mechanisms.RawForm(:E, Mechanisms.Met[]), Symbol[], Symbol[], Symbol[], Symbol[],
-          Mechanisms.RawStep[])
+    walk!(form(Symbol[], Symbol[], Symbol[], Symbol[]), Symbol[], Symbol[], Symbol[],
+          Symbol[], Mechanisms.Step[])
 
     # --- Group paths by isomerization pattern ---
-    iso_groups = Dict{Set{Mechanisms.RawStep}, Vector{Vector{Mechanisms.RawStep}}}()
+    iso_groups = Dict{Set{Mechanisms.Step}, Vector{Vector{Mechanisms.Step}}}()
     for path in paths
         push!(get!(iso_groups, Set(filter(_is_iso, path)),
-                   Vector{Mechanisms.RawStep}[]), path)
+                   Vector{Mechanisms.Step}[]), path)
     end
 
     # --- Build topologies: union whole paths consistent with each
@@ -137,24 +160,24 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # The names a path binds, in order, among `names`: a release counts as the binding it
     # is written as.
     route_order(path, names) =
-        Symbol[s.consumed[1].name for s in path
-               if !isempty(s.consumed) && s.consumed[1].name in names]
-    # A form's place in the canonical form order (`_sorted_forms`): free E first, then by
-    # label, bound metabolites, residual additions and residual subtractions.
-    key(f::Mechanisms.RawForm) =
-        (!(isempty(f.bound) && isempty(f.added) && isempty(f.subtracted) &&
-           f.conformation === :E),
-         f.conformation, f.bound, f.added, f.subtracted)
+        Symbol[s.taken_up[1].name for s in path
+               if !isempty(s.taken_up) && s.taken_up[1].name in names]
+    # A form's place in the canonical form order: free E first, then by label, bound
+    # metabolites, residual additions and residual subtractions.
+    key(x::Int) = (f = forms[x];
+                   (!(isempty(f.bound) && isempty(f.added) && isempty(f.subtracted) &&
+                      f.conformation === :E),
+                    f.conformation, f.bound, f.added, f.subtracted))
     form_pair(s) = (key(s.from), key(s.to))
     sorted_iso_pats = sort!(collect(keys(iso_groups));
                             by = pat -> (length(pat), sort([form_pair(s) for s in pat])))
-    result = Vector{Mechanisms.RawStep}[]
+    result = @NamedTuple{nodes::Vector{Mechanisms.Node}, steps::Vector{Mechanisms.Step}}[]
     for iso_pat in sorted_iso_pats
         group = [(path, route_order(path, sub_names), route_order(path, prod_names))
                  for path in iso_groups[iso_pat]]
-        seen_topos = Set{Set{Mechanisms.RawStep}}()
+        seen_topos = Set{Set{Mechanisms.Step}}()
         for sl in sub_levels, pl in prod_levels
-            topo_keys = Set{Mechanisms.RawStep}()
+            topo_keys = Set{Mechanisms.Step}()
             for (path, binds, releases) in group
                 issorted(binds; by = m -> sl[m]) && issorted(releases; by = m -> pl[m]) &&
                     union!(topo_keys, path)
@@ -167,9 +190,9 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
 
             # The first iso step is the (single) SS step; every other step is RE.
             iso_idx = findfirst(_is_iso, steps)
-            push!(result, Mechanisms.RawStep[
-                Mechanisms.RawStep(s.from, s.to, s.consumed, s.released, i != iso_idx)
-                for (i, s) in enumerate(steps)])
+            push!(result, _trimmed(forms, Mechanisms.Step[
+                Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off, i != iso_idx, 0)
+                for (i, s) in enumerate(steps)]))
         end
     end
     isempty(result) && error("no catalytic cycle for $(join(sub_names, " + ")) ⇌ " *
@@ -200,11 +223,13 @@ function _competition_patterns(
 end
 
 """
-    _expand_substrate_product_dead_ends(topos, reaction) -> Vector{Vector{RawStep}}
+    _expand_substrate_product_dead_ends(topos, reaction)
+        -> Vector{@NamedTuple{nodes, steps}}
 
-For each catalytic topology, enumerate substrate/product dead-end
-form combinations and return each resulting mechanism as a flat
-`Vector{RawStep}`. A dead-end form is a catalytic form with one more
+For each catalytic topology, a written graph, enumerate substrate/product dead-end
+form combinations and return each resulting mechanism as a written graph: the topology's
+nodes and the dead-end forms after them, each once, and the steps between them. A
+dead-end form is a catalytic form with one more
 substrate or product bound, subject to:
 - The resulting form binds at least one substrate AND
   at least one product (mixed binding required)
@@ -226,7 +251,8 @@ cycle and leaves no isomerization a dead-end parallel, so bindings are the only 
 the dead-end forms need.
 """
 function _expand_substrate_product_dead_ends(
-    topos::Vector{Vector{Mechanisms.RawStep}},
+    topos::Vector{@NamedTuple{nodes::Vector{Mechanisms.Node},
+                              steps::Vector{Mechanisms.Step}}},
     reaction::Mechanisms.EnzymeReaction,
 )
     sub_names = Set(s.name for s in reaction.substrates)
@@ -242,26 +268,29 @@ function _expand_substrate_product_dead_ends(
     patterns = filter(pat -> all(in(pat), reaction.shared_catalytic_site),
                       _competition_patterns(sub_names, prod_names))
 
-    held(f::Mechanisms.RawForm) = Set(x.name for x in f.bound)
-    result = Vector{Mechanisms.RawStep}[]
+    result = @NamedTuple{nodes::Vector{Mechanisms.Node}, steps::Vector{Mechanisms.Step}}[]
     for topo in topos
-        catalytic = unique!([f for s in topo for f in (s.from, s.to)])
-        dead_ends = Mechanisms.RawForm[]
-        for f in catalytic, m in mets
-            b = held(f)
+        forms = copy(topo.nodes)
+        index = Dict(f => x for (x, f) in enumerate(forms))
+        held(x::Int) = Set(y.name for y in forms[x].bound)
+        catalytic = unique!([x for s in topo.steps for x in (s.from, s.to)])
+        dead_ends = Int[]
+        for x in catalytic, m in mets
+            b = held(x)
             m in b && continue
             push!(b, m)
             subs, prods = intersect(b, sub_names), intersect(b, prod_names)
             (isempty(subs) || isempty(prods) || subs == sub_names || prods == prod_names) &&
                 continue
-            push!(dead_ends, Mechanisms.RawForm(f.conformation,
-                                                [f.bound; Mechanisms.Met(m, false)],
-                                                f.added, f.subtracted))
+            f = forms[x]
+            d = Mechanisms.Node(f.conformation, sort!([f.bound; Mechanisms.Met(m, false)]),
+                                f.added, f.subtracted)
+            push!(dead_ends, get!(() -> (push!(forms, d); length(forms)), index, d))
         end
         # Several catalytic forms can give the same dead end.
         unique!(dead_ends)
-        edges = Set((s.from, s.to) for s in topo)
-        seen = Set{Vector{Mechanisms.RawForm}}()
+        edges = Set((s.from, s.to) for s in topo.steps)
+        seen = Set{Vector{Int}}()
         for pattern in patterns
             active = filter(dead_ends) do d
                 b = held(d)
@@ -279,19 +308,20 @@ function _expand_substrate_product_dead_ends(
             # folds them into that metabolite's kinetic group, so an added edge adds no
             # free parameter whether it reaches a dead-end form or closes a
             # thermodynamically dependent cycle.
-            forms = [catalytic; active]
-            hs = held.(forms)
-            steps = copy(topo)
-            for (i, f1) in enumerate(forms), (j, f2) in enumerate(forms)
+            xs = [catalytic; active]
+            hs = held.(xs)
+            steps = copy(topo.steps)
+            for (i, x1) in enumerate(xs), (j, x2) in enumerate(xs)
+                f1, f2 = forms[x1], forms[x2]
                 f1.conformation == f2.conformation &&
                     (f1.added, f1.subtracted) == (f2.added, f2.subtracted) &&
                     length(hs[j]) == length(hs[i]) + 1 && issubset(hs[i], hs[j]) &&
-                    !((f1, f2) in edges) || continue
+                    !((x1, x2) in edges) || continue
                 met = only(setdiff(hs[j], hs[i]))
-                push!(steps, Mechanisms.RawStep(f1, f2, [Mechanisms.Met(met, false)],
-                                                Mechanisms.Met[], true))
+                push!(steps, Mechanisms.Step(x1, x2, [Mechanisms.Met(met, false)],
+                                             Mechanisms.Met[], true, 0))
             end
-            push!(result, steps)
+            push!(result, _trimmed(forms, steps))
         end
     end
     result
@@ -302,57 +332,53 @@ end
 """
     _seed_groups(steps) -> Vector{Int}
 
-The kinetic group label of each raw step of a seed, labels numbered in order of first
+The kinetic group label of each step of a seed, labels numbered in order of first
 use: steps that take up and give off the same metabolites with the same RE/SS flag
 share one group, since the steps of a group share their constants; every isomerization
 is a group of its own.
 """
-function _seed_groups(steps::Vector{Mechanisms.RawStep})
+function _seed_groups(steps::Vector{Mechanisms.Step})
     label = Dict{Tuple{Vector{Mechanisms.Met}, Vector{Mechanisms.Met}, Bool, Int}, Int}()
     [get!(label,
-          (s.consumed, s.released, s.rapid_equilibrium, _is_iso(s) ? j : 0),
+          (s.taken_up, s.given_off, s.rapid_equilibrium, _is_iso(s) ? j : 0),
           length(label) + 1)
      for (j, s) in enumerate(steps)]
 end
 
 """
-`raw` with the isomerization `s0`, alone in its kinetic group, merged onto its product
-side: `s0` and its group are removed, and every other step at `s0.from` moves onto
-`s0.to`. The last substrate's binding into the substrate side becomes a fused binding
-into the product side; the releases stay plain. The other groups keep their order.
+`steps` with the isomerization `s0`, alone in its kinetic group, merged onto its product
+side: `s0` is removed, and every other step at `s0.from` moves onto `s0.to`, so no step
+joins `s0.from`. The last substrate's binding into the substrate side becomes a fused
+binding into the product side; the releases stay plain. The other steps keep their group
+labels, and the label of `s0`'s group goes unused.
 """
-function _merge_isomerization(raw::Mechanisms.RawMechanism, s0::Mechanisms.RawStep)
-    move(f::Mechanisms.RawForm) = f == s0.from ? s0.to : f
-    keep = [s != s0 for s in raw.steps]
-    steps = Mechanisms.RawStep[Mechanisms.RawStep(move(s.from), move(s.to), s.consumed,
-                                                  s.released, s.rapid_equilibrium)
-                               for s in raw.steps[keep]]
-    Mechanisms.RawMechanism(raw.substrates, raw.products, raw.modifiers, steps,
-                            _numbered_groups(raw.group[keep]))
+function _merge_isomerization(steps::Vector{Mechanisms.Step}, s0::Mechanisms.Step)
+    move(x::Int) = x == s0.from ? s0.to : x
+    Mechanisms.Step[Mechanisms.Step(move(s.from), move(s.to), s.taken_up, s.given_off,
+                                    s.rapid_equilibrium, s.group)
+                    for s in steps if s != s0]
 end
 
 """
-`raw` with the form `x` eliminated, or `nothing` when that is not possible: `x` must
-have exactly two steps, both bindings into it, Y + L → x and Z + R → x with Y ≠ Z. They
+`steps` with node `x` eliminated, or `nothing` when that is not possible: `x` must have
+exactly two steps, both bindings into it, Y + L → x and Z + R → x with Y ≠ Z. They
 become one Theorell–Chance step Y + L → Z + R, rapid equilibrium, in a group of its own
-after the others, where Y + L is the binding of a substrate when one of the two is; their
-groups keep their other steps.
+labelled after the others, where Y + L is the binding of a substrate (a name of
+`substrates`) when one of the two is; their groups keep their other steps. No step joins
+`x` then.
 """
-function _eliminate_form(raw::Mechanisms.RawMechanism, x::Mechanisms.RawForm)
-    at_x = findall(s -> x in (s.from, s.to), raw.steps)
-    length(at_x) == 2 && all(j -> raw.steps[j].to == x && isempty(raw.steps[j].released) &&
-                                  length(raw.steps[j].consumed) == 1, at_x) ||
+function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vector{Symbol})
+    at_x = findall(s -> x in (s.from, s.to), steps)
+    length(at_x) == 2 && all(j -> steps[j].to == x && isempty(steps[j].given_off) &&
+                                  length(steps[j].taken_up) == 1, at_x) ||
         return nothing
-    binds_substrate(j) = (y = only(raw.steps[j].consumed);
-                          !y.modifier && y.name in raw.substrates)
-    entry, release = raw.steps[sort(at_x; by = j -> !binds_substrate(j))]
+    binds_substrate(j) = (y = only(steps[j].taken_up); !y.modifier && y.name in substrates)
+    entry, release = steps[sort(at_x; by = j -> !binds_substrate(j))]
     entry.from == release.from && return nothing
-    keep = [!(j in at_x) for j in eachindex(raw.steps)]
-    steps = [raw.steps[keep]; Mechanisms.RawStep(entry.from, release.from, entry.consumed,
-                                                 release.consumed, true)]
-    group = [raw.group[keep]; maximum(raw.group) + 1]
-    Mechanisms.RawMechanism(raw.substrates, raw.products, raw.modifiers, steps,
-                            _numbered_groups(group))
+    keep = [!(j in at_x) for j in eachindex(steps)]
+    [steps[keep]; Mechanisms.Step(entry.from, release.from, entry.taken_up,
+                                  release.taken_up, true,
+                                  maximum(e -> e.group, steps) + 1)]
 end
 
 """The merged complexes of graph `m`, each once: the forms that a fused binding of a
@@ -410,24 +436,24 @@ function _seed_candidate_screen(m::Mechanisms.Mechanism)
 end
 
 """
-The bases of the seed `m`'s variants, as raw input (`RawMechanism`), the merged base first:
-merging every isomerization of `m` onto its product side (`_merge_isomerization`) and
-setting every step at rapid equilibrium gives the merged base; eliminating one merged
-complex with two steps (`_eliminate_form`) gives a Theorell–Chance base, one per complex
-that can be eliminated, in the order of the isomerizations.
+The bases of the seed `m`'s variants, each a written graph of `m`'s nodes (`_trimmed`),
+its group labels numbered 1, 2, … (`_numbered_groups`), the merged base first: merging
+every isomerization of `m` onto its product side (`_merge_isomerization`) and setting
+every step at rapid equilibrium gives the merged base; eliminating one merged complex with
+two steps (`_eliminate_form`) gives a Theorell–Chance base, one per complex that can be
+eliminated, in the order of the isomerizations.
 """
 function _seed_bases(m::Mechanisms.Mechanism)
-    raw = Mechanisms.RawMechanism(m)
-    isos = filter(_is_iso, raw.steps)
-    joined = foldl(_merge_isomerization, isos; init = raw)
-    merged = Mechanisms.RawMechanism(joined.substrates, joined.products, joined.modifiers,
-                                     Mechanisms.RawStep[
-                                         Mechanisms.RawStep(s.from, s.to, s.consumed,
-                                                            s.released, true)
-                                         for s in joined.steps], joined.group)
-    Mechanisms.RawMechanism[merged;
-                            filter(!isnothing,
-                                   [_eliminate_form(merged, s.to) for s in isos])]
+    isos = filter(_is_iso, m.steps)
+    joined = foldl(_merge_isomerization, isos; init = m.steps)
+    merged = Mechanisms.Step[Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off, true,
+                                             s.group) for s in joined]
+    bases = [merged]
+    for s in isos
+        tc = _eliminate_form(merged, s.to, m.substrates)
+        tc === nothing || push!(bases, tc)
+    end
+    [_trimmed(m.nodes, _numbered_groups(b)) for b in bases]
 end
 
 """Whether the flags `re` make the merged base `base` its seed's lumping twin: each merged
@@ -442,9 +468,8 @@ end
 
 """
 The merged and Theorell–Chance variants of the seed `m` of reaction `rxn`, whose atoms
-each base's edges must conserve. Each base (`_seed_bases`) is read as its canonical graph
-(`canonical_graph`), unchecked; a base whose tied groups no orientation aligns raises
-the representation error. MERGE and ELIM conserve atoms, which each
+each base's edges must conserve. Each base (`_seed_bases`) is built through the checked
+constructor. MERGE and ELIM conserve atoms, which each
 base asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`)
 whose flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a
 variant: no rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both
@@ -460,14 +485,14 @@ each is built and checked.
 function _seed_variants(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
     variants = Mechanisms.Mechanism[]
     for (i, b) in enumerate(_seed_bases(m))
-        base = Mechanisms.canonical_graph(b)
+        base = Mechanisms.Mechanism(m.substrates, m.products, b.nodes, b.steps)
         _assert_atom_conserving(base, rxn)
         flips = _minimal_flips(_seed_candidate_screen(base), base)
         if i == 1
             cx = _merged_complexes(base, base.substrates)
             filter!(re -> !_lumping_twin(base, cx, re), flips)
         end
-        append!(variants, [Mechanisms.with_flags(base, re) for re in flips])
+        append!(variants, [_with_flags(base, re) for re in flips])
     end
     variants
 end
@@ -496,9 +521,13 @@ function init_mechanisms(r::Mechanisms.EnzymeReaction)
     subs = Symbol[s.name for s in r.substrates]
     prods = Symbol[p.name for p in r.products]
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
-    mechs = [Mechanisms.Mechanism(Mechanisms.RawMechanism(subs, prods, Symbol[], steps,
-                                                          _seed_groups(steps)))
-             for steps in seeds]
+    mechs = [Mechanisms.Mechanism(subs, prods, s.nodes,
+                                  Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up,
+                                                                  e.given_off,
+                                                                  e.rapid_equilibrium, g)
+                                                  for (e, g) in
+                                                  zip(s.steps, _seed_groups(s.steps))])
+             for s in seeds]
     foreach(m -> _assert_atom_conserving(m, r), mechs)
     seen = Set(mechs)
     out = filter(_guard_accepts, mechs)
