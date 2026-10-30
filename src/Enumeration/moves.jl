@@ -384,8 +384,8 @@ needs one split per substrate before any constant frees up. Partners for a
 rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is the joint solve's on the built
-child (`parameter_count`), which derives no rate polynomial, and a set whose child the
-guard rejects (`_guard_accepts`) also counts as failed, so the search extends it
+child (`fitted_parameter_count`), which derives no rate polynomial, and a set whose
+child the guard rejects (`_guard_accepts`) also counts as failed, so the search extends it
 instead of emitting it.
 A part of a steady-state group none of whose edges carries flux
 (`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
@@ -425,12 +425,12 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
         end
         re
     end
-    base = Derivation.parameter_count(m)
+    base = Derivation.fitted_parameter_count(m)
     # The child of each set the search accepts, built once and emitted as judged.
     accepted = Dict{Vector{Int}, typeof(m)}()
     function gains(sel)
         c = _apply_bipartitions(m, units[sel], flags_of(sel))
-        Derivation.parameter_count(c) > base && _guard_accepts(c) ||
+        Derivation.fitted_parameter_count(c) > base && _guard_accepts(c) ||
             return false
         accepted[sel] = c
         true

@@ -4045,10 +4045,10 @@ end
     end
 end
 
-@testset "check_valid_rate_equation returns a Bool" begin
+@testset "check_valid_rate_equation(Bool, m) never throws" begin
     # A mechanism whose law, on a face (face 2), has several closed classes in its
-    # segment chain (`_LAW_MULTI`) fails the guard; with `throw = false` the verdict comes
-    # back as a Bool and nothing is thrown.
+    # segment chain (`_LAW_MULTI`) fails the guard; the `Bool` form gives the verdict and
+    # never throws.
     good = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -4071,10 +4071,10 @@ end
     end
     check = EnzymeRates.Derivation.check_valid_rate_equation
     @test check(good) === true
-    @test check(good; throw = false) === true
-    @test check(bad; throw = false) === false
-    @test @inferred(check(good)) === true
-    @test @inferred(check(bad; throw = false)) === false
+    @test check(Bool, good) === true
+    @test check(Bool, bad) === false
+    @test @inferred(check(Bool, good)) === true
+    @test @inferred(check(Bool, bad)) === false
     v = EnzymeRates.Derivation._guard(bad)
     @test_throws ErrorException(EnzymeRates.Derivation._guard_message(bad, v)) check(bad)
 end

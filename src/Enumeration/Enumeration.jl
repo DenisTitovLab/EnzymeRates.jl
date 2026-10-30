@@ -7,11 +7,11 @@ using ..Mechanisms: Mechanisms
 using ..Derivation: Derivation
 using Distributed: pmap
 
-const API = (:base_mechanisms, :expand_mechanisms)
+const API = (:starting_mechanisms, :expand_mechanisms)
 
 """Whether the guard (`Derivation.check_valid_rate_equation`) accepts `m`: the test the
 enumerator's exits and its flip, split and tagging searches apply to a candidate."""
-_guard_accepts(m) = Derivation.check_valid_rate_equation(m; throw = false)
+_guard_accepts(m) = Derivation.check_valid_rate_equation(Bool, m)
 
 """The number of entries named `name` in the metabolite list `v`, a reactant's modifier
 copies included."""

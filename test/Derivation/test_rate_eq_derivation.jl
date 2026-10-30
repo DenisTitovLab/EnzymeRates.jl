@@ -1829,7 +1829,7 @@ end
         end
     end), false))
     mechs = [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]; rejected]
-    questions = (m -> D.check_valid_rate_equation(m; throw = false),
+    questions = (m -> D.check_valid_rate_equation(Bool, m),
                  D.check_valid_rate_equation,
                  m -> parameters(m, FittedParameters()), rate_equation_string,
                  m -> rate_equation_string(m; coefficients = true),
@@ -2013,7 +2013,7 @@ end
     end
 end
 
-@testset "rate_equation_complexity (V×τ term-count estimate)" begin
+@testset "rate_equation_term_count (V×τ term-count estimate)" begin
     raw(m) = m isa EnzymeRates.Mechanism ? m : EnzymeRates.Mechanism(m)
     # V×τ = the King–Altman denominator term count, computed pre-derivation from
     # the catalytic segment graph. Values are the exact denominator product counts.
@@ -2028,7 +2028,7 @@ end
             E(P1) <--> E + P1
         end
     end
-    @test EnzymeRates.Derivation.rate_equation_complexity(raw(ordered_bibi)) == 25
+    @test EnzymeRates.Derivation.rate_equation_term_count(raw(ordered_bibi)) == 25
 
     random_bibi = @enzyme_mechanism begin
         substrates: S1, S2
@@ -2045,7 +2045,7 @@ end
             E(P2) <--> E + P2
         end
     end
-    @test EnzymeRates.Derivation.rate_equation_complexity(raw(random_bibi)) == 336
+    @test EnzymeRates.Derivation.rate_equation_term_count(raw(random_bibi)) == 336
 
     ordered_terter = @enzyme_mechanism begin
         substrates: S1, S2, S3
@@ -2060,7 +2060,7 @@ end
             E(P1) <--> E + P1
         end
     end
-    @test EnzymeRates.Derivation.rate_equation_complexity(raw(ordered_terter)) == 49
+    @test EnzymeRates.Derivation.rate_equation_term_count(raw(ordered_terter)) == 49
 
     # Allosteric: both conformations count. An all-SS uni-uni has G = 3 segments and
     # τ = 3 spanning trees, 9, and its inactive conformation keeps every step: 9 more.
@@ -2081,7 +2081,7 @@ end
         am.catalytic, am.active_steps) == 9
     @test _testhelper_laplacian_tree_count(
         am.catalytic, am.inactive_steps) == 9
-    @test EnzymeRates.Derivation.rate_equation_complexity(am) == 18
+    @test EnzymeRates.Derivation.rate_equation_term_count(am) == 18
 end
 
 @testset "Rate equation too large error" begin
@@ -2322,7 +2322,7 @@ end
     @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params)
     @test_throws clash_a rate_equation_string(conformation_a)
     @test_throws clash_a dependent_parameter_values(conformation_a, params)
-    @test_throws clash_a EnzymeRates.Derivation.parameter_count(am_a)
+    @test_throws clash_a EnzymeRates.Derivation.fitted_parameter_count(am_a)
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
     # :NonequalAI step's inactive constant.

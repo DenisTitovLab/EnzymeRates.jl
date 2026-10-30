@@ -656,7 +656,7 @@ function _is_seed_node(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMecha
 end
 
 """
-    base_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
+    starting_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
         -> (mechanisms, failures::Vector{Tuple{Any, String}})
 
 The mechanisms the beam fits first. Both sets empty means they start from
@@ -664,7 +664,7 @@ The mechanisms the beam fits first. Both sets empty means they start from
 base tier fits the seeds that are not degenerate and, in place of those that are, their
 flip children that are not (`_base_tier`). Each failure is a `(seed, message)` pair.
 """
-function base_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
+function starting_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
     seeds = (isempty(required_allo) && isempty(required_comp)) ?
         unique!(collect(init_mechanisms(rxn))) :

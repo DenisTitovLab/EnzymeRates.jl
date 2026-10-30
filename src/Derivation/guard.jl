@@ -2,25 +2,26 @@
 # ABOUTME: its verdicts, reaction networks and faces, classes 1 and 2, and class 3 per face.
 
 """
-    check_valid_rate_equation(m; throw = true) -> Bool
+    check_valid_rate_equation(m) -> true
+    check_valid_rate_equation(Bool, m) -> Bool
 
 Whether `m`'s rate law is the unique limit of mass-action kinetics, as its rapid-equilibrium
 steps speed up and its tagged constants vanish, on every face where data sit (spec
-section 8): the guard (`_guard`) finds no fault. With `throw = true` a fault is an error
-whose message (`_guard_message`) names each step at fault by its DSL line, and the result
-is `true`; with `throw = false` the result is the verdict. It reads the reaction graph
-through masks and builds nothing. The mechanism macros and the parser call it, and every
-derivation entry runs its check (`_derivation_input`, `_well_posed`). It reads the verdict
-through the memo (`_Memo`). Identify's base tier, the enumerator's exits and its flip,
-split and tagging searches keep what it accepts with `throw = false`. The constructors and
-the Sig decoder do not call it, so code that builds a mechanism internally never trips a
-check meant for the mechanisms it returns. The keyword shadows `Base.throw` in the body.
+section 8): the guard (`_guard`) finds no fault. The one-argument form throws an error
+whose message (`_guard_message`) names each step at fault by its DSL line, and returns
+`true` otherwise; the `Bool` form never throws and returns the verdict. It reads the
+reaction graph through masks and builds nothing. The mechanism macros and the parser call
+the one-argument form, and every derivation entry runs its check (`_derivation_input`,
+`_well_posed`). Both read the verdict through the memo (`_Memo`). Identify's base tier,
+the enumerator's exits and its flip, split and tagging searches keep what the `Bool` form
+accepts. The constructors and the Sig decoder do not call it, so code that builds a
+mechanism internally never trips a check meant for the mechanisms it returns.
 """
-function check_valid_rate_equation(m::_AnyMech; throw::Bool = true)
-    v = _memo_verdict(m)
-    throw && _check_verdict(m, v)
-    v.fault === _NO_FAULT
+function check_valid_rate_equation(m::_AnyMech)
+    _check_verdict(m, _memo_verdict(m))
+    true
 end
+check_valid_rate_equation(::Type{Bool}, m::_AnyMech) = _memo_verdict(m).fault === _NO_FAULT
 
 """Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
 fault."""

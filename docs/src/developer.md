@@ -36,14 +36,14 @@ flowchart TB
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
   mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★ EnzymeReaction</b><br/><b>★ EnzymeMechanism</b><br/><b>★ AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>Mechanism<br/>Met<br/>Node<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
-  top -->|"base_mechanisms()<br/>expand_mechanisms()"| enum
+  top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
   top -->|"<b>★ fit_rate_equation()</b><br/><b>★ test_rate_equation()</b><br/><b>★ FittingProblem</b>"| fit
-  top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ dependent_parameter_values()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_complexity()<br/>rate_equation_dedup_key()"| der
+  top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ dependent_parameter_values()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
   top -->|"RateData"| data
   top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
-  enum -->|"check_valid_rate_equation()<br/>parameter_count()"| der
+  enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>RateConstants"| der
   fit -->|"RateData"| data
@@ -169,8 +169,8 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
 | `RateConstants` | Kind: the steady-state rate constants | Fitting | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
-| `parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
-| `rate_equation_complexity` | The law's term count, V×τ, before derivation | top level | |
+| `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
+| `rate_equation_term_count` | The law's term count, V×τ, before derivation | top level | |
 | `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
 
 **`Fitting`**
@@ -185,7 +185,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 
 | Name | What it does | Used by | Exported |
 |:-----|:-------------|:--------|:---------|
-| `base_mechanisms` | The mechanisms identify fits first | top level | |
+| `starting_mechanisms` | The mechanisms identify fits first | top level | |
 | `expand_mechanisms` | The children of each parent, by every expansion move | top level | |
 
 **`DSL`**
@@ -278,12 +278,12 @@ fit:
 1. **The problem.** `@enzyme_reaction` (`DSL`) builds the `EnzymeReaction`
    (`Mechanisms`). `IdentifyRateEquationProblem(reaction, table; Keq)` (top level) checks
    the table into a `Data.RateData`.
-2. **The base mechanisms.** `Enumeration.base_mechanisms` writes each seed as nodes and
+2. **The base mechanisms.** `Enumeration.starting_mechanisms` writes each seed as nodes and
    steps, and the `Mechanism` constructor puts it in canonical form. A seed whose rate law
-   is undefined fails `Derivation.check_valid_rate_equation(m; throw = false)` and is
+   is undefined fails `Derivation.check_valid_rate_equation(Bool, m)` and is
    dropped.
 3. **One fit per law.** The top level asks `Derivation` five questions about each new
-   mechanism: `rate_equation_complexity` and `parameters(m, FittedParameters())` skip a
+   mechanism: `rate_equation_term_count` and `parameters(m, FittedParameters())` skip a
    mechanism too large to fit, `check_valid_rate_equation` rejects an undefined law,
    `rate_equation_string` prints the law, and `rate_equation_dedup_key` gives its key.
    Mechanisms with one key share one law, so one mechanism per key is fitted.
@@ -419,7 +419,7 @@ its own), sums the spanning trees of the segment graph, builds the numerator fro
 steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − Π[P]/Keq`
 exactly and brings `Q` and `D` to lowest terms in the concentrations. An MWC law
 (`_AlloLaw`) holds both conformations' laws, their free-E weights over a common factor and
-the regulatory sites' polynomials. `rate_equation_complexity` counts V×τ, both
+the regulatory sites' polynomials. `rate_equation_term_count` counts V×τ, both
 conformations of an MWC law together, by a checked Bareiss determinant; the cap
 (`_assert_derivable`) and identify's `eq_complexity_filter` read it before any polynomial is
 built. `_Poly`, `_Law`
@@ -470,7 +470,7 @@ reaction graph through masks and never constructs a mechanism. It returns an isb
 loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop
 without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
 `_guard_message(m, v)`, which names each step by its DSL line (`step_text`) and the face;
-`check_valid_rate_equation(m; throw = false)` returns the verdict instead, the
+`check_valid_rate_equation(Bool, m)` returns the verdict instead, the
 enumerator's drop test.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
@@ -487,7 +487,7 @@ structure decides nothing) and admission's face condition (`_admission_face`: th
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
 per excluding conformation and for both together). The macros, the parser and the
 derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and
-`Enumeration.base_mechanisms` drop. The flip move runs it on each candidate it builds,
+`Enumeration.starting_mechanisms` drop. The flip move runs it on each candidate it builds,
 the split move on each candidate whose count rises, and the tagging move on each tag set
 its base search tries.
 
@@ -575,7 +575,7 @@ defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
 [Well-posedness guard](@ref)). The macros, the parser and every derivation entry throw on a
 mechanism it rejects (`check_valid_rate_equation`), and identify's base tier, the
 enumerator's exits and its flip, split and tagging searches drop one
-(`check_valid_rate_equation(m; throw = false)`). The constructors and the Sig decoder do
+(`check_valid_rate_equation(Bool, m)`). The constructors and the Sig decoder do
 not run it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration
@@ -590,7 +590,7 @@ singleton types, one at a time, through `compile_mechanism`.
 The moves never emit a child that is provably a reparameterization of its parent. The
 split move divides a group by binding context and accepts a set of splits only if the
 independent-parameter count rises and the guard accepts the built child; the count comes
-from the joint solve (`parameter_count`), which derives no rate polynomial. A split never
+from the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A split never
 changes admission's interior verdict, since both parts keep the group's tag. A set whose
 child the guard rejects counts as failed, like one whose count does not rise, and the
 search extends a failed set by the splits of the groups that share its rapid-equilibrium
@@ -652,7 +652,7 @@ weighted union-find, so the other two run only on a candidate that passes them. 
 merged variant whose every merged complex has two steady-state steps, each alone
 in its group, has the family of the unmerged chain with rapid-equilibrium flanks
 at the same count and is skipped. `_degenerate`, the failure of V or C on the
-active-state graph, marks the starting mechanisms that `base_mechanisms`
+active-state graph, marks the starting mechanisms that `starting_mechanisms`
 (`src/Enumeration/seeds.jl`) replaces by their flip children that are not
 degenerate.
 

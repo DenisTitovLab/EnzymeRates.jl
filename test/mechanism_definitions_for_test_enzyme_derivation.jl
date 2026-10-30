@@ -948,8 +948,8 @@ end
 # cone and five orders of the two limits; the exact LP of admission's existence test; and
 # the concerted n-protomer oracle.
 
-"""Whether the guard accepts `m` (`check_valid_rate_equation` with `throw = false`)."""
-_testhelper_is_valid(m) = EnzymeRates.Derivation.check_valid_rate_equation(m; throw = false)
+"""Whether the guard accepts `m` (`check_valid_rate_equation(Bool, m)`)."""
+_testhelper_is_valid(m) = EnzymeRates.Derivation.check_valid_rate_equation(Bool, m)
 
 """
     @_testhelper_unguarded call

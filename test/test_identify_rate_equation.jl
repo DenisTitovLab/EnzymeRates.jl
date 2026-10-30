@@ -1415,7 +1415,7 @@ end
     @test n_cx_skip == 1                             # ter-ter skipped
     @test n_param_skip == 0
     @test length(entries) + length(failures) == 1   # random bi-bi (336) reached fitting
-    @test all(e -> EnzymeRates.Derivation.rate_equation_complexity(e.mech) <= 337, entries)
+    @test all(e -> EnzymeRates.Derivation.rate_equation_term_count(e.mech) <= 337, entries)
 
     # A tighter cap catches the bi-bi too — the filter is tunable and both skips
     # are counted.
@@ -1441,7 +1441,7 @@ end
     prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
                                        reference=_testhelper_row_reference(data))
     m = EnzymeRates.Mechanism(_testhelper_random_terter())
-    @test EnzymeRates.Derivation.rate_equation_complexity(m) >
+    @test EnzymeRates.Derivation.rate_equation_term_count(m) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m]
     entries, failures, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
@@ -1492,8 +1492,8 @@ end
         cm, ktype.active_steps) == 336
     @test _testhelper_laplacian_tree_count(
         cm, ktype.inactive_steps) == 16
-    @test EnzymeRates.Derivation.rate_equation_complexity(ktype) == 352
-    @test EnzymeRates.Derivation.parameter_count(ktype) == 16
+    @test EnzymeRates.Derivation.rate_equation_term_count(ktype) == 352
+    @test EnzymeRates.Derivation.fitted_parameter_count(ktype) == 16
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
     _, _, n_param_skip, n_cx_skip = EnzymeRates._process_batch(
         batch, prob; optimizer=CMAEvolutionStrategyOpt(),
@@ -2452,8 +2452,8 @@ end
         end
     end)
     @test m1 != m2
-    @test EnzymeRates.Derivation.parameter_count(m1) ==
-          EnzymeRates.Derivation.parameter_count(m2)
+    @test EnzymeRates.Derivation.fitted_parameter_count(m1) ==
+          EnzymeRates.Derivation.fitted_parameter_count(m2)
     c1, c2 = _testhelper_pass1_canonical.((m1, m2))
     @test c1.key == c2.key
     @test _testhelper_same_law_under_map(EnzymeRates.Derivation._law(m1),
@@ -2532,8 +2532,8 @@ end
     # the free-enzyme Lactate constant in the active conformation, and the inactive one
     # binds no NADH. Both forms fit the same constants, as many as the test's own count
     # of the dimension.
-    @test EnzymeRates.Derivation.parameter_count(am1) ==
-          EnzymeRates.Derivation.parameter_count(am2) == 7
+    @test EnzymeRates.Derivation.fitted_parameter_count(am1) ==
+          EnzymeRates.Derivation.fitted_parameter_count(am2) == 7
     @test _testhelper_declared_dimension(am1) == _testhelper_declared_dimension(am2) == 7
     @test parameters(EnzymeRates.compile_mechanism(am1), FittedParameters()) ==
           parameters(EnzymeRates.compile_mechanism(am2), FittedParameters())

@@ -550,7 +550,7 @@ end
 """
 PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete mechanism
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
-`rate_equation_complexity`, checked before any derivation); check it with the guard
+`rate_equation_term_count`, checked before any derivation); check it with the guard
 (`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
 (`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` with its
 coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
@@ -560,7 +560,7 @@ Returns the skip's symbol, a `FitFailure` when a step throws, else a `_Candidate
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
     try
-        Derivation.rate_equation_complexity(m) > eq_complexity_filter &&
+        Derivation.rate_equation_term_count(m) > eq_complexity_filter &&
             return :complexity_skip
         Derivation.check_valid_rate_equation(m)
         fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
@@ -837,7 +837,8 @@ function _expand_parents(to_expand::Vector{BatchEntry},
 end
 
 """
-The `FitFailure`s of `Enumeration.base_mechanisms`' `(mechanism, message)` failure pairs.
+The `FitFailure`s of `Enumeration.starting_mechanisms`' `(mechanism, message)` failure
+pairs.
 """
 _fit_failures(failures) = [FitFailure(m, msg) for (m, msg) in failures]
 
@@ -849,7 +850,7 @@ _fit_failures(failures) = [FitFailure(m, msg) for (m, msg) in failures]
 The regulators the beam seed must bind: every allosteric regulator and every
 competitive inhibitor declared in `rxn`, minus the names the caller marked
 optional. Both sets empty means the beam starts from the unregulated seeds; see
-`Enumeration.base_mechanisms`.
+`Enumeration.starting_mechanisms`.
 """
 function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
@@ -923,12 +924,12 @@ function _beam_search(
     progress("EnzymeRates v$(pkgversion(EnzymeRates))")
 
     # ── Base tier: fit every seed, with each degenerate seed replaced by its
-    # non-degenerate flip children (`base_mechanisms`; no bucketing — siblings) ──
+    # non-degenerate flip children (`starting_mechanisms`; no bucketing — siblings) ──
     progress("Enumerating initial mechanisms…")
     required_allo, required_comp = _required_regulators(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
-    base, base_failures = Enumeration.base_mechanisms(
+    base, base_failures = Enumeration.starting_mechanisms(
         prob.reaction, required_allo, required_comp)
     base_expand_failures = _fit_failures(base_failures)
     # A degenerate seed's expansion error is recorded like a fit failure (a row of
