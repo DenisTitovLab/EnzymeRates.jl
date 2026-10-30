@@ -92,6 +92,14 @@ function _testhelper_assert_mechanism_invariants(m)
     nothing
 end
 
+"""`params` with every steady-state rate constant of `m` (`RateConstants()`) multiplied
+by `factor`."""
+function _testhelper_scale_rate_constants(m, params::NamedTuple, factor::Real)
+    rate_constants = EnzymeRates.parameters(m, EnzymeRates.Derivation.RateConstants())
+    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
+                                 keys(params), values(params)))
+end
+
 # The Mechanism lifted from an EnzymeMechanism, or the AllostericMechanism lifted from an
 # AllostericEnzymeMechanism; a concrete mechanism is returned as is.
 _testhelper_lift(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.Mechanism(m)

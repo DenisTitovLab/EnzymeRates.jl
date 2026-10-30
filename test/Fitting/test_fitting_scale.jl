@@ -140,7 +140,7 @@ using OptimizationCMAEvolutionStrategy
                                                   rng = Random.MersenneTwister(3))
         concs = (S = 2.0, P = 0.5, X = 0.3, Y = 1.5)
         predicted = rate_equation(two_site, concs, merge(p, (E_total = 1.0,)))
-        q = EnzymeRates.Derivation.scale_rate_constants(two_site, p, 7.0 / predicted)
+        q = _testhelper_scale_rate_constants(two_site, p, 7.0 / predicted)
         @test keys(q) == keys(p)
         rate_constants = [k for k in keys(p) if startswith(String(k), "k_")]
         @test !isempty(rate_constants)

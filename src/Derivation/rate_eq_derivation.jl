@@ -1,5 +1,5 @@
-# ABOUTME: The parameter API (parameters, its kinds and values method) and the constant
-# ABOUTME: names of each conformation's law: edge masks and edge names.
+# ABOUTME: The parameter API (parameters and its kinds, dependent_parameter_values) and the
+# ABOUTME: constant names of each conformation's law: edge names, rate-constant names.
 
 # ─── Parameters API ─────────────────────────────────────────
 
@@ -16,6 +16,9 @@ struct FittedParameters end
 """Every constant of a rate law: the independent ones, then the dependent ones."""
 struct AllParameters end
 
+"""The steady-state rate constants of a rate law, those a common factor scales."""
+struct RateConstants end
+
 const _ParameterKind = Union{IndependentParameters, FittedParameters, AllParameters}
 
 """
@@ -30,7 +33,7 @@ which:
   - `FittedParameters()`: the independent constants alone (no `Keq`, no `E_total`).
   - `AllParameters()`: the `IndependentParameters()` names, then the dependent constants
     in name order. The rate law computes each dependent constant from the independent
-    ones by its Haldane or Wegscheider relation (see `parameters(m, params)`).
+    ones by its Haldane or Wegscheider relation (see [`dependent_parameter_values`](@ref)).
 """
 parameters(m) = parameters(m, IndependentParameters())
 
@@ -62,14 +65,15 @@ function parameters(m::_AnyMech, kind::_ParameterKind)
 end
 
 """
-    parameters(m, params::NamedTuple) -> NamedTuple
+    dependent_parameter_values(m, params::NamedTuple) -> NamedTuple
 
-Return `params` followed by the dependent constants of `m`'s rate law that it lacks, in
-name order, each computed from the independent constants and `Keq` in `params` by its
-Haldane or Wegscheider relation (the relations [`rate_equation_string`](@ref) prints).
-`params` holds the values of [`parameters`](@ref)`(m)` by name; `E_total` may be left
-out. A dependent constant already in `params` is recomputed in place. An error names
-every independent constant or `Keq` that `params` lacks.
+The values of the dependent constants of `m`'s rate law, in name order (the ones
+[`parameters`](@ref)`(m, AllParameters())` lists after the independent ones), each computed
+from the independent constants and `Keq` in `params` by its Haldane or Wegscheider relation
+(the relations [`rate_equation_string`](@ref) prints). `params` holds the values of
+[`parameters`](@ref)`(m)` by name; `E_total` may be left out, and a dependent constant
+`params` holds is ignored. An error names every independent constant or `Keq` that `params`
+lacks. `merge(params, dependent_parameter_values(m, params))` is every constant.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -84,17 +88,20 @@ julia> m = @enzyme_mechanism begin
            end
        end;
 
-julia> parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0))
-(K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, k_EP_to_ES = 0.375)
+julia> p = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0);
+
+julia> dependent_parameter_values(m, p)
+(k_EP_to_ES = 0.375,)
 ```
 """
-function parameters(m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
-                             Mechanisms.AllostericMechanism},
-                    params::NamedTuple)
+function dependent_parameter_values(
+        m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
+                 Mechanisms.AllostericMechanism},
+        params::NamedTuple)
     s = _solve(m isa Mechanisms.AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
     absent = [k for k in (s.fitted..., :Keq) if !haskey(params, k)]
-    isempty(absent) || error("parameters: params must hold every name of " *
-                             "parameters(m) except E_total; it lacks " *
+    isempty(absent) || error("dependent_parameter_values: params must hold every name " *
+                             "of parameters(m) except E_total; it lacks " *
                              join(absent, ", "))
     # A negative integer exponent inverts the positive power; a fractional one is taken
     # in the value's own precision, so a BigFloat value keeps its full precision.
@@ -104,9 +111,13 @@ function parameters(m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mech
     value(d) = prod((pow(params[s.names[f]], e) for (f, e) in d.factors);
                     init = pow(params.Keq, d.keq))
     deps = _dependents(s)
-    merge(params, NamedTuple{Tuple(s.names[d.col] for d in deps)}(
-        Tuple(value(d) for d in deps)))
+    NamedTuple{Tuple(s.names[d.col] for d in deps)}(Tuple(value(d) for d in deps))
 end
+
+parameters(::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
+                   Mechanisms.AllostericMechanism}, ::NamedTuple) =
+    error("parameters(m, ...) returns names; use dependent_parameter_values(m, values) " *
+          "for the dependent constants' values")
 
 # ─── Edge masks and constant names ──────────────────────────
 
@@ -134,31 +145,22 @@ end
 # ─── Steady-state rate-constant names ──────────────────────────
 
 """
-The names of the steady-state rate constants of `em`'s law (`_edge_names`): for an
-`AllostericEnzymeMechanism`, those of both conformations, the inactive one's `I_` names
-included. `scale_rate_constants` scales exactly these, leaving the rapid-equilibrium
+The names of the steady-state rate constants of `m`'s law (`_edge_names`), as a tuple: for
+an `AllostericMechanism`, those of both conformations, the inactive one's `I_` names
+included. They are the constants a common factor scales, leaving the rapid-equilibrium
 constants, `Keq`, `E_total`, `L` and the regulator constants alone.
 """
-function _ss_rate_constant_names(@nospecialize(em::Mechanisms.AbstractEnzymeMechanism))
-    m = _derivation_input(typeof(em))
+function _rate_constant_names(m::_AnyMech)
     cm = Mechanisms.catalytic(m)
     states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
     cols = constant_columns(m)
-    Set{Symbol}(n for st in states for (k, ns) in enumerate(_edge_names(m, st, cols))
-                if !cm.steps[k].rapid_equilibrium for n in ns)
+    Tuple(unique(n for st in states for (k, ns) in enumerate(_edge_names(m, st, cols))
+                 if !cm.steps[k].rapid_equilibrium for n in ns))
 end
 
-"""
-    scale_rate_constants(m, params, factor) -> NamedTuple
-
-`params` with every steady-state rate constant of `m` (`_ss_rate_constant_names`)
-multiplied by `factor`, every other entry unchanged. A common factor on those constants
-multiplies every rate by the same factor and leaves the binding constants, `Keq`,
-`E_total`, `L` and the regulatory constants alone.
-"""
-function scale_rate_constants(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism),
-                              params::NamedTuple, factor::Real)
-    rate_constants = _ss_rate_constant_names(m)
-    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
-                                 keys(params), values(params)))
+@generated function parameters(::M, ::RateConstants) where {
+        M <: Mechanisms.AbstractEnzymeMechanism}
+    _rate_constant_names(_derivation_input(M))
 end
+
+parameters(m::_AnyMech, ::RateConstants) = _rate_constant_names(_well_posed(m))

@@ -38,14 +38,14 @@ flowchart TB
   top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
   top -->|"base_mechanisms()<br/>expand_mechanisms()"| enum
   top -->|"<b>★ fit_rate_equation()</b><br/><b>★ test_rate_equation()</b><br/><b>★ FittingProblem</b>"| fit
-  top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_complexity()<br/>rate_equation_dedup_key()"| der
+  top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ dependent_parameter_values()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_complexity()<br/>rate_equation_dedup_key()"| der
   top -->|"RateData"| data
   top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>parameter_count()"| der
   enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>scale_rate_constants()"| der
+  fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>RateConstants"| der
   fit -->|"RateData"| data
   fit -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
   der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
@@ -162,15 +162,16 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 |:-----|:-------------|:--------|:---------|
 | `rate_equation` | Evaluates the rate law, allocation-free | Fitting, top level | ✓ |
 | `rate_equation_string` | The rate law as text | top level | ✓ |
-| `parameters` | Parameter names by kind, or dependent values | Fitting, top level | ✓ |
+| `parameters` | Parameter names by kind | Fitting, top level | ✓ |
+| `dependent_parameter_values` | The dependent constants' values from the independent ones | top level | ✓ |
 | `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
 | `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
+| `RateConstants` | Kind: the steady-state rate constants | Fitting | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
 | `parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
 | `rate_equation_complexity` | The law's term count, V×τ, before derivation | top level | |
 | `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
-| `scale_rate_constants` | Scales the steady-state rate constants | Fitting | |
 
 **`Fitting`**
 
@@ -368,7 +369,7 @@ and `metabolites` reads names off the lifted mechanism. The lifts read the Sig a
 and the derivation helpers that take a singleton or its type take it `@nospecialize`, so
 they compile once for all mechanisms. Each mechanism type then pays for its generated bodies
 and the derivation they run, and for the methods that specialize on it:
-`parameters(m, params)`, Base's `text/plain` display, and `FittingProblem` and `loss!`
+`dependent_parameter_values`, Base's `text/plain` display, and `FittingProblem` and `loss!`
 below. `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
 `parameters(m, FittedParameters())` and `metabolites` as constants and calls the generated
 `rate_equation` without dispatch. The optimizer never sees that type. `fit_rate_equation`

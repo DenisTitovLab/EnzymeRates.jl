@@ -3037,9 +3037,9 @@ end
     @test_throws msg rate_equation(em, (S = 1.0, P = 1.0, Q = 1.0),
                                    (Keq = 1.0, E_total = 1.0))
     @test_throws msg rate_equation_string(em)
-    @test_throws msg parameters(em, (Keq = 1.0,))
-    @test_throws msg parameters(m, (Keq = 1.0,))
-    @test_throws msg EnzymeRates.Derivation._ss_rate_constant_names(em)
+    @test_throws msg dependent_parameter_values(em, (Keq = 1.0,))
+    @test_throws msg dependent_parameter_values(m, (Keq = 1.0,))
+    @test_throws msg parameters(em, EnzymeRates.Derivation.RateConstants())
 end
 
 """A value of each type a mechanism is built from: a metabolite, a node with a residual,

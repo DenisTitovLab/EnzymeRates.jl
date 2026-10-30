@@ -29,7 +29,6 @@ end
 
 @testset "turnover cycle: every subset of steps of five mechanisms" begin
     M = ER.Mechanisms
-    D = ER.Mechanisms
     # Each mechanism with the cycles of its steps that turn the reaction over, written as
     # step texts (`_testhelper_edge_text`). A set of steps holds a turnover cycle exactly
     # when it holds all the steps of one of these.
@@ -103,21 +102,20 @@ end
         for bits in 0:(2^n - 1)
             on = BitVector([isodd(bits >> (k - 1)) for k in 1:n])
             expected = any(ks -> all(k -> on[k], ks), at)
-            @test (findall(on), D.has_turnover_cycle(m, on)) == (findall(on), expected)
+            @test (findall(on), M.has_turnover_cycle(m, on)) == (findall(on), expected)
         end
     end
 end
 
 @testset "turnover cycle: MECHANISM_TEST_SPECS" begin
     M = ER.Mechanisms
-    D = ER.Mechanisms
     for spec in MECHANISM_TEST_SPECS
         mech = _testhelper_lift(spec.mechanism)
         m = M.catalytic(mech)
         n = length(eachindex(m.steps))
         # Every mechanism turns the reaction over, and none at rapid equilibrium alone.
-        @test (spec.name, D.has_turnover_cycle(m, trues(n))) == (spec.name, true)
-        @test (spec.name, D.has_turnover_cycle(m, _testhelper_flags(m))) ==
+        @test (spec.name, M.has_turnover_cycle(m, trues(n))) == (spec.name, true)
+        @test (spec.name, M.has_turnover_cycle(m, _testhelper_flags(m))) ==
               (spec.name, false)
         subsets = [[Int[]]; [[i] for i in 1:n]; [[i, j] for i in 1:n for j in (i + 1):n]]
         masks = [BitVector(k in s for k in 1:n) for s in subsets]
@@ -125,7 +123,7 @@ end
             push!(masks, mech.active_steps,
                   mech.inactive_steps)
         for on in masks
-            @test (spec.name, findall(on), D.has_turnover_cycle(m, on)) ==
+            @test (spec.name, findall(on), M.has_turnover_cycle(m, on)) ==
                   (spec.name, findall(on), _testhelper_net_uptake_cycle(m, on))
         end
     end
@@ -133,7 +131,6 @@ end
 
 @testset "turnover cycle: malformed input" begin
     M = ER.Mechanisms
-    D = ER.Mechanisms
     # Hand-written graphs whose cycles do not each run the reaction a whole number of
     # times: a cycle takes up A and Q and gives off nothing, or takes up B alone. The
     # turnover test weighs each step by its uptake of the first substrate, A, so it finds
@@ -153,7 +150,7 @@ end
     on = BitVector(k in [_testhelper_edge(aq, t)
                          for t in ("E + A <--> EA", "EA + Q <--> EAQ", "EAQ <--> E")]
                    for k in eachindex(aq.steps))
-    @test D.has_turnover_cycle(aq, on)
+    @test M.has_turnover_cycle(aq, on)
     b_only = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -169,14 +166,13 @@ end
     on = BitVector(k in [_testhelper_edge(b_only, t)
                          for t in ("E + B <--> EB", "EB <--> E")]
                    for k in eachindex(b_only.steps))
-    @test !D.has_turnover_cycle(b_only, on)
+    @test !M.has_turnover_cycle(b_only, on)
     # A mask with fewer flags than steps is out of bounds.
-    @test_throws BoundsError D.has_turnover_cycle(aq, trues(2))
+    @test_throws BoundsError M.has_turnover_cycle(aq, trues(2))
 end
 
 @testset "segments: a steady-state step inside a segment is no step of the graph" begin
     M = ER.Mechanisms
-    D = ER.Mechanisms
     # Random-order bi-bi whose binding of B to free E alone is steady state: the other
     # three bindings put E, E(A), E(B) and E(A, B) in one rapid-equilibrium segment. The
     # guard rejects it (E(B) fills at zero A and B); the view reads any graph.
@@ -195,7 +191,7 @@ end
     end
     every = trues(length(eachindex(m.steps)))
     text(k) = _testhelper_edge_text(m, k)
-    g = D.rapid_equilibrium_segments(m, every)
+    g = M.rapid_equilibrium_segments(m, every)
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q).
     @test g.segments == [[1, 2, 3, 4], [5], [6]]
     # E + B <--> E(B) joins two forms of the first segment, so it is no step of the graph.
@@ -205,13 +201,12 @@ end
 
 @testset "segment_walk and has_unbalanced_cycle on plain arrays" begin
     M = ER.Mechanisms
-    D = ER.Mechanisms
     # Nodes 1-3 present, node 4 not. Transitions: 1 → 2 (+1), 2 → 1 (-1), 2 → 3 (+1),
     # 3 → 1 (-2), each taking up one name by `change`.
     present = BitVector([1, 1, 1, 0])
     out = [[1], [2, 3], [4], Int[]]
     to = [2, 1, 3, 1]
-    w = D.segment_walk(present, out, to, [1 -1 1 -2])
+    w = M.segment_walk(present, out, to, [1 -1 1 -2])
     @test w.segment_of == [1, 1, 1, 0]
     @test w.segments == [[1, 2, 3]]
     @test w.offsets == [0 1 2 0]
@@ -219,15 +214,15 @@ end
     @test w.disagreeing == 0
     # With 3 → 1 taking up -1, the cycle 1 → 2 → 3 → 1 takes up one copy net: transition 4
     # is the first whose offsets disagree.
-    @test D.segment_walk(present, out, to, [1 -1 1 -1]).disagreeing == 4
+    @test M.segment_walk(present, out, to, [1 -1 1 -1]).disagreeing == 4
 
     # The triangle 1 → 2 → 3 → 1 balances at weights 1, 1, -2 and not at 1, 1, -1; without
     # its third step it closes no cycle.
     from, to3 = [1, 2, 3], [2, 3, 1]
     buffers() = (zeros(Int, 3), zeros(Int, 3))
-    @test !D.has_unbalanced_cycle(from, to3, [1, 1, -2], trues(3), buffers()...)
-    @test D.has_unbalanced_cycle(from, to3, [1, 1, -1], trues(3), buffers()...)
-    @test !D.has_unbalanced_cycle(from, to3, [1, 1, -1], BitVector([1, 1, 0]),
+    @test !M.has_unbalanced_cycle(from, to3, [1, 1, -2], trues(3), buffers()...)
+    @test M.has_unbalanced_cycle(from, to3, [1, 1, -1], trues(3), buffers()...)
+    @test !M.has_unbalanced_cycle(from, to3, [1, 1, -1], BitVector([1, 1, 0]),
                                   buffers()...)
 end
 

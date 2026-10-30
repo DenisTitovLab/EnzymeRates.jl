@@ -107,10 +107,11 @@ function _testhelper_positional_site_idx(site, pos, written_sites)
 end
 
 """
-The constants of the plain mechanism `m` (values by name in `all_params`, from
-`parameters(m, params)`) under the positional names the QSSA and ODE cross-checks read:
-stored flat step `i` gives `K{i}` at rapid equilibrium and `k{i}f`, `k{i}r` at steady
-state, in its stored direction. Every entry of `all_params` passes through.
+The constants of the plain mechanism `m` (values by name in `all_params`, `params` merged
+with `dependent_parameter_values(m, params)`) under the positional names the QSSA and ODE
+cross-checks read: stored flat step `i` gives `K{i}` at rapid equilibrium and `k{i}f`,
+`k{i}r` at steady state, in its stored direction. Every entry of `all_params` passes
+through.
 """
 function _testhelper_stored_params(m, all_params::NamedTuple)
     out = Pair{Symbol, Any}[]
@@ -126,10 +127,10 @@ function _testhelper_stored_params(m, all_params::NamedTuple)
 end
 
 """
-The constants of `m` (values by name in `all_params`, from `parameters(m, params)`) under
-the positional names a textbook rate law reads, by role. Written step `i` (in the order of
-`raw`'s written steps) takes the constants of the edge it became (`_canonicalize`), in the
-written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`, a
+The constants of `m` (values by name in `all_params`, `params` merged with
+`dependent_parameter_values(m, params)`) under the positional names a textbook rate law
+reads, by role. Written step `i` (in the order of `raw`'s written steps) takes the
+constants of the edge it became (`_canonicalize`), in the written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`, a
 binding's dissociation constant or, for any other step, the equilibrium constant of the
 written direction. The inactive law's kept steps in a `:NonequalAI` group add `k{i}f_T`,
 `k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a non-binding step against
@@ -237,7 +238,7 @@ function _testhelper_random_independent_params_concs(
     conc_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
     concs = NamedTuple{Tuple(met_names)}(conc_vals)
 
-    all_params = parameters(m, new_params)
+    all_params = merge(new_params, dependent_parameter_values(m, new_params))
     return new_params, concs, all_params
 end
 
@@ -682,7 +683,7 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         @test isfinite(v_orig) && v_orig != 0
 
         # Scaling every steady-state rate constant by α scales every rate by α.
-        ss_names = EnzymeRates.Derivation._ss_rate_constant_names(m)
+        ss_names = parameters(m, EnzymeRates.Derivation.RateConstants())
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
             k in ss_names ? v * α : v
@@ -694,7 +695,7 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         # constant but the steady-state rate constants alone.
         target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
         v_unit = rate_equation(m, concs, merge(params, (E_total = 1.0,)))
-        anchored = EnzymeRates.Derivation.scale_rate_constants(m, params, target / v_unit)
+        anchored = _testhelper_scale_rate_constants(m, params, target / v_unit)
         for k in keys(params)
             if !(k in ss_names)
                 @test anchored[k] == params[k]
@@ -903,9 +904,9 @@ const _testhelper_fused_cases = [
 
 @testset "each rapid-equilibrium segment is rooted at its first form" begin
     # The engine weighs each form of a rapid-equilibrium segment against the segment's
-    # first form in the canonical form order (`re_segments`), so free E, form 1, roots its
-    # own segment. A's modifier copy comes before Ab there: the table sorts A's copy just
-    # after A, before Ab. The law in lowest terms does not depend on the root.
+    # first form in the canonical form order (`rapid_equilibrium_segments`), so free E,
+    # form 1, roots its own segment. A's modifier copy comes before Ab there: the table
+    # sorts A's copy just after A, before Ab. The law in lowest terms does not depend on the root.
     em = @enzyme_mechanism begin
         substrates: A, Ab
         products: P
@@ -1431,8 +1432,8 @@ end
 
 @testset "rate_equation reads concs and params by name in any order" begin
     # The body reads each input by name (`getfield`), so reordered NamedTuples, a data row
-    # with Rate and group fields, and the output of `parameters(m, params)` with the
-    # dependents give the same value without allocating. A metabolite named x1 reads as a
+    # with Rate and group fields, and `params` merged with
+    # `dependent_parameter_values(m, params)` give the same value without allocating. A metabolite named x1 reads as a
     # concentration beside the body's positional local x1.
     m = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
     params, concs, all_params = _testhelper_random_independent_params_concs(
@@ -1608,7 +1609,7 @@ end
 end
 
 """Whether each reference line of `m`'s printed law, read back in 256-bit BigFloat
-(`_testhelper_eval_rate_lines`), equals the dependent constant `parameters(m, params)`
+(`_testhelper_eval_rate_lines`), equals the dependent constant `dependent_parameter_values(m, params)`
 computes, to 1e-12 relative, at a random point; false when the law prints no reference
 line."""
 function _testhelper_reference_lines_match(m)
@@ -1616,8 +1617,8 @@ function _testhelper_reference_lines_match(m)
     p = _testhelper_random_independent_params(m; rng)
     c = NamedTuple{metabolites(m)}(Tuple(0.5 + rand(rng) for _ in metabolites(m)))
     env = _testhelper_eval_rate_lines(rate_equation_string(m), p, c)
-    ap = parameters(m, p)
-    dependents = [k for k in keys(ap) if !haskey(p, k)]
+    ap = dependent_parameter_values(m, p)
+    dependents = collect(keys(ap))
     !isempty(dependents) &&
         all(k -> abs(env[k] - ap[k]) <= 1e-12 * abs(ap[k]), dependents)
 end
@@ -1756,49 +1757,52 @@ end
     @test _testhelper_printed_law_error(spec.mechanism) <= big(10)^-20
 end
 
-@testset "_ss_rate_constant_names" begin
-    # SS-only Uni-Uni: 2 SS binding steps → kon/koff names are SS.
-    uni_uni = only(s for s in MECHANISM_TEST_SPECS
-                   if s.name == "Uni-Uni").mechanism
-    names = EnzymeRates.Derivation._ss_rate_constant_names(uni_uni)
-    for sym in (:k_E_S_to_ES, :k_ES_to_E_S, :k_ES_to_E_P, :k_E_P_to_ES)
-        @test sym in names
+@testset "RateConstants lists what Fitting scales" begin
+    # Every steady-state rate constant of both conformations takes the factor; scaling
+    # exactly these multiplies the rate by it, on concrete and compiled mechanisms alike.
+    RC = EnzymeRates.Derivation.RateConstants()
+    rng = Random.MersenneTwister(5)
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        names = parameters(m, RC)
+        @test names isa Tuple{Vararg{Symbol}}
+        @test allunique(names) && !isempty(names)
+        @test parameters(_testhelper_lift(m), RC) === names
+        @test issubset(names, parameters(m, AllParameters()))
+        @test isdisjoint(names, (:Keq, :E_total, :L))
+        params = _testhelper_random_independent_params(m; rng)
+        met_names = metabolites(m)
+        concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
+        v = rate_equation(m, concs, params)
+        scaled = _testhelper_scale_rate_constants(m, params, 3.0)
+        @test rate_equation(m, concs, scaled) ≈ 3.0 * v rtol = 1e-9
     end
-
-    # Mixed RE/SS: RE binding (K_EA_to_E_A) + SS catalysis. Only the
-    # SS k's are returned; RE binding K is excluded.
-    re_uu = only(s for s in MECHANISM_TEST_SPECS
-                 if s.name == "RE Uni-Uni").mechanism
-    re_uu_names = EnzymeRates.Derivation._ss_rate_constant_names(re_uu)
-    @test :k_EA_to_E_P in re_uu_names && :k_E_P_to_EA in re_uu_names
-    for sym in (:K_EA_to_E_A, :Keq, :L, :E_total)
-        @test !(sym in re_uu_names)
-    end
-
-    # Allosteric: I-state versions of every SS rate constant are also
-    # included so `scale_rate_constants` scales them in tandem.
-    mwc = only(s for s in MECHANISM_TEST_SPECS
-               if s.name == "MWC Dimer [AllostericEnzymeMechanism]").mechanism
-    mwc_names = EnzymeRates.Derivation._ss_rate_constant_names(mwc)
-    for sym in (:k_A_ES_to_EP, :k_A_EP_to_ES, :k_I_ES_to_EP, :k_I_EP_to_ES)
-        @test sym in mwc_names
-    end
-    for sym in (:K_A_ES_to_E_S, :K_A_EP_to_E_P, :K_I_ES_to_E_S, :K_I_EP_to_E_P,
-                :Keq, :L, :E_total)
-        @test !(sym in mwc_names)
+    # The exact names, in the order `RateConstants()` returns them: the set is the
+    # steady-state constants of every conformation's law (the inactive one's `I_` names
+    # included for MWC Dimer), and rapid-equilibrium constants are absent (RE Uni-Uni).
+    expected = Dict(
+        "Uni-Uni" => (:k_E_P_to_ES, :k_ES_to_E_P, :k_E_S_to_ES, :k_ES_to_E_S),
+        "RE Uni-Uni" => (:k_E_P_to_EA, :k_EA_to_E_P),
+        "MWC Dimer [AllostericEnzymeMechanism]" =>
+            (:k_A_ES_to_EP, :k_A_EP_to_ES, :k_I_ES_to_EP, :k_I_EP_to_ES),
+        "m_OnlyA_prod" => (:k_A_ES_to_EP, :k_A_EP_to_ES),
+        "LDH i-state NonequalAI 5-group" =>
+            (:k_A_E_NADH_to_ENADH, :k_A_ENADH_to_E_NADH,
+             :k_A_ENADHPyruvate_to_ELactateNAD, :k_A_ELactateNAD_to_ENADHPyruvate))
+    for (name, names) in expected
+        m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
+        @test parameters(m, RC) === names
+        @test Set(parameters(_testhelper_lift(m), RC)) == Set(names)
     end
 end
 
-@testset "scale_rate_constants multiplies the steady-state rate constants only" begin
-    # The steady-state rate constants (`_ss_rate_constant_names`) take the factor; the
-    # binding constants, L, Keq and E_total keep their values, and the names keep their
-    # order.
+@testset "scaling the rate constants multiplies the steady-state ones only" begin
     for name in ("RE Uni-Uni", "MWC Dimer [AllostericEnzymeMechanism]")
         m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
         ks = (parameters(m)...,)
         params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))
-        scaled = EnzymeRates.Derivation.scale_rate_constants(m, params, 10.0)
-        ss = EnzymeRates.Derivation._ss_rate_constant_names(m)
+        scaled = _testhelper_scale_rate_constants(m, params, 10.0)
+        ss = parameters(m, EnzymeRates.Derivation.RateConstants())
         @test keys(scaled) == ks
         @test !isempty(ss) && any(k -> !(k in ss), ks)
         @test all(scaled[k] == (k in ss ? 10 * params[k] : params[k]) for k in ks)
@@ -1891,8 +1895,8 @@ end
                 Tuple(big(1) + big(i) / 7 for i in 1:(length(fitted) + 1)))
             env = Dict{Symbol, BigFloat}(k => v for (k, v) in pairs(p))
             @test abs(_testhelper_printed_value(dep[:k_F_to_E], env) -
-                      parameters(half, p).k_F_to_E) <=
-                  big(10)^-60 * parameters(half, p).k_F_to_E
+                      dependent_parameter_values(half, p).k_F_to_E) <=
+                  big(10)^-60 * dependent_parameter_values(half, p).k_F_to_E
         end
     end
 
@@ -1919,7 +1923,7 @@ end
         # and stays allocation-free.
         syms = parameters(em)
         params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
-        @test parameters(em, params).K_E_to_F == 1
+        @test dependent_parameter_values(em, params).K_E_to_F == 1
         allocs, _ = _testhelper_test_rate_equation_performance(
             em, params, (A = 1.0, P = 0.5, I = 0.2))
         @test allocs == 0
@@ -2317,7 +2321,7 @@ end
     @test_throws clash_a parameters(conformation_a, FittedParameters())
     @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params)
     @test_throws clash_a rate_equation_string(conformation_a)
-    @test_throws clash_a parameters(conformation_a, params)
+    @test_throws clash_a dependent_parameter_values(conformation_a, params)
     @test_throws clash_a EnzymeRates.Derivation.parameter_count(am_a)
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the

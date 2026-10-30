@@ -1080,8 +1080,8 @@ function _testhelper_inactive_reach(g)
 end
 
 """
-Whether the sub-graph reads of `x` (`re_segments`, `conformation_steps`) give what the
-oracles read off its test reader's steps give (`_testhelper_re_segments`,
+Whether the sub-graph reads of `x` (`rapid_equilibrium_segments`, `conformation_steps`)
+give what the oracles read off its test reader's steps give (`_testhelper_re_segments`,
 `_testhelper_inactive_reach`): the catalytic graph's segments, form by form and
 breadth-first, with each form's positive offsets, and, for an allosteric mechanism, the
 inactive conformation's edges and their segments.

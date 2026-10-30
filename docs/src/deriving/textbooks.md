@@ -154,11 +154,13 @@ at runtime.
 
 ## Every constant of the rate law
 
-`parameters(m, params)` (see [`parameters`](@ref)) adds the dependent constants to a set
-of independent values, each computed from its Haldane or Wegscheider relation:
+`dependent_parameter_values(m, params)` (see [`dependent_parameter_values`](@ref)) returns
+the dependent constants for a set of independent values, each computed from its Haldane or
+Wegscheider relation:
 
 ```@example textbook_ex
-parameters(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0))
+dependent_parameter_values(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0,
+                               Keq = 4.0))
 ```
 
 Here the Haldane relation fixes the reverse catalytic rate `k_EP_to_ES` from `Keq`, the

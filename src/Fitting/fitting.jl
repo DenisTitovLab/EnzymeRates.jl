@@ -285,8 +285,22 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     scale = _reference_scale(fp, merge(result_params, (Keq = fp.rate_data.Keq,)))
     scale === nothing &&
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
-    return (params = Derivation.scale_rate_constants(fp.mechanism, result_params, scale),
+    return (params = _scale_rate_constants(fp.mechanism, result_params, scale),
             loss = best_loss, retcode = best_retcode)
+end
+
+"""
+    _scale_rate_constants(mechanism, params, factor) -> NamedTuple
+
+`params` with every steady-state rate constant of `mechanism` (`RateConstants()`)
+multiplied by `factor`, every other entry unchanged. A common factor on those constants
+multiplies every rate by the same factor and leaves the binding constants, `Keq`,
+`E_total`, `L` and the regulatory constants alone.
+"""
+function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
+    rate_constants = Derivation.parameters(mechanism, Derivation.RateConstants())
+    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
+                                 keys(params), values(params)))
 end
 
 """
