@@ -45,18 +45,24 @@ function form_text(m::Mechanism, f::Int)
     label * "(" * join((_met_text(m, y) for y in x.bound), ", ") * res * ")"
 end
 
-"""A step side: node `f`'s name and the labels of the free metabolites `free`, joined by
-`_` (`EA_B` for `E(A) + B`)."""
-_side_name(m::Mechanism, f::Int, free::Vector{Met}) =
-    join([_form_name(m, f); [_entry_label(m, x) for x in free]], "_")
+"""A step side: its node's name `form` and the labels of the free metabolites `free`,
+joined by `_` (`EA_B` for `E(A) + B`)."""
+_side_name(m::Mechanism, form::String, free::Vector{Met}) =
+    foldl((side, x) -> string(side, '_', _entry_label(m, x)), free; init = form)
 """A step's two sides in its stored direction; every step constant is named after
 them."""
-_sides(m::Mechanism, e::Step) =
-    (_side_name(m, e.from, e.taken_up), _side_name(m, e.to, e.given_off))
+_sides(m::Mechanism, e::Step) = (_side_name(m, _form_name(m, e.from), e.taken_up),
+                                 _side_name(m, _form_name(m, e.to), e.given_off))
+"""Each step's two sides (`_sides`), naming each node once."""
+function _step_sides(m::Mechanism)
+    forms = [_form_name(m, f) for f in eachindex(m.nodes)]
+    [(_side_name(m, forms[e.from], e.taken_up), _side_name(m, forms[e.to], e.given_off))
+     for e in m.steps]
+end
 
-"""The names of step `k`'s two sides in its stored direction, `(from, to)`; every step
-constant is named after them."""
-step_sides(m::Mechanism, k::Int) = _sides(m, m.steps[k])
+"""The names of step `k`'s two sides in its stored direction, `(from, to)` (`_sides`;
+stored as `m.step_sides`); every step constant is named after them."""
+step_sides(m::Mechanism, k::Int) = m.step_sides[k]
 
 """Step `k` of `m` as a mechanism macro writes it, in its stored direction: each side is
 its node (`form_text`) and the metabolites the step takes up or gives off there

@@ -3101,11 +3101,13 @@ end
 @testset "a mechanism value's hash reads its type's name and its fields only" begin
     # Base hashes names, flags, numbers and vectors alike in every process, but a
     # struct's default hash mixes in its type's identity, which changes between
-    # precompile sessions; so each type hashes its name, then its fields in order.
+    # precompile sessions; so each type hashes its name, then the fields it is compared
+    # by in order (`_testhelper_identity_fields`).
     h = UInt(17)
     for x in _testhelper_value_examples()
         @test hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc),
-                                  fieldnames(typeof(x)); init = hash(nameof(typeof(x)), h))
+                                  _testhelper_identity_fields(typeof(x));
+                                  init = hash(nameof(typeof(x)), h))
     end
 end
 

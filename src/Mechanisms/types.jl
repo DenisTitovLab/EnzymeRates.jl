@@ -448,11 +448,18 @@ A mechanism as its reaction graph, in canonical form: two writings of one mechan
 equal fields. `substrates` and `products` are sorted; `nodes` hold free E first, then the
 other nodes in content order (`isless(::Node)`); `steps` run physical-forward, in content
 order (`isless(::Step)`), the kinetic groups numbered by their first step.
+
+It also stores facts its canonical fields give, computed once when it is built:
+`modifiers`, every name bound as a modifier, sorted; `groups`, each kinetic group's steps
+in step order; and per step, `step_kinds` (`_step_kind`), `toward_products` (whether it
+runs toward products as stored, `_runs_toward_products`) and `step_sides` (the names of
+its two sides, which name its constants, `_sides`). They take no part in `==` and `hash`.
+
 `Mechanism(substrates, products, nodes, steps)` builds one from nodes and steps written
 any way and checks it; `_unchecked_mechanism` takes canonical fields and checks nothing,
 for canonical form and the Sig decoder. Do not mutate the vectors of a built mechanism in
-place: its canonical form, hash, compiled Sig and memo entries depend on them; build a new
-one with the constructor. Lift it to its compiled type with
+place: its canonical form, stored facts, hash, compiled Sig and memo entries depend on
+them; build a new one with the constructor. Lift it to its compiled type with
 `EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
 """
 struct Mechanism
@@ -460,9 +467,20 @@ struct Mechanism
     products::Vector{Symbol}
     nodes::Vector{Node}
     steps::Vector{Step}
-    global _unchecked_mechanism(substrates::Vector{Symbol}, products::Vector{Symbol},
-                                nodes::Vector{Node}, steps::Vector{Step}) =
-        new(substrates, products, nodes, steps)
+    modifiers::Vector{Symbol}
+    groups::Vector{Vector{Int}}
+    step_kinds::Vector{Symbol}
+    toward_products::BitVector
+    step_sides::Vector{Tuple{String, String}}
+    # `graph` holds the canonical fields alone; the facts are read from it.
+    global function _unchecked_mechanism(substrates::Vector{Symbol},
+                                         products::Vector{Symbol}, nodes::Vector{Node},
+                                         steps::Vector{Step})
+        graph = new(substrates, products, nodes, steps)
+        new(substrates, products, nodes, steps, copy(_modifiers(nodes, steps)),
+            _groups(steps), Symbol[_step_kind(graph, e) for e in steps],
+            _runs_toward_products.(Ref(graph), steps), _step_sides(graph))
+    end
 end
 
 """
@@ -472,20 +490,34 @@ An MWC enzyme: its catalytic `Mechanism`, one allosteric tag per kinetic group o
 (`mwc_tags[g]`), the catalytic multiplicity and the regulatory sites, sorted. Its
 catalytic graph is a plain `Mechanism`, so a model with another derivation can wrap the
 same graph in a type of its own.
+
+It also stores, one flag per catalytic step, the steps each conformation excludes
+(`excluded_active`, the steps of `:OnlyI` groups; `excluded_inactive`, those of `:OnlyA`
+groups) and the steps of each conformation (`active_steps`, `inactive_steps`:
+`_conformation_steps`). They take no part in `==` and `hash`.
 """
 struct AllostericMechanism
     catalytic::Mechanism
     mwc_tags::Vector{Symbol}
     catalytic_multiplicity::Int
     regulatory_sites::Vector{RegulatorySite}
+    active_steps::BitVector
+    inactive_steps::BitVector
+    excluded_active::BitVector
+    excluded_inactive::BitVector
     function AllostericMechanism(catalytic::Mechanism, mwc_tags::Vector{Symbol},
                                  catalytic_multiplicity::Int,
                                  regulatory_sites::Vector{RegulatorySite})
-        _check_tags(mwc_tags, length(groups(catalytic)), catalytic_multiplicity)
+        _check_tags(mwc_tags, length(catalytic.groups), catalytic_multiplicity)
         _check_onlyi_groups(catalytic, mwc_tags)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
-        new(catalytic, copy(mwc_tags), catalytic_multiplicity, sites)
+        excluded_active = (e -> mwc_tags[e.group] === :OnlyI).(catalytic.steps)
+        excluded_inactive = (e -> mwc_tags[e.group] === :OnlyA).(catalytic.steps)
+        new(catalytic, copy(mwc_tags), catalytic_multiplicity, sites,
+            _conformation_steps(catalytic, excluded_active),
+            _conformation_steps(catalytic, excluded_inactive), excluded_active,
+            excluded_inactive)
     end
 end
 
@@ -897,9 +929,8 @@ function _check_representation(m::Mechanism, misaligned::Vector{Step},
     end
     _check_aligned(m, misaligned)
     _check_distinct_form_names(m)
-    by_group = groups(m)
-    _check_uniform_groups(m, by_group)
-    _check_each_reaction_once(m, by_group)
+    _check_uniform_groups(m, m.groups)
+    _check_each_reaction_once(m, m.groups)
     _check_free_E(m)
     _check_connected(m)
     _check_declared_used(m, modifiers)
@@ -916,18 +947,7 @@ end
 """Error unless the steps of `m` join every node to free E, node 1: nodes that never
 meet free E split the enzyme between parts with no single steady state."""
 function _check_connected(m::Mechanism)
-    reached = falses(length(m.nodes))
-    reached[1] = true
-    grew = true
-    while grew
-        grew = false
-        for e in m.steps
-            reached[e.from] == reached[e.to] && continue
-            reached[e.from] = reached[e.to] = true
-            grew = true
-        end
-    end
-    f = findfirst(!, reached)
+    f = findfirst(!, _joined_to_free_E(m, falses(length(m.steps))))
     f === nothing ||
         error("Mechanism: the steps do not form one connected graph; no steps lead from " *
               "free E to $(_form_name(m, f))")
@@ -1004,7 +1024,7 @@ function _check_each_reaction_once(m::Mechanism, groups::Vector{Vector{Int}})
         key = minmax((e.from, e.taken_up), (e.to, e.given_off))
         if haskey(seen, key)
             g0, k0 = seen[key]
-            text = join(step_sides(m, k0), " ⇌ ")
+            text = join(m.step_sides[k0], " ⇌ ")
             g0 == g && error("Mechanism: kinetic group $g holds the reaction $text " *
                              "twice; a mechanism holds each reaction once")
             e0 = m.steps[k0]
@@ -1022,13 +1042,16 @@ end
 
 # `==` and `hash` by content for every value type whose fields hold vectors or structs,
 # whose default `==` would compare identity: each field in declaration order, `hash`
-# seeded with the type's name. A struct's default hash mixes in its type's identity,
+# seeded with the type's name. A mechanism's stored facts take no part: they are
+# functions of its other fields. A struct's default hash mixes in its type's identity,
 # which changes between precompile sessions; a value's hash reads only symbols, integers
 # and flags, so every process agrees on it. `Met` keeps Julia's `==`,
 # which compares its two fields, and has its own `hash`.
 for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, Node, Step, Mechanism,
           AllostericMechanism)
-    fs = fieldnames(T)
+    fs = T === Mechanism ? (:substrates, :products, :nodes, :steps) :
+         T === AllostericMechanism ?
+         (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites) : fieldnames(T)
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
     @eval Base.hash(x::$T, h::UInt) =
@@ -1163,7 +1186,7 @@ constructor's tag and site checks run."""
 function _allosteric_mechanism_from_sig(sig::Int...)
     r = _SigReader(collect(sig), 0)
     m = _read_mechanism!(r)
-    tags = [_TAG_CODES[_next!(r)] for _ in 1:length(groups(m))]
+    tags = [_TAG_CODES[_next!(r)] for _ in 1:length(m.groups)]
     multiplicity = _next!(r)
     sites = [_read_site!(r) for _ in 1:_next!(r)]
     AllostericMechanism(m, tags, multiplicity, sites)
@@ -1217,9 +1240,9 @@ function _table(m::Mechanism)
     end
     unique!(sort!(table))
 end
-"""Every name bound as a modifier, reactant copies included, sorted. It reads the nodes and
-steps without building `_table`: the guard asks for it many times per mechanism."""
-modifiers(m::Mechanism) = _modifiers(m.nodes, m.steps)
+"""Every name bound as a modifier, reactant copies included, sorted (stored as
+`m.modifiers`)."""
+modifiers(m::Mechanism) = m.modifiers
 """Every name `nodes` and `steps` bind as a modifier, sorted, each once."""
 function _modifiers(nodes::Vector{Node}, steps::Vector{Step})
     names = Symbol[]
@@ -1288,18 +1311,21 @@ end
 """
     runs_toward_products(m, k) -> Bool
 
-Whether step `k` of `m` runs, as stored, toward products: from the side that holds more
+Whether step `k` of `m` runs, as stored, toward products (`_runs_toward_products`; stored
+as `m.toward_products`).
+"""
+runs_toward_products(m::Mechanism, k::Int) = m.toward_products[k]
+"""
+Whether step `e` of `m` runs, as stored, toward products: from the side that holds more
 substrates, bound or free, then fewer products, the order canonical form gives a step that
 exchanges several metabolites (`_orientation`). A step that takes up or gives off one
 metabolite is stored as its uptake, so a half-reaction that releases a product,
 `E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored direction.
 A step whose two sides tie, such as an isomerization of free forms, runs as stored.
 """
-function runs_toward_products(m::Mechanism, k::Int)
-    e = m.steps[k]
+_runs_toward_products(m::Mechanism, e::Step) =
     _side_score(m.nodes[e.from], e.taken_up, m.substrates) >=
-        _side_score(m.nodes[e.to], e.given_off, m.substrates)
-end
+    _side_score(m.nodes[e.to], e.given_off, m.substrates)
 """Whether `n` is a free node: nothing bound and no residual, whatever its label."""
 _is_free(n::Node) = isempty(n.bound) && !_has_residual(n)
 """Whether `n` is free E: label `E`, nothing bound and no residual."""

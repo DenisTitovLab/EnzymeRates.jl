@@ -7,15 +7,16 @@
 
 Whether conformation `c` (`:active` or `:inactive`) of `m` excludes step `k` of its
 catalytic graph: an `:OnlyA` group's step in the inactive conformation, an `:OnlyI`
-group's in the active one. There a plain binding loses its affinity and any other step is
-blocked (spec section 7). A plain mechanism excludes no step.
+group's in the active one (`m.excluded_active`, `m.excluded_inactive`). There a plain
+binding loses its affinity and any other step is blocked (spec section 7). A plain
+mechanism excludes no step.
 
 With a tag, whether conformation `c` excludes a step or a regulator ligand tagged `tag`:
 the one rule by which the steps, the regulator constants and the moves' ligand states
 read the tags.
 """
 excludes(am::Mechanisms.AllostericMechanism, k::Int, c::Symbol) =
-    excludes(am.mwc_tags[am.catalytic.steps[k].group], c)
+    (_conformation_index(c) == 1 ? am.excluded_active : am.excluded_inactive)[k]
 excludes(::Mechanisms.Mechanism, ::Int, c::Symbol) = (_conformation_index(c); false)
 excludes(tag::Symbol, c::Symbol) = tag === (_conformation_index(c) == 2 ? :OnlyA : :OnlyI)
 
@@ -43,24 +44,22 @@ end
     conformation_steps(m, c::Symbol) -> BitVector
 
 The steps of conformation `c` (`:active` or `:inactive`) of `m`, one flag per step in
-`m`'s stored direction. For an allosteric mechanism these are the steps of its catalytic
-graph that `c` does not exclude (`excludes`: an `:OnlyI` group's from the active
-conformation, an `:OnlyA` group's from the inactive one) between forms they join to free
-E, form 1. The conformations interconvert at free E alone, so a form those steps do not
-join to it holds no enzyme of that conformation, a second free form included. The law
-deletes the excluded steps and prunes the forms this strands; admission decides when that
-is the limit of the vanishing constants (spec section 7). A plain mechanism has only the
-active conformation: every step is active and none inactive. The laws (`_law`), the joint
-solve (`_ordered_columns`), the guard's law network (`_law_network`), the copy rule
+`m`'s stored direction. For an allosteric mechanism these are `m.active_steps` and
+`m.inactive_steps`: the steps of its catalytic graph that `c` does not exclude
+(`excludes`: an `:OnlyI` group's from the active conformation, an `:OnlyA` group's from
+the inactive one) between forms they join to free E, form 1. The conformations
+interconvert at free E alone, so a form those steps do not join to it holds no enzyme of
+that conformation, a second free form included. The law deletes the excluded steps and
+prunes the forms this strands; admission decides when that is the limit of the vanishing
+constants (spec section 7). A plain mechanism has only the active conformation: every
+step is active and none inactive. The laws (`_law`), the joint solve
+(`_ordered_columns`), the guard's law network (`_law_network`), the copy rule
 (`_redundant_copy_groups`), the degeneracy test (`_degenerate`), the tagging move's
 stopping test (`_stops_inactive_turnover`) and the hyperbolic test
 (`_hyperbolic_catalysis`) read each conformation from it.
 """
-function conformation_steps(am::Mechanisms.AllostericMechanism, c::Symbol)
-    comp = exclusion_components(am, c)
-    BitVector([!excludes(am, k, c) && comp[e.from] == 1
-               for (k, e) in enumerate(am.catalytic.steps)])
-end
+conformation_steps(am::Mechanisms.AllostericMechanism, c::Symbol) =
+    _conformation_index(c) == 1 ? am.active_steps : am.inactive_steps
 conformation_steps(m::Mechanisms.Mechanism, c::Symbol) =
     (_conformation_index(c) == 1 ? trues : falses)(length(m.steps))
 

@@ -99,6 +99,12 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
+"""The fields `==` and `hash` read of a value of type `T`: all of them, but only the first
+four of a mechanism, whose stored facts follow them."""
+_testhelper_identity_fields(T) =
+    T <: Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism} ?
+    fieldnames(T)[1:4] : fieldnames(T)
+
 """The canonical form (`_canonicalize`) of the catalytic nodes and steps of `raw`, the
 DSL walker's value (`raw_mechanism`) or `_testhelper_written`'s."""
 _testhelper_canonicalize(raw::NamedTuple) =

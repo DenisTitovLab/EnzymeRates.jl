@@ -215,7 +215,7 @@ Stored data is read with dots; derived data is a function. A mechanism is a list
 (enzyme forms) and a list of steps. A node or a step is an integer index into `m.nodes`
 or `m.steps`, and a set of steps is a `BitVector` over `m.steps`. Code reads
 `m.nodes[x].bound`, `m.steps[k].from` or `am.mwc_tags[g]` directly, and calls a function
-only for a fact the fields do not store, such as `step_kind(m, k)`.
+only for a fact the fields do not store, such as `form_text(m, f)`.
 
 | Type | Field | Holds |
 |:-----|:------|:------|
@@ -234,11 +234,20 @@ only for a fact the fields do not store, such as `step_kind(m, k)`.
 | | `products::Vector{Symbol}` | the products, sorted |
 | | `nodes::Vector{Node}` | free E first, then the other forms in content order |
 | | `steps::Vector{Step}` | each step physical-forward, in content order |
+| | `modifiers::Vector{Symbol}` | stored: every name bound as a modifier, sorted |
+| | `groups::Vector{Vector{Int}}` | stored: each kinetic group's steps |
+| | `step_kinds::Vector{Symbol}` | stored: each step's kind, such as `:binding` |
+| | `toward_products::BitVector` | stored: whether each step runs toward products |
+| | `step_sides::Vector{Tuple{String,String}}` | stored: each step's two side names |
 | `AllostericMechanism` | `catalytic::Mechanism` | the catalytic graph |
 | | `mwc_tags::Vector{Symbol}` | one tag per kinetic group: `:OnlyA`, `:OnlyI`, |
 | | | `:EqualAI` or `:NonequalAI` |
 | | `catalytic_multiplicity::Int` | the number of catalytic subunits |
 | | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
+| | `active_steps::BitVector` | stored: the active conformation's steps |
+| | `inactive_steps::BitVector` | stored: the inactive conformation's steps |
+| | `excluded_active::BitVector` | stored: the steps the active one excludes |
+| | `excluded_inactive::BitVector` | stored: the steps the inactive one excludes |
 | `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
 | | `multiplicity::Int` | the number of such sites |
 | | `mwc_tags::Vector{Symbol}` | one tag per ligand |
@@ -253,7 +262,8 @@ only for a fact the fields do not store, such as `step_kind(m, k)`.
 | | `allowed_catalytic_multiplicities::Vector{Int}` | the subunit counts to enumerate |
 | | `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` | pairs that share one site |
 
-Each list of a node or a step is sorted. The constructor
+Each list of a node or a step is sorted. Every construction path computes the facts marked
+stored once from the other fields; `==` and `hash` leave them out. The constructor
 `Mechanism(substrates, products, nodes, steps)` takes nodes in any order, a node any number
 of times, and steps in either direction with kinetic group labels 1, 2, …; it puts them in
 canonical form and checks them.
@@ -495,7 +505,7 @@ it subtracts as its residual); and `steps` (`Step`: two node indices, the metabo
 step takes up and gives off, its rapid-equilibrium flag and its kinetic group). Each list
 of metabolites (`Met`: a name, and whether it binds as a modifier, so a reactant and its
 modifier copy are two metabolites) and of names is sorted. It holds no reaction, and `==`
-and `hash` read its fields alone, alike in every process. An `AllostericMechanism` holds
+and `hash` read these fields alone, not the facts it stores, alike in every process. An `AllostericMechanism` holds
 a catalytic `Mechanism`, one allosteric tag per kinetic group, the catalytic multiplicity
 and the regulatory sites. Every module reads these fields with dots (see
 [The mechanism data model](@ref)).

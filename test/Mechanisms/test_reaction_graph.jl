@@ -65,12 +65,14 @@ function _testhelper_hash_is_content(T)
     T in (EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.RegulatorySite,
           ER.Mechanisms.Node, ER.Mechanisms.Step, ER.Mechanism,
           ER.AllostericMechanism) || return false
-    all(_testhelper_hash_is_content, fieldtypes(T))
+    all(f -> _testhelper_hash_is_content(fieldtype(T, f)), _testhelper_identity_fields(T))
 end
 
-"""Whether `x` hashes its type's name, then its fields in declaration order."""
+"""Whether `x` hashes its type's name, then the fields it is compared by
+(`_testhelper_identity_fields`) in declaration order."""
 _testhelper_hash_folds(x, h) =
-    hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc), fieldnames(typeof(x));
+    hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc),
+                        _testhelper_identity_fields(typeof(x));
                         init = hash(nameof(typeof(x)), h))
 
 @testset "a graph hashes its content, the same in every process" begin
@@ -88,11 +90,12 @@ _testhelper_hash_folds(x, h) =
     @test all(
         _testhelper_hash_is_content,
         (ER.Mechanisms.Node, ER.Mechanisms.Step, ER.Mechanism, ER.AllostericMechanism))
-    # Each field takes part in `==` and `hash`.
+    # Each canonical field takes part in `==` and `hash`.
     @test m == _testhelper_graph_uniuni() && hash(m) == hash(_testhelper_graph_uniuni())
-    for f in fieldnames(ER.Mechanism)
-        fields = Any[getfield(m, g) for g in fieldnames(ER.Mechanism)]
-        i = findfirst(==(f), fieldnames(ER.Mechanism))
+    canonical = _testhelper_identity_fields(ER.Mechanism)
+    for f in canonical
+        fields = Any[getfield(m, g) for g in canonical]
+        i = findfirst(==(f), canonical)
         fields[i] = f === :substrates ? [:A] : f === :products ? [:Q] :
                     reverse(getfield(m, f))
         other = ER.Mechanisms._unchecked_mechanism(fields...)
@@ -110,15 +113,18 @@ _testhelper_hash_folds(x, h) =
                                        EnzymeRates.Mechanisms.RegulatorySite[])
 end
 
-@testset "a mechanism's fields are its graph and nothing else" begin
-    # No reaction and no cache: the names, the nodes and the steps with their groups, and
-    # for an allosteric mechanism its tags, multiplicity and sites.
-    @test fieldnames(ER.Mechanism) == (:substrates, :products, :nodes, :steps)
+@testset "a mechanism's fields are its graph and the facts it gives" begin
+    # No reaction and no cache: the names, the nodes and the steps with their groups, then
+    # the facts computed from them once; for an allosteric mechanism its tags,
+    # multiplicity and sites, then each conformation's steps and the steps it excludes.
+    @test fieldnames(ER.Mechanism) == (:substrates, :products, :nodes, :steps, :modifiers,
+                                       :groups, :step_kinds, :toward_products, :step_sides)
     @test fieldnames(ER.Mechanisms.Node) == (:conformation, :bound, :added, :subtracted)
     @test fieldnames(ER.Mechanisms.Step) ==
           (:from, :to, :taken_up, :given_off, :rapid_equilibrium, :group)
     @test fieldnames(ER.AllostericMechanism) ==
-          (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites)
+          (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites, :active_steps,
+           :inactive_steps, :excluded_active, :excluded_inactive)
 end
 
 @testset "construction is canonical" begin
@@ -391,21 +397,28 @@ _testhelper_walk(block; allosteric = false) =
     @test am.mwc_tags == [:NonequalAI, :EqualAI, :OnlyA]
 end
 
+"""Whether `v` takes the memory of its copy, which `copy` stores at its length."""
+_testhelper_at_length(v) = Base.summarysize(v) == Base.summarysize(copy(v))
+
 """Whether `m` stores each of its vectors at its length: `m` takes the memory of the
 value rebuilt from a copy of each vector, its nodes' and steps' lists included, which
-`copy` stores at its length."""
+`copy` stores at its length, and each fact it stores takes the memory of its copy."""
 _testhelper_stored_at_length(m::ER.Mechanism) = Base.summarysize(m) == Base.summarysize(
     ER.Mechanisms._unchecked_mechanism(copy(m.substrates), copy(m.products),
                  [ER.Mechanisms.Node(n.conformation, copy(n.bound), copy(n.added),
                                      copy(n.subtracted)) for n in m.nodes],
                  [ER.Mechanisms.Step(e.from, e.to, copy(e.taken_up), copy(e.given_off),
-                                     e.rapid_equilibrium, e.group) for e in m.steps]))
+                                     e.rapid_equilibrium, e.group) for e in m.steps])) &&
+    all(_testhelper_at_length, (m.modifiers, m.groups, m.step_kinds, m.toward_products,
+                                m.step_sides)) && all(_testhelper_at_length, m.groups)
 _testhelper_stored_at_length(am::ER.AllostericMechanism) =
     _testhelper_stored_at_length(am.catalytic) && Base.summarysize(am) ==
     Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.mwc_tags),
         am.catalytic_multiplicity,
         [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.mwc_tags))
-         for s in am.regulatory_sites]))
+         for s in am.regulatory_sites])) &&
+    all(_testhelper_at_length, (am.active_steps, am.inactive_steps, am.excluded_active,
+                                am.excluded_inactive))
 
 @testset "a mechanism stores each vector at its length" begin
     # A search keeps every mechanism it emits, so memory a vector holds past its length
@@ -1285,6 +1298,114 @@ end
     @test isempty([i for (i, x) in enumerate(init) if !_testhelper_round_trips(x)])
 end
 
+"""Whether the facts `m` stores are those its canonical fields give, and the functions that
+read them return them: its modifiers and groups, read off its nodes and steps here, and
+each step's kind, direction toward products and side names, as the graph reads compute
+them from the canonical fields."""
+function _testhelper_facts_hold(m::ER.Mechanism)
+    M = ER.Mechanisms
+    lists = [[n.bound for n in m.nodes]; [e.taken_up for e in m.steps];
+             [e.given_off for e in m.steps]]
+    modifiers = sort!(unique!(Symbol[x.name for list in lists for x in list if x.modifier]))
+    groups = [findall(e -> e.group == g, m.steps)
+              for g in 1:maximum(e -> e.group, m.steps)]
+    ks = eachindex(m.steps)
+    m.modifiers == modifiers && m.groups == groups &&
+        m.step_kinds == [M._step_kind(m, e) for e in m.steps] &&
+        m.toward_products == [M._runs_toward_products(m, e) for e in m.steps] &&
+        m.step_sides == [M._sides(m, e) for e in m.steps] &&
+        M.modifiers(m) == m.modifiers && M.groups(m) == m.groups &&
+        [M.step_kind(m, k) for k in ks] == m.step_kinds &&
+        [M.runs_toward_products(m, k) for k in ks] == m.toward_products &&
+        [M.step_sides(m, k) for k in ks] == m.step_sides
+end
+
+"""Whether the facts `am` stores are those its fields give: its catalytic graph's
+(`_testhelper_facts_hold`), and per conformation the steps its tags exclude
+(`_testhelper_excludes`) and the steps it keeps on the forms they join to free E
+(`_testhelper_exclusion`), which `Derivation.excludes` and
+`Derivation.conformation_steps` return."""
+function _testhelper_facts_hold(am::ER.AllostericMechanism)
+    D, cm = ER.Derivation, am.catalytic
+    _testhelper_facts_hold(cm) || return false
+    all(((1, :active, am.excluded_active, am.active_steps),
+         (2, :inactive, am.excluded_inactive, am.inactive_steps))) do (c, name, out, kept)
+        excluded = BitVector([_testhelper_excludes(am, k, c) for k in eachindex(cm.steps)])
+        component = _testhelper_exclusion(am, c).component
+        steps = BitVector([!excluded[k] && component[e.from] == 1
+                           for (k, e) in enumerate(cm.steps)])
+        (out, kept) == (excluded, steps) &&
+            [D.excludes(am, k, name) for k in eachindex(cm.steps)] == out &&
+            D.conformation_steps(am, name) == kept
+    end
+end
+
+"""Whether `a` and `b` hold equal values in every field, a catalytic graph's included."""
+_testhelper_all_fields_equal(a, b) = all(fieldnames(typeof(a))) do f
+    x, y = getfield(a, f), getfield(b, f)
+    x isa ER.Mechanism ? _testhelper_all_fields_equal(x, y) : x == y
+end
+
+@testset "stored facts equal what the canonical fields give" begin
+    # Every construction path: the constructors (the specs' writings, the bi-bi seeds)
+    # and the Sig decoder (the specs' compiled forms).
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test _testhelper_facts_hold(_testhelper_build(spec.raw))
+        @test _testhelper_facts_hold(_testhelper_lift(spec.mechanism))
+    end
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    @test all(_testhelper_facts_hold, EnzymeRates.Enumeration.init_mechanisms(rxn))
+end
+
+@testset "stored facts survive the singleton round trip" begin
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        x = _testhelper_build(spec.raw)
+        @test _testhelper_all_fields_equal(_testhelper_lift(ER.compile_mechanism(x)), x)
+    end
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    @test all(x -> _testhelper_all_fields_equal(_testhelper_lift(ER.compile_mechanism(x)),
+                                                x),
+              EnzymeRates.Enumeration.init_mechanisms(rxn))
+end
+
+@testset "derived fields stay out of == and hash" begin
+    # A mechanism's facts are functions of its canonical fields, so two mechanisms with
+    # equal canonical fields are equal and hash alike whatever their facts hold: here a
+    # rebuilt copy whose every fact is overwritten.
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    x = ER.Mechanisms._unchecked_mechanism(m.substrates, m.products, m.nodes, m.steps)
+    push!(x.modifiers, :S)
+    x.groups[1] = [2, 3]
+    x.step_kinds[1] = :chemistry
+    x.toward_products .= .!x.toward_products
+    x.step_sides[1] = ("E", "E")
+    @test x == m && hash(x) == hash(m)
+    @test length(unique!([m, x])) == 1
+    am = ER.AllostericMechanism(m, [:EqualAI, :OnlyA, :NonequalAI], 2,
+                                ER.Mechanisms.RegulatorySite[])
+    y = ER.AllostericMechanism(m, [:EqualAI, :OnlyA, :NonequalAI], 2,
+                               ER.Mechanisms.RegulatorySite[])
+    for mask in (y.active_steps, y.inactive_steps, y.excluded_active, y.excluded_inactive)
+        mask .= .!mask
+    end
+    @test y == am && hash(y) == hash(am)
+    @test length(unique!([am, y])) == 1
+end
+
 @testset "nodes and steps are the storage" begin
     m = _testhelper_build(_testhelper_walk(:(begin
         substrates: S
@@ -1295,7 +1416,7 @@ end
             E(P) ⇌ E + P
         end
     end)))
-    @test fieldnames(ER.Mechanism) == (:substrates, :products, :nodes, :steps)
+    @test fieldnames(ER.Mechanism)[1:4] == (:substrates, :products, :nodes, :steps)
     @test length(m.nodes) == 3
     @test m.nodes[1] == ER.Mechanisms.Node(:E, EnzymeRates.Mechanisms.Met[], Symbol[],
                                            Symbol[])
@@ -1323,4 +1444,49 @@ end
                          end) / 200 for _ in 1:5)
     end
     @test median(per_call) < 20e-6
+end
+
+"""The bytes one construction of `x` allocates, from its own canonical fields, after a
+warm-up call: `Mechanism(substrates, products, nodes, steps)`, or for an allosteric
+mechanism the constructor that also takes its tags, multiplicity and sites."""
+function _testhelper_construction_bytes(x)
+    cm = ER.Mechanisms.catalytic(x)
+    build() = x isa ER.Mechanism ?
+        ER.Mechanism(cm.substrates, cm.products, cm.nodes, cm.steps) :
+        ER.AllostericMechanism(cm.substrates, cm.products, cm.nodes, cm.steps, x.mwc_tags,
+                               x.catalytic_multiplicity, x.regulatory_sites)
+    build()
+    @allocated build()
+end
+
+@testset "constructor allocation budget" begin
+    # Each construction allocates at most 1.3 times the bytes it allocated at bf49d6e1 on
+    # Julia 1.13 (6,672, 22,264 and 25,912 bytes): a mechanism stores the facts it computes
+    # once, and they may not make every construction in a search meaningfully dearer.
+    budget(bytes) = ceil(Int, 1.3 * bytes)
+    michaelis_menten = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E + P
+        end
+    end)
+    @test _testhelper_construction_bytes(michaelis_menten) <= budget(6_672)
+    # The largest seed of the bi-bi init set (A, B → P, Q): 9 forms, 13 steps.
+    random_bi_bi = ER.Mechanism(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
+            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
+            (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q), E(P) + Q ⇌ E(P, Q))
+            E(A, B) <--> E(P, Q)
+        end
+    end)
+    @test _testhelper_construction_bytes(random_bi_bi) <= budget(22_264)
+    # Hexokinase: 14 steps, two :OnlyA groups and a regulatory site.
+    hk = _testhelper_lift(only(s for s in MECHANISM_TEST_SPECS if s.name == "HK").mechanism)
+    @test _testhelper_construction_bytes(hk) <= budget(25_912)
 end
