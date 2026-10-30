@@ -1,5 +1,5 @@
 # ABOUTME: Top-level module; defines the public API and include order.
-# ABOUTME: Exports the 20 public names and wires together src/ source files.
+# ABOUTME: Exports the 19 public names and wires together src/ source files.
 """Finds the best mechanism for a reaction from measured rates."""
 module EnzymeRates
 
@@ -17,8 +17,7 @@ export rate_equation, rate_equation_string, parameters, dependent_parameter_valu
     metabolites
 
 # Fitting & model selection
-export fit_rate_equation, test_rate_equation
-export identify_rate_equation
+export fit_rate_equation, identify_rate_equation
 
 
 using Dates
@@ -35,8 +34,7 @@ using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
 include("DSL/DSL.jl")
 using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 include("Fitting/Fitting.jl")
-using .Fitting: Fitting, FittingProblem, fit_rate_equation,
-    test_rate_equation
+using .Fitting: Fitting, FittingProblem, fit_rate_equation, test_rate_equation
 include("Enumeration/Enumeration.jl")
 include("identify_rate_equation.jl")
 

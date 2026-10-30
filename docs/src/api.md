@@ -23,7 +23,14 @@ parameters(::Any)
 dependent_parameter_values(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism}, ::NamedTuple)
 rate_equation(::M_type, ::NamedTuple, ::NamedTuple) where M_type<:Mechanisms.AbstractEnzymeMechanism
 rate_equation_string(::Union{AllostericMechanism, Mechanism})
-test_rate_equation(::Any, ::NamedTuple, ::Any)
+```
+
+## Internal but usable
+
+`test_rate_equation` is not exported; call it as `EnzymeRates.test_rate_equation`.
+
+```@docs
+EnzymeRates.test_rate_equation(::Any, ::NamedTuple, ::Any)
 ```
 
 ## Macros

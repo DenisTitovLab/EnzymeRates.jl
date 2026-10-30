@@ -1,5 +1,6 @@
 # ABOUTME: Tests for the reference scale of relative fits: the reference anchors a problem
 # ABOUTME: takes, the default scale without one, the fit they scale, and test_rate_equation.
+using EnzymeRates: test_rate_equation
 using Random
 using OptimizationCMAEvolutionStrategy
 

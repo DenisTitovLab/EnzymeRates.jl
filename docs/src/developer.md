@@ -37,7 +37,7 @@ flowchart TB
   mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★ EnzymeReaction</b><br/><b>★ EnzymeMechanism</b><br/><b>★ AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
   top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
-  top -->|"<b>★ fit_rate_equation()</b><br/><b>★ test_rate_equation()</b><br/><b>★ FittingProblem</b>"| fit
+  top -->|"<b>★ fit_rate_equation()</b><br/><b>★ FittingProblem</b><br/>test_rate_equation()"| fit
   top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ dependent_parameter_values()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
   top -->|"RateData"| data
   top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
@@ -179,7 +179,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 |:-----|:-------------|:--------|:---------|
 | `FittingProblem` | A compiled mechanism with its `RateData` | top level | ✓ |
 | `fit_rate_equation` | Fits a problem with an optimizer | top level | ✓ |
-| `test_rate_equation` | The loss of given parameters on a rate table | top level | ✓ |
+| `test_rate_equation` | The loss of given parameters on a rate table | top level | |
 
 **`Enumeration`**
 

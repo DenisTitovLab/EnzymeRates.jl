@@ -97,7 +97,7 @@ turnover basis.
 
 ## Scoring a fit on other data
 
-`test_rate_equation(m, params, table; Keq, absolute = false)` returns the loss
+`EnzymeRates.test_rate_equation(m, params, table; Keq, absolute = false)` returns the loss
 `fit_rate_equation` minimizes, for the constants `params` on `table`: the score of a fit on
 data it did not see, as cross-validation does for each held-out group. `params` must hold
 every name of `parameters(m, FittedParameters())`, as a fit's `params` does; other names
@@ -120,5 +120,5 @@ params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 1.0, k_E_S_to_ES = 4.0)
 heldout = (group = ["G1", "G1", "G2"], Rate = [0.5, 0.9, 1.1],
            S = [1.0, 5.0, 3.0], P = [0.0, 0.0, 0.0])
 
-test_rate_equation(uni_uni, params, heldout; Keq = 2.0)
+EnzymeRates.test_rate_equation(uni_uni, params, heldout; Keq = 2.0)
 ```
