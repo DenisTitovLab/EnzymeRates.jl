@@ -1,5 +1,6 @@
 # ABOUTME: The Enumeration module: the seed mechanisms of a reaction, the expansion moves
 # ABOUTME: that grow them and the structural filters that prune the search.
+"""Generates candidate mechanisms for a reaction."""
 module Enumeration
 
 using ..Mechanisms: Mechanisms

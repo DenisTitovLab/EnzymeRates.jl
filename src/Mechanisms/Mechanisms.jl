@@ -1,5 +1,6 @@
 # ABOUTME: The Mechanisms module: reactions and mechanisms as values (a canonical graph
 # ABOUTME: built from nodes and steps, Sig), their naming rules, and their DSL text.
+"""Stores reactions and mechanisms as plain data."""
 module Mechanisms
 
 import Unicode

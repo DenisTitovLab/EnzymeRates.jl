@@ -13,98 +13,53 @@ The two halves and the optimizer layer are described below.
 
 EnzymeRates is six submodules and a top level. Each submodule lives in `src/<Module>/`:
 `<Module>.jl` declares the module, includes its files and lists its interface as
-`const API = (...)`. Its tests live in `test/<Module>/`. The tables below list every
-exported name, every name one module takes from another and every module's whole `API`;
-`test/test_boundaries.jl` fails when they disagree with `src/`.
-
-### What `using EnzymeRates` exports
-
-`src/EnzymeRates.jl` exports 19 names, each defined in a submodule or at the top level.
-
-| Name | Module | What it does |
-|:-----|:-------|:-------------|
-| `EnzymeReaction` | Mechanisms | A reaction and its regulators |
-| `EnzymeMechanism` | Mechanisms | A plain mechanism as a singleton type |
-| `AllostericEnzymeMechanism` | Mechanisms | An MWC mechanism as a singleton type |
-| `metabolites` | Mechanisms | The rate law's concentration names |
-| `rate_equation` | Derivation | Evaluates the rate law, allocation-free |
-| `rate_equation_string` | Derivation | The rate law as text |
-| `parameters` | Derivation | Parameter names by kind, or dependent values |
-| `IndependentParameters` | Derivation | Kind: fitted constants, `Keq`, `E_total` |
-| `FittedParameters` | Derivation | Kind: the constants a fit estimates |
-| `AllParameters` | Derivation | Kind: every constant, the dependent ones last |
-| `FittingProblem` | Fitting | A compiled mechanism with its `RateData` |
-| `fit_rate_equation` | Fitting | Fits a problem with an optimizer |
-| `test_rate_equation` | Fitting | The loss of given parameters on a rate table |
-| `@enzyme_reaction` | DSL | Builds an `EnzymeReaction` |
-| `@enzyme_mechanism` | DSL | Builds, checks and compiles a mechanism |
-| `@allosteric_mechanism` | DSL | Builds, checks and compiles an MWC mechanism |
-| `IdentifyRateEquationProblem` | top level | A reaction with its checked `RateData` |
-| `IdentifyRateEquationResults` | top level | The selected mechanism and the CV table |
-| `identify_rate_equation` | top level | Searches mechanisms, selects one by CV |
+`const API = (...)`. Its tests live in `test/<Module>/`. The diagram below shows every
+exported name and every name one module takes from another, and the tables list every
+module's whole `API`; `test/test_boundaries.jl` fails when they disagree with `src/`. The
+diagram is generated: each box's sentence is the first sentence of its module's docstring,
+and `julia test/update_module_map.jl` rewrites it.
 
 ### The module map
 
+```mermaid
+%%{init: {"theme": "base", "flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 70, "htmlLabels": true},
+  "themeVariables": {"fontFamily": "Helvetica, Arial, sans-serif", "fontSize": "13px",
+  "primaryColor": "#ffffff", "primaryBorderColor": "#666666", "primaryTextColor": "#222222",
+  "lineColor": "#777777", "edgeLabelBackground": "#ffffff", "clusterBkg": "#eaf2ee",
+  "clusterBorder": "#666666", "titleColor": "#1f4f42"}}}%%
+flowchart TB
+  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines <b>★ identify_rate_equation()</b>, <b>★ IdentifyRateEquationProblem</b>,<br/><b>★ IdentifyRateEquationResults</b>"]
+  dsl["<b><big>DSL</big></b><br/>Turns macro-written reactions and mechanisms<br/>into checked objects."]
+  enum["<b><big>Enumeration</big></b><br/>Generates candidate mechanisms for a reaction."]
+  fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
+  der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
+  data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads: <b>★ EnzymeReaction</b>, <b>★ EnzymeMechanism</b>,<br/><b>★ AllostericEnzymeMechanism</b>, AbstractEnzymeMechanism, AllostericMechanism,<br/>Mechanism, Met, Node, Reactant, Regulator, RegulatorySite, Step"]
+  top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
+  top -->|"base_mechanisms()<br/>expand_mechanisms()"| enum
+  top -->|"<b>★ fit_rate_equation()</b><br/><b>★ test_rate_equation()</b><br/><b>★ FittingProblem</b>"| fit
+  top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_complexity()<br/>rate_equation_dedup_key()"| der
+  top -->|"RateData"| data
+  top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
+  dsl -->|"check_valid_rate_equation()"| der
+  dsl -->|"catalytic()<br/>check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()<br/>modifiers()"| mech
+  enum -->|"check_valid_rate_equation()<br/>conformation_steps()<br/>excludes()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>parameter_count()<br/>re_segments()<br/>segment_graph()"| der
+  enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>form_text()<br/>groups()<br/>step_kind()<br/>step_text()"| mech
+  fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>scale_rate_constants()"| der
+  fit -->|"RateData"| data
+  fit -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
+  der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>form_text()<br/>groups()<br/>runs_toward_products()<br/>step_kind()<br/>step_sides()<br/>step_text()"| mech
+  classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
+  class top,dsl,enum,fit,der,data,mech mod;
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ top level                                                                              │
-└──┬───────┬─────────┬─────────────┬─────────────────────┬─────────────────────┬─────────┘
-   │       ▼         │             ▼                     ▼                     ▼
-   │  ┌─────────┐    │      ┌─────────────┐         ┌─────────┐           ┌────────┐
-   │  │   DSL   │    │      │ Enumeration │         │ Fitting │──────────►│  Data  │
-   │  └─┬─────┬─┘    │      └───┬─────┬───┘         └─┬─────┬─┘           └────────┘
-   │    │     │      │          │     │               │     │
-   │    │     │      │          │     └───────────────┼───┐ │
-   │    │     ▼      ▼          ▼                     ▼   │ │
-   │    │  ┌────────────────────────────────────────────┐ │ │
-   │    │  │ Derivation                                 │ │ │
-   │    │  └─────────────────────┬──────────────────────┘ │ │
-   ▼    ▼                        ▼                        ▼ ▼
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ Mechanisms                                                                             │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
+
+★ bold: exported by EnzymeRates. Arrows carry every name one module takes from another;
+the Mechanisms types are listed in its box.
 
 An arrow points from a module to a module whose names it uses. A submodule names only the
 modules its arrows reach; `Mechanisms` and `Data` name none. Inside a module, code calls
 its own names bare; a call into another module is qualified:
-`Derivation.check_valid_rate_equation(m)`. The table lists, for each arrow, every name the
-first module takes from the second.
-
-| From → To | Names |
-|:----------|:------|
-| top level → Data | `RateData` |
-| top level → DSL | `@enzyme_reaction`, `@enzyme_mechanism`, `@allosteric_mechanism` |
-| top level → Enumeration | `base_mechanisms`, `expand_mechanisms` |
-| top level → Fitting | `FittingProblem`, `fit_rate_equation`, `test_rate_equation` |
-| top level → Derivation | `rate_equation`, `rate_equation_string`, `parameters`, |
-| | `IndependentParameters`, `FittedParameters`, `AllParameters`, |
-| | `check_valid_rate_equation`, `rate_equation_complexity`, |
-| | `rate_equation_dedup_key` |
-| top level → Mechanisms | `EnzymeReaction`, `Mechanism`, `AllostericMechanism`, |
-| | `AbstractEnzymeMechanism`, `EnzymeMechanism`, `AllostericEnzymeMechanism`, |
-| | `compile_mechanism`, `metabolites` |
-| DSL → Derivation | `check_valid_rate_equation` |
-| DSL → Mechanisms | `EnzymeReaction`, `Reactant`, `Regulator`, `Mechanism`, |
-| | `AllostericMechanism`, `Node`, `Step`, `Met`, `RegulatorySite`, |
-| | `compile_mechanism`, `modifiers`, `catalytic`, `check_decodable_names`, |
-| | `check_conformation_label` |
-| Enumeration → Derivation | `check_valid_rate_equation`, `parameter_count`, `excludes`, |
-| | `conformation_steps`, `re_segments`, `segment_graph`, `has_turnover_cycle`, |
-| | `has_unbalanced_cycle` |
-| Enumeration → Mechanisms | `EnzymeReaction`, `Mechanism`, `AllostericMechanism`, `Node`, |
-| | `Step`, `Met`, `RegulatorySite`, `metabolites`, `catalytic`, `groups`, |
-| | `step_kind`, `form_text`, `step_text` |
-| Fitting → Data | `RateData` |
-| Fitting → Derivation | `rate_equation`, `parameters`, `FittedParameters`, |
-| | `scale_rate_constants` |
-| Fitting → Mechanisms | `Mechanism`, `AllostericMechanism`, `AbstractEnzymeMechanism`, |
-| | `compile_mechanism`, `metabolites` |
-| Derivation → Mechanisms | `Mechanism`, `AllostericMechanism`, `Step`, `Met`, |
-| | `RegulatorySite`, `AbstractEnzymeMechanism`, `EnzymeMechanism`, |
-| | `AllostericEnzymeMechanism`, `compile_mechanism`, `metabolites`, `catalytic`, |
-| | `groups`, `step_kind`, `runs_toward_products`, `step_sides`, `form_text`, |
-| | `step_text` |
+`Derivation.check_valid_rate_equation(m)`.
 
 ### What each module does
 
@@ -139,6 +94,20 @@ back. It hides the parser. The macros run the guard, so they cannot live in `Mec
 **The top level** (`src/EnzymeRates.jl`, `src/identify_rate_equation.jl`) holds
 `identify_rate_equation` and the exports. It hides the beam search, the one fit per rate
 law, cross-validation and the CSV output.
+
+### Module docstrings
+
+The first sentence of a module's docstring is the sentence in its box of the diagram.
+
+```@docs
+EnzymeRates
+EnzymeRates.Data
+EnzymeRates.Mechanisms
+EnzymeRates.Derivation
+EnzymeRates.Fitting
+EnzymeRates.Enumeration
+EnzymeRates.DSL
+```
 
 ### Interfaces
 

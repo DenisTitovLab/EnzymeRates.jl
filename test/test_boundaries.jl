@@ -1,169 +1,7 @@
 # ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, underscore
 # ABOUTME: names, exports), the developer docs' module map, and the public names' docs.
 
-# The six submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
-const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
-    :DSL)
-
-# The modules each module may name through `Module.name`. The top level (files outside
-# src/<Module>/, owner :EnzymeRates) may name all six.
-const _testhelper_LAYERS = Dict(
-    :Data => Symbol[],
-    :Mechanisms => Symbol[],
-    :Derivation => [:Mechanisms],
-    :Enumeration => [:Mechanisms, :Derivation],
-    :Fitting => [:Mechanisms, :Derivation, :Data],
-    :DSL => [:Mechanisms, :Derivation],
-)
-
-"""Calls `visit(ex, line)` on every `Expr` below `ex`, children before parents; `line` is
-the source line of the statement holding `ex`."""
-function _testhelper_walk(visit, ex, line = Ref(0))
-    if ex isa LineNumberNode
-        line[] = ex.line
-    elseif ex isa Expr
-        here = line[]
-        foreach(a -> _testhelper_walk(visit, a, line), ex.args)
-        visit(ex, here)
-    end
-end
-
-"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the six modules), else
-`nothing`. A node of one argument (`using X: name` lists) is no `M.name`, nor is a quoted
-path that interpolates its name (`:(M.\$T)`)."""
-function _testhelper_module_head(ex)
-    (ex.head === :. && length(ex.args) == 2 && ex.args[2] isa QuoteNode &&
-     ex.args[2].value isa Symbol) || return nothing
-    head = ex.args[1]
-    head isa Expr && head.head === :. && length(head.args) == 2 &&
-        head.args[1] === :EnzymeRates && head.args[2] isa QuoteNode &&
-        (head = head.args[2].value)
-    head in _testhelper_MODULES ? head : nothing
-end
-
-"""`(module, name)` for each name that a `using Path.Mod: a, b` or `import Path.Mod: a`
-statement takes from one of the six modules; `Mod` itself is no use."""
-function _testhelper_imported_names(ex)
-    (length(ex.args) == 1 && ex.args[1] isa Expr && ex.args[1].head === :(:)) || return []
-    path, items... = ex.args[1].args
-    mod = path.args[end]
-    mod in _testhelper_MODULES || return []
-    names = [(item.head === :as ? item.args[1] : item).args[end] for item in items]
-    [(mod, name) for name in names if name !== mod]
-end
-
-"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the six
-modules (also written `EnzymeRates.Mod.name`), and for each name imported from one. A type
-annotation `x::Mod.T` and a method extension `function Mod.f(...)` are uses of `T` and
-`f`."""
-function _testhelper_cross_refs(src::AbstractString)
-    refs = Tuple{Symbol, Symbol, Int}[]
-    _testhelper_walk(Meta.parseall(src)) do ex, line
-        mod = _testhelper_module_head(ex)
-        if mod !== nothing
-            push!(refs, (mod, ex.args[2].value, line))
-        elseif ex.head in (:using, :import)
-            for (mod, name) in _testhelper_imported_names(ex)
-                push!(refs, (mod, name, line))
-            end
-        end
-    end
-    refs
-end
-
-_testhelper_source_files(dir) = sort!(String[joinpath(d, f)
-    for (d, _, fs) in walkdir(dir) for f in fs if endswith(f, ".jl")])
-
-"""Module name to the `.jl` files under `root/<Module>/`, for each module with a folder."""
-_testhelper_module_sources(root) = Dict(
-    m => _testhelper_source_files(joinpath(root, string(m)))
-    for m in _testhelper_MODULES if isdir(joinpath(root, string(m))))
-
-"""The name an `API` entry lists: `:name`, or `Symbol("@macro")` for a macro."""
-_testhelper_api_name(q) = q isa QuoteNode ? q.value : Symbol(q.args[2])
-
-"""The names in the `const API = (...)` tuple of `root/<mod>/<mod>.jl`."""
-function _testhelper_api(root, mod::Symbol)
-    path = joinpath(root, string(mod), string(mod) * ".jl")
-    api = nothing
-    _testhelper_walk(Meta.parseall(read(path, String))) do ex, _
-        if ex.head === :const && ex.args[1] isa Expr && ex.args[1].head === :(=) &&
-           ex.args[1].args[1] === :API
-            api = Set{Symbol}(_testhelper_api_name(q) for q in ex.args[1].args[2].args)
-        end
-    end
-    api === nothing && error("$path declares no `const API = (...)`")
-    api
-end
-
-"""The path of `file` relative to `root`, with `/` as separator on every platform."""
-_testhelper_relpath(root, file) = replace(relpath(file, root), '\\' => '/')
-
-"""The module owning a file under `root`: the folder it is in, or `:EnzymeRates` for the
-top level."""
-function _testhelper_owner(root, file)
-    first_part = Symbol(first(splitpath(_testhelper_relpath(root, file))))
-    first_part in _testhelper_MODULES ? first_part : :EnzymeRates
-end
-
-"""Every cross-module use under `root`, as (user, file, module, name, line), leaving out
-a module naming itself."""
-function _testhelper_uses(root)
-    uses = NamedTuple{(:user, :file, :mod, :name, :line),
-        Tuple{Symbol, String, Symbol, Symbol, Int}}[]
-    for file in _testhelper_source_files(root), (mod, name, line) in
-        _testhelper_cross_refs(read(file, String))
-        user = _testhelper_owner(root, file)
-        user === mod || push!(uses,
-            (; user, file = _testhelper_relpath(root, file), mod, name, line))
-    end
-    uses
-end
-
-"""Uses naming a module's name that its API list lacks (or naming a module with no
-folder)."""
-function _testhelper_api_violations(root)
-    apis = Dict(m => _testhelper_api(root, m)
-        for m in keys(_testhelper_module_sources(root)))
-    [u for u in _testhelper_uses(root) if !(u.name in get(apis, u.mod, Set{Symbol}()))]
-end
-
-"""Uses by a module of a sibling that its layer forbids; the top level is unrestricted."""
-_testhelper_layer_violations(root) = [u for u in _testhelper_uses(root)
-    if u.user !== :EnzymeRates && !(u.mod in _testhelper_LAYERS[u.user])]
-
-"""For each module with a folder, the underscore names in its API list or used from
-outside it."""
-function _testhelper_underscore_violations(root)
-    uses = _testhelper_uses(root)
-    Dict(m => sort!(unique!(Symbol[n
-        for n in Iterators.flatten((_testhelper_api(root, m),
-            (u.name for u in uses if u.mod === m))) if startswith(string(n), "_")]))
-        for m in keys(_testhelper_module_sources(root)))
-end
-
-"""`(file, line)` for each `export` in a module's folder: a module's names reach the others
-only qualified, so an export would let `using ..Mod` bring bare names past rule 1."""
-function _testhelper_export_violations(root)
-    found = Tuple{String, Int}[]
-    for files in values(_testhelper_module_sources(root)), file in files
-        _testhelper_walk(Meta.parseall(read(file, String))) do ex, line
-            ex.head === :export && push!(found, (_testhelper_relpath(root, file), line))
-        end
-    end
-    found
-end
-
-const _testhelper_SRC = normpath(joinpath(@__DIR__, "..", "src"))
-
-"""The names in the `export` lines of `file`."""
-function _testhelper_exports(file)
-    names = Set{Symbol}()
-    _testhelper_walk(Meta.parseall(read(file, String))) do ex, _
-        ex.head === :export && union!(names, ex.args)
-    end
-    names
-end
+include("module_map.jl")
 
 """The tables of a Markdown text, as `(; label, header, rows)`: `label` is the last
 non-blank line above the table, `header` the cells of its first row and `rows` the cells
@@ -193,9 +31,8 @@ function _testhelper_doc_module(text)
     text in ("top level", "The top level") ? :EnzymeRates : Symbol(text)
 end
 
-"""How the docs write a module or a (user, used) pair of modules."""
+"""How the docs write a module."""
 _testhelper_doc_label(m::Symbol) = m === :EnzymeRates ? "top level" : string(m)
-_testhelper_doc_label(pair::Tuple) = join(_testhelper_doc_label.(pair), " → ")
 
 """One line per key where the documented names `doc` differ from the names `src` finds,
 naming the key and the names the docs lack or add."""
@@ -215,15 +52,14 @@ end
 
 """Where the module map of the Markdown text `doc` disagrees with the tree at `root`: the
 interface tables (names, "Used by" and ✓ marks) against each `API` list, the cross-module
-uses and the exports, the export table against the `export` lines, and the edge table
-against the cross-module uses."""
+uses and the exports."""
 function _testhelper_module_map_problems(doc, root)
     apis = Dict(m => _testhelper_api(root, m)
         for m in keys(_testhelper_module_sources(root)))
-    exports = _testhelper_exports(joinpath(root, "EnzymeRates.jl"))
+    exports = Set(_testhelper_exports(joinpath(root, "EnzymeRates.jl")))
     owner(n) = something(findfirst(api -> n in api, apis), :EnzymeRates)
     apis[:EnzymeRates] = Set(n for n in exports if owner(n) === :EnzymeRates)
-    names, ticks, used_by, exported, edges = (Dict{Any, Set{Symbol}}() for _ in 1:5)
+    names, ticks, used_by = (Dict{Any, Set{Symbol}}() for _ in 1:3)
     for t in _testhelper_doc_tables(doc)
         if t.header == ["Name", "What it does", "Used by", "Exported"]
             m, name = _testhelper_doc_module(t.label), nothing
@@ -238,31 +74,16 @@ function _testhelper_module_map_problems(doc, root)
                     (_testhelper_doc_module(strip(u)) for u in split(r[3], ',')
                         if !isempty(strip(u))))
             end
-        elseif t.header == ["Name", "Module", "What it does"]
-            for r in t.rows
-                union!(get!(exported, _testhelper_doc_module(r[2]), Set{Symbol}()),
-                    _testhelper_cell_names(r[1]))
-            end
-        elseif t.header == ["From → To", "Names"]
-            pair = nothing
-            for r in t.rows
-                isempty(r[1]) ||
-                    (pair = Tuple(_testhelper_doc_module.(strip.(split(r[1], "→")))))
-                union!(get!(edges, pair, Set{Symbol}()), _testhelper_cell_names(r[2]))
-            end
         end
     end
-    uses, users = Dict{Any, Set{Symbol}}(), Dict{Any, Set{Symbol}}()
+    users = Dict{Any, Set{Symbol}}()
     for u in _testhelper_uses(root)
-        push!(get!(uses, (u.user, u.mod), Set{Symbol}()), u.name)
         push!(get!(users, u.name, Set{Symbol}()), u.user)
     end
     exported_api = Dict(m => intersect(api, exports) for (m, api) in apis)
     [_testhelper_name_diffs("interface table", names, apis);
      _testhelper_name_diffs("✓ in interface table", ticks, exported_api);
-     _testhelper_name_diffs("Used by, row", used_by, users);
-     _testhelper_name_diffs("export table, module", exported, exported_api);
-     _testhelper_name_diffs("edge table, row", edges, uses)]
+     _testhelper_name_diffs("Used by, row", used_by, users)]
 end
 
 """Runs the four rules over the tree at `root`."""
@@ -410,19 +231,6 @@ end
         "EnzymeRates.jl" => "export fit, identify\nh(m) = Fitting.fit(m)",
     )
     doc = """
-        ### What `using EnzymeRates` exports
-
-        | Name | Module | What it does |
-        |:-----|:-------|:-------------|
-        | `fit` | Fitting | Fits |
-        | `identify` | top level | Identifies |
-
-        | From → To | Names |
-        |:----------|:------|
-        | top level → Fitting | `fit` |
-        | Fitting → Mechanisms | |
-        | | `compile_mechanism` |
-
         **`Mechanisms`**
 
         | Name | What it does | Used by | Exported |
@@ -447,10 +255,7 @@ end
         "| `Mechanism` | A mechanism | | |\n" => "",
         "| `fit` | Fits | top level | ✓ |" =>
             "| `fit` | Fits | top level, Mechanisms | |\n| `fold` | Folds | | |",
-        "| | | Fitting | |\n" => "",
-        "| `identify` | top level | Identifies |" =>
-            "| `identify` | Fitting | Identifies |",
-        "| | `compile_mechanism` |\n" => "| | `Mechanism` |\n| DSL → Fitting | `fit` |\n")
+        "| | | Fitting | |\n" => "")
     _testhelper_with_tree(tree...) do root
         @test _testhelper_module_map_problems(doc, root) == String[]
         @test _testhelper_module_map_problems(broken, root) == [
@@ -458,18 +263,57 @@ end
             "interface table Mechanisms: missing `Mechanism`",
             "✓ in interface table Fitting: missing `fit`",
             "Used by, row compile_mechanism: missing `Fitting`",
-            "Used by, row fit: extra `Mechanisms`",
-            "export table, module top level: missing `identify`",
-            "export table, module Fitting: extra `identify`",
-            "edge table, row DSL → Fitting: extra `fit`",
-            "edge table, row Fitting → Mechanisms: missing `compile_mechanism`; " *
-            "extra `Mechanism`"]
+            "Used by, row fit: extra `Mechanisms`"]
+    end
+end
+
+@testset "module map diagram" begin
+    tree = (
+        "Mechanisms/Mechanisms.jl" =>
+            "\"\"\"Stores things. Hides more.\"\"\"\nmodule Mechanisms\n" *
+            "const API = (:Mechanism, :compile_mechanism, :metabolites)\nend",
+        "Mechanisms/types.jl" => "struct Mechanism\n    x::Int\nend",
+        "Fitting/Fitting.jl" =>
+            "\"\"\"Fits a law\nto data. Hides more.\"\"\"\nmodule Fitting\n" *
+            "const API = (:fit,)\nend",
+        "Fitting/fit.jl" => "g(m) = Mechanisms.compile_mechanism(m)\n" *
+            "Mechanisms.Mechanism\nMechanisms.metabolites(m)",
+        "EnzymeRates.jl" => "\"\"\"Does it all.\"\"\"\nmodule EnzymeRates\n" *
+            "export fit, identify, Result, metabolites\nh(m) = Fitting.fit(m)\n" *
+            "struct Result end\nend",
+    )
+    expected = _testhelper_MAP_HEADER * join([
+        "flowchart TB",
+        "  top[\"<b><big>EnzymeRates</big></b><br/>Does it all.<br/><br/>" *
+        "Defines <b>★ identify()</b>, <b>★ Result</b>\"]",
+        "  fit[\"<b><big>Fitting</big></b><br/>Fits a law<br/>to data.\"]",
+        "  mech[\"<b><big>Mechanisms</big></b><br/>Stores things.<br/><br/>" *
+        "Types every module but Data reads: Mechanism\"]",
+        "  top -->|\"<b>★ fit()</b>\"| fit",
+        "  fit -->|\"<b>★ metabolites()</b><br/>compile_mechanism()\"| mech",
+        "  classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;",
+        "  class top,fit,mech mod;", ""], "\n")
+    _testhelper_with_tree(tree...) do root
+        @test _testhelper_module_map(root) == expected
+        doc = "text\n\n```mermaid\n$expected```\n\nmore\n"
+        @test _testhelper_module_map_block_problems(doc, root) == String[]
+        stale = replace(doc, "Stores things." => "Stores.")
+        @test _testhelper_module_map_block_problems(stale, root) == [
+            "the Mermaid module map in docs/src/developer.md differs from the one " *
+            "generated from src/; rewrite it with `julia test/update_module_map.jl`"]
+        @test _testhelper_replace_module_map(stale, expected) == doc
+        @test !isempty(_testhelper_module_map_block_problems("no diagram", root))
+    end
+    @testset "wrapping names into lines" begin
+        @test _testhelper_wrap_names("A: ", ["aaa", "bbb", "ccc"], 10) ==
+              "A: aaa,<br/>bbb, ccc"
     end
 end
 
 @testset "the developer docs' module map matches src/" begin
     doc = read(joinpath(@__DIR__, "..", "docs", "src", "developer.md"), String)
     @test _testhelper_module_map_problems(doc, _testhelper_SRC) == String[]
+    @test _testhelper_module_map_block_problems(doc, _testhelper_SRC) == String[]
 end
 
 @testset "Mechanisms API is the data model" begin

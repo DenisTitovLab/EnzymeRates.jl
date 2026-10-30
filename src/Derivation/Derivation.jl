@@ -1,5 +1,6 @@
 # ABOUTME: The Derivation module: the well-posedness guard, the joint thermodynamic solve
 # ABOUTME: and each mechanism's rate law (engine, unit rule, printer, key, generated code).
+"""Derives a mechanism's rate equation and compiles it."""
 module Derivation
 
 using ..Mechanisms: Mechanisms
