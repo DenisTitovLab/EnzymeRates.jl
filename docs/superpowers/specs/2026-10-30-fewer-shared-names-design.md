@@ -63,15 +63,36 @@ moving functions to the module that uses them, and by deleting names that duplic
    `_redundant_copy_groups`, the gauge test, `_has_vmax`): they are search heuristics built on
    graph analyses, not derivation machinery. Derivation keeps "does this mechanism produce a
    valid rate law" (`check_valid_rate_equation`, `parameter_count`).
-8. **CLAUDE.md gains the principle** (succinct): keep names shared across modules to a minimum,
+8. **`parameters` returns names only.** `parameters(m, values)` leaves `parameters` (its
+   methods returned values, a different kind of answer from every other method). The exported
+   `dependent_parameter_values(m, values)` returns only the dependent constants' values, each
+   from its Haldane or Wegscheider relation, with today's checks and error text (prefixed with
+   the new name); `merge(values, dependent_parameter_values(m, values))` gives the full set.
+9. **Renames, so each name says what it is** (Denis approved the review):
+
+    | Today | After |
+    |---|---|
+    | `check_valid_rate_equation(m; throw = false)` | `check_valid_rate_equation(Bool, m)` (the `checkbounds(Bool, …)` idiom; the one-argument form throws) |
+    | `parameter_count` | `fitted_parameter_count` |
+    | `Node` (type) | `EnzymeForm` (so `form_text` and the type agree) |
+    | `segments` (this round's merged function) | `rapid_equilibrium_segments` |
+    | `Met` | `Metabolite` |
+    | `base_mechanisms` | `starting_mechanisms` |
+    | `rate_equation_complexity` | `rate_equation_term_count` |
+
+    `test_rate_equation` keeps its name (fit vs test). The renames reach docs, tests, the
+    module map and CLAUDE.md in the same commit as the code.
+10. **CLAUDE.md gains the principle** (succinct): keep names shared across modules to a minimum,
    so each module is deep and can be worked on knowing only the other modules' interfaces.
 
 ## The interfaces after this round
 
+Names as they stand after the renames of goal 9.
+
 | Edge | Non-exported functions |
 |---|---|
-| EnzymeRates → Enumeration | `base_mechanisms`, `expand_mechanisms` |
-| EnzymeRates → Derivation | `check_valid_rate_equation`, `rate_equation_complexity`, `rate_equation_dedup_key` |
+| EnzymeRates → Enumeration | `starting_mechanisms`, `expand_mechanisms` |
+| EnzymeRates → Derivation | `check_valid_rate_equation`, `rate_equation_term_count`, `rate_equation_dedup_key` |
 | EnzymeRates → Fitting | `test_rate_equation` |
 | EnzymeRates → Mechanisms | `compile_mechanism` |
 | EnzymeRates → Data, DSL | none |
@@ -79,16 +100,16 @@ moving functions to the module that uses them, and by deleting names that duplic
 | DSL → Mechanisms | `compile_mechanism`, `check_decodable_names`, `check_conformation_label` |
 | Fitting → Derivation | none |
 | Fitting → Mechanisms | `compile_mechanism` |
-| Enumeration → Derivation | `check_valid_rate_equation`, `parameter_count` |
-| Enumeration → Mechanisms | `catalytic`, `step_text`, `form_text`, `segments`, `has_turnover_cycle`, `has_unbalanced_cycle` |
-| Derivation → Mechanisms | `catalytic`, `step_text`, `form_text`, `segments`, `has_turnover_cycle`, `has_unbalanced_cycle`, `compile_mechanism` |
+| Enumeration → Derivation | `check_valid_rate_equation`, `fitted_parameter_count` |
+| Enumeration → Mechanisms | `catalytic`, `step_text`, `form_text`, `rapid_equilibrium_segments`, `has_turnover_cycle`, `has_unbalanced_cycle` |
+| Derivation → Mechanisms | `catalytic`, `step_text`, `form_text`, `rapid_equilibrium_segments`, `has_turnover_cycle`, `has_unbalanced_cycle`, `compile_mechanism` |
 
 Denis accepted these counts, with `compile_mechanism` and `has_unbalanced_cycle` kept.
 
 `catalytic` stays a Mechanisms function (Denis: a plain/allosteric design issue for later).
 `step_text` and `form_text` stay functions (a `Step` holds node indices, so it cannot print
 itself; a `show(::Node)` would count the same as `form_text`). `metabolites` stays the exported
-function. Mechanisms' functions: `catalytic`, `step_text`, `form_text`, `segments`,
+function. Mechanisms' functions: `catalytic`, `step_text`, `form_text`, `rapid_equilibrium_segments`,
 `has_turnover_cycle`, `has_unbalanced_cycle`, `compile_mechanism`, `check_decodable_names`,
 `check_conformation_label`, plus the exported `metabolites`.
 
