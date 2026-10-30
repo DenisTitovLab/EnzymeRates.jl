@@ -208,23 +208,6 @@ function _testhelper_box_sentence(file, mod::Symbol)
     join(strip.(split(sentence, '\n')), "<br/>")
 end
 
-"""`prefix` and the `items`, joined by commas, broken with `<br/>` into lines of at most
-`width` visible characters (a markup tag shows nothing)."""
-function _testhelper_wrap_names(prefix, items, width)
-    shown(s) = length(replace(s, r"<[^>]*>" => ""))
-    lines, line = String[], prefix
-    for (k, item) in enumerate(items)
-        piece = item * (k < length(items) ? "," : "")
-        if line == prefix || shown(line) + 1 + shown(piece) <= width
-            line *= (line == prefix ? "" : " ") * piece
-        else
-            push!(lines, line)
-            line = piece
-        end
-    end
-    join([lines; line], "<br/>")
-end
-
 """A name as the diagram writes it: a function as `name()`, a macro or a type bare, an
 exported name in bold with a star."""
 function _testhelper_map_name(name, types, exports)
@@ -261,12 +244,10 @@ function _testhelper_module_map(root)
         label = "<b><big>$m</big></b><br/>" * _testhelper_box_sentence(file, m)
         if m === :EnzymeRates
             defined = [n for n in exports if !any(api -> n in api, values(apis))]
-            label *= "<br/><br/>" *
-                     _testhelper_wrap_names("Defines ", shown(defined), 76)
+            label *= "<br/><br/>Defines:<br/>" * join(shown(defined), "<br/>")
         elseif m === :Mechanisms
-            label *= "<br/><br/>" * _testhelper_wrap_names(
-                "Types every module but Data reads: ",
-                shown([n for n in apis[m] if n in types]), 76)
+            label *= "<br/><br/>Types every module but Data reads:<br/>" *
+                     join(shown([n for n in apis[m] if n in types]), "<br/>")
         end
         push!(lines, "  $id[\"$label\"]")
     end

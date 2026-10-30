@@ -28,13 +28,13 @@ and `julia test/update_module_map.jl` rewrites it.
   "lineColor": "#777777", "edgeLabelBackground": "#ffffff", "clusterBkg": "#eaf2ee",
   "clusterBorder": "#666666", "titleColor": "#1f4f42"}}}%%
 flowchart TB
-  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines <b>★ identify_rate_equation()</b>, <b>★ IdentifyRateEquationProblem</b>,<br/><b>★ IdentifyRateEquationResults</b>"]
+  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★ identify_rate_equation()</b><br/><b>★ IdentifyRateEquationProblem</b><br/><b>★ IdentifyRateEquationResults</b>"]
   dsl["<b><big>DSL</big></b><br/>Turns macro-written reactions and mechanisms<br/>into checked objects."]
   enum["<b><big>Enumeration</big></b><br/>Generates candidate mechanisms for a reaction."]
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
   der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
-  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads: <b>★ EnzymeReaction</b>, <b>★ EnzymeMechanism</b>,<br/><b>★ AllostericEnzymeMechanism</b>, AbstractEnzymeMechanism, AllostericMechanism,<br/>Mechanism, Met, Node, Reactant, Regulator, RegulatorySite, Step"]
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★ EnzymeReaction</b><br/><b>★ EnzymeMechanism</b><br/><b>★ AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>Mechanism<br/>Met<br/>Node<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
   top -->|"base_mechanisms()<br/>expand_mechanisms()"| enum
   top -->|"<b>★ fit_rate_equation()</b><br/><b>★ test_rate_equation()</b><br/><b>★ FittingProblem</b>"| fit

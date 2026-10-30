@@ -285,10 +285,10 @@ end
     expected = _testhelper_MAP_HEADER * join([
         "flowchart TB",
         "  top[\"<b><big>EnzymeRates</big></b><br/>Does it all.<br/><br/>" *
-        "Defines <b>★ identify()</b>, <b>★ Result</b>\"]",
+        "Defines:<br/><b>★ identify()</b><br/><b>★ Result</b>\"]",
         "  fit[\"<b><big>Fitting</big></b><br/>Fits a law<br/>to data.\"]",
         "  mech[\"<b><big>Mechanisms</big></b><br/>Stores things.<br/><br/>" *
-        "Types every module but Data reads: Mechanism\"]",
+        "Types every module but Data reads:<br/>Mechanism\"]",
         "  top -->|\"<b>★ fit()</b>\"| fit",
         "  fit -->|\"<b>★ metabolites()</b><br/>compile_mechanism()\"| mech",
         "  classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;",
@@ -303,10 +303,6 @@ end
             "generated from src/; rewrite it with `julia test/update_module_map.jl`"]
         @test _testhelper_replace_module_map(stale, expected) == doc
         @test !isempty(_testhelper_module_map_block_problems("no diagram", root))
-    end
-    @testset "wrapping names into lines" begin
-        @test _testhelper_wrap_names("A: ", ["aaa", "bbb", "ccc"], 10) ==
-              "A: aaa,<br/>bbb, ccc"
     end
 end
 
