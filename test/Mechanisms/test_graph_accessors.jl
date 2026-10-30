@@ -224,16 +224,16 @@ end
     ESS = m.nodes[4].bound
     # A reactant and its modifier copy are two entries, read under one name, as they share
     # a concentration.
-    @test ESS == [M.Met(:S, false), M.Met(:S, true)]
+    @test ESS == [M.Metabolite(:S, false), M.Metabolite(:S, true)]
     @test _testhelper_names(ESS) == [:S, :S]
     @test (m.steps[4].from, m.steps[4].to) == (3, 4)
-    @test m.steps[4].taken_up == [M.Met(:S, true)]
+    @test m.steps[4].taken_up == [M.Metabolite(:S, true)]
     @test m.step_kinds[4] === :binding
     # The modifier copy is an entry of its own, so it adds to the bound S.
     @test count(x -> x.name === :S, [m.nodes[3].bound; m.steps[4].taken_up]) == 2
     @test isempty(intersect(m.nodes[3].bound, m.steps[4].taken_up))
     # The copies held as modifiers: the modifier copy of S, not S itself.
-    @test filter(x -> x.modifier, ESS) == [M.Met(:S, true)]
+    @test filter(x -> x.modifier, ESS) == [M.Metabolite(:S, true)]
     @test isempty(filter(x -> x.modifier, m.nodes[3].bound))
     @test all(x -> x.modifier, m.steps[4].taken_up)
     @test isempty(filter(x -> x.modifier, m.steps[2].taken_up))

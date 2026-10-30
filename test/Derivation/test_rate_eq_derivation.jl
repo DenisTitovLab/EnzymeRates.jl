@@ -1055,7 +1055,7 @@ const _testhelper_tc_cases = (
     e = only(e for e in m.steps
              if !ER.Mechanisms._is_iso(e) && !ER.Mechanisms._is_binding(e))
     @test ER.Mechanisms._form_name(m, e.from) == "EA" &&
-          e.taken_up == [ER.Mechanisms.Met(:B, false)]
+          e.taken_up == [ER.Mechanisms.Metabolite(:B, false)]
     @test :k_EA_B_to_EQ_P in _testhelper_step_constant_names(tc_ss)
     @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
 end
@@ -2258,8 +2258,8 @@ end)
 no label check reads it."""
 function _testhelper_relabelled_raw(label)
     M = EnzymeRates.Mechanisms
-    b, eb, none = M.Met(:b, false), M.Met(:Eb, false), M.Met[]
-    node(c, bound) = M.Node(c, bound, Symbol[], Symbol[])
+    b, eb, none = M.Metabolite(:b, false), M.Metabolite(:Eb, false), M.Metabolite[]
+    node(c, bound) = M.EnzymeForm(c, bound, Symbol[], Symbol[])
     (; substrates = [:b], products = [:Eb], modifiers = Symbol[],
      nodes = [node(:E, none), node(:E, [b]), node(:E, [b]), node(label, [eb]),
               node(label, [eb]), node(label, none), node(label, none), node(:E, none)],

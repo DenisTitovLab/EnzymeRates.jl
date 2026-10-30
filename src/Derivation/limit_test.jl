@@ -252,7 +252,7 @@ end
 
 """`r` times `value[n]` once for each copy of name `n` of `names` (`_guard_names`) that
 `held` holds, mod p."""
-function _mul_held(r::Int64, held::Vector{Mechanisms.Met}, names::Vector{Symbol},
+function _mul_held(r::Int64, held::Vector{Mechanisms.Metabolite}, names::Vector{Symbol},
                    value::AbstractVector{Int64})
     for (n, x) in enumerate(names), _ in 1:_copies(held, x)
         r = _mulp(r, value[n])

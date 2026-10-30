@@ -164,7 +164,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
-  "switch-product = 1" constraint row comes first. A `Node` carries its conformation
+  "switch-product = 1" constraint row comes first. An `EnzymeForm` carries its conformation
   label, and `_requires_hyperbolic_catalysis` (`src/Enumeration/filters.jl`) is the
   extension hook. Two-conformation kinetic cooperativity stays parked: on PGK data no
   conformational model beat MWC with steady-state steps at equal parameter count, so

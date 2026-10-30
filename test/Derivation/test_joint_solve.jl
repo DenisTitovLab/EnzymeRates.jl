@@ -142,8 +142,8 @@ end
     end
 
     @testset "a modifier copy keys after the reactant of its name" begin
-        @test isless(EnzymeRates.Mechanisms.Met(:A, false),
-                     EnzymeRates.Mechanisms.Met(:A, true))
+        @test isless(EnzymeRates.Mechanisms.Metabolite(:A, false),
+                     EnzymeRates.Mechanisms.Metabolite(:A, true))
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A
             products: P
@@ -156,8 +156,9 @@ end
             end
         end)
         @test EnzymeRates.Mechanisms._table(m) ==
-              [EnzymeRates.Mechanisms.Met(:A, false), EnzymeRates.Mechanisms.Met(:A, true),
-               EnzymeRates.Mechanisms.Met(:P, false)]
+              [EnzymeRates.Mechanisms.Metabolite(:A, false),
+               EnzymeRates.Mechanisms.Metabolite(:A, true),
+               EnzymeRates.Mechanisms.Metabolite(:P, false)]
     end
 
     @testset "a step neither chemistry nor graph context orients runs from the \
@@ -478,7 +479,7 @@ end
                                                     (EnzymeRates.Mechanism,))))
         @test isconcretetype(only(Base.return_types(EnzymeRates.Derivation._edge_base_rank,
                                                     (EnzymeRates.Mechanism,))))
-        @test all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.Node)) &&
+        @test all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.EnzymeForm)) &&
               all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.Step))
     end
 end

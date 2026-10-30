@@ -385,7 +385,7 @@ one). An allosteric statement ends in its tag (`step :: Tag`, `(step, step) :: T
 plain one carries none. `names` holds the block's declared names.
 """
 function _raw_steps(steps_block, names, macro_name, allosteric::Bool)
-    nodes, steps, tags = Mechanisms.Node[], Mechanisms.Step[], Symbol[]
+    nodes, steps, tags = Mechanisms.EnzymeForm[], Mechanisms.Step[], Symbol[]
     missing_tag = "its tag, `:: EqualAI`, `:: NonequalAI` or `:: OnlyA`; add it after"
     n = 0
     for arg in steps_block.args
@@ -475,7 +475,7 @@ read before either side's enzyme forms are counted, so a misspelled bound metabo
 reported as undeclared rather than as a second enzyme form. Each form's conformation
 label is checked (`check_conformation_label`).
 """
-function _raw_step!(nodes::Vector{Mechanisms.Node}, op, lhs, rhs, group::Int, names,
+function _raw_step!(nodes::Vector{Mechanisms.EnzymeForm}, op, lhs, rhs, group::Int, names,
                     macro_name)
     is_met(t) = t isa Symbol ? _is_declared(t, names) : t isa Expr && t.head === :(::)
     read_term(t) = is_met(t) ? _raw_met(t, names, macro_name) :
@@ -483,7 +483,7 @@ function _raw_step!(nodes::Vector{Mechanisms.Node}, op, lhs, rhs, group::Int, na
     term_name(t) = t isa Expr && !isempty(t.args) ? t.args[1] : t
     parsed = (Any[read_term(t) for t in lhs], Any[read_term(t) for t in rhs])
     (from, taken_up), (to, given_off) = map((lhs, rhs), parsed) do terms, side
-        i = findall(x -> x isa Mechanisms.Node, side)
+        i = findall(x -> x isa Mechanisms.EnzymeForm, side)
         isempty(i) && error("$macro_name: step side has no enzyme-form term (terms: " *
                             "$(join(term_name.(terms), ", "))).")
         length(i) == 1 ||
@@ -491,7 +491,8 @@ function _raw_step!(nodes::Vector{Mechanisms.Node}, op, lhs, rhs, group::Int, na
                   "($(term_name(terms[i[1]])), $(term_name(terms[i[2]]))); each " *
                   "elementary step has exactly one enzyme form per side.")
         Mechanisms.check_conformation_label(side[only(i)].conformation, macro_name)
-        side[only(i)], sort!(Mechanisms.Met[x for x in side if x isa Mechanisms.Met])
+        side[only(i)],
+        sort!(Mechanisms.Metabolite[x for x in side if x isa Mechanisms.Metabolite])
     end
     push!(nodes, from, to)
     Mechanisms.Step(length(nodes) - 1, length(nodes), taken_up, given_off, op === :⇌,
@@ -535,10 +536,10 @@ function _raw_met(t, names, macro_name, species = nothing)
             error("$macro_name: `$name::Mod` names `$name`, which `modifiers:` does not " *
                   "declare; add `$name` to `modifiers:` to let it bind the catalytic " *
                   "site as a modifier.")
-        return Mechanisms.Met(name, true)
+        return Mechanisms.Metabolite(name, true)
     end
-    reactant && return Mechanisms.Met(name, false)
-    name in names.modifiers && return Mechanisms.Met(name, true)
+    reactant && return Mechanisms.Metabolite(name, false)
+    name in names.modifiers && return Mechanisms.Metabolite(name, true)
     error("$macro_name: `$name` is an allosteric regulator; it binds only at its " *
           "regulatory site.")
 end
@@ -555,7 +556,7 @@ function _raw_form(t, names, macro_name)
         error("$macro_name: expected metabolite Symbol or species expression on step " *
               "side; got $t")
     conformation, args = t isa Symbol ? (t, Any[]) : (t.args[1], t.args[2:end])
-    bound, added, subtracted = Mechanisms.Met[], Symbol[], Symbol[]
+    bound, added, subtracted = Mechanisms.Metabolite[], Symbol[], Symbol[]
     for a in args
         if a isa Expr && a.head === :parameters
             for kw in a.args
@@ -571,7 +572,7 @@ function _raw_form(t, names, macro_name)
             push!(bound, _raw_met(a, names, macro_name, t))
         end
     end
-    Mechanisms.Node(conformation, sort!(bound), sort!(added), sort!(subtracted))
+    Mechanisms.EnzymeForm(conformation, sort!(bound), sort!(added), sort!(subtracted))
 end
 
 """

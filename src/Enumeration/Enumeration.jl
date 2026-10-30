@@ -15,7 +15,7 @@ _guard_accepts(m) = Derivation.check_valid_rate_equation(Bool, m)
 
 """The number of entries named `name` in the metabolite list `v`, a reactant's modifier
 copies included."""
-_copies(v::Vector{Mechanisms.Met}, name::Symbol) = count(x -> x.name === name, v)
+_copies(v::Vector{Mechanisms.Metabolite}, name::Symbol) = count(x -> x.name === name, v)
 
 """The rapid-equilibrium flag of each step of `m`, in step order."""
 _rapid_equilibrium_flags(m::Mechanisms.Mechanism) =

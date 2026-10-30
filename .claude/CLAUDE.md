@@ -173,7 +173,7 @@ Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read
 ## API Design
 
 - `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.Enumeration.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
-- The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and steps that `Mechanism(substrates, products, nodes, steps)` / `AllostericMechanism(...)` build from `Node` and `Step` lists — there is no separate working representation.
+- The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and steps that `Mechanism(substrates, products, nodes, steps)` / `AllostericMechanism(...)` build from `EnzymeForm` and `Step` lists — there is no separate working representation.
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Keq is always user-provided, never estimated from data
 

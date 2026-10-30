@@ -14,7 +14,7 @@ end
 
 """Whether `s` holds a metabolite named in `names`, a reactant's modifier copy under its
 reactant's name."""
-_holds(s::Vector{Mechanisms.Met}, names::Vector{Symbol}) =
+_holds(s::Vector{Mechanisms.Metabolite}, names::Vector{Symbol}) =
     any(x -> x.name in names, s)
 
 """Whether step `k` of `m` takes up or gives off a metabolite named in `names`
@@ -488,10 +488,10 @@ function _assert_atom_conserving(m::Union{Mechanisms.Mechanism,
                                            Mechanisms.AllostericMechanism},
                                  rxn::Mechanisms.EnzymeReaction)
     cm = Mechanisms.catalytic(m)
-    names(v::Vector{Mechanisms.Met}) = Symbol[x.name for x in v]
+    names(v::Vector{Mechanisms.Metabolite}) = Symbol[x.name for x in v]
     # The names counted on one side of an edge: `form`'s bound metabolites and residual
     # additions, the residual subtractions of the `other` form, and the free metabolites.
-    side(form::Int, other::Int, free::Vector{Mechanisms.Met}) =
+    side(form::Int, other::Int, free::Vector{Mechanisms.Metabolite}) =
         [names(cm.nodes[form].bound); cm.nodes[form].added;
          cm.nodes[other].subtracted; names(free)]
     for ks in cm.groups, k in ks

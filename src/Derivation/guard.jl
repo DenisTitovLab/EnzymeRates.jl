@@ -9,13 +9,14 @@ Whether `m`'s rate law is the unique limit of mass-action kinetics, as its rapid
 steps speed up and its tagged constants vanish, on every face where data sit (spec
 section 8): the guard (`_guard`) finds no fault. The one-argument form throws an error
 whose message (`_guard_message`) names each step at fault by its DSL line, and returns
-`true` otherwise; the `Bool` form never throws and returns the verdict. It reads the
-reaction graph through masks and builds nothing. The mechanism macros and the parser call
-the one-argument form, and every derivation entry runs its check (`_derivation_input`,
-`_well_posed`). Both read the verdict through the memo (`_Memo`). Identify's base tier,
-the enumerator's exits and its flip, split and tagging searches keep what the `Bool` form
-accepts. The constructors and the Sig decoder do not call it, so code that builds a
-mechanism internally never trips a check meant for the mechanisms it returns.
+`true` otherwise; the `Bool` form returns the verdict (`false` on a fault) instead of
+throwing. It reads the reaction graph through masks and builds nothing. The mechanism
+macros and the parser call the one-argument form, and every derivation entry runs its
+check (`_derivation_input`, `_well_posed`). Both read the verdict through the memo
+(`_Memo`). Identify's base tier, the enumerator's exits and its flip, split and tagging
+searches keep what the `Bool` form accepts. The constructors and the Sig decoder do not
+call it, so code that builds a mechanism internally never trips a check meant for the
+mechanisms it returns.
 """
 function check_valid_rate_equation(m::_AnyMech)
     _check_verdict(m, _memo_verdict(m))

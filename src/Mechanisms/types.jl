@@ -401,25 +401,26 @@ end
 """
 A metabolite as a form holds it or a step exchanges it: its name, and whether it binds
 as a modifier (a name under `modifiers:` written bare, or a reactant's copy `A::Mod`). A
-reactant and its modifier copy are two different `Met`s.
+reactant and its modifier copy are two different `Metabolite`s.
 """
-struct Met
+struct Metabolite
     name::Symbol
     modifier::Bool
 end
-Base.isless(x::Met, y::Met) = isless((x.name, x.modifier), (y.name, y.modifier))
-Base.hash(x::Met, h::UInt) = hash(x.modifier, hash(x.name, hash(:Met, h)))
+Base.isless(x::Metabolite, y::Metabolite) =
+    isless((x.name, x.modifier), (y.name, y.modifier))
+Base.hash(x::Metabolite, h::UInt) = hash(x.modifier, hash(x.name, hash(:Metabolite, h)))
 
 """
-    Node
+    EnzymeForm
 
 An enzyme form: its conformation label, the metabolites it binds, and its residual: the
 substrates it adds and the products it subtracts. Each list is sorted and holds a name as
 often as the form does.
 """
-struct Node
+struct EnzymeForm
     conformation::Symbol
-    bound::Vector{Met}
+    bound::Vector{Metabolite}
     added::Vector{Symbol}
     subtracted::Vector{Symbol}
 end
@@ -435,8 +436,8 @@ kinetic group.
 struct Step
     from::Int
     to::Int
-    taken_up::Vector{Met}
-    given_off::Vector{Met}
+    taken_up::Vector{Metabolite}
+    given_off::Vector{Metabolite}
     rapid_equilibrium::Bool
     group::Int
 end
@@ -446,8 +447,8 @@ end
 
 A mechanism as its reaction graph, in canonical form: two writings of one mechanism give
 equal fields. `substrates` and `products` are sorted; `nodes` hold free E first, then the
-other nodes in content order (`isless(::Node)`); `steps` run physical-forward, in content
-order (`isless(::Step)`), the kinetic groups numbered by their first step.
+other nodes in content order (`isless(::EnzymeForm)`); `steps` run physical-forward, in
+content order (`isless(::Step)`), the kinetic groups numbered by their first step.
 
 It also stores facts its canonical fields give, computed once when it is built:
 `modifiers`, every name bound as a modifier, sorted; `groups`, each kinetic group's steps
@@ -465,7 +466,7 @@ them; build a new one with the constructor. Lift it to its compiled type with
 struct Mechanism
     substrates::Vector{Symbol}
     products::Vector{Symbol}
-    nodes::Vector{Node}
+    nodes::Vector{EnzymeForm}
     steps::Vector{Step}
     modifiers::Vector{Symbol}
     groups::Vector{Vector{Int}}
@@ -475,7 +476,8 @@ struct Mechanism
     # `graph` is partially initialised: it holds the canonical fields alone. The fact
     # helpers may read only `substrates`, `products`, `nodes` and `steps` of it.
     global function _unchecked_mechanism(substrates::Vector{Symbol},
-                                         products::Vector{Symbol}, nodes::Vector{Node},
+                                         products::Vector{Symbol},
+                                         nodes::Vector{EnzymeForm},
                                          steps::Vector{Step})
         graph = new(substrates, products, nodes, steps)
         new(substrates, products, nodes, steps, copy(_modifiers(nodes, steps)),
@@ -567,7 +569,7 @@ struct AllostericEnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 """Nodes by label, then bound metabolites, residual additions and residual subtractions,
 each list in lexicographic order, a list coming before every longer list it begins."""
-function Base.isless(f::Node, g::Node)
+function Base.isless(f::EnzymeForm, g::EnzymeForm)
     f.conformation === g.conformation || return isless(f.conformation, g.conformation)
     c = cmp(f.bound, g.bound)
     c == 0 && (c = cmp(f.added, g.added))
@@ -576,8 +578,8 @@ function Base.isless(f::Node, g::Node)
 end
 
 """Steps by node indices, then taken-up and given-off metabolites as lists (as
-`isless(::Node)` orders them), then the flag, steady state first; the group takes no part.
-Tuples and `argmin` over steps compare by it."""
+`isless(::EnzymeForm)` orders them), then the flag, steady state first; the group takes no
+part. Tuples and `argmin` over steps compare by it."""
 function Base.isless(e::Step, f::Step)
     e.from != f.from && return e.from < f.from
     e.to != f.to && return e.to < f.to
@@ -608,7 +610,7 @@ canonical. The checked constructors build on it. The nodes and steps share the l
 `nodes` and `steps`.
 """
 function _canonicalize(substrates::Vector{Symbol}, products::Vector{Symbol},
-                       nodes::Vector{Node}, steps::Vector{Step})
+                       nodes::Vector{EnzymeForm}, steps::Vector{Step})
     distinct, node_of = _sorted_nodes(nodes)
     written = [Step(node_of[e.from], node_of[e.to], e.taken_up, e.given_off,
                     e.rapid_equilibrium, e.group) for e in steps]
@@ -629,8 +631,8 @@ end
 no residual) first, and the index each written node became. A search keeps every
 mechanism it emits, so the nodes, built in a vector grown past its length, are stored as
 a copy at its length."""
-function _sorted_nodes(written::Vector{Node})
-    nodes, node_of = Node[], Vector{Int}(undef, length(written))
+function _sorted_nodes(written::Vector{EnzymeForm})
+    nodes, node_of = EnzymeForm[], Vector{Int}(undef, length(written))
     for t in sortperm(written; by = n -> (!_is_free_E(n), n))
         (isempty(nodes) || nodes[end] != written[t]) && push!(nodes, written[t])
         node_of[t] = length(nodes)
@@ -641,7 +643,7 @@ end
 """Canonical form's tier-1 side order: substrates, bound plus free, then fewer products.
 `free` lists the metabolites a step takes up or gives off at node `n`; a modifier counts on
 neither side, and every other name that is no substrate counts as a product."""
-function _side_score(n::Node, free::Vector{Met}, substrates::Vector{Symbol})
+function _side_score(n::EnzymeForm, free::Vector{Metabolite}, substrates::Vector{Symbol})
     s = p = 0
     for list in (n.bound, free), x in list
         x.modifier && continue
@@ -662,11 +664,11 @@ sides are read over every step as written; reversing a step swaps its ends and l
 together, so they do not depend on any written direction. Tied groups then turn as one
 (`_align_tied_groups!`).
 """
-function _orientation(nodes::Vector{Node}, written::Vector{Step},
+function _orientation(nodes::Vector{EnzymeForm}, written::Vector{Step},
                       substrates::Vector{Symbol})
-    substrate(x::Met) = !x.modifier && x.name in substrates
-    product(x::Met) = !x.modifier && !(x.name in substrates)
-    side(list::Vector{Met}) = UInt8(any(substrate, list) + 2 * any(product, list))
+    substrate(x::Metabolite) = !x.modifier && x.name in substrates
+    product(x::Metabolite) = !x.modifier && !(x.name in substrates)
+    side(list::Vector{Metabolite}) = UInt8(any(substrate, list) + 2 * any(product, list))
     enters = zeros(UInt8, length(nodes))
     for e in written
         enters[e.from] |= side(e.taken_up)
@@ -701,7 +703,7 @@ that does, and, if it changes conformation, makes the lead's change; a step that
 ways keeps its own. Returns the lead and the first step that fits the lead's metabolites
 but not its change, or no step.
 """
-function _align_tied_groups!(fwd::BitVector, tier::Vector{Int}, nodes::Vector{Node},
+function _align_tied_groups!(fwd::BitVector, tier::Vector{Int}, nodes::Vector{EnzymeForm},
                              written::Vector{Step})
     label_pair(e::Step) = (nodes[e.from].conformation, nodes[e.to].conformation)
     turns(e::Step) = label_pair(e)[1] !== label_pair(e)[2]
@@ -741,7 +743,7 @@ end
 # ─── Constructors and their checks ──────────────────────────────────────
 
 """
-    Mechanism(substrates, products, nodes::Vector{Node}, steps::Vector{Step})
+    Mechanism(substrates, products, nodes::Vector{EnzymeForm}, steps::Vector{Step})
 
 The mechanism that `nodes` and `steps` write, in canonical form, checked. The nodes come
 in any order, a node any number of times, and each list of a node or a step in any
@@ -751,7 +753,7 @@ Every name a node or a step binds as a modifier is a modifier. It checks the
 declarations (`_check_declarations`), then the representation (`_check_representation`).
 Whether its rate law is defined is the boundary check's question, not the constructor's.
 """
-Mechanism(substrates::Vector{Symbol}, products::Vector{Symbol}, nodes::Vector{Node},
+Mechanism(substrates::Vector{Symbol}, products::Vector{Symbol}, nodes::Vector{EnzymeForm},
           steps::Vector{Step}) = _checked(substrates, products, nodes, steps).mechanism
 
 """
@@ -764,7 +766,7 @@ The allosteric mechanism whose catalytic part `nodes` and `steps` write, as
 part, then moves each tag to the canonical group its label became and composes.
 """
 function AllostericMechanism(substrates::Vector{Symbol}, products::Vector{Symbol},
-                             nodes::Vector{Node}, steps::Vector{Step},
+                             nodes::Vector{EnzymeForm}, steps::Vector{Step},
                              mwc_tags::Vector{Symbol}, catalytic_multiplicity::Int,
                              regulatory_sites::Vector{RegulatorySite})
     _check_tags(mwc_tags, maximum(e -> e.group, steps; init = 0), catalytic_multiplicity)
@@ -778,13 +780,13 @@ checked: each step's ends index `nodes`, each list is sorted into a fresh vector
 names bound as modifiers are taken as its modifiers, then its declarations and its
 representation are checked."""
 function _checked(substrates::Vector{Symbol}, products::Vector{Symbol},
-                  nodes::Vector{Node}, steps::Vector{Step})
+                  nodes::Vector{EnzymeForm}, steps::Vector{Step})
     for (k, e) in enumerate(steps)
         e.from in eachindex(nodes) && e.to in eachindex(nodes) && continue
         error("Step $k: its ends are nodes $(e.from) and $(e.to), but there are " *
               "$(length(nodes)) nodes; a step's ends index the nodes")
     end
-    nodes = [Node(n.conformation, sort(n.bound), sort(n.added), sort(n.subtracted))
+    nodes = [EnzymeForm(n.conformation, sort(n.bound), sort(n.added), sort(n.subtracted))
              for n in nodes]
     steps = [Step(e.from, e.to, sort(e.taken_up), sort(e.given_off), e.rapid_equilibrium,
                   e.group) for e in steps]
@@ -828,7 +830,7 @@ step that does more than take up or give off modifiers, or whose two nodes diffe
 anything but their modifiers and label: only the active conformation catalyzes, so a
 group it lacks binds modifiers alone (spec section 7)."""
 function _check_onlyi_groups(catalytic::Mechanism, mwc_tags::Vector{Symbol})
-    reactants(list::Vector{Met}) = filter(x -> !x.modifier, list)
+    reactants(list::Vector{Metabolite}) = filter(x -> !x.modifier, list)
     for (k, e) in enumerate(catalytic.steps)
         mwc_tags[e.group] === :OnlyI || continue
         f, t = catalytic.nodes[e.from], catalytic.nodes[e.to]
@@ -970,13 +972,13 @@ end
 product, and some step takes up or gives off each modifier `modifiers` declares as a
 modifier: a declared name that no step exchanges takes no part in the rate law."""
 function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
-    used(x::Met) = any(e -> x in e.taken_up || x in e.given_off, m.steps)
+    used(x::Metabolite) = any(e -> x in e.taken_up || x in e.given_off, m.steps)
     for (names, kind) in ((m.substrates, "substrate"), (m.products, "product"))
-        k = findfirst(n -> !used(Met(n, false)), names)
+        k = findfirst(n -> !used(Metabolite(n, false)), names)
         k === nothing ||
             error("Mechanism: $kind $(names[k]) is declared, but no step uses it")
     end
-    k = findfirst(n -> !used(Met(n, true)), modifiers)
+    k = findfirst(n -> !used(Metabolite(n, true)), modifiers)
     k === nothing ||
         error("Mechanism: modifier $(modifiers[k]) is bound at a node, " *
               "but no step binds it")
@@ -1030,7 +1032,7 @@ steps: a reaction belongs to one kinetic group, whose constants are named after 
 one group holding it twice would count its step twice. Reads the groups (`groups`) in
 order, each in step order, and names the reaction as the step seen first stores it."""
 function _check_each_reaction_once(m::Mechanism, groups::Vector{Vector{Int}})
-    seen = Dict{NTuple{2, Tuple{Int, Vector{Met}}}, Tuple{Int, Int}}()
+    seen = Dict{NTuple{2, Tuple{Int, Vector{Metabolite}}}, Tuple{Int, Int}}()
     flag(e::Step) = e.rapid_equilibrium ? "RE" : "SS"
     for (g, members) in enumerate(groups), k in members
         e = m.steps[k]
@@ -1058,9 +1060,9 @@ end
 # seeded with the type's name. A mechanism's stored facts take no part: they are
 # functions of its other fields. A struct's default hash mixes in its type's identity,
 # which changes between precompile sessions; a value's hash reads only symbols, integers
-# and flags, so every process agrees on it. `Met` keeps Julia's `==`,
+# and flags, so every process agrees on it. `Metabolite` keeps Julia's `==`,
 # which compares its two fields, and has its own `hash`.
-for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, Node, Step, Mechanism,
+for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, EnzymeForm, Step, Mechanism,
           AllostericMechanism)
     fs = T === Mechanism ? (:substrates, :products, :nodes, :steps) :
          T === AllostericMechanism ?
@@ -1116,7 +1118,7 @@ function _sig_mechanism!(out::Vector{Int}, m::Mechanism)
         push!(out, length(list))
         foreach(s -> push!(out, index(s)), list)
     end
-    function mets!(list::Vector{Met})
+    function mets!(list::Vector{Metabolite})
         push!(out, length(list))
         foreach(x -> push!(out, index(x.name), x.modifier), list)
     end
@@ -1169,10 +1171,11 @@ end
 function _read_mechanism!(r::_SigReader)
     names = [_next_name!(r) for _ in 1:_next!(r)]
     symbols() = Symbol[names[_next!(r)] for _ in 1:_next!(r)]
-    mets() = Met[Met(names[_next!(r)], _next!(r) == 1) for _ in 1:_next!(r)]
+    mets() = Metabolite[Metabolite(names[_next!(r)], _next!(r) == 1) for _ in 1:_next!(r)]
     substrates = symbols()
     products = symbols()
-    nodes = [Node(names[_next!(r)], mets(), symbols(), symbols()) for _ in 1:_next!(r)]
+    nodes = [EnzymeForm(names[_next!(r)], mets(), symbols(), symbols())
+             for _ in 1:_next!(r)]
     steps = [Step(_next!(r), _next!(r), mets(), mets(), _next!(r) == 1, _next!(r))
              for _ in 1:_next!(r)]
     _unchecked_mechanism(substrates, products, nodes, steps)
@@ -1241,11 +1244,11 @@ metabolites its nodes bind and its steps take up and give off, and its residual 
 non-modifier entries. A reactant and its modifier copy are two entries.
 """
 function _table(m::Mechanism)
-    table = Met[]
+    table = Metabolite[]
     for n in m.nodes
         append!(table, n.bound)
-        foreach(x -> push!(table, Met(x, false)), n.added)
-        foreach(x -> push!(table, Met(x, false)), n.subtracted)
+        foreach(x -> push!(table, Metabolite(x, false)), n.added)
+        foreach(x -> push!(table, Metabolite(x, false)), n.subtracted)
     end
     for e in m.steps
         append!(table, e.taken_up)
@@ -1254,9 +1257,9 @@ function _table(m::Mechanism)
     unique!(sort!(table))
 end
 """Every name `nodes` and `steps` bind as a modifier, sorted, each once."""
-function _modifiers(nodes::Vector{Node}, steps::Vector{Step})
+function _modifiers(nodes::Vector{EnzymeForm}, steps::Vector{Step})
     names = Symbol[]
-    add(list::Vector{Met}) =
+    add(list::Vector{Metabolite}) =
         foreach(x -> x.modifier && !(x.name in names) && push!(names, x.name), list)
     foreach(n -> add(n.bound), nodes)
     foreach(e -> (add(e.taken_up); add(e.given_off)), steps)
@@ -1278,7 +1281,7 @@ allosteric_regulators(am::AllostericMechanism) =
 
 catalytic(m::Mechanism) = m
 catalytic(am::AllostericMechanism) = am.catalytic
-_has_residual(n::Node) = !isempty(n.added) || !isempty(n.subtracted)
+_has_residual(n::EnzymeForm) = !isempty(n.added) || !isempty(n.subtracted)
 """Whether step `e` takes up one metabolite and gives off none."""
 _is_binding(e::Step) = isempty(e.given_off) && length(e.taken_up) == 1
 """Whether step `e` takes up and gives off nothing: an isomerization."""
@@ -1289,7 +1292,7 @@ function _keeps_residual(m::Mechanism, e::Step)
     f.added == t.added && f.subtracted == t.subtracted
 end
 """Whether the sorted list `t` is the sorted list `f` with one more `x`."""
-function _holds_one_more(t::Vector{Met}, f::Vector{Met}, x::Met)
+function _holds_one_more(t::Vector{Metabolite}, f::Vector{Metabolite}, x::Metabolite)
     length(t) == length(f) + 1 || return false
     j, skipped = 1, false
     for y in t
@@ -1328,9 +1331,9 @@ _runs_toward_products(m::Mechanism, e::Step) =
     _side_score(m.nodes[e.from], e.taken_up, m.substrates) >=
     _side_score(m.nodes[e.to], e.given_off, m.substrates)
 """Whether `n` is a free node: nothing bound and no residual, whatever its label."""
-_is_free(n::Node) = isempty(n.bound) && !_has_residual(n)
+_is_free(n::EnzymeForm) = isempty(n.bound) && !_has_residual(n)
 """Whether `n` is free E: label `E`, nothing bound and no residual."""
-_is_free_E(n::Node) = n.conformation === :E && _is_free(n)
+_is_free_E(n::EnzymeForm) = n.conformation === :E && _is_free(n)
 
 # ─── Accessors ─────────────────────────────────────────────────
 #

@@ -6,11 +6,11 @@ module Mechanisms
 import Unicode
 
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,
-    :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Met, :Node, :Reactant, :Regulator,
-    :RegulatorySite, :Step, :catalytic, :check_conformation_label, :check_decodable_names,
-    :compile_mechanism, :excludes, :form_text, :has_turnover_cycle, :has_unbalanced_cycle,
-    :metabolites, :present_species, :rapid_equilibrium_segments, :segment_walk,
-    :step_text)
+    :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Metabolite, :EnzymeForm, :Reactant,
+    :Regulator, :RegulatorySite, :Step, :catalytic, :check_conformation_label,
+    :check_decodable_names, :compile_mechanism, :excludes, :form_text, :has_turnover_cycle,
+    :has_unbalanced_cycle, :metabolites, :present_species, :rapid_equilibrium_segments,
+    :segment_walk, :step_text)
 
 include("types.jl")
 include("accessors.jl")

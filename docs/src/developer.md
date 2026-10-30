@@ -34,7 +34,7 @@ flowchart TB
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
   der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
-  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★ EnzymeReaction</b><br/><b>★ EnzymeMechanism</b><br/><b>★ AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>Mechanism<br/>Met<br/>Node<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★ EnzymeReaction</b><br/><b>★ EnzymeMechanism</b><br/><b>★ AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
   top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
   top -->|"<b>★ fit_rate_equation()</b><br/><b>★ test_rate_equation()</b><br/><b>★ FittingProblem</b>"| fit
@@ -132,9 +132,9 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | | | Fitting, top level | |
 | `AllostericMechanism` | A `Mechanism` with MWC tags and sites | DSL, Derivation, | |
 | | | Enumeration, Fitting, top level | |
-| `Node` | An enzyme form | DSL, Enumeration | |
+| `EnzymeForm` | An enzyme form | DSL, Enumeration | |
 | `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
-| `Met` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
+| `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
 | `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level | |
 | `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, top level | ✓ |
@@ -215,20 +215,20 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 
 | Type | Field | Holds |
 |:-----|:------|:------|
-| `Met` | `name::Symbol` | the metabolite's name |
+| `Metabolite` | `name::Symbol` | the metabolite's name |
 | | `modifier::Bool` | whether it binds as a modifier, such as `A::Mod` |
-| `Node` | `conformation::Symbol` | the conformation label, such as `E` or `F` |
-| | `bound::Vector{Met}` | the metabolites the form binds |
+| `EnzymeForm` | `conformation::Symbol` | the conformation label, such as `E` or `F` |
+| | `bound::Vector{Metabolite}` | the metabolites the form binds |
 | | `added::Vector{Symbol}` | the substrates its residual adds |
 | | `subtracted::Vector{Symbol}` | the products its residual subtracts |
 | `Step` | `from::Int`, `to::Int` | its two nodes, in its stored direction |
-| | `taken_up::Vector{Met}` | the metabolites it takes up going `from → to` |
-| | `given_off::Vector{Met}` | the metabolites it gives off going `from → to` |
+| | `taken_up::Vector{Metabolite}` | the metabolites it takes up going `from → to` |
+| | `given_off::Vector{Metabolite}` | the metabolites it gives off going `from → to` |
 | | `rapid_equilibrium::Bool` | whether it is at rapid equilibrium |
 | | `group::Int` | its kinetic group |
 | `Mechanism` | `substrates::Vector{Symbol}` | the substrates, sorted |
 | | `products::Vector{Symbol}` | the products, sorted |
-| | `nodes::Vector{Node}` | free E first, then the other forms in content order |
+| | `nodes::Vector{EnzymeForm}` | free E first, then the other forms in content order |
 | | `steps::Vector{Step}` | each step physical-forward, in content order |
 | | `modifiers::Vector{Symbol}` | stored: every name bound as a modifier, sorted |
 | | `groups::Vector{Vector{Int}}` | stored: each kinetic group's steps |
@@ -495,16 +495,16 @@ its base search tries.
 
 Mechanism enumeration uses the **concrete types** `Mechanism` and `AllostericMechanism`
 (`src/Mechanisms/types.jl`) — internal, not exported. A `Mechanism` is a reaction graph in
-canonical form: its sorted `substrates` and `products`; `nodes` (`Node`: an enzyme form's
-conformation label, the metabolites it binds, and the substrates it adds and the products
-it subtracts as its residual); and `steps` (`Step`: two node indices, the metabolites the
-step takes up and gives off, its rapid-equilibrium flag and its kinetic group). Each list
-of metabolites (`Met`: a name, and whether it binds as a modifier, so a reactant and its
-modifier copy are two metabolites) and of names is sorted. It holds no reaction, and `==`
-and `hash` read these fields alone, not the facts a mechanism stores, alike in every
-process. An `AllostericMechanism` holds a catalytic `Mechanism`, one allosteric tag per
-kinetic group, the catalytic multiplicity and the regulatory sites. Every module reads
-these fields with dots (see [The mechanism data model](@ref)).
+canonical form: its sorted `substrates` and `products`; `nodes` (`EnzymeForm`: an enzyme
+form's conformation label, the metabolites it binds, and the substrates it adds and the
+products it subtracts as its residual); and `steps` (`Step`: two node indices, the
+metabolites the step takes up and gives off, its rapid-equilibrium flag and its kinetic
+group). Each list of metabolites (`Metabolite`: a name, and whether it binds as a modifier,
+so a reactant and its modifier copy are two metabolites) and of names is sorted. It holds
+no reaction, and `==` and `hash` read these fields alone, not the facts a mechanism
+stores, alike in every process. An `AllostericMechanism` holds a catalytic `Mechanism`, one
+allosteric tag per kinetic group, the catalytic multiplicity and the regulatory sites.
+Every module reads these fields with dots (see [The mechanism data model](@ref)).
 
 The macros, the parser and the enumeration build a mechanism from nodes and steps.
 `Mechanism(substrates, products, nodes, steps)` takes the nodes in any order, a node any
@@ -590,11 +590,11 @@ singleton types, one at a time, through `compile_mechanism`.
 The moves never emit a child that is provably a reparameterization of its parent. The
 split move divides a group by binding context and accepts a set of splits only if the
 independent-parameter count rises and the guard accepts the built child; the count comes
-from the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A split never
-changes admission's interior verdict, since both parts keep the group's tag. A set whose
-child the guard rejects counts as failed, like one whose count does not rise, and the
-search extends a failed set by the splits of the groups that share its rapid-equilibrium
-segments. The RE→SS move flips whole groups and
+from the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A
+split never changes admission's interior verdict, since both parts keep the group's tag. A
+set whose child the guard rejects counts as failed, like one whose count does not rise,
+and the search extends a failed set by the splits of the groups that share its
+rapid-equilibrium segments. The RE→SS move flips whole groups and
 accepts a set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
 of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):

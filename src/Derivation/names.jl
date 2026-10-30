@@ -271,7 +271,7 @@ _flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, m.groups; init = Int[])
 _binds_product(m::Mechanisms.Mechanism, k::Int) =
     m.step_kinds[k] in (:binding, :fused_binding) &&
     (x = only(m.steps[k].taken_up); !x.modifier && insorted(x.name, m.products))
-"""Each node's position in content order (`isless(::Node)`: label, bound, added,
+"""Each node's position in content order (`isless(::EnzymeForm)`: label, bound, added,
 subtracted): its index, except that free E moves behind the nodes whose label sorts before
 `E` (a free node labelled D)."""
 _base_rank(m::Mechanisms.Mechanism) = invperm(sortperm(m.nodes))

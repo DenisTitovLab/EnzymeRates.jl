@@ -79,7 +79,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         @test length(mech.groups) == 3
         # Steps are canonicalized; pick each by content, not position.
         # E + S ⇌ E(S)
-        es_step = _testhelper_binding_of(mech, EnzymeRates.Mechanisms.Met(:S, false))
+        es_step = _testhelper_binding_of(mech, EnzymeRates.Mechanisms.Metabolite(:S, false))
         @test _testhelper_form_roles(mech, es_step.to) == (:E, [(:S, :substrate)])
         # The E + S side has conformation :E with no bound metabolite.
         @test _testhelper_form_roles(mech, es_step.from) == (:E, [])
@@ -114,7 +114,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
               (:E, [(:A, :substrate), (:B, :substrate)])
         # The modifier-only name I binds as a modifier.
         ei = _testhelper_binding_of(mech_multi,                               # E(I)
-                                    EnzymeRates.Mechanisms.Met(:I, true)).to
+                                    EnzymeRates.Mechanisms.Metabolite(:I, true)).to
         @test _testhelper_form_roles(mech_multi, ei) == (:E, [(:I, :modifier)])
     end
 
@@ -1417,7 +1417,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             regulatory_site(1): R::OnlyA
         end)
         @test count(
-            _testhelper_binds_entry(dual.catalytic, EnzymeRates.Mechanisms.Met(:R, true)),
+            _testhelper_binds_entry(dual.catalytic,
+                                    EnzymeRates.Mechanisms.Metabolite(:R, true)),
             dual.catalytic.steps) == 1
         @test :R in only(dual.regulatory_sites).ligands
     end
@@ -1725,9 +1726,9 @@ end
         # ends, nodes 2j - 1 and 2j; each statement is one kinetic group label, and a
         # metabolite is a modifier when written bare under `modifiers:` or as a
         # reactant's X::Mod.
-        M, St = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.Step
+        M, St = EnzymeRates.Mechanisms.Metabolite, EnzymeRates.Mechanisms.Step
         F(c, bound, added = Symbol[], subtracted = Symbol[]) =
-            EnzymeRates.Mechanisms.Node(c, bound, added, subtracted)
+            EnzymeRates.Mechanisms.EnzymeForm(c, bound, added, subtracted)
         s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
         raw = EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
@@ -2037,8 +2038,8 @@ end
             end
         end)))
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
-        M, St = EnzymeRates.Mechanisms.Met, EnzymeRates.Mechanisms.Step
-        F(c, bound) = EnzymeRates.Mechanisms.Node(c, bound, Symbol[], Symbol[])
+        M, St = EnzymeRates.Mechanisms.Metabolite, EnzymeRates.Mechanisms.Step
+        F(c, bound) = EnzymeRates.Mechanisms.EnzymeForm(c, bound, Symbol[], Symbol[])
         s, p = M(:S, false), M(:P, false)
         @test EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
@@ -2465,13 +2466,14 @@ end
 
     # A mechanism block as written: each step in written order and direction between its
     # two written ends, one group label per statement.
-    S, P = M.Met(:S, false), M.Met(:P, false)
-    E, ES, EP = (M.Node(:E, x, Symbol[], Symbol[]) for x in (M.Met[], [S], [P]))
+    S, P = M.Metabolite(:S, false), M.Metabolite(:P, false)
+    E, ES, EP = (M.EnzymeForm(:E, x, Symbol[], Symbol[])
+                 for x in (M.Metabolite[], [S], [P]))
     plain = (; substrates = [:S], products = [:P], modifiers = Symbol[],
              nodes = [E, ES, ES, EP, EP, E],
-             steps = [M.Step(1, 2, [S], M.Met[], true, 1),
-                      M.Step(3, 4, M.Met[], M.Met[], false, 2),
-                      M.Step(5, 6, M.Met[], [P], true, 3)])
+             steps = [M.Step(1, 2, [S], M.Metabolite[], true, 1),
+                      M.Step(3, 4, M.Metabolite[], M.Metabolite[], false, 2),
+                      M.Step(5, 6, M.Metabolite[], [P], true, 3)])
     @test DSL.raw_mechanism(:(begin
         substrates: S
         products: P
@@ -2501,14 +2503,14 @@ end
     # Names that spell every string one way pass; Ac + CoA and AcCoA spell AcCoA twice.
     @test DSL.check_uniquely_decodable(plain) === nothing
     @test DSL.check_uniquely_decodable(allosteric) === nothing
-    Ac, CoA, AcCoA = M.Met(:Ac, false), M.Met(:CoA, false), M.Met(:AcCoA, false)
-    EAc, EAcCoA = M.Node(:E, [Ac], Symbol[], Symbol[]), M.Node(:E, [Ac, CoA], Symbol[],
-                                                                Symbol[])
+    Ac, CoA, AcCoA = (M.Metabolite(x, false) for x in (:Ac, :CoA, :AcCoA))
+    EAc, EAcCoA = M.EnzymeForm(:E, [Ac], Symbol[], Symbol[]),
+                  M.EnzymeForm(:E, [Ac, CoA], Symbol[], Symbol[])
     clash = (; substrates = [:Ac, :CoA], products = [:AcCoA], modifiers = Symbol[],
              nodes = [E, EAc, EAc, EAcCoA, EAcCoA, E],
-             steps = [M.Step(1, 2, [Ac], M.Met[], true, 1),
-                      M.Step(3, 4, [CoA], M.Met[], true, 2),
-                      M.Step(5, 6, M.Met[], [AcCoA], false, 3)])
+             steps = [M.Step(1, 2, [Ac], M.Metabolite[], true, 1),
+                      M.Step(3, 4, [CoA], M.Metabolite[], true, 2),
+                      M.Step(5, 6, M.Metabolite[], [AcCoA], false, 3)])
     two_ways = ErrorException(
         "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
         "constants join the names of the metabolites they bind without a separator, so " *

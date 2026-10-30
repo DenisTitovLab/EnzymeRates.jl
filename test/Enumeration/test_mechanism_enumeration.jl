@@ -17,7 +17,7 @@ function _testhelper_iso_orient(t, s::EnzymeRates.Mechanisms.Step, subs)
 end
 
 # Whether a form carries a covalent residual.
-_testhelper_has_residual(f::EnzymeRates.Mechanisms.Node) =
+_testhelper_has_residual(f::EnzymeRates.Mechanisms.EnzymeForm) =
     !isempty(f.added) || !isempty(f.subtracted)
 
 # Build a Mechanism over `rxn`'s names from a topology, a written graph (`_trimmed`), each
@@ -63,7 +63,7 @@ function _testhelper_connectivity_violations(t)
         push!(edges, (_testhelper_key(a), _testhelper_key(b)))
         push!(edges, (_testhelper_key(b), _testhelper_key(a)))
     end
-    viol = Tuple{EnzymeRates.Mechanisms.Node, EnzymeRates.Mechanisms.Node}[]
+    viol = Tuple{EnzymeRates.Mechanisms.EnzymeForm, EnzymeRates.Mechanisms.EnzymeForm}[]
     fv = collect(values(forms))
     for s1 in fv, s2 in fv
         (s1.conformation == s2.conformation &&
@@ -510,14 +510,15 @@ end
 
 @testset "a topology writes each release as the binding it reverses" begin
     ER = EnzymeRates
-    form(xs...) = ER.Mechanisms.Node(
-        :E, ER.Mechanisms.Met[ER.Mechanisms.Met(x, false) for x in xs], Symbol[], Symbol[])
+    form(xs...) = ER.Mechanisms.EnzymeForm(
+        :E, ER.Mechanisms.Metabolite[ER.Mechanisms.Metabolite(x, false) for x in xs],
+        Symbol[], Symbol[])
     # Uni-uni: the route binds S at E, isomerizes E(S) to E(P) and gives P off from E(P).
     # The topology holds the forms in the order the route meets them and writes that
     # release as the binding E + P → E(P), which takes P up; it lists its bindings first,
     # by their forms in the canonical form order, then its steady-state isomerization.
-    none = ER.Mechanisms.Met[]
-    S, P = [ER.Mechanisms.Met(:S, false)], [ER.Mechanisms.Met(:P, false)]
+    none = ER.Mechanisms.Metabolite[]
+    S, P = [ER.Mechanisms.Metabolite(:S, false)], [ER.Mechanisms.Metabolite(:P, false)]
     @test ER.Enumeration._catalytic_topologies(uni_uni_rxn) ==
           [(; nodes = [form(), form(:S), form(:P)],
             steps = [ER.Mechanisms.Step(1, 3, P, none, true, 0),
@@ -1164,8 +1165,8 @@ end
     # A step from form `f` to form `t` of E, E(A), E(B), E(A, B), E(P, Q), E(P) and E(Q),
     # numbered 1 to 7, taking up `xs`.
     step(f, t, xs, r) = ER.Mechanisms.Step(
-        f, t, ER.Mechanisms.Met[ER.Mechanisms.Met(x, false) for x in xs],
-        ER.Mechanisms.Met[], r, 0)
+        f, t, ER.Mechanisms.Metabolite[ER.Mechanisms.Metabolite(x, false) for x in xs],
+        ER.Mechanisms.Metabolite[], r, 0)
     # The A bindings at rapid equilibrium share label 1; B's rapid-equilibrium and
     # steady-state bindings take labels 2 and 3; each isomerization has a label of its
     # own though both take up and give off nothing. Labels run in order of first use.
@@ -9486,8 +9487,8 @@ end
     # Labelled 6, after the merged groups 1, 2, 3 and 5 (the isomerization's group 4
     # went with it).
     @test last(tc_steps) ==
-          ER.Mechanisms.Step(at(:A), at(:Q), [ER.Mechanisms.Met(:B, false)],
-                             [ER.Mechanisms.Met(:P, false)], true, 6)
+          ER.Mechanisms.Step(at(:A), at(:Q), [ER.Mechanisms.Metabolite(:B, false)],
+                             [ER.Mechanisms.Metabolite(:P, false)], true, 6)
     @test [e.group for e in tc_steps] == [1, 2, 6]
     tc = _testhelper_base(seed, tc_steps)
     @test tc == @_testhelper_unguarded(@enzyme_mechanism begin
@@ -9554,9 +9555,9 @@ end
         end
     end)
     @test ER.Mechanisms._table(m) ==
-          [ER.Mechanisms.Met(:A, false), ER.Mechanisms.Met(:A, true),
-           ER.Mechanisms.Met(:B, false), ER.Mechanisms.Met(:P, false),
-           ER.Mechanisms.Met(:Q, false)]
+          [ER.Mechanisms.Metabolite(:A, false), ER.Mechanisms.Metabolite(:A, true),
+           ER.Mechanisms.Metabolite(:B, false), ER.Mechanisms.Metabolite(:P, false),
+           ER.Mechanisms.Metabolite(:Q, false)]
     @test ER.Enumeration._name_signs(m) == [1, 1, -1, -1]
     copy_binding = only(k for k in eachindex(m.steps)
                         if any(x -> x.modifier, m.steps[k].taken_up))
@@ -10595,7 +10596,7 @@ end
     cm = copy_beyond.catalytic
     g = only(unique(e.group for e in cm.steps
                     if ER.Mechanisms._is_binding(e) &&
-                        only(e.taken_up) == ER.Mechanisms.Met(:S, true)))
+                        only(e.taken_up) == ER.Mechanisms.Metabolite(:S, true)))
     @test ER.Enumeration._redundant_copy_groups(copy_beyond) == [g]
     @test _testhelper_fitted(copy_beyond) == _testhelper_identifiable_rank(copy_beyond) + 1
     # Tagged :EqualAI, the copy also binds the active conformation, at E and at E(S, J),
@@ -10884,7 +10885,8 @@ end
         end
     end)
     @test ER.Enumeration._redundant_copy_groups(p_at_complexes) ==
-          _testhelper_groups_binding_entry(p_at_complexes, ER.Mechanisms.Met(:A, true))
+          _testhelper_groups_binding_entry(p_at_complexes,
+                                           ER.Mechanisms.Metabolite(:A, true))
     @test _testhelper_fitted(p_at_complexes) == 8 &&
           _testhelper_identifiable_rank(p_at_complexes) == 7
 
@@ -10987,7 +10989,7 @@ end
     end)
     @test isempty(ER.Enumeration._redundant_copy_groups(pp))
     @test ER.Enumeration._redundant_copy_groups(pp_q) ==
-          _testhelper_groups_binding_entry(pp_q, ER.Mechanisms.Met(:Q, true))
+          _testhelper_groups_binding_entry(pp_q, ER.Mechanisms.Metabolite(:Q, true))
     @test _testhelper_fitted(pp) == 8 && _testhelper_identifiable_rank(pp) == 7
     @test _testhelper_fitted(pp_q) == 9 && _testhelper_identifiable_rank(pp_q) == 7
 
@@ -16799,7 +16801,7 @@ end
     @test Set(base) == Set(kept)
 end
 
-@testset "starting_mechanisms starts from the seeds that bind each required regulator" begin
+@testset "starting_mechanisms starts from seeds that bind every required regulator" begin
     # Aggregate regression pin over a whole seed set. A required competitive inhibitor
     # makes the beam start from `seed_mechanisms`; the unregulated `init_mechanisms` seed
     # is not among them.

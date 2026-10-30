@@ -4,16 +4,16 @@
 
 """Whether `x` is a reactant's modifier copy (`A::Mod`) in `m`; a modifier-only name has
 no copy, so it is not one."""
-_is_reactant_copy(m::Mechanism, x::Met) = x.modifier && _is_reactant(m, x.name)
+_is_reactant_copy(m::Mechanism, x::Metabolite) = x.modifier && _is_reactant(m, x.name)
 
 """`x` as names write it: its name, with `mod` on a reactant's modifier copy; a
 modifier-only name stays bare."""
-_entry_label(m::Mechanism, x::Met) =
+_entry_label(m::Mechanism, x::Metabolite) =
     _is_reactant_copy(m, x) ? string(x.name, "mod") : String(x.name)
 
-"""Node `f`'s name: its label, its bound metabolites' labels in sorted order, then any
-residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product it
-subtracts (`E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
+"""Enzyme form `f`'s name: its label, its bound metabolites' labels in sorted order, then
+any residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product
+it subtracts (`E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
 function _form_name(m::Mechanism, f::Int)
     x = m.nodes[f]
     io = IOBuffer()
@@ -29,10 +29,10 @@ end
 
 """`x` as a mechanism macro writes a metabolite of `m`: its name, with `::Mod` on a
 reactant's modifier copy; a modifier-only name stays bare."""
-_met_text(m::Mechanism, x::Met) =
+_met_text(m::Mechanism, x::Metabolite) =
     _is_reactant_copy(m, x) ? "$(x.name)::Mod" : String(x.name)
 
-"""Node `f` as a mechanism macro writes it: its label alone when it binds nothing and
+"""Enzyme form `f` as a mechanism macro writes it: its label alone when it binds nothing and
 keeps no residual (`E`, `Estar`), else its label with its bound metabolites (`_met_text`)
 and residual in parentheses: `E(NAD, P)`, `E(A::Mod)`, `E(B; residual = A - P)`,
 `E(; residual = A - P)`."""
@@ -47,7 +47,7 @@ end
 
 """A step side: its node's name `form` and the labels of the free metabolites `free`,
 joined by `_` (`EA_B` for `E(A) + B`)."""
-_side_name(m::Mechanism, form::String, free::Vector{Met}) =
+_side_name(m::Mechanism, form::String, free::Vector{Metabolite}) =
     foldl((side, x) -> string(side, '_', _entry_label(m, x)), free; init = form)
 """A step's two sides in its stored direction; every step constant is named after
 them."""

@@ -24,7 +24,8 @@ const _CONFORMATIONS = (:active, :inactive)
 
 """The number of copies of metabolite `name` in `held`, a reactant's modifier copies
 included."""
-_copies(held::Vector{Mechanisms.Met}, name::Symbol) = count(x -> x.name === name, held)
+_copies(held::Vector{Mechanisms.Metabolite}, name::Symbol) =
+    count(x -> x.name === name, held)
 
 """The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)

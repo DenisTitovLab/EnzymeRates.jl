@@ -19,7 +19,7 @@ end
 The written graph of `steps` between `nodes`, as `(; nodes, steps)`: the nodes some step
 joins, in the order of `nodes`, and `steps` with their ends indexing them.
 """
-function _trimmed(nodes::Vector{Mechanisms.Node}, steps::Vector{Mechanisms.Step})
+function _trimmed(nodes::Vector{Mechanisms.EnzymeForm}, steps::Vector{Mechanisms.Step})
     used = sort!(unique!([x for e in steps for x in (e.from, e.to)]))
     at = zeros(Int, length(nodes))
     at[used] = eachindex(used)
@@ -55,8 +55,8 @@ Errors when the reaction has none.
 function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     sub_names = Symbol[s.name for s in reaction.substrates]
     prod_names = Symbol[p.name for p in reaction.products]
-    forms = Mechanisms.Node[]
-    index = Dict{Mechanisms.Node, Int}()
+    forms = Mechanisms.EnzymeForm[]
+    index = Dict{Mechanisms.EnzymeForm, Int}()
 
     # The index in `forms` of the form on :E binding `on_subs` and `on_prods` after a
     # route consumed `consumed` and released `released`, the form added when new. Its
@@ -65,11 +65,11 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # residue remains).
     function form(consumed, released, on_subs, on_prods)
         added, subtracted = setdiff(consumed, on_subs), [released; on_prods]
-        bound = sort!(Mechanisms.Met[Mechanisms.Met.(on_subs, false);
-                                     Mechanisms.Met.(on_prods, false)])
+        bound = sort!(Mechanisms.Metabolite[Mechanisms.Metabolite.(on_subs, false);
+                                     Mechanisms.Metabolite.(on_prods, false)])
         n = isempty(_net_atoms(reaction, added, subtracted)) ?
-            Mechanisms.Node(:E, bound, Symbol[], Symbol[]) :
-            Mechanisms.Node(:E, bound, sort!(added), sort!(subtracted))
+            Mechanisms.EnzymeForm(:E, bound, Symbol[], Symbol[]) :
+            Mechanisms.EnzymeForm(:E, bound, sort!(added), sort!(subtracted))
         get!(() -> (push!(forms, n); length(forms)), index, n)
     end
 
@@ -90,27 +90,28 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
         # The step from `cur` to the form the arguments describe, taking up `takes_up`,
         # or, for a release, the binding into `cur` it reverses; then the walk on from
         # that form.
-        function step!(takes_up::Vector{Mechanisms.Met}, release::Bool, con, rel, on_s,
-                       on_p)
+        function step!(takes_up::Vector{Mechanisms.Metabolite}, release::Bool, con, rel,
+                       on_s, on_p)
             to = form(con, rel, on_s, on_p)
             push!(path,
-                  release ? Mechanisms.Step(to, cur, takes_up, Mechanisms.Met[], true, 0) :
-                            Mechanisms.Step(cur, to, takes_up, Mechanisms.Met[], true, 0))
+                  release ?
+                  Mechanisms.Step(to, cur, takes_up, Mechanisms.Metabolite[], true, 0) :
+                  Mechanisms.Step(cur, to, takes_up, Mechanisms.Metabolite[], true, 0))
             walk!(to, con, rel, on_s, on_p, path)
             pop!(path)
         end
         if !isempty(on_prods)
             # Release a bound product; nothing binds until every bound product is gone.
             for p in on_prods
-                step!([Mechanisms.Met(p, false)], true, consumed, [released; p], Symbol[],
-                      filter(!=(p), on_prods))
+                step!([Mechanisms.Metabolite(p, false)], true, consumed, [released; p],
+                      Symbol[], filter(!=(p), on_prods))
             end
             return
         end
         remaining_subs = setdiff(sub_names, consumed)
         for s in remaining_subs
-            step!([Mechanisms.Met(s, false)], false, [consumed; s], released, [on_subs; s],
-                  Symbol[])
+            step!([Mechanisms.Metabolite(s, false)], false, [consumed; s], released,
+                  [on_subs; s], Symbol[])
         end
         # C7: only a substrate-bound form isomerizes. C6: at most three substrates react.
         (isempty(on_subs) || length(on_subs) > 3) && return
@@ -126,7 +127,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
             # C6: iso size limit, the residue counting as one product
             length(subset) + !isempty(residue) > 3 && continue
             # C8: product-only iso form
-            step!(Mechanisms.Met[], false, consumed, released, Symbol[], subset)
+            step!(Mechanisms.Metabolite[], false, consumed, released, Symbol[], subset)
         end
     end
     # Start from free enzyme (:E, no bound metabolites).
@@ -171,7 +172,8 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     form_pair(s) = (key(s.from), key(s.to))
     sorted_iso_pats = sort!(collect(keys(iso_groups));
                             by = pat -> (length(pat), sort([form_pair(s) for s in pat])))
-    result = @NamedTuple{nodes::Vector{Mechanisms.Node}, steps::Vector{Mechanisms.Step}}[]
+    result = @NamedTuple{nodes::Vector{Mechanisms.EnzymeForm},
+                         steps::Vector{Mechanisms.Step}}[]
     for iso_pat in sorted_iso_pats
         group = [(path, route_order(path, sub_names), route_order(path, prod_names))
                  for path in iso_groups[iso_pat]]
@@ -251,7 +253,7 @@ cycle and leaves no isomerization a dead-end parallel, so bindings are the only 
 the dead-end forms need.
 """
 function _expand_substrate_product_dead_ends(
-    topos::Vector{@NamedTuple{nodes::Vector{Mechanisms.Node},
+    topos::Vector{@NamedTuple{nodes::Vector{Mechanisms.EnzymeForm},
                               steps::Vector{Mechanisms.Step}}},
     reaction::Mechanisms.EnzymeReaction,
 )
@@ -268,7 +270,8 @@ function _expand_substrate_product_dead_ends(
     patterns = filter(pat -> all(in(pat), reaction.shared_catalytic_site),
                       _competition_patterns(sub_names, prod_names))
 
-    result = @NamedTuple{nodes::Vector{Mechanisms.Node}, steps::Vector{Mechanisms.Step}}[]
+    result = @NamedTuple{nodes::Vector{Mechanisms.EnzymeForm},
+                         steps::Vector{Mechanisms.Step}}[]
     for topo in topos
         forms = copy(topo.nodes)
         index = Dict(f => x for (x, f) in enumerate(forms))
@@ -283,8 +286,9 @@ function _expand_substrate_product_dead_ends(
             (isempty(subs) || isempty(prods) || subs == sub_names || prods == prod_names) &&
                 continue
             f = forms[x]
-            d = Mechanisms.Node(f.conformation, sort!([f.bound; Mechanisms.Met(m, false)]),
-                                f.added, f.subtracted)
+            d = Mechanisms.EnzymeForm(f.conformation,
+                                      sort!([f.bound; Mechanisms.Metabolite(m, false)]),
+                                      f.added, f.subtracted)
             push!(dead_ends, get!(() -> (push!(forms, d); length(forms)), index, d))
         end
         # Several catalytic forms can give the same dead end.
@@ -318,8 +322,8 @@ function _expand_substrate_product_dead_ends(
                     length(hs[j]) == length(hs[i]) + 1 && issubset(hs[i], hs[j]) &&
                     !((x1, x2) in edges) || continue
                 met = only(setdiff(hs[j], hs[i]))
-                push!(steps, Mechanisms.Step(x1, x2, [Mechanisms.Met(met, false)],
-                                             Mechanisms.Met[], true, 0))
+                push!(steps, Mechanisms.Step(x1, x2, [Mechanisms.Metabolite(met, false)],
+                                             Mechanisms.Metabolite[], true, 0))
             end
             push!(result, _trimmed(forms, steps))
         end
@@ -338,7 +342,8 @@ share one group, since the steps of a group share their constants; every isomeri
 is a group of its own.
 """
 function _seed_groups(steps::Vector{Mechanisms.Step})
-    label = Dict{Tuple{Vector{Mechanisms.Met}, Vector{Mechanisms.Met}, Bool, Int}, Int}()
+    label = Dict{Tuple{Vector{Mechanisms.Metabolite}, Vector{Mechanisms.Metabolite},
+                       Bool, Int}, Int}()
     [get!(label,
           (s.taken_up, s.given_off, s.rapid_equilibrium, _is_iso(s) ? j : 0),
           length(label) + 1)
@@ -665,7 +670,7 @@ base tier fits the seeds that are not degenerate and, in place of those that are
 flip children that are not (`_base_tier`). Each failure is a `(seed, message)` pair.
 """
 function starting_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
-                         required_comp::Set{Symbol})
+                             required_comp::Set{Symbol})
     seeds = (isempty(required_allo) && isempty(required_comp)) ?
         unique!(collect(init_mechanisms(rxn))) :
         unique!(collect(seed_mechanisms(rxn, required_allo, required_comp)))

@@ -122,7 +122,7 @@ function rapid_equilibrium_segments(m::Mechanism, on::BitVector,
     nf = length(m.nodes)
     names = _distinct_names(m)
     nn = length(names)
-    row(x::Met) = searchsortedfirst(names, x.name)
+    row(x::Metabolite) = searchsortedfirst(names, x.name)
     # Each kept rapid-equilibrium step as two transitions, 2j - 1 in its stored direction
     # and 2j in reverse, each listed at the form it leaves.
     kept = [k for k in reduce(vcat, m.groups; init = Int[]) if on[k] && re[k]]
@@ -206,7 +206,7 @@ cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 function has_turnover_cycle(m::Mechanism, on::BitVector)
     # The first substrate, whose net uptake, a modifier copy counting as it, is the rate.
     s1 = m.substrates[1]
-    uptake(list::Vector{Met}) = count(x -> x.name === s1, list)
+    uptake(list::Vector{Metabolite}) = count(x -> x.name === s1, list)
     n = length(m.nodes)
     has_unbalanced_cycle([e.from for e in m.steps], [e.to for e in m.steps],
                          [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],

@@ -34,14 +34,13 @@ are not degenerate. Every seed with two chemistry isomerizations, such as a
 ping-pong seed, is one: a seed holds one steady-state step, so its other
 isomerization sits at rapid equilibrium with the steps on both its sides. The
 beam replaces such a mechanism at once by its children that are not degenerate
-and fits them beside the other starting mechanisms (`Enumeration.starting_mechanisms`). Only a
-flip of a rapid-equilibrium group to steady state can cure it, by turning that
-isomerization steady state or every step on one of its sides; the other moves
-keep which steps are at rapid equilibrium, so their children stay degenerate and
-are not fitted. The children's rows, like the starting mechanisms' rows, name no
-parent, and the degenerate mechanism gets a row of its own only when its
-expansion fails. A degenerate mechanism that a move builds is fitted like any
-other.
+and fits them beside the other starting mechanisms
+(`Enumeration.starting_mechanisms`). Only a flip of a rapid-equilibrium group to steady
+state can cure it, by turning that isomerization steady state or every step on one of its
+sides; the other moves keep which steps are at rapid equilibrium, so their children
+stay degenerate and are not fitted. The children's rows, like the starting mechanisms'
+rows, name no parent, and the degenerate mechanism gets a row of its own only when its
+expansion fails. A degenerate mechanism that a move builds is fitted like any other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
 constants share a key, count once at the key's lowest loss, and share one fit, which each

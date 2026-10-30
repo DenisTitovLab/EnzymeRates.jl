@@ -467,7 +467,7 @@ end
 
 """The copies of metabolite `name` that `s` holds as a modifier when `copy` holds, else
 those it holds productively."""
-function _held_copies(s::Vector{Mechanisms.Met}, name::Symbol, copy::Bool)
+function _held_copies(s::Vector{Mechanisms.Metabolite}, name::Symbol, copy::Bool)
     modifier = count(x -> x.modifier && x.name === name, s)
     copy ? modifier : _copies(s, name) - modifier
 end
@@ -585,13 +585,13 @@ between their complexes, in the step's own group; and one new group, after `m`'s
 rapid-equilibrium bindings of `reg` at the sites.
 """
 function _dead_end_graph(m::Mechanisms.Mechanism, reg::Symbol, sites::Vector{Int})
-    inhibitor = Mechanisms.Met(reg, true)
+    inhibitor = Mechanisms.Metabolite(reg, true)
     nodes = copy(m.nodes)
     complex = zeros(Int, length(m.nodes))
     for f in sites
         n = m.nodes[f]
-        push!(nodes, Mechanisms.Node(n.conformation, sort!([n.bound; inhibitor]), n.added,
-                                     n.subtracted))
+        push!(nodes, Mechanisms.EnzymeForm(n.conformation, sort!([n.bound; inhibitor]),
+                                           n.added, n.subtracted))
         complex[f] = length(nodes)
     end
     steps = copy(m.steps)
@@ -602,8 +602,8 @@ function _dead_end_graph(m::Mechanisms.Mechanism, reg::Symbol, sites::Vector{Int
     end
     G = length(m.groups)
     for f in sites
-        push!(steps, Mechanisms.Step(f, complex[f], [inhibitor], Mechanisms.Met[], true,
-                                     G + 1))
+        push!(steps, Mechanisms.Step(f, complex[f], [inhibitor], Mechanisms.Metabolite[],
+                                     true, G + 1))
     end
     nodes, steps
 end
@@ -626,7 +626,7 @@ child takes its copy's group tagged `:EqualAI`, with
 complex of the copy has a twin in the active state (`_all_twin`), which redundancy needs.
 Each child is built through the checked constructor.
 """
-function _dead_end_child(m::Mechanisms.Mechanism, nodes::Vector{Mechanisms.Node},
+function _dead_end_child(m::Mechanisms.Mechanism, nodes::Vector{Mechanisms.EnzymeForm},
                          steps::Vector{Mechanisms.Step}, reg::Symbol)
     cm = Mechanisms.Mechanism(m.substrates, m.products, nodes, steps)
     twin = _productive_twin(cm, trues(length(cm.steps)))
@@ -635,7 +635,8 @@ function _dead_end_child(m::Mechanisms.Mechanism, nodes::Vector{Mechanisms.Node}
     _gauge_rescaling(cm, cm.groups, cm.steps[binding].group, twin,
                      _one_state_class) === nothing ? cm : nothing
 end
-function _dead_end_child(am::Mechanisms.AllostericMechanism, nodes::Vector{Mechanisms.Node},
+function _dead_end_child(am::Mechanisms.AllostericMechanism,
+                         nodes::Vector{Mechanisms.EnzymeForm},
                          steps::Vector{Mechanisms.Step}, reg::Symbol)
     cm = am.catalytic
     child = Mechanisms.AllostericMechanism(cm.substrates, cm.products, nodes, steps,

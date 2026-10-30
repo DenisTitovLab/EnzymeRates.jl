@@ -473,7 +473,7 @@ end
         for (k, e) in enumerate(cm.steps)
             op, lhs, rhs = EnzymeRates.DSL._step_parts(
                 Meta.parse(EnzymeRates.Mechanisms.step_text(cm, k)), "@enzyme_mechanism")
-            nodes = EnzymeRates.Mechanisms.Node[]
+            nodes = EnzymeRates.Mechanisms.EnzymeForm[]
             s = EnzymeRates.DSL._raw_step!(nodes, op, lhs, rhs, e.group, names,
                                            "@enzyme_mechanism")
             @test nodes == cm.nodes[[e.from, e.to]] &&
@@ -4045,10 +4045,10 @@ end
     end
 end
 
-@testset "check_valid_rate_equation(Bool, m) never throws" begin
+@testset "check_valid_rate_equation(Bool, m) returns false on a fault" begin
     # A mechanism whose law, on a face (face 2), has several closed classes in its
-    # segment chain (`_LAW_MULTI`) fails the guard; the `Bool` form gives the verdict and
-    # never throws.
+    # segment chain (`_LAW_MULTI`) fails the guard; the `Bool` form gives the verdict
+    # instead of throwing.
     good = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P

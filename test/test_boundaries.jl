@@ -318,8 +318,8 @@ end
     # step mask among them), and the two name checks the DSL runs while it
     # reads a block, so that their errors name the macro: a conformation label's shape and
     # the decodability of the declared names.
-    @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Met, :Node, :Step,
-        :Mechanism, :RegulatorySite, :AllostericMechanism, :Reactant, :Regulator,
+    @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Metabolite, :EnzymeForm,
+        :Step, :Mechanism, :RegulatorySite, :AllostericMechanism, :Reactant, :Regulator,
         :EnzymeReaction, :EnzymeMechanism, :AllostericEnzymeMechanism,
         :AbstractEnzymeMechanism, :metabolites, :catalytic, :excludes,
         :compile_mechanism, :form_text, :step_text, :check_conformation_label,

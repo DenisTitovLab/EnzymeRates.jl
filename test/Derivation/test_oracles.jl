@@ -1176,9 +1176,10 @@ _testhelper_rebuilt(m, rewrite) = _testhelper_build(rewrite(_testhelper_written(
 written form (`_testhelper_written`), without the guard."""
 function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
     r(xs::Vector{Symbol}) = Symbol[get(rename, x, x) for x in xs]
-    met(xs) = EnzymeRates.Mechanisms.Met[
-        EnzymeRates.Mechanisms.Met(get(rename, x.name, x.name), x.modifier) for x in xs]
-    node(n) = EnzymeRates.Mechanisms.Node(n.conformation, met(n.bound), r(n.added),
+    met(xs) = EnzymeRates.Mechanisms.Metabolite[
+        EnzymeRates.Mechanisms.Metabolite(get(rename, x.name, x.name), x.modifier)
+        for x in xs]
+    node(n) = EnzymeRates.Mechanisms.EnzymeForm(n.conformation, met(n.bound), r(n.added),
                                           r(n.subtracted))
     step(e) = EnzymeRates.Mechanisms.Step(e.from, e.to, met(e.taken_up), met(e.given_off),
                                           e.rapid_equilibrium, e.group)

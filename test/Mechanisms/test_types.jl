@@ -16,16 +16,16 @@ const _testhelper_re_mm = @enzyme_mechanism begin
 end
 
 # The nodes of S ⇌ P: E, E(S) and E(P).
-const _testhelper_UNIUNI_NODES = [ER.Mechanisms.Node(:E, bound, Symbol[], Symbol[])
-    for bound in (ER.Mechanisms.Met[], [ER.Mechanisms.Met(:S, false)],
-                  [ER.Mechanisms.Met(:P, false)])]
+const _testhelper_UNIUNI_NODES = [ER.Mechanisms.EnzymeForm(:E, bound, Symbol[], Symbol[])
+    for bound in (ER.Mechanisms.Metabolite[], [ER.Mechanisms.Metabolite(:S, false)],
+                  [ER.Mechanisms.Metabolite(:P, false)])]
 
 # The steps of S ⇌ P between `_testhelper_UNIUNI_NODES`: S binding E, E(S) isomerizing to
 # E(P) at steady state, and P binding E, the bindings at rapid equilibrium; each in group
 # 0, for `_testhelper_uniuni_labelled` to label.
 function _testhelper_uniuni_steps()
-    met(x) = [ER.Mechanisms.Met(x, false)]
-    none = ER.Mechanisms.Met[]
+    met(x) = [ER.Mechanisms.Metabolite(x, false)]
+    none = ER.Mechanisms.Metabolite[]
     (bind = ER.Mechanisms.Step(1, 2, met(:S), none, true, 0),
      iso = ER.Mechanisms.Step(2, 3, none, none, false, 0),
      rel = ER.Mechanisms.Step(1, 3, met(:P), none, true, 0))
@@ -90,7 +90,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test length(mech2.groups) == 4
         shared = only(ks for ks in mech2.groups if length(ks) == 2)
         @test all(k -> ER.Mechanisms._is_binding(mech2.steps[k]) &&
-                       only(mech2.steps[k].taken_up) == ER.Mechanisms.Met(:R, true),
+                       only(mech2.steps[k].taken_up) == ER.Mechanisms.Metabolite(:R, true),
                   shared)
     end
 
@@ -1591,7 +1591,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test (m.nodes, m.steps) == (m_perm.nodes, m_perm.steps)
         @test m == m_perm && hash(m) == hash(m_perm)
         # Steps and groups sort by content (`isless(::Step)`), each form by its
-        # content (`isless(::Node)`) with free E first. The residual form
+        # content (`isless(::EnzymeForm)`) with free E first. The residual form
         # E(; residual = A - P) binds nothing, so its steps come before those of E(A),
         # though its name, E_res_plusA_minusP, sorts after EA.
         pingpong = ER.Mechanism(@enzyme_mechanism begin
@@ -1794,18 +1794,19 @@ function _testhelper_thrown(f)
 end
 
 @testset "a graph tells chemistry from a plain binding edge by edge" begin
-    met(x) = ER.Mechanisms.Met(x, false)
-    none = ER.Mechanisms.Met[]
-    # A form of label `c` holding `xs` (names, or a `Met` for a modifier copy).
+    met(x) = ER.Mechanisms.Metabolite(x, false)
+    none = ER.Mechanisms.Metabolite[]
+    # A form of label `c` holding `xs` (names, or a `Metabolite` for a modifier copy).
     _testhelper_form(xs...; c = :E, added = Symbol[], subtracted = Symbol[]) =
-        ER.Mechanisms.Node(
-            c, sort!(ER.Mechanisms.Met[x isa ER.Mechanisms.Met ? x : met(x) for x in xs]),
+        ER.Mechanisms.EnzymeForm(
+            c, sort!(ER.Mechanisms.Metabolite[
+                x isa ER.Mechanisms.Metabolite ? x : met(x) for x in xs]),
             added, subtracted)
     E, EA, EAB = _testhelper_form(), _testhelper_form(:A), _testhelper_form(:A, :B)
     EPQ, EQ = _testhelper_form(:P, :Q), _testhelper_form(:Q)
     F = _testhelper_form(; added = [:A], subtracted = [:P])         # E(; residual = A - P)
     FB = _testhelper_form(:B; added = [:A], subtracted = [:P])
-    A_copy = ER.Mechanisms.Met(:A, true)
+    A_copy = ER.Mechanisms.Metabolite(:A, true)
     # Each written step (its two forms, what it takes up and gives off, its flag): whether
     # its edge is chemistry, whether it is a binding, and whether it is stored turned
     # (`missing`: left to the orientation tiers).
@@ -2014,8 +2015,8 @@ end
     end)
     cat = ER.Mechanisms.catalytic(am)
     step_of(pred) = only(s for s in cat.steps if pred(s))
-    bind_s = step_of(s -> s.taken_up == [ER.Mechanisms.Met(:S, false)])
-    bind_p = step_of(s -> s.taken_up == [ER.Mechanisms.Met(:P, false)])
+    bind_s = step_of(s -> s.taken_up == [ER.Mechanisms.Metabolite(:S, false)])
+    bind_p = step_of(s -> s.taken_up == [ER.Mechanisms.Metabolite(:P, false)])
     iso = step_of(ER.Mechanisms._is_iso)
     # The catalytic steps `steps` between the catalytic nodes, step `k` labelled
     # `group[k]`, every group :EqualAI.
@@ -2148,7 +2149,7 @@ end
     # The allosteric twin joins F to E at rapid equilibrium.
     # J binds E and F as well: without those bindings E(J) and F(J) are dead ends at zero
     # modifiers, a second closed class the guard rejects.
-    I, J = ER.Mechanisms.Met(:I, true), ER.Mechanisms.Met(:J, true)
+    I, J = ER.Mechanisms.Metabolite(:I, true), ER.Mechanisms.Metabolite(:J, true)
     plain = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -2261,7 +2262,7 @@ end
     # turns the one at F to take up I and give off J as well.
     # J binds E and F as well: without those bindings E(J) and F(J) are dead ends at zero
     # modifiers, a second closed class the guard rejects.
-    I, J = ER.Mechanisms.Met(:I, true), ER.Mechanisms.Met(:J, true)
+    I, J = ER.Mechanisms.Metabolite(:I, true), ER.Mechanisms.Metabolite(:J, true)
     plain = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -3046,11 +3047,11 @@ end
 a step, a mechanism, a site and an allosteric mechanism."""
 function _testhelper_value_examples()
     R = EnzymeRates
-    a, p, i = R.Mechanisms.Met(:A, false), R.Mechanisms.Met(:P, false),
-        R.Mechanisms.Met(:I, true)
-    none = R.Mechanisms.Met[]
-    node(bound...) = R.Mechanisms.Node(:E, collect(R.Mechanisms.Met, bound), Symbol[],
-                                       Symbol[])
+    a, p, i = R.Mechanisms.Metabolite(:A, false), R.Mechanisms.Metabolite(:P, false),
+        R.Mechanisms.Metabolite(:I, true)
+    none = R.Mechanisms.Metabolite[]
+    node(bound...) = R.Mechanisms.EnzymeForm(
+        :E, collect(R.Mechanisms.Metabolite, bound), Symbol[], Symbol[])
     bind = R.Mechanisms.Step(1, 2, [a], none, true, 1)
     mech = R.Mechanism([:A], [:P], [node(), node(a), node(p), node(i)],
                        [bind, R.Mechanisms.Step(2, 3, none, none, false, 2),
@@ -3058,23 +3059,25 @@ function _testhelper_value_examples()
                         R.Mechanisms.Step(1, 4, [i], none, true, 4)])
     site = R.Mechanisms.RegulatorySite([:X], 2, [:OnlyI])
     allo = R.AllostericMechanism(mech, [:EqualAI, :EqualAI, :EqualAI, :OnlyA], 2, [site])
-    (i, R.Mechanisms.Node(:Estar, [a, i], [:A], [:P]), bind, mech, site, allo)
+    (i, R.Mechanisms.EnzymeForm(:Estar, [a, i], [:A], [:P]), bind, mech, site, allo)
 end
 
 @testset "mechanism values: content equality and hash" begin
     R = EnzymeRates
-    a, b = R.Mechanisms.Met(:A, false), R.Mechanisms.Met(:B, false)
-    none = R.Mechanisms.Met[]
+    a, b = R.Mechanisms.Metabolite(:A, false), R.Mechanisms.Metabolite(:B, false)
+    none = R.Mechanisms.Metabolite[]
     # A metabolite orders by name, a modifier after the reactant of its name.
-    @test sort([R.Mechanisms.Met(:P, true), R.Mechanisms.Met(:P, false),
-                R.Mechanisms.Met(:A, true)]) == [
-        R.Mechanisms.Met(:A, true), R.Mechanisms.Met(:P, false), R.Mechanisms.Met(:P, true)]
-    @test R.Mechanisms.Met(:A, true) != a && hash(R.Mechanisms.Met(:A, true)) != hash(a)
+    @test sort([R.Mechanisms.Metabolite(:P, true), R.Mechanisms.Metabolite(:P, false),
+                R.Mechanisms.Metabolite(:A, true)]) == [
+        R.Mechanisms.Metabolite(:A, true), R.Mechanisms.Metabolite(:P, false),
+        R.Mechanisms.Metabolite(:P, true)]
+    @test R.Mechanisms.Metabolite(:A, true) != a &&
+          hash(R.Mechanisms.Metabolite(:A, true)) != hash(a)
     # Nodes and steps compare by content; a step's direction, flag and group take part.
-    @test R.Mechanisms.Node(:E, [a, b], [:A], [:P]) ==
-          R.Mechanisms.Node(:E, [a, b], [:A], [:P])
-    @test R.Mechanisms.Node(:Estar, [a], Symbol[], Symbol[]) !=
-          R.Mechanisms.Node(:E, [a], Symbol[], Symbol[])
+    @test R.Mechanisms.EnzymeForm(:E, [a, b], [:A], [:P]) ==
+          R.Mechanisms.EnzymeForm(:E, [a, b], [:A], [:P])
+    @test R.Mechanisms.EnzymeForm(:Estar, [a], Symbol[], Symbol[]) !=
+          R.Mechanisms.EnzymeForm(:E, [a], Symbol[], Symbol[])
     release = R.Mechanisms.Step(2, 1, none, [a], true, 1)
     @test release == R.Mechanisms.Step(2, 1, none, [a], true, 1)
     @test release != R.Mechanisms.Step(1, 2, [a], none, true, 1)

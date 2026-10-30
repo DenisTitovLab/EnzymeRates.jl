@@ -3,10 +3,10 @@
 module AllostericCollapseTests
 using Test, EnzymeRates, Random
 const ER = EnzymeRates
-const M=ER.Mechanisms.Met
+const M=ER.Mechanisms.Metabolite
 # A form in conformation E that holds the substrates and products `xs`.
 _testhelper_form(xs...) =
-    ER.Mechanisms.Node(:E, sort!(M[M(x, false) for x in xs]), Symbol[], Symbol[])
+    ER.Mechanisms.EnzymeForm(:E, sort!(M[M(x, false) for x in xs]), Symbol[], Symbol[])
 # A step written from form `f` to form `t`, taking up `up` and giving off `off`, at rapid
 # equilibrium when `re` holds.
 _testhelper_step(f, t, up, off, re) = (; f, t, up, off, re)

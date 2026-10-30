@@ -105,7 +105,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
         push!(cols, (k, slot))
         at[(k, slot)] = _var!(vars, Symbol("c", k, "_", slot))
     end
-    conc(held::Vector{Mechanisms.Met}) =
+    conc(held::Vector{Mechanisms.Metabolite}) =
         _monomial((vars.index[x.name] => 1 for x in held)...)
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
     binds(k) = m.step_kinds[k] in (:binding, :fused_binding)
