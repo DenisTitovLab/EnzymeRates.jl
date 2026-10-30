@@ -233,8 +233,8 @@ end
 """
 The law network L of `m`: a plain mechanism's forms and edges as they are, its
 rapid-equilibrium flags overridden by `re`; an allosteric mechanism's two copies, copy `c`
-holding the steps of its conformation (`conformation_steps`) and the forms they touch
-(`present_species`), free E always, joined by the flip at free E.
+holding the steps of its conformation (`active_steps`, `inactive_steps`) and the forms
+they touch (`present_species`), free E always, joined by the flip at free E.
 """
 function _law_network(m::Mechanisms.Mechanism,
                       re::BitVector = _re_flags(m))
@@ -249,8 +249,8 @@ function _law_network(am::Mechanisms.AllostericMechanism)
     re = _re_flags(m)
     n, nf = length(m.steps), length(m.nodes)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
-    for (c, conformation) in enumerate(_CONFORMATIONS)
-        mask = conformation_steps(am, conformation)
+    for c in 1:2
+        mask = _conformation_steps(am, c)
         use[:, c] .= mask
         fast[:, c] .= mask .& re
         nodes = (c - 1) * nf .+ (1:nf)
@@ -262,10 +262,10 @@ end
 
 """
 The ε-network N of `m`, its rapid-equilibrium flags overridden by `re`: every form and
-edge in each copy. In the copy that excludes an edge (`excludes`), a rapid-equilibrium
-plain binding stays fast while its uptake vanishes and its release keeps its rate; any
-other excluded edge is slow and vanishes both ways. A plain mechanism's ε-network is its
-law network.
+edge in each copy. In the copy that excludes an edge (`excluded_active`,
+`excluded_inactive`), a rapid-equilibrium plain binding stays fast while its uptake
+vanishes and its release keeps its rate; any other excluded edge is slow and vanishes
+both ways. A plain mechanism's ε-network is its law network.
 """
 _eps_network(m::Mechanisms.Mechanism,
              re::BitVector = _re_flags(m)) = _law_network(m, re)
@@ -274,10 +274,11 @@ function _eps_network(am::Mechanisms.AllostericMechanism,
                           _re_flags(Mechanisms.catalytic(am)))
     m = Mechanisms.catalytic(am)
     n = length(m.steps)
+    masks = ntuple(c -> _excluded_steps(am, c), 2)
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
     for c in 1:2, k in eachindex(m.steps)
-        excluded = excludes(am, k, _CONFORMATIONS[c])
-        plain = Mechanisms.step_kind(m, k) === :binding
+        excluded = masks[c][k]
+        plain = m.step_kinds[k] === :binding
         fast[k, c] = re[k] && (!excluded || plain)
         vanish_forward[k, c] = excluded
         vanish_reverse[k, c] = excluded && !plain

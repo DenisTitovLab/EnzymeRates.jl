@@ -56,7 +56,7 @@ end
 function _print_names(io::IO, m::Mechanism)
     _print_line(io, "substrates", m.substrates)
     _print_line(io, "products", m.products)
-    _print_line(io, "modifiers", modifiers(m))
+    _print_line(io, "modifiers", m.modifiers)
 end
 
 """
@@ -66,7 +66,7 @@ order, and, when `tags` holds one tag per group, each line ending in its group's
 """
 function _print_steps(io::IO, m::Mechanism, tags::Vector{Symbol})
     print(io, "\n    steps: begin")
-    for (g, members) in enumerate(groups(m))
+    for (g, members) in enumerate(m.groups)
         text = join((step_text(m, k) for k in members), ", ")
         print(io, "\n        ", length(members) == 1 ? text : "($text)")
         isempty(tags) || print(io, " :: ", tags[g])

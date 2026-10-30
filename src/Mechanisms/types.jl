@@ -472,7 +472,8 @@ struct Mechanism
     step_kinds::Vector{Symbol}
     toward_products::BitVector
     step_sides::Vector{Tuple{String, String}}
-    # `graph` holds the canonical fields alone; the facts are read from it.
+    # `graph` is partially initialised: it holds the canonical fields alone. The fact
+    # helpers may read only `substrates`, `products`, `nodes` and `steps` of it.
     global function _unchecked_mechanism(substrates::Vector{Symbol},
                                          products::Vector{Symbol}, nodes::Vector{Node},
                                          steps::Vector{Step})
@@ -512,14 +513,26 @@ struct AllostericMechanism
         _check_onlyi_groups(catalytic, mwc_tags)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
-        excluded_active = (e -> mwc_tags[e.group] === :OnlyI).(catalytic.steps)
-        excluded_inactive = (e -> mwc_tags[e.group] === :OnlyA).(catalytic.steps)
+        excluded_active = (e -> excludes(mwc_tags[e.group], :active)).(catalytic.steps)
+        excluded_inactive = (e -> excludes(mwc_tags[e.group], :inactive)).(catalytic.steps)
         new(catalytic, copy(mwc_tags), catalytic_multiplicity, sites,
             _conformation_steps(catalytic, excluded_active),
             _conformation_steps(catalytic, excluded_inactive), excluded_active,
             excluded_inactive)
     end
 end
+
+"""
+    excludes(tag::Symbol, c::Symbol) -> Bool
+
+Whether conformation `c` (`:active` or `:inactive`) excludes a step or a regulator ligand
+tagged `tag`: `:OnlyI` excludes the active conformation, `:OnlyA` the inactive one (spec
+section 7). The one rule by which the constructor's masks, the regulator constants and the
+moves' ligand states read the tags.
+"""
+excludes(tag::Symbol, c::Symbol) =
+    c === :active ? tag === :OnlyI : c === :inactive ? tag === :OnlyA :
+    throw(ArgumentError("a conformation is :active or :inactive, not :$c"))
 
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
@@ -1240,9 +1253,6 @@ function _table(m::Mechanism)
     end
     unique!(sort!(table))
 end
-"""Every name bound as a modifier, reactant copies included, sorted (stored as
-`m.modifiers`)."""
-modifiers(m::Mechanism) = m.modifiers
 """Every name `nodes` and `steps` bind as a modifier, sorted, each once."""
 function _modifiers(nodes::Vector{Node}, steps::Vector{Step})
     names = Symbol[]
@@ -1255,15 +1265,13 @@ end
 # The concentration names in the order the rate law reads them: substrates, products,
 # then the modifier-only names, each by name; an allosteric mechanism appends each site's
 # ligands in site order, once each.
-metabolites(m::Mechanism) = unique!([m.substrates; m.products; modifiers(m)])
+metabolites(m::Mechanism) = unique!([m.substrates; m.products; m.modifiers])
 metabolites(am::AllostericMechanism) =
     unique!([metabolites(am.catalytic);
              [l for s in am.regulatory_sites for l in s.ligands]])
 """Whether `x` names a substrate or a product of `m`."""
 _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x, m.products)
 
-# An allosteric mechanism's names are its catalytic graph's, plus its site ligands.
-modifiers(am::AllostericMechanism) = modifiers(am.catalytic)
 """The ligands of `am`'s regulatory sites, site by site, each once."""
 allosteric_regulators(am::AllostericMechanism) =
     unique(Symbol[l for s in am.regulatory_sites for l in s.ligands])
@@ -1308,13 +1316,6 @@ function _binds_by_name(m::Mechanism, e::Step)
     names(n::Int) = Symbol[x.name for x in m.nodes[n].bound]
     names(e.to) == sort!(push!(names(e.from), only(e.taken_up).name))
 end
-"""
-    runs_toward_products(m, k) -> Bool
-
-Whether step `k` of `m` runs, as stored, toward products (`_runs_toward_products`; stored
-as `m.toward_products`).
-"""
-runs_toward_products(m::Mechanism, k::Int) = m.toward_products[k]
 """
 Whether step `e` of `m` runs, as stored, toward products: from the side that holds more
 substrates, bound or free, then fewer products, the order canonical form gives a step that

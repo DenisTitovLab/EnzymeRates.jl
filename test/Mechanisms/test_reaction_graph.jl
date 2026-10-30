@@ -883,7 +883,7 @@ end
           ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)", "E(I)",
            "E(Q)", "E(Q, Q::Mod)"]
     # Each edge's sides in its stored direction: releases stored as bindings.
-    @test [join(ER.Mechanisms.step_sides(m, k), " → ") for k in eachindex(m.steps)] ==
+    @test [join(m.step_sides[k], " → ") for k in eachindex(m.steps)] ==
           ["E_A → EA", "E_I → EI", "E_Q → EQ", "E_res_plusA_minusP_P → EA",
            "E_res_plusA_minusP_B → EB_res_plusA_minusP", "EB_res_plusA_minusP → EQ",
            "EQ_Qmod → EQQmod"]
@@ -965,7 +965,7 @@ end
         # Its steps are the edges in stored order and direction, labelled by group.
         c = _testhelper_canonicalize(raw)
         @test c.edge_of == eachindex(c.edge_of) && !any(c.flipped)
-        @test c.group_of == 1:length(ER.Mechanisms.groups(ER.Mechanisms.catalytic(x)))
+        @test c.group_of == 1:length(ER.Mechanisms.catalytic(x).groups)
         @test c.node_of == eachindex(c.node_of)
     end
 end
@@ -1039,7 +1039,7 @@ its stored direction (`_testhelper_edge_text`) with its group (and the group's t
 any catalytic multiplicity and sites."""
 function _testhelper_canonical_text(x)
     m, allo = ER.Mechanisms.catalytic(x), x isa ER.AllostericMechanism
-    mods = ER.Mechanisms.modifiers(m)
+    mods = m.modifiers
     lines = ["substrates: $(join(m.substrates, ", ")) | products: " *
              "$(join(m.products, ", "))" *
              (isempty(mods) ? "" : " | modifiers: $(join(mods, ", "))"),
@@ -1101,7 +1101,7 @@ function _testhelper_subgraphs_agree(x)
     end
     _testhelper_segments_agree(trues(length(m.steps)), trues(length(flat))) || return false
     x isa ER.AllostericMechanism || return true
-    inactive = ER.Derivation.conformation_steps(x, :inactive)
+    inactive = x.inactive_steps
     kept = _testhelper_inactive_reach(g)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end
@@ -1309,34 +1309,26 @@ function _testhelper_facts_hold(m::ER.Mechanism)
     modifiers = sort!(unique!(Symbol[x.name for list in lists for x in list if x.modifier]))
     groups = [findall(e -> e.group == g, m.steps)
               for g in 1:maximum(e -> e.group, m.steps)]
-    ks = eachindex(m.steps)
     m.modifiers == modifiers && m.groups == groups &&
         m.step_kinds == [M._step_kind(m, e) for e in m.steps] &&
         m.toward_products == [M._runs_toward_products(m, e) for e in m.steps] &&
-        m.step_sides == [M._sides(m, e) for e in m.steps] &&
-        M.modifiers(m) == m.modifiers && M.groups(m) == m.groups &&
-        [M.step_kind(m, k) for k in ks] == m.step_kinds &&
-        [M.runs_toward_products(m, k) for k in ks] == m.toward_products &&
-        [M.step_sides(m, k) for k in ks] == m.step_sides
+        m.step_sides == [M._sides(m, e) for e in m.steps]
 end
 
 """Whether the facts `am` stores are those its fields give: its catalytic graph's
 (`_testhelper_facts_hold`), and per conformation the steps its tags exclude
 (`_testhelper_excludes`) and the steps it keeps on the forms they join to free E
-(`_testhelper_exclusion`), which `Derivation.excludes` and
-`Derivation.conformation_steps` return."""
+(`_testhelper_exclusion`)."""
 function _testhelper_facts_hold(am::ER.AllostericMechanism)
-    D, cm = ER.Derivation, am.catalytic
+    cm = am.catalytic
     _testhelper_facts_hold(cm) || return false
-    all(((1, :active, am.excluded_active, am.active_steps),
-         (2, :inactive, am.excluded_inactive, am.inactive_steps))) do (c, name, out, kept)
+    all(((1, am.excluded_active, am.active_steps),
+         (2, am.excluded_inactive, am.inactive_steps))) do (c, out, kept)
         excluded = BitVector([_testhelper_excludes(am, k, c) for k in eachindex(cm.steps)])
         component = _testhelper_exclusion(am, c).component
         steps = BitVector([!excluded[k] && component[e.from] == 1
                            for (k, e) in enumerate(cm.steps)])
-        (out, kept) == (excluded, steps) &&
-            [D.excludes(am, k, name) for k in eachindex(cm.steps)] == out &&
-            D.conformation_steps(am, name) == kept
+        (out, kept) == (excluded, steps)
     end
 end
 
@@ -1451,12 +1443,12 @@ warm-up call: `Mechanism(substrates, products, nodes, steps)`, or for an alloste
 mechanism the constructor that also takes its tags, multiplicity and sites."""
 function _testhelper_construction_bytes(x)
     cm = ER.Mechanisms.catalytic(x)
-    build() = x isa ER.Mechanism ?
+    _testhelper_construct() = x isa ER.Mechanism ?
         ER.Mechanism(cm.substrates, cm.products, cm.nodes, cm.steps) :
         ER.AllostericMechanism(cm.substrates, cm.products, cm.nodes, cm.steps, x.mwc_tags,
                                x.catalytic_multiplicity, x.regulatory_sites)
-    build()
-    @allocated build()
+    _testhelper_construct()
+    @allocated _testhelper_construct()
 end
 
 @testset "constructor allocation budget" begin

@@ -42,13 +42,13 @@ flowchart TB
   top -->|"RateData"| data
   top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
-  dsl -->|"catalytic()<br/>check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()<br/>modifiers()"| mech
-  enum -->|"check_valid_rate_equation()<br/>conformation_steps()<br/>excludes()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>parameter_count()<br/>re_segments()<br/>segment_graph()"| der
-  enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>form_text()<br/>groups()<br/>step_kind()<br/>step_text()"| mech
+  dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
+  enum -->|"check_valid_rate_equation()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>parameter_count()<br/>re_segments()<br/>segment_graph()"| der
+  enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>step_text()"| mech
   fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>scale_rate_constants()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
-  der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>form_text()<br/>groups()<br/>runs_toward_products()<br/>step_kind()<br/>step_sides()<br/>step_text()"| mech
+  der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,enum,fit,der,data,mech mod;
 ```
@@ -143,13 +143,8 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | | | top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, top level | |
-| `modifiers` | Every name bound as a modifier | DSL | |
-| `catalytic` | The catalytic `Mechanism` of a mechanism | DSL, Derivation, Enumeration | |
-| `groups` | The steps of each kinetic group | Derivation, Enumeration | |
-| `step_kind` | A step's kind: `:isomerization`, `:binding`, | Derivation, Enumeration | |
-| | `:fused_binding` or `:chemistry` | | |
-| `runs_toward_products` | Whether a step, as stored, runs toward products | Derivation | |
-| `step_sides` | The names of a step's two sides, which name its constants | Derivation | |
+| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
+| `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
 | `check_decodable_names` | Errors when names could spell one string two ways | DSL | |
@@ -170,8 +165,6 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `rate_equation_complexity` | The law's term count, V×τ, before derivation | top level | |
 | `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
 | `scale_rate_constants` | Scales the steady-state rate constants | Fitting | |
-| `excludes` | Whether a conformation excludes a step or a tag | Enumeration | |
-| `conformation_steps` | The steps of one conformation | Enumeration | |
 | `re_segments` | The rapid-equilibrium segments of a set of steps | Enumeration | |
 | `segment_graph` | The steady-state steps between those segments | Enumeration | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Enumeration | |
@@ -401,7 +394,7 @@ dependent reads them. Each class is named after its member that comes last in th
 column's name with it, so the naming rule lives in `src/Derivation/names.jl`. The
 engine (`_law`,
 `src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
-keeps (`conformation_steps(am, :active)`, `conformation_steps(am, :inactive)`; every edge
+keeps (`am.active_steps`, `am.inactive_steps`; every edge
 of a plain mechanism). Every edge keeps its stored direction, so both conformations share
 the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
@@ -479,7 +472,7 @@ enumerator's drop test.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
-reaches through them (`conformation_steps`), and the **ε-network**, every step of both
+reaches through them (`active_steps`, `inactive_steps`), and the **ε-network**, every step of both
 conformations, each excluded step marked vanishing and an excluded rapid-equilibrium plain
 binding kept fast (`_eps_network`). The faces (`_faces`) are bit masks over the metabolite
 names. In order it checks class 1, a cycle that turns the reaction over
@@ -505,10 +498,10 @@ it subtracts as its residual); and `steps` (`Step`: two node indices, the metabo
 step takes up and gives off, its rapid-equilibrium flag and its kinetic group). Each list
 of metabolites (`Met`: a name, and whether it binds as a modifier, so a reactant and its
 modifier copy are two metabolites) and of names is sorted. It holds no reaction, and `==`
-and `hash` read these fields alone, not the facts it stores, alike in every process. An `AllostericMechanism` holds
-a catalytic `Mechanism`, one allosteric tag per kinetic group, the catalytic multiplicity
-and the regulatory sites. Every module reads these fields with dots (see
-[The mechanism data model](@ref)).
+and `hash` read these fields alone, not the facts a mechanism stores, alike in every
+process. An `AllostericMechanism` holds a catalytic `Mechanism`, one allosteric tag per
+kinetic group, the catalytic multiplicity and the regulatory sites. Every module reads
+these fields with dots (see [The mechanism data model](@ref)).
 
 The macros, the parser and the enumeration build a mechanism from nodes and steps.
 `Mechanism(substrates, products, nodes, steps)` takes the nodes in any order, a node any
@@ -531,9 +524,9 @@ product-bound form (`E(A) + B → E(P, Q)`).
 The constructor rejects a binding whose forms match a plain binding by name but not by role,
 such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
-Every edge but a plain binding (`step_kind` other than `:binding`) is chemistry; the
+Every edge but a plain binding (a `step_kinds` entry other than `:binding`) is chemistry; the
 allosteric moves (`_chemistry_groups`, in `Enumeration`), admission, the joint solve's
-priority (`_priority_key`) and `_merged_complexes` read `step_kind` to tell catalysis from
+priority (`_priority_key`) and `_merged_complexes` read `step_kinds` to tell catalysis from
 binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
 constant is a dissociation constant and its steady-state pair a binding and a release rate
 constant. Every step's constants are named by the two sides of its kinetic class's kept
@@ -668,7 +661,7 @@ parent at multiplicity 1 only, and above one subunit the tagging and change-tag
 moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
 (`_expand_re_to_ss`), drop a child that fails the predicate. On an
 `AllostericMechanism` the predicate reads each conformation's law
-(`conformation_steps`), since a conformation that runs part of the catalytic graph can
+(`active_steps`, `inactive_steps`), since a conformation that runs part of the catalytic graph can
 carry a power the whole graph lacks. The predicate scores
 the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for

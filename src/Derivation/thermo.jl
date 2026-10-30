@@ -6,11 +6,11 @@
 """
 The kinetic class of column `c` of `m`: its edge's group's constant in the column's slot
 and conformation, except that the copy of an edge in the conformation that excludes it
-(`excludes`: an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active one) is a class
-of its own.
+(`excluded_active`, `excluded_inactive`: an `:OnlyA` edge's inactive copy, an `:OnlyI`
+edge's active one) is a class of its own.
 """
 _class(m::_AnyMech, c::_Column) =
-    excludes(m, c.edge, c.inactive ? :inactive : :active) ?
+    _excluded_steps(m, c.inactive ? 2 : 1)[c.edge] ?
     (c.edge, c.slot, c.inactive, true) :
     (Mechanisms.catalytic(m).steps[c.edge].group, c.slot, c.inactive, false)
 
@@ -110,7 +110,7 @@ function _joint_system(m::_AnyMech, cols = constant_columns(m))
             z = Z[i, j]
             z == 0 && continue
             re = cm.steps[k].rapid_equilibrium
-            binds = Mechanisms.step_kind(cm, k) in (:binding, :fused_binding)
+            binds = cm.step_kinds[k] in (:binding, :fused_binding)
             row[column(k, 1, inactive)] += re && binds ? -z : z
             re || (row[column(k, 2, inactive)] -= z)
         end

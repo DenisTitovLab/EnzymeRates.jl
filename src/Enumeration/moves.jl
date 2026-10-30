@@ -5,7 +5,7 @@
 
 """Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
 function _groups_with(pred, m::Mechanisms.Mechanism)
-    out = falses(length(Mechanisms.groups(m)))
+    out = falses(length(m.groups))
     for k in eachindex(m.steps)
         pred(k) && (out[m.steps[k].group] = true)
     end
@@ -13,10 +13,10 @@ function _groups_with(pred, m::Mechanisms.Mechanism)
 end
 
 """Whether each kinetic group of graph `m` holds a chemistry step: anything but a plain
-binding (`step_kind`). The allosteric moves tag a chemistry group apart from a binding
+binding (`step_kinds`). The allosteric moves tag a chemistry group apart from a binding
 group."""
 _chemistry_groups(m::Mechanisms.Mechanism) =
-    _groups_with(k -> Mechanisms.step_kind(m, k) !== :binding, m)
+    _groups_with(k -> m.step_kinds[k] !== :binding, m)
 
 """
 `m` with step `k` of its catalytic graph in the kinetic group labelled `groups[k]` and at
@@ -136,7 +136,7 @@ subunit a flank's flip can be visible through the two conformations.
 function _chain_flank_groups(m::Mechanisms.Mechanism)
     # The group of each edge alone in its group, 0 for any other edge.
     lone = zeros(Int, length(m.steps))
-    for (g, ks) in enumerate(Mechanisms.groups(m))
+    for (g, ks) in enumerate(m.groups)
         length(ks) == 1 && (lone[only(ks)] = g)
     end
     at = [Int[] for _ in eachindex(m.nodes)]
@@ -149,12 +149,12 @@ function _chain_flank_groups(m::Mechanisms.Mechanism)
         rest = filter(!=(k0), at[x])
         length(rest) == 1 || return 0
         k = only(rest)
-        Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
+        m.step_kinds[k] in (:binding, :fused_binding) &&
             m.steps[k].to == x ? lone[k] : 0
     end
     out = Set{Int}()
     for k0 in eachindex(m.steps)
-        lone[k0] != 0 && Mechanisms.step_kind(m, k0) === :isomerization &&
+        lone[k0] != 0 && m.step_kinds[k0] === :isomerization &&
             !m.steps[k0].rapid_equilibrium || continue
         f1, f2 = flank.(k0, (m.steps[k0].from, m.steps[k0].to))
         f1 == 0 || f2 == 0 || union!(out, (f1, f2))
@@ -181,7 +181,7 @@ function _minimal_flips(admissible,
                         eligible = _ -> true)
     cm = Mechanisms.catalytic(m)
     flags = _rapid_equilibrium_flags(cm)
-    members = Mechanisms.groups(cm)
+    members = cm.groups
     flux = _flux_carrying_groups(cm, falses(length(cm.steps)))
     units = [g for g in eachindex(members)
              if all(k -> flags[k], members[g]) && flux[g] && eligible(g)]
@@ -406,7 +406,7 @@ constructor, since a regrouping can turn a tied group's member.
 function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
                                                Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = Mechanisms.groups(cm)
+    members = cm.groups
     flags = _rapid_equilibrium_flags(cm)
     flux = _flux_carrying_edges(cm, flags)
     units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
@@ -491,10 +491,10 @@ conformations (by label), then residuals (by the names they add, then those they
 subtract), for deterministic output.
 """
 function _context_bipartitions(m::Mechanisms.Mechanism, g::Int)
-    ks = Mechanisms.groups(m)[g]
+    ks = m.groups[g]
     # The group's own bound ligand, as (name, copy), when its first edge is a binding.
     first_up = m.steps[first(ks)].taken_up
-    own = Mechanisms.step_kind(m, first(ks)) in (:binding, :fused_binding) ?
+    own = m.step_kinds[first(ks)] in (:binding, :fused_binding) ?
         (only(first_up).name, any(x -> x.modifier, first_up)) : nothing
     forms = [_context_form(m, k) for k in ks]
     carries(x, (name, copy)) = _held_copies(m.nodes[x].bound, name, copy) > 0
@@ -526,7 +526,7 @@ it.
 function _bipartitioned_groups(m::Mechanisms.Mechanism, selection)
     second = Dict(g => last(bp) for (g, bp) in selection)
     group, n = zeros(Int, length(m.steps)), 0
-    for (g, ks) in enumerate(Mechanisms.groups(m))
+    for (g, ks) in enumerate(m.groups)
         group[ks] .= (n += 1)
         haskey(second, g) && (group[second[g]] .= (n += 1))
     end
@@ -599,7 +599,7 @@ function _dead_end_graph(m::Mechanisms.Mechanism, reg::Symbol, sites::Vector{Int
         push!(steps, Mechanisms.Step(complex[e.from], complex[e.to], e.taken_up,
                                      e.given_off, e.rapid_equilibrium, e.group))
     end
-    G = length(Mechanisms.groups(m))
+    G = length(m.groups)
     for f in sites
         push!(steps, Mechanisms.Step(f, complex[f], [inhibitor], Mechanisms.Met[], true,
                                      G + 1))
@@ -631,7 +631,7 @@ function _dead_end_child(m::Mechanisms.Mechanism, nodes::Vector{Mechanisms.Node}
     twin = _productive_twin(cm, trues(length(cm.steps)))
     binding = findfirst(k -> _held_copies(cm.steps[k].taken_up, reg, true) > 0,
                         eachindex(cm.steps))::Int
-    _gauge_rescaling(cm, Mechanisms.groups(cm), cm.steps[binding].group, twin,
+    _gauge_rescaling(cm, cm.groups, cm.steps[binding].group, twin,
                      _one_state_class) === nothing ? cm : nothing
 end
 function _dead_end_child(am::Mechanisms.AllostericMechanism, nodes::Vector{Mechanisms.Node},
@@ -740,13 +740,13 @@ _valid_tagging(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
     _stops_inactive_turnover(m::Mechanism, tags::Vector{Symbol}) -> Bool
 
 Whether the tags `tags` leave the inactive conformation of `m` no catalytic cycle: no
-cycle of the edges its law keeps (`conformation_steps`) turns the reaction over
+cycle of the edges its law keeps (`inactive_steps`) turns the reaction over
 (`has_turnover_cycle`).
 """
-_stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    !Derivation.has_turnover_cycle(m, Derivation.conformation_steps(
-        Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[]),
-        :inactive))
+function _stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol})
+    am = Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[])
+    !Derivation.has_turnover_cycle(m, am.inactive_steps)
+end
 
 """
     _tagging_bases(m::Mechanism) -> Vector{Vector{Symbol}}
@@ -1027,8 +1027,8 @@ The conformations a single ligand's allosteric `state` acts on: `:active` for
 """
 function _state_conformations(state::Symbol)
     conf = Set{Symbol}()
-    Derivation.excludes(state, :active) || push!(conf, :active)
-    Derivation.excludes(state, :inactive) || push!(conf, :inactive)
+    Mechanisms.excludes(state, :active) || push!(conf, :active)
+    Mechanisms.excludes(state, :inactive) || push!(conf, :inactive)
     conf
 end
 

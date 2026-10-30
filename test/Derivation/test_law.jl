@@ -150,10 +150,10 @@ end
     s = EnzymeRates.Derivation._solve(am)
     cm, mets = EnzymeRates.Mechanisms.catalytic(am), EnzymeRates.metabolites(am)
     active = EnzymeRates.Derivation._law(
-        cm, s, EnzymeRates.Derivation.conformation_steps(am, :active);
+        cm, s, am.active_steps;
         concentrations = mets)
     inactive = EnzymeRates.Derivation._law(
-        cm, s, EnzymeRates.Derivation.conformation_steps(am, :inactive);
+        cm, s, am.inactive_steps;
         inactive = true, concentrations = mets)
     @test active.vars == inactive.vars
     @test active.vars.names == [mets; s.names[s.independents]; :Keq]
@@ -503,7 +503,7 @@ end
         end
     end
     am = _testhelper_lift(inert)
-    @test !any(EnzymeRates.Derivation.conformation_steps(am, :inactive))
+    @test !any(am.inactive_steps)
     s = EnzymeRates.Derivation._solve(am)
     A = EnzymeRates.Derivation._law(am, s)
     @test EnzymeRates.Derivation._flip_only(A.inactive) &&
@@ -569,8 +569,8 @@ end
     end
     am = _testhelper_lift(em)
     cm = am.catalytic
-    amask, imask = EnzymeRates.Derivation.conformation_steps(am, :active),
-        EnzymeRates.Derivation.conformation_steps(am, :inactive)
+    amask, imask = am.active_steps,
+        am.inactive_steps
     @test _testhelper_laplacian_tree_count(cm, amask) == 4320
     @test _testhelper_laplacian_tree_count(cm, imask) == 4320
     @test EnzymeRates.Derivation.rate_equation_complexity(cm, amask) <=

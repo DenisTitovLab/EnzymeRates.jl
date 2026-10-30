@@ -439,7 +439,7 @@ function _testhelper_same_model_regroupings(m)
     n = EnzymeRates.Derivation.parameter_count(m)
     cm = EnzymeRates.Mechanisms.catalytic(m)
     kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-    for g in 1:length(EnzymeRates.Mechanisms.groups(cm)),
+    for g in 1:length(cm.groups),
         bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
         child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
         _testhelper_is_valid(child) &&
@@ -933,7 +933,7 @@ end
         flags = _testhelper_flags(m)
         for re in [[flags];
                    [flags .| ([e.group for e in m.steps] .== g)
-                    for g in 1:length(EnzymeRates.Mechanisms.groups(m))];
+                    for g in 1:length(m.groups)];
                    [trues(length(m.steps))]]
             net = EnzymeRates.Derivation._eps_network(m, re)
             turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
@@ -1425,7 +1425,7 @@ end
         fault, n = EnzymeRates.Derivation._guard(m).fault,
             EnzymeRates.Derivation.parameter_count(m)
         cm = EnzymeRates.Mechanisms.catalytic(m)
-        for g in 1:length(EnzymeRates.Mechanisms.groups(cm)),
+        for g in 1:length(cm.groups),
             bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
             child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
             EnzymeRates.Derivation.parameter_count(child) == n || continue
@@ -1540,7 +1540,7 @@ end
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 172
-    @test all(am -> any(EnzymeRates.Derivation.conformation_steps(am, :inactive)), kids)
+    @test all(am -> any(am.inactive_steps), kids)
     @test all(am -> isempty(EnzymeRates.Derivation._phantom_weights(
                   EnzymeRates.Derivation._law(am))), kids)
 end

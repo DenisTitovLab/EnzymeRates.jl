@@ -50,7 +50,7 @@ function _re_turnover_message(who::String, mech::_AnyMech)
     for t in cycle
         k = net.edge[t]
         line = Mechanisms.step_text(m, k)
-        excludes(mech, k, _CONFORMATIONS[c]) &&
+        _excluded_steps(mech, c)[k] &&
             (line *= " (whose affinity vanishes in the $state conformation)")
         push!(lines, line)
     end
@@ -102,7 +102,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         bindings = unique!([net.edge[t] for t in eachindex(net.from)
                             if net.fast[t] && net.edge[t] != 0 &&
                                s.segment[net.from[t]] == s.bottomless &&
-                               Mechanisms.step_kind(m, net.edge[t]) in
+                               m.step_kinds[net.edge[t]] in
                                   (:binding, :fused_binding)])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :

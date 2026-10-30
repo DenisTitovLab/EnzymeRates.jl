@@ -382,12 +382,12 @@ function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vec
 end
 
 """The merged complexes of graph `m`, each once: the forms that a fused binding of a
-substrate enters, a `:fused_binding` (`step_kind`) that takes up a metabolite named in
+substrate enters, a `:fused_binding` (`step_kinds`) that takes up a metabolite named in
 `subs`. Only the edges `on` flags count."""
 _merged_complexes(m::Mechanisms.Mechanism, subs::Vector{Symbol},
                   on::BitVector = trues(length(m.steps))) =
     unique(m.steps[k].to for k in eachindex(m.steps)
-           if on[k] && Mechanisms.step_kind(m, k) === :fused_binding &&
+           if on[k] && m.step_kinds[k] === :fused_binding &&
               _holds(m.steps[k].taken_up, subs))
 
 """
@@ -405,7 +405,7 @@ edges never removes such a cycle, so a turnover cycle of the candidate fails bot
 """
 function _seed_candidate_screen(m::Mechanisms.Mechanism)
     ks = eachindex(m.steps)
-    any(k -> Mechanisms.step_kind(m, k) === :isomerization, ks) &&
+    any(k -> m.step_kinds[k] === :isomerization, ks) &&
         error("_seed_candidate_screen: the seed base holds an isomerization; a base " *
               "has every isomerization merged")
     subs, prods = m.substrates, m.products

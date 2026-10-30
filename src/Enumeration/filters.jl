@@ -57,7 +57,7 @@ function _chemistry_equilibrates_both_sides(
     end
     # The forms joined by RE isomerizations, one node per segment; a merged complex
     # outside every RE isomerization is a node of its own.
-    isos = BitVector([re[k] && Mechanisms.step_kind(m, k) === :isomerization
+    isos = BitVector([re[k] && m.step_kinds[k] === :isomerization
                       for k in eachindex(m.steps)])
     s = Derivation.re_segments(m, isos, isos)
     nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
@@ -69,13 +69,13 @@ end
 """Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own flags,
-over the active conformation's law (`conformation_steps`): every edge of a plain
+over the active conformation's law (`active_steps`): every edge of a plain
 mechanism, and the edges its tags keep of an allosteric one. The beam expands a degenerate
 seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     re = _rapid_equilibrium_flags(cm)
-    on = Derivation.conformation_steps(m, :active)
+    on = m isa Mechanisms.AllostericMechanism ? m.active_steps : trues(length(cm.steps))
     !(_has_vmax(cm, re, cm.substrates, on) &&
       _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
@@ -165,16 +165,15 @@ end
 """
     _hyperbolic_catalysis(am::AllostericMechanism) -> Bool
 
-Whether each conformation's law of `am` (`conformation_steps`) passes
+Whether each conformation's law of `am` (`active_steps`, `inactive_steps`) passes
 `_hyperbolic_catalysis`. A conformation that runs part
 of the catalytic graph can carry a power the whole graph lacks: a ping-pong's abortive
 complexes can put A² into the inactive law once that conformation stops one
 half-reaction.
 """
 _hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
-    all(c -> _hyperbolic_catalysis(Mechanisms.catalytic(am),
-                                   Derivation.conformation_steps(am, c)),
-        (:active, :inactive))
+    all(mask -> _hyperbolic_catalysis(Mechanisms.catalytic(am), mask),
+        (am.active_steps, am.inactive_steps))
 
 """
 Whether every segment of the segment graph reaches `root` when each edge in
@@ -274,7 +273,7 @@ _holds_modifier(m::Mechanisms.Mechanism, x::Int) =
 `:fused_binding` step), or `nothing` when the step binds no modifier copy."""
 function _bound_copy(m::Mechanisms.Mechanism, k::Int)
     t = m.steps[k].taken_up
-    Mechanisms.step_kind(m, k) in (:binding, :fused_binding) && any(x -> x.modifier, t) ?
+    m.step_kinds[k] in (:binding, :fused_binding) && any(x -> x.modifier, t) ?
         only(t).name : nothing
 end
 
@@ -292,7 +291,7 @@ end
         -> Union{Dict{Int, Tuple{_GaugeClass, _GaugeClass}}, Nothing}
 
 The dwell gauge of the modifier copy bound by kinetic group `g` of `m`, in one
-conformational state's graph, whose groups hold the edges `groups(m)` lists: the rescaling
+conformational state's graph, whose groups hold the edges `m.groups` lists: the rescaling
 each nonempty kinetic group needs, or `nothing` when the gauge does not exist. It does not
 exist when group `g` binds no modifier or a complex it forms has no productive twin
 (`_all_twin`, with `twin` a `_productive_twin` of that graph), or when some group would
@@ -334,7 +333,7 @@ function _gauge_rescaling(m::Mechanisms.Mechanism, members::Vector{Vector{Int}},
     for (h, ks) in enumerate(members), k in ks
         t = m.steps[k].taken_up
         m.steps[k].rapid_equilibrium &&
-            Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
+            m.step_kinds[k] in (:binding, :fused_binding) &&
             !any(x -> x.modifier, t) && _copies(t, ligand) == 1 &&
             (binding_group[(m.steps[k].from, m.steps[k].to)] = h)
     end
@@ -378,10 +377,10 @@ identifiable. Two copies that are twins only of each other, neither pinned, pass
 and carry a phantom: the rule admits them.
 
 An allosteric copy binds the active state unless its tag is `:OnlyI` and the inactive
-state unless it is `:OnlyA`. Each state's graph is its law's (`conformation_steps`): the
-edges its tags keep between forms they join to free E. The copy binds in a state only at
-the sites that graph keeps; in a state where it binds nothing, every factor of that state
-is 1. A copy that binds in neither state is not redundant: its
+state unless it is `:OnlyA`. Each state's graph is its law's (`active_steps`,
+`inactive_steps`): the edges its tags keep between forms they join to free E. The copy
+binds in a state only at the sites that graph keeps; in a state where it binds nothing,
+every factor of that state is 1. A copy that binds in neither state is not redundant: its
 constant enters neither law and is not fitted. The two states form one system.
 A group tagged `:EqualAI` has one set of constants in both, so it must take the same
 rescaling in each. A shared class is one number in both states only when its binding
@@ -392,7 +391,7 @@ per state.
 function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = Mechanisms.groups(cm)
+    members = cm.groups
     any(ks -> _bound_copy(cm, first(ks)) !== nothing, members) || return Int[]
     if m isa Mechanisms.Mechanism
         twin = _productive_twin(cm, trues(length(cm.steps)))
@@ -401,8 +400,7 @@ function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
     end
     am = m::Mechanisms.AllostericMechanism
     equal(h) = am.mwc_tags[h] === :EqualAI
-    masks = (Derivation.conformation_steps(am, :active),
-             Derivation.conformation_steps(am, :inactive))
+    masks = (am.active_steps, am.inactive_steps)
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
     twins = [_productive_twin(cm, mask) for mask in masks]
     unscaled(c) = Dict(h => (_NO_RESCALING, _NO_RESCALING)
@@ -453,7 +451,7 @@ children; the other moves preserve both rules.
 function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
                                           Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
-    members = Mechanisms.groups(cm)
+    members = cm.groups
     # A group as its steps' DSL lines (`step_text`).
     label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
     flux = _flux_carrying_groups(cm, _rapid_equilibrium_flags(cm))
@@ -496,7 +494,7 @@ function _assert_atom_conserving(m::Union{Mechanisms.Mechanism,
     side(form::Int, other::Int, free::Vector{Mechanisms.Met}) =
         [names(cm.nodes[form].bound); cm.nodes[form].added;
          cm.nodes[other].subtracted; names(free)]
-    for ks in Mechanisms.groups(cm), k in ks
+    for ks in cm.groups, k in ks
         f, t = cm.steps[k].from, cm.steps[k].to
         taken, given = cm.steps[k].taken_up, cm.steps[k].given_off
         diff = _net_atoms(rxn, side(t, f, given), side(f, t, taken))

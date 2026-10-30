@@ -113,15 +113,15 @@ end
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
 rapid equilibrium, `[kf, kr]` at steady state — as the joint solve names its columns
-(`constant_columns`): `names[k]` for edge `k` of the state's law (`conformation_steps`;
-every edge for `:None`), empty for every other edge. `state` is `:None` for a plain
-mechanism and `:A` or `:I` for an allosteric one; an inactive constant reads its own
-column when its group has one, so an `:EqualAI` group's constants take their one shared
-name in both.
+(`constant_columns`): `names[k]` for edge `k` of the state's law (`active_steps`,
+`inactive_steps`; every edge for `:None`), empty for every other edge. `state` is
+`:None` for a plain mechanism and `:A` or `:I` for an allosteric one; an inactive
+constant reads its own column when its group has one, so an `:EqualAI` group's
+constants take their one shared name in both.
 """
 function _edge_names(m::_AnyMech, state::Symbol, cols = constant_columns(m))
     cm = Mechanisms.catalytic(m)
-    mask = conformation_steps(m, state === :I ? :inactive : :active)
+    mask = _conformation_steps(m, state === :I ? 2 : 1)
     index = Dict(c => i for (i, c) in enumerate(cols.columns))
     column(k, slot) = get(() -> index[_Column((k, slot, false))], index,
                           _Column((k, slot, state === :I)))

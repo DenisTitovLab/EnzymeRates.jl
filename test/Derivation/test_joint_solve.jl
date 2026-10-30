@@ -238,7 +238,7 @@ end
                "ES <--> EP"]
         label(f) = m.nodes[f].conformation
         tied =
-            only(ks for ks in EnzymeRates.Mechanisms.groups(m) if length(ks) == 2)
+            only(ks for ks in m.groups if length(ks) == 2)
         @test all(k -> label(m.steps[k].from) === :E && label(m.steps[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
         @test EnzymeRates.Mechanism(@enzyme_mechanism begin
@@ -324,7 +324,7 @@ end
         kept = EnzymeRates.Derivation._kept_members(am)
         group = [e.group for e in am.catalytic.steps]
         g = only(g for (g, members) in enumerate(
-            EnzymeRates.Mechanisms.groups(am.catalytic)) if length(members) == 2)
+            am.catalytic.groups) if length(members) == 2)
         # Active: E(A) + I sorts before E(P) + I (A before P), so it is kept; inactive:
         # the member in the law is kept.
         @test _testhelper_edge_text(am, kept[(g, 1, false)]) == "EA + I ⇌ EAI"

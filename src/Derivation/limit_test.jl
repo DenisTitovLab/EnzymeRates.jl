@@ -198,7 +198,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
     nf, names = length(m.nodes), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
-    excluded(k, c) = excludes(mech, k, _CONFORMATIONS[c])
+    excluded(k, c) = _excluded_steps(mech, c)[k]
     equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
                   mech.mwc_tags[g] === :EqualAI
     function drop!(row, k, c, dir)
@@ -213,7 +213,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
         row
     end
     ties = Vector{Int}[]
-    for (g, members) in enumerate(Mechanisms.groups(m)), c in 1:ncopies
+    for (g, members) in enumerate(m.groups), c in 1:ncopies
         lead = first(members)
         excluded(lead, c) && continue
         for k in members[2:end]
@@ -238,7 +238,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
         den = _mul_held(x[(c - 1) * nf + b], m.steps[k].given_off, names, xnames)
         K[k, c] = _mulp(num, _invp(den))
     end
-    ngroups = length(Mechanisms.groups(m))
+    ngroups = length(m.groups)
     ss = [_residue!(rng) for _ in 1:ngroups, _ in 1:ncopies]
     for g in 1:ngroups
         ncopies == 2 && equal_ai(g) && (ss[g, 2] = ss[g, 1])

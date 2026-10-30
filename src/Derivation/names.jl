@@ -61,11 +61,10 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm = Mechanisms.catalytic(m)
     g = cm.steps[k].group
     group_tag = m isa Mechanisms.AllostericMechanism ? m.mwc_tags[g] : :None
-    excludes(group_tag, state === :I ? :inactive : :active) &&
-        return Mechanisms.step_sides(cm, k)
+    Mechanisms.excludes(group_tag, state === :I ? :inactive : :active) &&
+        return cm.step_sides[k]
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
-    Mechanisms.step_sides(cm,
-                          get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive)))
+    cm.step_sides[get(() -> kept[(g, 1, inactive)], kept, (g, slot, inactive))]
 end
 
 # Every edge constant is named after the reaction of its class's kept member: a rate
@@ -82,7 +81,7 @@ name(p::Krev, m::_AnyMech, kept = _kept_members(m)) =
                      p.state)
 function name(p::Krapid, m::_AnyMech, kept = _kept_members(m))
     s = _constant_sides(m, p.edge, 1, p.state, kept)
-    binds = Mechanisms.step_kind(Mechanisms.catalytic(m), p.edge) in
+    binds = Mechanisms.catalytic(m).step_kinds[p.edge] in
             (:binding, :fused_binding)
     _render_reaction("K_", binds ? reverse(s) : s, p.state)
 end
@@ -126,7 +125,7 @@ its rank `edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
 function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int,
                        edge_rank::Vector{Int})
     e = m.steps[k]
-    sk = Mechanisms.step_kind(m, k)
+    sk = m.step_kinds[k]
     kind = sk === :isomerization ? 3 : sk === :binding ? 1 : 2
     occupied = !isempty(m.nodes[e.from].bound) && !isempty(m.nodes[e.to].bound)
     ss = !e.rapid_equilibrium
@@ -135,7 +134,7 @@ function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int,
 end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
-_solve_tags(m::Mechanisms.Mechanism) = fill(:None, length(Mechanisms.groups(m)))
+_solve_tags(m::Mechanisms.Mechanism) = fill(:None, length(m.groups))
 _solve_tags(am::Mechanisms.AllostericMechanism) = am.mwc_tags
 
 """Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
@@ -160,16 +159,16 @@ allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA
 `:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
 holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
 `law[k]` whether edge `k` lies in the inactive conformation's law and `alaw[k]` whether it
-lies in the active conformation's law (`conformation_steps`; `_in_active_law` adds the
+lies in the active conformation's law (`active_steps`; `_in_active_law` adds the
 `:EqualAI` constants the inactive law reads).
 """
 function _ordered_columns(m::_AnyMech)
     cm = Mechanisms.catalytic(m)
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
-    law = conformation_steps(m, :inactive)
-    alaw = conformation_steps(m, :active)
     allosteric = m isa Mechanisms.AllostericMechanism
+    law = _conformation_steps(m, 2)
+    alaw = _conformation_steps(m, 1)
     columns = _Column[]
     for k in flat, inactive in (false, true)
         inactive && !(allosteric && _has_inactive_columns(tags[cm.steps[k].group])) &&
@@ -234,7 +233,7 @@ enters the law: an inactive copy when its step lies in the inactive conformation
 an active column when its step lies in the active one's or is an `:EqualAI` step of the
 inactive one's, whose one constant the inactive law reads. `flat` holds the steps group
 by group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of
-the inactive conformation (`conformation_steps`).
+the inactive conformation (`inactive_steps`).
 """
 function constant_columns(m::_AnyMech)
     cols = _ordered_columns(m)
@@ -261,16 +260,16 @@ inactive one). An `:EqualAI` ligand has one bare name in both conformations
 """
 function regulator_constant(am::Mechanisms.AllostericMechanism, lig::Symbol, tag::Symbol,
                             inactive::Bool)
-    excludes(tag, inactive ? :inactive : :active) && return nothing
+    Mechanisms.excludes(tag, inactive ? :inactive : :active) && return nothing
     name(Kreg(lig, tag === :EqualAI ? :EqualAI : inactive ? :I : :A), am)
 end
 
 """The steps group by group, each group in step order: the order the joint solve and the
 derivation read them in."""
-_flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, Mechanisms.groups(m); init = Int[])
+_flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, m.groups; init = Int[])
 """Whether step `k` of `m` binds a product: it takes up one product, not as a modifier."""
 _binds_product(m::Mechanisms.Mechanism, k::Int) =
-    Mechanisms.step_kind(m, k) in (:binding, :fused_binding) &&
+    m.step_kinds[k] in (:binding, :fused_binding) &&
     (x = only(m.steps[k].taken_up); !x.modifier && insorted(x.name, m.products))
 """Each node's position in content order (`isless(::Node)`: label, bound, added,
 subtracted): its index, except that free E moves behind the nodes whose label sorts before

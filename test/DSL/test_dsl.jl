@@ -76,7 +76,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         # unchecked.
         @test EnzymeRates.Derivation._guard(mech).fault ===
               EnzymeRates.Derivation._RE_TURNOVER
-        @test length(EnzymeRates.Mechanisms.groups(mech)) == 3
+        @test length(mech.groups) == 3
         # Steps are canonicalized; pick each by content, not position.
         # E + S ⇌ E(S)
         es_step = _testhelper_binding_of(mech, EnzymeRates.Mechanisms.Met(:S, false))
@@ -136,7 +136,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         @test _testhelper_regulators(m) == [:I]
         # One shared 2-step kinetic group (the S-binding pair) + 3 singletons →
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
-        @test length(EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanism(m))) == 4
+        @test length(EnzymeRates.Mechanism(m).groups) == 4
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
@@ -659,7 +659,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         end)
         @test one_tuple == bare
         @test length(
-            EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanisms.catalytic(one_tuple))) == 3
+            EnzymeRates.Mechanisms.catalytic(one_tuple).groups) == 3
 
         # A plain mechanism has no group tags, parenthesized or not.
         @test_throws("@enzyme_mechanism: tag annotation `(E(P) ⇌ E + P)::EqualAI` is not " *
@@ -1451,7 +1451,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                 E + P::Mod ⇌ E(P::Mod)
             end
         end)
-        @test EnzymeRates.Mechanisms.modifiers(declared) == [:P]
+        @test declared.modifiers == [:P]
     end
 
     @testset "a step side holds one enzyme form" begin

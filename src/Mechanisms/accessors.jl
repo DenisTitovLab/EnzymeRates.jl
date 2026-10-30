@@ -1,8 +1,5 @@
 # ABOUTME: The facts a mechanism's graph gives (what a step does, which forms the steps of a
-# ABOUTME: conformation join to free E), computed once at construction, and their reads.
-
-"""What step `k` of `m` does (`_step_kind`; stored as `m.step_kinds`)."""
-step_kind(m::Mechanism, k::Int) = m.step_kinds[k]
+# ABOUTME: conformation join to free E), computed once at construction.
 
 """
 What step `e` of `m` does: `:isomerization` when it takes up and gives off nothing,
@@ -13,9 +10,6 @@ metabolite, else `:chemistry`.
 _step_kind(m::Mechanism, e::Step) =
     _is_iso(e) ? :isomerization : _is_plain_binding(m, e) ? :binding :
     _is_binding(e) ? :fused_binding : :chemistry
-
-"""Each kinetic group's steps, in step order (stored as `m.groups`)."""
-groups(m::Mechanism) = m.groups
 
 """Each kinetic group's steps, in step order, each list stored at its length."""
 function _groups(steps::Vector{Step})

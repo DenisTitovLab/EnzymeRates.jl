@@ -8,10 +8,10 @@ using LinearAlgebra: det
 using SHA: sha256
 
 const API = (:AllParameters, :FittedParameters, :IndependentParameters,
-    :check_valid_rate_equation, :conformation_steps, :excludes, :has_turnover_cycle,
-    :has_unbalanced_cycle, :parameter_count, :parameters, :rate_equation,
-    :rate_equation_complexity, :rate_equation_dedup_key, :rate_equation_string,
-    :re_segments, :scale_rate_constants, :segment_graph)
+    :check_valid_rate_equation, :has_turnover_cycle, :has_unbalanced_cycle,
+    :parameter_count, :parameters, :rate_equation, :rate_equation_complexity,
+    :rate_equation_dedup_key, :rate_equation_string, :re_segments, :scale_rate_constants,
+    :segment_graph)
 
 """A plain or an allosteric mechanism."""
 const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}

@@ -68,7 +68,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         mech = ER.Mechanism(m)
         @test Set(_testhelper_edge_text(mech, k) for k in eachindex(mech.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
-        @test length(ER.Mechanisms.groups(mech)) == 3
+        @test length(mech.groups) == 3
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES", "EP"])
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
@@ -87,8 +87,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # Steps are canonicalized; the two R-binding steps share one kinetic
         # group → 5 steps, 4 groups (one 2-step group binding R).
         mech2 = ER.Mechanism(m2)
-        @test length(ER.Mechanisms.groups(mech2)) == 4
-        shared = only(ks for ks in ER.Mechanisms.groups(mech2) if length(ks) == 2)
+        @test length(mech2.groups) == 4
+        shared = only(ks for ks in mech2.groups if length(ks) == 2)
         @test all(k -> ER.Mechanisms._is_binding(mech2.steps[k]) &&
                        only(mech2.steps[k].taken_up) == ER.Mechanisms.Met(:R, true),
                   shared)
@@ -133,7 +133,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         m = ER.Mechanism(em)
         @test m.substrates == [:A, :B]
         @test m.products == [:P, :Q]
-        @test ER.Mechanisms.modifiers(m) == [:A, :I, :J]
+        @test m.modifiers == [:A, :I, :J]
         @test ER.metabolites(m) == [:A, :B, :P, :Q, :I, :J]
         @test ER.metabolites(em) == (:A, :B, :P, :Q, :I, :J)
         # A reaction's competitive inhibitor that no step binds is no concentration of
@@ -144,7 +144,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             competitive_inhibitors: K
         end
         on_rxn = only(ER.Enumeration.init_mechanisms(rxn))
-        @test ER.Mechanisms.modifiers(on_rxn) == Symbol[]
+        @test on_rxn.modifiers == Symbol[]
         @test ER.metabolites(on_rxn) == [:S, :P]
         # An allosteric mechanism lists its site ligands last, site by site; a name that
         # is both a modifier and a ligand is listed once.
@@ -164,7 +164,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): X::OnlyA, I::OnlyI
         end)
         @test (am.catalytic.substrates, am.catalytic.products,
-               ER.Mechanisms.modifiers(am)) == ([:S], [:P], [:I])
+               am.catalytic.modifiers) == ([:S], [:P], [:I])
         @test ER.metabolites(am) == [:S, :P, :I, :X, :Y]
         @test Tuple(ER.metabolites(am)) == ER.metabolites(ER.compile_mechanism(am))
     end
@@ -257,7 +257,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
         # canonical, so identify the tagged group by its step, not its position.
         am_c = ER.AllostericMechanism(m)
-        members = ER.Mechanisms.groups(am_c.catalytic)
+        members = am_c.catalytic.groups
         onlyA_g = only(g for g in eachindex(members)
                        if am_c.mwc_tags[g] === :OnlyA)
         @test !ER.Mechanisms._is_binding(am_c.catalytic.steps[first(members[onlyA_g])])
@@ -1638,7 +1638,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test m.catalytic_multiplicity == 2
         @test m.regulatory_sites ==
               [ER.Mechanisms.RegulatorySite([:I], 1, [:OnlyI])]
-        @test length(ER.Mechanisms.groups(m.catalytic)) == 3
+        @test length(m.catalytic.groups) == 3
         @test ER.Mechanisms.allosteric_regulators(m) == [:I]
 
         # Written in another order, each tag beside its step.
@@ -1665,7 +1665,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P
             end
         end)
-        onlyi_tags = fill(:EqualAI, length(ER.Mechanisms.groups(uni)))
+        onlyi_tags = fill(:EqualAI, length(uni.groups))
         onlyi_tags[uni.steps[_testhelper_edge(uni, "E + S ⇌ ES")].group] = :OnlyI
         @test_throws ErrorException(
             "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than " *
@@ -1714,9 +1714,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         lifted = ER.Mechanism(cm)
         @test ER.Mechanisms.catalytic(am) == lifted
         @test (am.catalytic.substrates, am.catalytic.products,
-               ER.Mechanisms.modifiers(am)) ==
-              (lifted.substrates, lifted.products,
-               ER.Mechanisms.modifiers(lifted))
+               am.catalytic.modifiers) ==
+              (lifted.substrates, lifted.products, lifted.modifiers)
 
         # mwc_tags and multiplicity extracted from CS
         @test am.mwc_tags[1] === :EqualAI
@@ -1845,7 +1844,7 @@ end
     m = c.mechanism
     for (j, (_, chemistry, binding, turned)) in enumerate(cases)
         e = m.steps[c.edge_of[j]]
-        @test (ER.Mechanisms.step_kind(m, c.edge_of[j]) !== :binding) == chemistry
+        @test (m.step_kinds[c.edge_of[j]] !== :binding) == chemistry
         @test ER.Mechanisms._is_binding(e) == binding
         turned === missing || @test c.flipped[j] == turned
     end
@@ -2085,7 +2084,7 @@ end
     end
     m = ER.Mechanism(ss)
     label(f) = m.nodes[f].conformation
-    mirror = only(m.steps[ks] for ks in ER.Mechanisms.groups(m)
+    mirror = only(m.steps[ks] for ks in m.groups
                   if length(ks) == 2 && all(k -> ER.Mechanisms._is_iso(m.steps[k]), ks))
     @test all(e -> label(e.from) == :F && label(e.to) == :E, mirror)
     @test !occursin("Wegscheider", rate_equation_string(ss))
@@ -2136,7 +2135,7 @@ end
 # isomerizes, and what each takes up and gives off.
 function _testhelper_exchanges(mech)
     cm = ER.Mechanisms.catalytic(mech)
-    group = only(ks for ks in ER.Mechanisms.groups(cm) if !any(
+    group = only(ks for ks in cm.groups if !any(
         k -> ER.Mechanisms._is_iso(cm.steps[k]) || ER.Mechanisms._is_binding(cm.steps[k]),
         ks))
     [(e.taken_up, e.given_off) for e in cm.steps[group]]
@@ -2390,7 +2389,7 @@ end
     # names differ in the bound form (k_E_A_to_EA, k_E_A_to_EstarA).
     m = _testhelper_written(:(E + A <--> E(A)), :(E + A <--> Estar(A)),
                             :(E(A) <--> E(P)), :(E + P <--> E(P)))
-    names = [ER.Derivation.name(p, m) for members in ER.Mechanisms.groups(m)
+    names = [ER.Derivation.name(p, m) for members in m.groups
              for p in ER.Derivation._edge_constants(m, first(members), :None)]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)

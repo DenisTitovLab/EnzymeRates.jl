@@ -635,7 +635,7 @@ function _construct(raw::NamedTuple)
             raw.mwc_tags, raw.catalytic_multiplicity,
             [Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags)
              for s in raw.regulatory_sites])
-    bound = Mechanisms.modifiers(Mechanisms.catalytic(m))
+    bound = (m isa Mechanisms.AllostericMechanism ? m.catalytic : m).modifiers
     unused = findfirst(∉(bound), raw.modifiers)
     unused === nothing ||
         error("Mechanism: modifier $(raw.modifiers[unused]) is declared, but no step " *

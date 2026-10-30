@@ -426,7 +426,7 @@ only reweights each enzyme form and adds no power of its own, so such a
 mechanism may carry any catalytic scheme. The test is structural
 (`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
 the rapid-equilibrium segment graph without deriving it. On an allosteric
-mechanism it reads each conformation's law (`conformation_steps`),
+mechanism it reads each conformation's law (`active_steps`, `inactive_steps`),
 since a conformation that runs part of the catalytic graph can carry a power
 the whole graph lacks: once the inactive conformation stops one half-reaction
 of a ping-pong, its abortive complexes can put A² into its law. Every binding of a
@@ -443,7 +443,7 @@ with random-order steady-state binding still derives and fits.
 **Every step but a plain binding is chemistry.** A binding takes up exactly one
 metabolite and gives off none. It is plain when its product form is its source
 form with that metabolite added, the conformation free to change, and fused
-otherwise. The moves tell catalysis from binding by `step_kind`, a plain binding
+otherwise. The moves tell catalysis from binding by `step_kinds`, a plain binding
 being `:binding` and every other step chemistry: isomerizations, fused bindings and
 Theorell–Chance steps. Kinetic groups go by stoichiometry instead: a group's
 steps take up and give off the same metabolites, so a fused and a plain binding

@@ -60,10 +60,6 @@ function _step_sides(m::Mechanism)
      for e in m.steps]
 end
 
-"""The names of step `k`'s two sides in its stored direction, `(from, to)` (`_sides`;
-stored as `m.step_sides`); every step constant is named after them."""
-step_sides(m::Mechanism, k::Int) = m.step_sides[k]
-
 """Step `k` of `m` as a mechanism macro writes it, in its stored direction: each side is
 its node (`form_text`) and the metabolites the step takes up or gives off there
 (`_met_text`), joined by `⇌` (rapid equilibrium) or `<-->` (steady state):

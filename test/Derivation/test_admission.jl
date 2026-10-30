@@ -120,11 +120,11 @@ end
         end
     end
     bind, iso = _testhelper_edge(r2, "E + S ⇌ ES"), _testhelper_edge(r2, "F <--> E")
-    @test EnzymeRates.Derivation.excludes(r2, bind, :inactive) &&
-          !EnzymeRates.Derivation.excludes(r2, bind, :active)
-    @test EnzymeRates.Derivation.conformation_steps(r2, :active) == trues(4)
+    @test r2.excluded_inactive[bind] &&
+          !r2.excluded_active[bind]
+    @test r2.active_steps == trues(4)
     # The inactive law deletes both tagged steps, which strands every form but E.
-    @test EnzymeRates.Derivation.conformation_steps(r2, :inactive) == falses(4)
+    @test r2.inactive_steps == falses(4)
     law = EnzymeRates.Derivation._law_network(r2)
     @test (law.nforms, law.ncopies, length(law.from)) == (4, 2, 10)
     @test law.present == [true, true, true, true, true, false, false, false]
@@ -467,7 +467,7 @@ end
     for mech in mechs
         cm = EnzymeRates.Mechanisms.catalytic(mech)
         names = (substrates = cm.substrates, products = cm.products,
-                 modifiers = EnzymeRates.Mechanisms.modifiers(cm),
+                 modifiers = cm.modifiers,
                  regulators = mech isa EnzymeRates.AllostericMechanism ?
                               EnzymeRates.Mechanisms.allosteric_regulators(mech) : Symbol[])
         for (k, e) in enumerate(cm.steps)
@@ -2055,7 +2055,7 @@ end
     bind, release, chem = (_testhelper_edge(am, t) for t in
                            ("E + S ⇌ ES", "E + P ⇌ EP", "ES <--> EP"))
     # The chemistry is stored substrate side first, so it runs toward products as stored.
-    @test EnzymeRates.Mechanisms.runs_toward_products(m, chem)
+    @test m.toward_products[chem]
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(NL, U, 0, 2, bind)
     @test EnzymeRates.Derivation._admission_interior(am) == v
@@ -2628,7 +2628,7 @@ end
         end
     end
     half1 = _testhelper_edge(both, "E_res_plusA_minusP + P <--> EA")
-    @test !EnzymeRates.Mechanisms.runs_toward_products(both.catalytic, half1)
+    @test !both.catalytic.toward_products[half1]
     v = EnzymeRates.Derivation._guard(both)
     @test v == EnzymeRates.Derivation._Verdict(IS, U, 0, 2, half1)
     @test !isempty(_testhelper_exclusion(both, 2).lost)
@@ -2691,7 +2691,7 @@ end
     for (x, fixed, forms) in ((r3, r3_untagged, "F, F(I)"), (r4, r4_untagged, "F"))
         iso = _testhelper_edge_between(x, "E", "F")
         # An isomerization of free forms ties on both sides, so it runs as stored.
-        @test EnzymeRates.Mechanisms.runs_toward_products(x.catalytic, iso)
+        @test x.catalytic.toward_products[iso]
         v = EnzymeRates.Derivation._guard(x)
         @test v == EnzymeRates.Derivation._Verdict(IS, U, 0, 2, iso)
         @test _testhelper_island_verdict(x)
@@ -3520,11 +3520,11 @@ end
         end
     end
     onlyi = fx.competitive_RE
-    @test EnzymeRates.Derivation.conformation_steps(onlyi, :active) ==
-          EnzymeRates.Derivation.conformation_steps(onlya, :inactive)
-    @test EnzymeRates.Derivation.conformation_steps(onlyi, :inactive) ==
-          EnzymeRates.Derivation.conformation_steps(onlya, :active)
-    @test !all(EnzymeRates.Derivation.conformation_steps(onlyi, :active))
+    @test onlyi.active_steps ==
+          onlya.inactive_steps
+    @test onlyi.inactive_steps ==
+          onlya.active_steps
+    @test !all(onlyi.active_steps)
 end
 
 @testset "an RE binding whose affinity vanishes still closes a fast cycle" begin
@@ -3888,7 +3888,7 @@ end
     @test (v.fault, v.face, v.conformation) ==
           (EnzymeRates.Derivation._NO_ACTIVE_TURNOVER, 0, 1)
     ks = [k for k in eachindex(am.catalytic.steps)
-          if EnzymeRates.Derivation.excludes(am, k, :active)]
+          if am.excluded_active[k]]
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :EqualAI)
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :NonequalAI)
     @test EnzymeRates.Derivation._guard_message(am, v) ==

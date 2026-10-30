@@ -218,7 +218,7 @@ end
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = ER.Mechanism(m)
     k = only(k for k in eachindex(mech.steps)
-             if ER.Mechanisms.step_kind(mech, k) !== :binding)
+             if mech.step_kinds[k] !== :binding)
     kon, koff = ER.Derivation._edge_constants(mech, k, :None)
     @test kon isa ER.Derivation.Kfor && koff isa ER.Derivation.Krev
     @test ER.Derivation.name(kon, mech) == :k_EQ_P_to_EAB &&
@@ -335,7 +335,7 @@ end
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
     pm = ER.Mechanism(pingpong)
     @test length(pp_names) == sum(pm.steps[first(ks)].rapid_equilibrium ? 1 : 2
-                                  for ks in ER.Mechanisms.groups(pm))
+                                  for ks in pm.groups)
 end
 
 @testset "a modifier-only name is bare in constant names, a reactant's copy is Xmod" begin
@@ -563,7 +563,7 @@ end
     @test texts == ["E + A <--> EA", "D <--> E", "D + P <--> EP", "EA <--> EP"]
     # By base rank the edges from D come first.
     @test ER.Derivation._edge_base_rank(m) == [3, 1, 2, 4]
-    @test [ER.Mechanisms.step_kind(m, k) === :isomerization for k in eachindex(m.steps)] ==
+    @test [m.step_kinds[k] === :isomerization for k in eachindex(m.steps)] ==
           [false, true, false, true]
     @test [ER.Derivation._binds_product(m, k) for k in eachindex(m.steps)] ==
           [false, false, true, false]

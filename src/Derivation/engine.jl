@@ -107,7 +107,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     conc(held::Vector{Mechanisms.Met}) =
         _monomial((vars.index[x.name] => 1 for x in held)...)
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
-    binds(k) = Mechanisms.step_kind(m, k) in (:binding, :fused_binding)
+    binds(k) = m.step_kinds[k] in (:binding, :fused_binding)
     # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k: [M]/K for a binding
     # (K a dissociation constant), K·Π[taken up]/Π[given off] for any other edge.
     ratio(k) = _mmul(_mpow(bare(k, 1), binds(k) ? -1 : 1),
@@ -232,7 +232,7 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
 end
 
 """The law of the edges of `m` over the independents of `s`, every edge kept."""
-_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, trues(length(m.steps)))
+_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, _conformation_steps(m, 1))
 
 # ─── The MWC law ─────────────────────────────────────────────────────────
 
@@ -317,18 +317,18 @@ end
     _law(am, s = _solve(am)) -> _AlloLaw
 
 The MWC law of `am` over the independents of `s`: each conformation's law on its steps
-(`conformation_steps`), `_flip_only_law` for a conformation whose mask is empty, both
-over the concentrations of `metabolites(am)`, so their polynomials multiply directly; free
-E's weight in each over their common factor; and each regulatory site's binding
-polynomials. Free E roots segment 1, so its weight is that
-segment's tree sum times the law's shift. A law over the summed cap is refused before any
-polynomial product (`_assert_derivable`). The guard rejects an empty active mask
+(`active_steps`, `inactive_steps`), `_flip_only_law` for a conformation whose mask is
+empty, both over the concentrations of `metabolites(am)`, so their polynomials multiply
+directly; free E's weight in each over their common factor; and each regulatory site's
+binding polynomials. Free E roots segment 1, so its weight is that segment's tree sum
+times the law's shift. A law over the summed cap is refused before any polynomial
+product (`_assert_derivable`). The guard rejects an empty active mask
 (`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
 """
 function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
     _assert_derivable(am)
-    m, amask, imask = Mechanisms.catalytic(am), conformation_steps(am, :active),
-                      conformation_steps(am, :inactive)
+    m, amask, imask = Mechanisms.catalytic(am), am.active_steps,
+                      am.inactive_steps
     concentrations = Mechanisms.metabolites(am)
     LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
@@ -420,10 +420,10 @@ free E alone counting 0, saturated at `typemax(Int)`. The cap (`_assert_derivabl
 identify's `eq_complexity_filter` read it.
 """
 rate_equation_complexity(m::Mechanisms.Mechanism) =
-    rate_equation_complexity(m, trues(length(m.steps)))
+    rate_equation_complexity(m, _conformation_steps(m, 1))
 function rate_equation_complexity(am::Mechanisms.AllostericMechanism)
-    m, imask = Mechanisms.catalytic(am), conformation_steps(am, :inactive)
-    a = rate_equation_complexity(m, conformation_steps(am, :active))
+    m, imask = Mechanisms.catalytic(am), am.inactive_steps
+    a = rate_equation_complexity(m, am.active_steps)
     i = any(imask) ? rate_equation_complexity(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end

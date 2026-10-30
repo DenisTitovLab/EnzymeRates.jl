@@ -116,7 +116,7 @@ allosteric mechanism the tag of each group, the multiplicity and the regulatory 
 Every vector is fresh."""
 _testhelper_written(m::EnzymeRates.Mechanism) =
     (; substrates = copy(m.substrates), products = copy(m.products),
-     modifiers = EnzymeRates.Mechanisms.modifiers(m), nodes = copy(m.nodes),
+     modifiers = m.modifiers, nodes = copy(m.nodes),
      steps = copy(m.steps))
 _testhelper_written(am::EnzymeRates.AllostericMechanism) =
     (; _testhelper_written(am.catalytic)..., mwc_tags = copy(am.mwc_tags),
@@ -171,8 +171,8 @@ function _testhelper_graph(m)
         Symbol[EnzymeRates.Derivation.name(p, mech, kept)
                for p in EnzymeRates.Derivation._edge_constants(cm, k, state)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
-    in_law, in_active = EnzymeRates.Derivation.conformation_steps(mech, :inactive),
-        EnzymeRates.Derivation.conformation_steps(mech, :active)
+    in_law, in_active = allo ? (mech.inactive_steps, mech.active_steps) :
+                        (falses(length(cm.steps)), trues(length(cm.steps)))
     steps = map(edges) do k
         e = cm.steps[k]
         g, consumed, released = e.group, e.taken_up, e.given_off
@@ -200,7 +200,7 @@ function _testhelper_graph(m)
      mech.catalytic_multiplicity : nothing,
      sites, substrates = cm.substrates,
      products = cm.products,
-     modifiers = EnzymeRates.Mechanisms.modifiers(mech))
+     modifiers = cm.modifiers)
 end
 
 """The name of every step constant of the plain mechanism `m`, fitted or dependent: each
@@ -248,7 +248,7 @@ function _testhelper_check_stored_orientation(m)
     # The written form holds edge `k` as step `k`.
     flipped = _testhelper_canonicalize(raw).flipped
     for members in
-        EnzymeRates.Mechanisms.groups(EnzymeRates.Mechanisms.catalytic(mech))
+        EnzymeRates.Mechanisms.catalytic(mech).groups
         @test !any(flipped[members])
     end
     @test _testhelper_build((; raw..., steps = reverse(_testhelper_turned.(raw.steps)))) ==
@@ -888,7 +888,7 @@ function _testhelper_phantom_map_holds(am; rng)
         A = EnzymeRates.Derivation._law(am, s)
         w = EnzymeRates.Derivation._phantom_weights(A)
         isempty(w) && return false
-        all(EnzymeRates.Derivation.conformation_steps(am, :active)) || error(
+        all(am.active_steps) || error(
             "_testhelper_phantom_map_holds: " *
             "the active conformation drops an edge, so the law at L = 0 is not the law " *
             "of catalytic(am)")

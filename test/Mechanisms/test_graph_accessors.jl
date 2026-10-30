@@ -12,9 +12,8 @@ function _testhelper_allocated(f, args...)
     @allocated f(args...)
 end
 
-"""Test that `step_kind` and `catalytic` of `m`, on step `k`, allocate nothing."""
-function _testhelper_test_graph_reads_allocate_nothing(m, k)
-    @test _testhelper_allocated(ER.Mechanisms.step_kind, m, k) == 0
+"""Test that `catalytic` of `m` allocates nothing."""
+function _testhelper_test_graph_reads_allocate_nothing(m)
     @test _testhelper_allocated(ER.Mechanisms.catalytic, m) == 0
 end
 
@@ -55,19 +54,19 @@ end
         @test all(isempty(e.given_off) for e in m.steps)
         @test [e.rapid_equilibrium for e in m.steps] ==
               [true, true, false, true, false, true, false]
-        @test [M.step_kind(m, k) for k in eachindex(m.steps)] ==
+        @test [m.step_kinds[k] for k in eachindex(m.steps)] ==
               [:binding, :binding, :binding, :binding, :isomerization, :binding, :binding]
     end
 
     # Kinetic groups are numbered by their first step in step order.
     @testset "groups" begin
-        @test length(M.groups(m)) == 5
+        @test length(m.groups) == 5
         @test [e.group for e in m.steps] == [1, 2, 3, 2, 4, 1, 5]
-        @test M.groups(m) == [[1, 6], [2, 4], [3], [5], [7]]
+        @test m.groups == [[1, 6], [2, 4], [3], [5], [7]]
     end
 
-    @testset "step_kind and catalytic allocate nothing" begin
-        _testhelper_test_graph_reads_allocate_nothing(m, 4)
+    @testset "catalytic allocates nothing" begin
+        _testhelper_test_graph_reads_allocate_nothing(m)
     end
 end
 
@@ -104,14 +103,14 @@ end
               [[:P], [:S], Symbol[]]
         @test all(isempty(e.given_off) for e in m.steps)
         @test [e.rapid_equilibrium for e in m.steps] == [true, true, false]
-        @test [M.step_kind(m, k) for k in eachindex(m.steps)] ==
+        @test [m.step_kinds[k] for k in eachindex(m.steps)] ==
               [:binding, :binding, :isomerization]
     end
 
     @testset "groups" begin
-        @test length(M.groups(m)) == 3
+        @test length(m.groups) == 3
         @test [e.group for e in m.steps] == [1, 2, 3]
-        @test M.groups(m) == [[1], [2], [3]]
+        @test m.groups == [[1], [2], [3]]
     end
 
     @testset "allosteric parts" begin
@@ -121,8 +120,8 @@ end
         @test am.regulatory_sites == [M.RegulatorySite([:R], 2, [:OnlyI])]
     end
 
-    @testset "step_kind and catalytic allocate nothing" begin
-        _testhelper_test_graph_reads_allocate_nothing(m, 2)
+    @testset "catalytic allocates nothing" begin
+        _testhelper_test_graph_reads_allocate_nothing(m)
         @test _testhelper_allocated(M.catalytic, am) == 0
     end
 end
@@ -146,11 +145,10 @@ end
     @test [(e.from, e.to) for e in m.steps] == [(1, 3), (2, 1), (2, 3)]
     # A fused binding takes up one metabolite and gives off none, into a form that differs
     # from its source by more than that metabolite.
-    @test [M.step_kind(m, k) for k in eachindex(m.steps)] ==
+    @test [m.step_kinds[k] for k in eachindex(m.steps)] ==
           [:fused_binding, :isomerization, :binding]
     @test [_testhelper_names(e.taken_up) for e in m.steps] ==
           [[:S], Symbol[], [:P]]
-    @test _testhelper_allocated(M.step_kind, m, 1) == 0
 
     # A Theorell–Chance step takes up B and gives off P: chemistry, no binding.
     tc = ER.Mechanism(@enzyme_mechanism begin
@@ -165,7 +163,7 @@ end
     # Canonical form numbers the forms E, E(A), E(Q) and stores the steps E + A → E(A),
     # E + Q → E(Q), E(A) + B → E(Q) + P.
     @test [(e.from, e.to) for e in tc.steps] == [(1, 2), (1, 3), (2, 3)]
-    @test [M.step_kind(tc, k) for k in eachindex(tc.steps)] ==
+    @test [tc.step_kinds[k] for k in eachindex(tc.steps)] ==
           [:binding, :binding, :chemistry]
 
     # A merged complex entered by the last substrate: a fused binding; the isomerization
@@ -180,7 +178,7 @@ end
             E(Q) ⇌ E + Q
         end
     end)
-    @test sort([M.step_kind(fused, k) for k in eachindex(fused.steps)]) ==
+    @test sort([fused.step_kinds[k] for k in eachindex(fused.steps)]) ==
           [:binding, :binding, :binding, :fused_binding]
 end
 
@@ -230,7 +228,7 @@ end
     @test _testhelper_names(ESS) == [:S, :S]
     @test (m.steps[4].from, m.steps[4].to) == (3, 4)
     @test m.steps[4].taken_up == [M.Met(:S, true)]
-    @test M.step_kind(m, 4) === :binding
+    @test m.step_kinds[4] === :binding
     # The modifier copy is an entry of its own, so it adds to the bound S.
     @test count(x -> x.name === :S, [m.nodes[3].bound; m.steps[4].taken_up]) == 2
     @test isempty(intersect(m.nodes[3].bound, m.steps[4].taken_up))
@@ -324,6 +322,6 @@ end
           ["E + A <--> E(A)", "E + Q <--> E(B; residual = A - P)",
            "E(; residual = A - P) + P <--> E(A)",
            "E(; residual = A - P) + B <--> E(B; residual = A - P)"]
-    @test [M.runs_toward_products(m, k) for k in eachindex(m.steps)] ==
+    @test [m.toward_products[k] for k in eachindex(m.steps)] ==
           [true, false, false, true]
 end
