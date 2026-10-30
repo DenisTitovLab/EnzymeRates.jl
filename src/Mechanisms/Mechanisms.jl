@@ -8,11 +8,14 @@ import Unicode
 const API = (:AbstractEnzymeMechanism, :AllostericEnzymeMechanism, :AllostericMechanism,
     :EnzymeMechanism, :EnzymeReaction, :Mechanism, :Met, :Node, :Reactant, :Regulator,
     :RegulatorySite, :Step, :catalytic, :check_conformation_label, :check_decodable_names,
-    :compile_mechanism, :excludes, :form_text, :metabolites, :step_text)
+    :compile_mechanism, :excludes, :form_text, :has_turnover_cycle, :has_unbalanced_cycle,
+    :metabolites, :present_species, :rapid_equilibrium_segments, :segment_walk,
+    :step_text)
 
 include("types.jl")
 include("accessors.jl")
 include("names.jl")
 include("text.jl")
+include("segments.jl")
 
 end

@@ -234,7 +234,7 @@ end
 The law network L of `m`: a plain mechanism's forms and edges as they are, its
 rapid-equilibrium flags overridden by `re`; an allosteric mechanism's two copies, copy `c`
 holding the steps of its conformation (`active_steps`, `inactive_steps`) and the forms
-they touch (`present_species`), free E always, joined by the flip at free E.
+they touch (`Mechanisms.present_species`), free E always, joined by the flip at free E.
 """
 function _law_network(m::Mechanisms.Mechanism,
                       re::BitVector = _re_flags(m))
@@ -254,7 +254,7 @@ function _law_network(am::Mechanisms.AllostericMechanism)
         use[:, c] .= mask
         fast[:, c] .= mask .& re
         nodes = (c - 1) * nf .+ (1:nf)
-        present[nodes] .= present_species(m, mask)
+        present[nodes] .= Mechanisms.present_species(m, mask)
         present[nodes[1]] = true
     end
     _network(m, present, use, fast, falses(n, 2), falses(n, 2))
@@ -342,8 +342,8 @@ end
     _fast_segments(net) -> (; segment, segments, offset, cycle)
 
 The rapid-equilibrium segments of `net`, walked breadth-first along its fast transitions
-(`segment_walk`) from each present node no earlier walk reached: `segment[u]`, node
-`u`'s (0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
+(`Mechanisms.segment_walk`) from each present node no earlier walk reached: `segment[u]`,
+node `u`'s (0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
 `offset[n, u]`, the copies of name `n` (`_guard_names`) the walk takes up from the
 segment's first node to `u`; and `cycle`, the transitions of the first fast cycle that
 takes up some name net, which the first transition whose offsets disagree closes with its
@@ -351,8 +351,8 @@ tree path, in cycle order.
 When `cycle` is empty, each offset is a potential: it does not depend on the walk.
 """
 function _fast_segments(net::_Network)
-    w = segment_walk(net.present, _out_transitions(net, net.fast), net.to,
-                     net.change)
+    w = Mechanisms.segment_walk(net.present, _out_transitions(net, net.fast), net.to,
+                                net.change)
     t = w.disagreeing
     cycle = t == 0 ? Int[] : _tree_cycle(net, w.parent, net.from[t], net.to[t], t)
     (; segment = w.segment_of, w.segments, offset = w.offsets, cycle)
@@ -378,17 +378,17 @@ end
     _guard(m) -> _Verdict
 
 The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (a cycle
-turns the reaction over, `has_turnover_cycle`); class 2 (no cycle of fast transitions
-does, `_re_turnover_transitions`, on the ε-network, where an excluded rapid-equilibrium
-binding stays fast while its affinity vanishes); for an allosteric mechanism, admission's
-interior (`_admission_interior`); then on every face class 3 (`_check_face`, on the law
-network) and, for an allosteric mechanism, admission's face condition (`_admission_face`,
-on the ε-network), the first fault winning. `_WELL_POSED` when every check passes. It
-reads the reaction graph through masks and builds nothing.
+turns the reaction over, `Mechanisms.has_turnover_cycle`); class 2 (no cycle of fast
+transitions does, `_re_turnover_transitions`, on the ε-network, where an excluded
+rapid-equilibrium binding stays fast while its affinity vanishes); for an allosteric
+mechanism, admission's interior (`_admission_interior`); then on every face class 3
+(`_check_face`, on the law network) and, for an allosteric mechanism, admission's face
+condition (`_admission_face`, on the ε-network), the first fault winning. `_WELL_POSED` when
+every check passes. It reads the reaction graph through masks and builds nothing.
 """
 function _guard(mech::_AnyMech)
     m = Mechanisms.catalytic(mech)
-    has_turnover_cycle(m, trues(length(m.steps))) ||
+    Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
     eps = _eps_network(mech)
     v = _re_turnover_verdict(eps)

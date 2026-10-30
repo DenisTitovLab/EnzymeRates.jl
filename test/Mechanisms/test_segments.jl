@@ -1,4 +1,4 @@
-# ABOUTME: Tests of the segments and cycles of a step mask: `re_segments`, `segment_graph`,
+# ABOUTME: Tests of the segments and cycles of a step mask: `rapid_equilibrium_segments`,
 # ABOUTME: `segment_walk`, `has_turnover_cycle` and `has_unbalanced_cycle`.
 
 const ER = EnzymeRates
@@ -29,7 +29,7 @@ end
 
 @testset "turnover cycle: every subset of steps of five mechanisms" begin
     M = ER.Mechanisms
-    D = ER.Derivation
+    D = ER.Mechanisms
     # Each mechanism with the cycles of its steps that turn the reaction over, written as
     # step texts (`_testhelper_edge_text`). A set of steps holds a turnover cycle exactly
     # when it holds all the steps of one of these.
@@ -110,7 +110,7 @@ end
 
 @testset "turnover cycle: MECHANISM_TEST_SPECS" begin
     M = ER.Mechanisms
-    D = ER.Derivation
+    D = ER.Mechanisms
     for spec in MECHANISM_TEST_SPECS
         mech = _testhelper_lift(spec.mechanism)
         m = M.catalytic(mech)
@@ -133,7 +133,7 @@ end
 
 @testset "turnover cycle: malformed input" begin
     M = ER.Mechanisms
-    D = ER.Derivation
+    D = ER.Mechanisms
     # Hand-written graphs whose cycles do not each run the reaction a whole number of
     # times: a cycle takes up A and Q and gives off nothing, or takes up B alone. The
     # turnover test weighs each step by its uptake of the first substrate, A, so it finds
@@ -174,9 +174,9 @@ end
     @test_throws BoundsError D.has_turnover_cycle(aq, trues(2))
 end
 
-@testset "segment_graph: a steady-state step inside a segment" begin
+@testset "segments: a steady-state step inside a segment is no step of the graph" begin
     M = ER.Mechanisms
-    D = ER.Derivation
+    D = ER.Mechanisms
     # Random-order bi-bi whose binding of B to free E alone is steady state: the other
     # three bindings put E, E(A), E(B) and E(A, B) in one rapid-equilibrium segment. The
     # guard rejects it (E(B) fills at zero A and B); the view reads any graph.
@@ -195,7 +195,7 @@ end
     end
     every = trues(length(eachindex(m.steps)))
     text(k) = _testhelper_edge_text(m, k)
-    g = D.segment_graph(m, every)
+    g = D.rapid_equilibrium_segments(m, every)
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q).
     @test g.segments == [[1, 2, 3, 4], [5], [6]]
     # E + B <--> E(B) joins two forms of the first segment, so it is no step of the graph.
@@ -205,7 +205,7 @@ end
 
 @testset "segment_walk and has_unbalanced_cycle on plain arrays" begin
     M = ER.Mechanisms
-    D = ER.Derivation
+    D = ER.Mechanisms
     # Nodes 1-3 present, node 4 not. Transitions: 1 → 2 (+1), 2 → 1 (-1), 2 → 3 (+1),
     # 3 → 1 (-2), each taking up one name by `change`.
     present = BitVector([1, 1, 1, 0])
@@ -255,37 +255,39 @@ end
     @test _testhelper_flags(m) == BitVector([0, 0, 1, 1, 1, 0])
     @test [ER.Mechanisms._is_free(f) for f in m.nodes] == [true, false, false, false, false]
     every = trues(length(m.steps))
-    @test ER.Derivation.present_species(m, every) == trues(5)
+    @test ER.Mechanisms.present_species(m, every) == trues(5)
     # Each segment breadth-first from its first form; offsets per metabolite name (rows
     # P, Q, S) above the segment's lowest.
-    s = ER.Derivation.re_segments(m, every, _testhelper_flags(m))
+    s = ER.Mechanisms.rapid_equilibrium_segments(m, every, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
     @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
     # Every form of the second segment holds a product, so it has no bottom form.
     @test names(s.bottom) == ["EP", "EPQ", "EQ"]
     # The steady-state steps that join two segments, which are all of them here.
-    g = ER.Derivation.segment_graph(m, every)
+    g = ER.Mechanisms.rapid_equilibrium_segments(m, every)
     @test g.steps == [1, 2, 6]
     @test (g.segment_of, g.segments, g.offsets, g.bottom) ==
           (s.segment_of, s.segments, s.offsets, s.bottom)
     # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
     # {E(P), E(P, Q)}.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
-    @test ER.Derivation.present_species(m, no_p) == trues(5)
-    s = ER.Derivation.re_segments(m, no_p, _testhelper_flags(m))
+    @test ER.Mechanisms.present_species(m, no_p) == trues(5)
+    s = ER.Mechanisms.rapid_equilibrium_segments(m, no_p, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
     @test isempty(s.bottom)
-    @test ER.Derivation.segment_graph(m, no_p).steps == [1, 2, 6]
+    @test ER.Mechanisms.rapid_equilibrium_segments(m, no_p).steps == [1, 2, 6]
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
-    @test ER.Derivation.present_species(m, bindings) == BitVector([1, 1, 0, 1, 0])
-    s = ER.Derivation.re_segments(m, bindings, _testhelper_flags(m))
+    @test ER.Mechanisms.present_species(m, bindings) == BitVector([1, 1, 0, 1, 0])
+    s = ER.Mechanisms.rapid_equilibrium_segments(m, bindings, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
     @test s.segment_of == [1, 2, 0, 3, 0]
-    @test ER.Derivation.segment_graph(m, bindings).steps == [1, 2]
+    @test ER.Mechanisms.rapid_equilibrium_segments(m, bindings).steps == [1, 2]
     # `re` picks the edges that join segments: with none, each present form stands alone.
-    @test length(ER.Derivation.re_segments(m, every, falses(6)).segments) == 5
+    none = ER.Mechanisms.rapid_equilibrium_segments(m, every, falses(6))
+    @test length(none.segments) == 5
+    @test none.steps == 1:6
 
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
     # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
@@ -306,6 +308,6 @@ end
     @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
           ["E + P ⇌ EP", "EP + I ⇌ EIP"]
     @test [ER.Mechanisms._form_name(am.catalytic, f)
-           for f in findall(ER.Derivation.present_species(am.catalytic, inactive))] ==
+           for f in findall(ER.Mechanisms.present_species(am.catalytic, inactive))] ==
           ["E", "EIP", "EP"]
 end

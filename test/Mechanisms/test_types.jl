@@ -699,8 +699,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test ER.Derivation._guard(copy_first) == v
         @test copy_first == copy_last
         for m in (copy_last, copy_first)
-            segment = ER.Derivation.re_segments(
-                m, trues(length(m.steps)), _testhelper_flags(m)).bottom
+            segment = ER.Mechanisms.rapid_equilibrium_segments(
+                m, trues(length(m.steps))).bottom
             @test [ER.Mechanisms._form_name(m, f) for f in segment] ==
                   ["EA", "EAB", "EB", "EAmodB"]
         end

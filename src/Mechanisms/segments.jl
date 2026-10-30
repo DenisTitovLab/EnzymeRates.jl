@@ -1,5 +1,5 @@
-# ABOUTME: The segments and cycles of a step mask: rapid-equilibrium segments, the segment
-# ABOUTME: graph, turnover cycles and the direction a step runs.
+# ABOUTME: The segments and cycles of a step mask: rapid-equilibrium segments with the
+# ABOUTME: steady-state steps between them, and turnover cycles.
 
 # Sub-graphs: a mask says which steps of a mechanism a sub-graph keeps, such as an
 # allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no
@@ -11,7 +11,7 @@
 The nodes of `m` that the steps `on` keeps touch, one flag per node: a sub-graph's law,
 segments and network cover these.
 """
-function present_species(m::Mechanisms.Mechanism, on::BitVector)
+function present_species(m::Mechanism, on::BitVector)
     present = falses(length(m.nodes))
     for (k, e) in enumerate(m.steps)
         on[k] && (present[e.from] = present[e.to] = true)
@@ -21,7 +21,7 @@ end
 
 """The distinct metabolite names of `m` (the names of `_table`), sorted: a reactant and its
 modifier copy share one, as they share a concentration."""
-function _distinct_names(m::Mechanisms.Mechanism)
+function _distinct_names(m::Mechanism)
     names = Symbol[]
     for n in m.nodes
         foreach(x -> push!(names, x.name), n.bound)
@@ -84,19 +84,22 @@ function segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{I
 end
 
 """
-    re_segments(m, on, re) -> (; segment_of, segments, offsets, bottom)
+    rapid_equilibrium_segments(m, on, re = <m's rapid-equilibrium flags>) -> (; segment_of,
+        segments, offsets, bottom, steps)
 
 The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by the kept
 steps that `re` flags (`segment_walk`). `segments[s]` lists segment `s`'s forms
-breadth-first from its first form, each form's steps in the order `_flat_edges` reads
-them, and the segments are numbered by their first forms; `segment_of[f]` is form `f`'s
-segment, 0 for a form no kept step touches (`present_species`). `offsets[n, f]` is how many
-more of metabolite name `n` form `f` carries than the form of its segment that carries
-fewest of it, `n` being the position of the name among the mechanism's distinct
-metabolite names, in sorted order. Within a segment, rapid equilibrium fixes each form's
-weight relative to any other as a monomial in concentrations, one factor per metabolite
-taken up or given off along the path between them; chemistry passes the counts through
-unchanged.
+breadth-first from its first form, each form's steps in the order of the groups, and the
+segments are numbered by their first forms; `segment_of[f]` is form `f`'s segment, 0 for a
+form no kept step touches (`present_species`). `offsets[n, f]` is how many more of
+metabolite name `n` form `f` carries than the form of its segment that carries fewest of
+it, `n` being the position of the name among the mechanism's distinct metabolite names,
+in sorted order. Within a segment, rapid equilibrium fixes each form's weight relative to
+any other as a monomial in concentrations, one factor per metabolite taken up or given off
+along the path between them; chemistry passes the counts through unchanged.
+
+`steps` lists the kept steps that `re` leaves at steady state and that join two segments,
+in step order: the edges of the steady-state graph between the segments.
 
 `bottom` lists the forms of the first segment whose weights all vanish at zero products,
 or all vanish at zero substrates; it is empty when no segment does. Each metabolite name
@@ -113,14 +116,16 @@ exactly where initial-rate data sit. A segment whose weights vanish only at a co
 mixing a substrate and a product (a mixed abortive complex, or the ping-pong `E` /
 `E(; residual)` pair) is harmless: no turnover is possible at that corner.
 """
-function re_segments(m::Mechanisms.Mechanism, on::BitVector, re::BitVector)
+function rapid_equilibrium_segments(m::Mechanism, on::BitVector,
+                                    re::BitVector = BitVector(s.rapid_equilibrium
+                                                              for s in m.steps))
     nf = length(m.nodes)
     names = _distinct_names(m)
     nn = length(names)
-    row(x::Mechanisms.Met) = searchsortedfirst(names, x.name)
+    row(x::Met) = searchsortedfirst(names, x.name)
     # Each kept rapid-equilibrium step as two transitions, 2j - 1 in its stored direction
     # and 2j in reverse, each listed at the form it leaves.
-    kept = [k for k in _flat_edges(m) if on[k] && re[k]]
+    kept = [k for k in reduce(vcat, m.groups; init = Int[]) if on[k] && re[k]]
     out, to = [Int[] for _ in 1:nf], zeros(Int, 2 * length(kept))
     change = zeros(Int, nn, 2 * length(kept))
     for (j, k) in enumerate(kept)
@@ -156,21 +161,9 @@ function re_segments(m::Mechanisms.Mechanism, on::BitVector, re::BitVector)
     bottomless(segment, side) = length(segment) >= 2 &&
         all(f -> any(n -> side[n] && offsets[n, f] > 0, 1:nn), segment)
     i = findfirst(seg -> bottomless(seg, products) || bottomless(seg, substrates), segments)
-    (; segment_of, segments, offsets, bottom = i === nothing ? Int[] : segments[i])
-end
-
-"""
-    segment_graph(m, on) -> (; segment_of, segments, offsets, bottom, steps)
-
-The steady-state graph between the rapid-equilibrium segments of the steps of `m` that
-`on` keeps, each step at its own flag: the segments (`re_segments`) and `steps`, the kept
-steady-state steps that join two segments, in step order.
-"""
-function segment_graph(m::Mechanisms.Mechanism, on::BitVector)
-    s = re_segments(m, on, _re_flags(m))
     steps = [k for (k, e) in enumerate(m.steps)
-             if on[k] && !e.rapid_equilibrium && s.segment_of[e.from] != s.segment_of[e.to]]
-    merge(s, (; steps))
+             if on[k] && !re[k] && segment_of[e.from] != segment_of[e.to]]
+    (; segment_of, segments, offsets, bottom = i === nothing ? Int[] : segments[i], steps)
 end
 
 """Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining
@@ -199,7 +192,7 @@ function has_unbalanced_cycle(from, to, weight, on, parent, offset)
 end
 
 """
-    has_turnover_cycle(m::Mechanisms.Mechanism, on::BitVector) -> Bool
+    has_turnover_cycle(m::Mechanism, on::BitVector) -> Bool
 
 Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
 of the forms rises along each step by its uptake of the first substrate (a modifier copy
@@ -210,10 +203,10 @@ cycle that does not is read by that uptake alone. The guard's class 1 rejects a
 mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a turnover
 cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 """
-function has_turnover_cycle(m::Mechanisms.Mechanism, on::BitVector)
+function has_turnover_cycle(m::Mechanism, on::BitVector)
     # The first substrate, whose net uptake, a modifier copy counting as it, is the rate.
     s1 = m.substrates[1]
-    uptake(list::Vector{Mechanisms.Met}) = count(x -> x.name === s1, list)
+    uptake(list::Vector{Met}) = count(x -> x.name === s1, list)
     n = length(m.nodes)
     has_unbalanced_cycle([e.from for e in m.steps], [e.to for e in m.steps],
                          [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],

@@ -926,8 +926,7 @@ const _testhelper_fused_cases = [
         only(f for f in eachindex(m.nodes) if ER.Mechanisms._form_name(m, f) == text)
     a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
     @test e == 1 && a_copy < ab
-    s = ER.Derivation.re_segments(m, trues(length(m.steps)),
-                                  _testhelper_flags(m))
+    s = ER.Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)))
     @test all(seg -> seg[1] == minimum(seg), s.segments)
     @test s.segments[s.segment_of[e]][1] == e
     @test s.segment_of[a_copy] == s.segment_of[ab] == s.segment_of[e]

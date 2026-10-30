@@ -1091,10 +1091,10 @@ function _testhelper_subgraphs_agree(x)
     # Step `j` of the reader is edge `flat[j]`.
     flat = ER.Derivation._flat_edges(m)
     function _testhelper_segments_agree(mask, kept)
-        s = ER.Derivation.re_segments(m, mask, _testhelper_flags(m))
+        s = ER.Mechanisms.rapid_equilibrium_segments(m, mask)
         segments, extras = _testhelper_re_segments(g, kept)
         present = findall(!=(0), s.segment_of)
-        names = ER.Derivation._distinct_names(m)
+        names = ER.Mechanisms._distinct_names(m)
         _testhelper_offsets(f) = Dict(names[n] => s.offsets[n, f]
                                       for n in eachindex(names) if s.offsets[n, f] > 0)
         s.segments == segments && [_testhelper_offsets(f) for f in present] == extras

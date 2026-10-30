@@ -9,7 +9,7 @@ allosteric mechanism's test can read its active law (`_degenerate`)."""
 function _has_vmax(m::Mechanisms.Mechanism, re::BitVector, names::Vector{Symbol},
                    on::BitVector = trues(length(m.steps)))
     touches = BitVector([_exchanges(m, k, names) for k in eachindex(m.steps)])
-    !Derivation.has_turnover_cycle(m, (re .| touches) .& on)
+    !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
 end
 
 """Whether `s` holds a metabolite named in `names`, a reactant's modifier copy under its
@@ -59,7 +59,7 @@ function _chemistry_equilibrates_both_sides(
     # outside every RE isomerization is a node of its own.
     isos = BitVector([re[k] && m.step_kinds[k] === :isomerization
                       for k in eachindex(m.steps)])
-    s = Derivation.re_segments(m, isos, isos)
+    s = Mechanisms.rapid_equilibrium_segments(m, isos, isos)
     nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
                           if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
@@ -106,9 +106,9 @@ product at its catalytic site counts, abortive complexes included. Edges touchin
 a form that holds a modifier are left out (a mask of the catalytic-site edges): a
 modifier binds a site of its own by definition, so the powers its binding adds,
 including those of a reactant's modifier copy, are a separate source that
-conformational mechanisms keep. Only the edges `on` flags count, and `re_segments` leaves
-out the forms they do not keep, so an allosteric mechanism's test can read each
-conformation's law.
+conformational mechanisms keep. Only the edges `on` flags count, and
+`rapid_equilibrium_segments` leaves out the forms they do not keep, so an allosteric
+mechanism's test can read each conformation's law.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
@@ -116,7 +116,7 @@ the root segment's weight times the weight of every tree edge, so the exponent
 of `X` in a term is the most `X` any form of the root segment carries beyond
 the segment's bottom form, plus, per tree edge, one if the step binds `X` in
 the tree direction and the count of `X` the edge's source form carries beyond
-its bottom (`re_segments`). The degree exceeds 1 exactly when one
+its bottom (`rapid_equilibrium_segments`). The degree exceeds 1 exactly when one
 segment or one edge scores 2 or more, or the root scores 1 and some
 arborescence toward it holds a scoring edge, or some arborescence holds two
 scoring edges. An arborescence toward `S` containing given edges exists iff
@@ -127,7 +127,7 @@ function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
                                on::BitVector = trues(length(m.steps)))
     on_site = on .& BitVector([!(_holds_modifier(m, e.from) || _holds_modifier(m, e.to))
                                for e in m.steps])
-    s = Derivation.segment_graph(m, on_site)
+    s = Mechanisms.rapid_equilibrium_segments(m, on_site)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
     name_of(n) = searchsortedfirst(names, n)
@@ -225,16 +225,16 @@ _one_state_class(h::Int, t::Int) = _GaugeClass(h, t, 1)
 The productive form of the sub-graph of `m` whose edges `mask` keeps, a form that holds
 no modifier, whose weight is proportional to that of the complex a modifier named
 `ligand` forms at form `site` by a rapid-equilibrium step, or 0 when none is: a form of
-the site's rapid-equilibrium segment with the complex's offsets (`re_segments`; the
-modifier counts as its name, so a reactant's copy as the reactant), the one of the
-complex's composition when several are, else the first in form order. Within a segment
-rapid equilibrium fixes each weight relative to another as a constant times the
-metabolites bound along the route between them, so equal offsets mean proportional
-weights, and steady-state data see only their sum. The offsets reach a copy across a
-rapid-equilibrium isomerization (a ping-pong second chemistry step, a conformational
-isomer), where no form shares the complex's composition. A form of the same composition
-in another segment, formed by a steady-state binding, is no twin: its weight is not a
-constant multiple of the complex's, merging the two is no reparameterization, and the
+the site's rapid-equilibrium segment with the complex's offsets
+(`rapid_equilibrium_segments`; the modifier counts as its name, so a reactant's copy as
+the reactant), the one of the complex's composition when several are, else the first in form
+order. Within a segment rapid equilibrium fixes each weight relative to another as a
+constant times the metabolites bound along the route between them, so equal offsets mean
+proportional weights, and steady-state data see only their sum. The offsets reach a copy
+across a rapid-equilibrium isomerization (a ping-pong second chemistry step, a
+conformational isomer), where no form shares the complex's composition. A form of the same
+composition in another segment, formed by a steady-state binding, is no twin: its weight is
+not a constant multiple of the complex's, merging the two is no reparameterization, and the
 copy's constant may stay visible.
 
 Only productive forms are twin sources, so the complex itself never is one. A complex
@@ -244,7 +244,7 @@ makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end 
 builds are found on that mechanism (`_dead_end_child`).
 """
 function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
-    s = Derivation.re_segments(m, mask, _rapid_equilibrium_flags(m))
+    s = Mechanisms.rapid_equilibrium_segments(m, mask)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
     # A form's bound names, sorted, its conformation and its residual.

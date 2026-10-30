@@ -186,7 +186,7 @@ end
             E(P) <--> F + P
         end
     end
-    @test !EnzymeRates.Derivation.has_turnover_cycle(no_turnover, trues(3))
+    @test !EnzymeRates.Mechanisms.has_turnover_cycle(no_turnover, trues(3))
     v = EnzymeRates.Derivation._guard(no_turnover)
     @test v === EnzymeRates.Derivation._Verdict(
         EnzymeRates.Derivation._NO_CYCLE, EnzymeRates.Derivation._LIMIT_UNTESTED, 0, 0, 0)

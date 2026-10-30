@@ -129,7 +129,7 @@ function _admission_interior(am::Mechanisms.AllostericMechanism)
     end
     k = _first_excluded(am, 1)
     k != 0 &&
-        !has_turnover_cycle(m, am.active_steps) &&
+        !Mechanisms.has_turnover_cycle(m, am.active_steps) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
@@ -457,7 +457,7 @@ function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
     inside = BitVector([keep[t] && comp[net.from[t]] == comp[net.to[t]]
                         for t in eachindex(net.from)])
     n = length(net.present)
-    !has_unbalanced_cycle(net.from, net.to, view(net.change, x, :), inside,
+    !Mechanisms.has_unbalanced_cycle(net.from, net.to, view(net.change, x, :), inside,
                           zeros(Int, n), zeros(Int, n))
 end
 

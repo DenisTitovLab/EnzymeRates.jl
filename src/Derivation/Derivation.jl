@@ -8,10 +8,9 @@ using LinearAlgebra: det
 using SHA: sha256
 
 const API = (:AllParameters, :FittedParameters, :IndependentParameters,
-    :check_valid_rate_equation, :has_turnover_cycle, :has_unbalanced_cycle,
-    :parameter_count, :parameters, :rate_equation, :rate_equation_complexity,
-    :rate_equation_dedup_key, :rate_equation_string, :re_segments, :scale_rate_constants,
-    :segment_graph)
+    :check_valid_rate_equation, :parameter_count, :parameters, :rate_equation,
+    :rate_equation_complexity, :rate_equation_dedup_key, :rate_equation_string,
+    :scale_rate_constants)
 
 """A plain or an allosteric mechanism."""
 const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
@@ -31,7 +30,6 @@ _copies(held::Vector{Mechanisms.Met}, name::Symbol) = count(x -> x.name === name
 _re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)
 
 include("conformations.jl")
-include("segments.jl")
 include("names.jl")
 include("rate_eq_derivation.jl")
 include("thermo.jl")

@@ -937,7 +937,7 @@ end
                    [trues(length(m.steps))]]
             net = EnzymeRates.Derivation._eps_network(m, re)
             turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
-            @test turnover == EnzymeRates.Derivation.has_turnover_cycle(m, re)
+            @test turnover == EnzymeRates.Mechanisms.has_turnover_cycle(m, re)
             push!(found, turnover)
         end
     end

@@ -9451,13 +9451,13 @@ end
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
     # every step RE: infinite rate
-    @test ER.Derivation.has_turnover_cycle(base,
+    @test ER.Mechanisms.has_turnover_cycle(base,
                                            _testhelper_flags(base))
-    @test !ER.Derivation.has_turnover_cycle(seed,
+    @test !ER.Mechanisms.has_turnover_cycle(seed,
                                             _testhelper_flags(seed))
     _testhelper_variant(ss) = .!BitVector([_testhelper_binds(base, ss...)(e)
                                            for e in base.steps])
-    _testhelper_clean(m, re) = !ER.Derivation.has_turnover_cycle(m, re) &&
+    _testhelper_clean(m, re) = !ER.Mechanisms.has_turnover_cycle(m, re) &&
         ER.Enumeration._has_vmax(m, re, m.substrates) &&
         ER.Enumeration._has_vmax(m, re, m.products) &&
         !ER.Enumeration._chemistry_equilibrates_both_sides(m, re)
@@ -9502,7 +9502,7 @@ end
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
     # E → E(A) → E(Q) → E, all RE
-    @test ER.Derivation.has_turnover_cycle(tc, _testhelper_flags(tc))
+    @test ER.Mechanisms.has_turnover_cycle(tc, _testhelper_flags(tc))
     _testhelper_ss(which) = BitVector([!(e.group in which) for e in tc.steps])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
@@ -9610,8 +9610,8 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    @test !ER.Derivation.has_turnover_cycle(m, _testhelper_flags(m))
-    @test ER.Derivation.has_turnover_cycle(m, trues(length(m.steps)))
+    @test !ER.Mechanisms.has_turnover_cycle(m, _testhelper_flags(m))
+    @test ER.Mechanisms.has_turnover_cycle(m, trues(length(m.steps)))
 end
 
 @testset "C on the ping-pong seed and its single flips" begin
@@ -10230,7 +10230,7 @@ end
             ss = BitVector([isodd(bits >> (g - 1))
                             for g in 1:length(m.groups)])
             re = BitVector([!ss[e.group] for e in m.steps])
-            expected = !ER.Derivation.has_turnover_cycle(m, re) &&
+            expected = !ER.Mechanisms.has_turnover_cycle(m, re) &&
                 ER.Enumeration._has_vmax(m, re, m.substrates) &&
                 ER.Enumeration._has_vmax(m, re, m.products) &&
                 !ER.Enumeration._chemistry_equilibrates_both_sides(m, re)

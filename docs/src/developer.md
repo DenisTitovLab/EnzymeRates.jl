@@ -43,12 +43,12 @@ flowchart TB
   top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
-  enum -->|"check_valid_rate_equation()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>parameter_count()<br/>re_segments()<br/>segment_graph()"| der
-  enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>step_text()"| mech
+  enum -->|"check_valid_rate_equation()<br/>parameter_count()"| der
+  enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>scale_rate_constants()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
-  der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>step_text()"| mech
+  der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,enum,fit,der,data,mech mod;
 ```
@@ -147,6 +147,12 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
+| `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
+| | steady-state steps between them | | |
+| `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
+| `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Derivation, Enumeration | |
+| `present_species` | The forms a set of steps touches | Derivation | |
+| `segment_walk` | The segments of a graph of transitions, by breadth-first walk | Derivation | |
 | `check_decodable_names` | Errors when names could spell one string two ways | DSL | |
 | `check_conformation_label` | Errors on a malformed conformation label | DSL | |
 
@@ -165,10 +171,6 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `rate_equation_complexity` | The law's term count, V×τ, before derivation | top level | |
 | `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
 | `scale_rate_constants` | Scales the steady-state rate constants | Fitting | |
-| `re_segments` | The rapid-equilibrium segments of a set of steps | Enumeration | |
-| `segment_graph` | The steady-state steps between those segments | Enumeration | |
-| `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Enumeration | |
-| `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Enumeration | |
 
 **`Fitting`**
 
@@ -667,8 +669,8 @@ the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for
 each substrate and product, a directed steady-state edge scores one if it binds the
 metabolite in that direction plus the count the edge's source form carries beyond its
-segment's bottom form (the offsets of `re_segments`, whose `bottom` also reads them),
-and a segment scores the most any of its forms
+segment's bottom form (the offsets of `rapid_equilibrium_segments`, whose `bottom` also
+reads them), and a segment scores the most any of its forms
 carries. The equation's degree in the
 metabolite is the best score over root segments and spanning arborescences toward
 the root; the predicate decides "at most 1" with reachability checks

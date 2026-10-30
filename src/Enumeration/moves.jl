@@ -206,23 +206,23 @@ carries net steady-state flux for generic parameter values. Rapid-equilibrium ed
 equilibrium mass and are flagged `false`; the rule that uses these flags concerns
 steady-state groups only.
 
-Contract each rapid-equilibrium segment to one vertex (`re_segments`) and make every
-steady-state edge an edge between its two forms' segments, weighted by the substrates it
-takes up minus the products (`_uptake_weight`), plus its first end's offsets minus its
-second end's (`from`, `to`; a modifier copy counts as its reactant). Around any cycle the
-offsets telescope and the uptakes sum to the net turnover times the reactant count, so a
-cycle has weight zero exactly when it runs no net reaction. A self-loop (both forms in
-one segment) carries flux iff its weight is nonzero. Any other edge carries flux iff its
-biconnected block (`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge of
-such a block lies on one (join the edge to the cycle by two disjoint paths; one of the two
-resulting cycles is unbalanced), while in a balanced block detailed balance holds along
+Contract each rapid-equilibrium segment to one vertex (`rapid_equilibrium_segments`) and
+make every steady-state edge an edge between its two forms' segments, weighted by the
+substrates it takes up minus the products (`_uptake_weight`), plus its first end's offsets
+minus its second end's (`from`, `to`; a modifier copy counts as its reactant). Around any
+cycle the offsets telescope and the uptakes sum to the net turnover times the reactant
+count, so a cycle has weight zero exactly when it runs no net reaction. A self-loop (both
+forms in one segment) carries flux iff its weight is nonzero. Any other edge carries flux
+iff its biconnected block (`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge
+of such a block lies on one (join the edge to the cycle by two disjoint paths; one of the
+two resulting cycles is unbalanced), while in a balanced block detailed balance holds along
 every cycle and each edge's flux vanishes. The zero-flux verdict holds for any parameters
-and grouping; the flux-carrying verdict for one-way steps, which every step the
-enumerator emits is. The test reads each edge's metabolite lists, so it holds for fused
-and Theorell–Chance steps as well.
+and grouping; the flux-carrying verdict for one-way steps, which every step the enumerator
+emits is. The test reads each edge's metabolite lists, so it holds for fused and
+Theorell–Chance steps as well.
 """
 function _flux_carrying_edges(m::Mechanisms.Mechanism, re::BitVector)
-    s = Derivation.re_segments(m, trues(length(m.steps)), re)
+    s = Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)), re)
     rho = _name_signs(m)
     offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
     flags = falses(length(m.steps))
@@ -260,8 +260,9 @@ function _flux_carrying_groups(m::Mechanisms.Mechanism, re::BitVector)
     _groups_with(k -> flux[k], m)
 end
 
-"""Each metabolite name's net uptake sign, the names sorted (the rows of `re_segments`'
-offsets): +1 for a substrate, −1 for a product, 0 for a modifier-only name."""
+"""Each metabolite name's net uptake sign, the names sorted (the rows of the
+offsets of `rapid_equilibrium_segments`): +1 for a substrate, −1 for a product, 0 for a
+modifier-only name."""
 _name_signs(m::Mechanisms.Mechanism) =
     Int[n in m.substrates ? 1 : n in m.products ? -1 : 0
         for n in sort!(Mechanisms.metabolites(m))]
@@ -328,10 +329,10 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
 end
 
 """Number of rapid-equilibrium segments of graph `m`, edge `k` at rapid equilibrium where
-`re[k]` holds (`re_segments`). The flip move measures each candidate on its flags, so it
-builds only the candidates that raise the count."""
+`re[k]` holds (`rapid_equilibrium_segments`). The flip move measures each candidate on its
+flags, so it builds only the candidates that raise the count."""
 _re_segment_count(m::Mechanisms.Mechanism, re::BitVector) =
-    length(Derivation.re_segments(m, trues(length(m.steps)), re).segments)
+    length(Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)), re).segments)
 
 """
     _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
@@ -437,7 +438,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
     every = trues(length(cm.steps))
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
     # group, which lies on no RE cycle and so never partners a set that does not gain.
-    segment_of = Derivation.re_segments(cm, every, flags).segment_of
+    segment_of = Mechanisms.rapid_equilibrium_segments(cm, every, flags).segment_of
     segments = [flags[first(ks)] ?
                     Set{Int}(segment_of[cm.steps[k].from] for k in ks) :
                     Set{Int}() for ks in members]
@@ -745,7 +746,7 @@ cycle of the edges its law keeps (`inactive_steps`) turns the reaction over
 """
 function _stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol})
     am = Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[])
-    !Derivation.has_turnover_cycle(m, am.inactive_steps)
+    !Mechanisms.has_turnover_cycle(m, am.inactive_steps)
 end
 
 """
