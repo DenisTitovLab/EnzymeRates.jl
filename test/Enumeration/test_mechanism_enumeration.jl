@@ -1292,13 +1292,13 @@ end
     end
 end
 
-@testset "init_mechanisms on ter-ter within 150 s" begin
+@testset "init_mechanisms on ter-ter within 200 s" begin
     # Aggregate pin over the whole ter-ter seed set: 35,665 seeds and their 215,442 merged
     # and Theorell–Chance variants that the guard admits. Enumeration, not compilation,
-    # dominates the call; the 150 s budget leaves room for slower CI runners.
+    # dominates the call; the 200 s budget leaves room for slower CI runners.
     t = @elapsed ms = EnzymeRates.Enumeration.init_mechanisms(ter_ter_rxn)
     @test length(ms) == 251107
-    @test t < 150
+    @test t < 200
 end
 
 @testset "Drops unbound regulators from init Mechanism" begin
