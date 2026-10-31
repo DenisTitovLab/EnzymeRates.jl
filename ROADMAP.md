@@ -7,6 +7,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Known issues
 
+- **The stored facts make the ter-ter `init_mechanisms` slower and larger.**
+  Each `Mechanism` stores its modifiers, groups, step kinds, directions toward products and
+  step sides. Across the 251,107 mechanisms the ter-ter `init_mechanisms` testset retains,
+  the live heap grew 48% (1,272 to 1,883 MiB) and the peak resident set from 2.3 to 3.1 GB.
+  The extra garbage collection makes the call about 20% slower (94 s to 117 s on Julia 1.13);
+  its time limit is 200 s. The step sides cost most: two strings per step, 668 of the 5,408
+  retained bytes per mechanism. Denis raised the limit instead of taking one of three
+  measured options: (A) keep already-sorted input vectors instead of copying them,
+  which lets a mechanism share the caller's vectors (72 s, 24% under the time before the
+  facts were stored); (B) compute `step_sides` on demand (102 s, 13% under the time with the
+  facts, 8% over the time before them); (D) reuse the variants the flip search in
+  `_seed_variants` already builds (with A and B, 51 s, 45% under the time before the
+  facts). No benchmark or pin yet covers the live bytes of a held result set.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
@@ -58,7 +71,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **On Julia 1.10 the full suite can peak above 4 GB.**
   With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
   in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
-  7.7 GB machine; Julia 1.12 peaks at 2.6-3.0 GB and Julia 1.13 at 2.6-2.7 GB. The ter-ter
+  7.7 GB machine; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
+  of the ter-ter entry below grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
   `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
   1 GB of garbage. On 1.10 the full suite still counts it after the enumeration file,
   1.83-1.84 GiB live there against 0.55-0.65 GiB with one `GC.gc()` after the testset; with

@@ -2276,7 +2276,7 @@ end
             v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, source)
             @test isfinite(v) && isapprox(v, v0; rtol = 1e-12)
         end
-        scaled = _testhelper_scale_rate_constants(res.best, params, 2.0)
+        scaled = EnzymeRates.Fitting._scale_rate_constants(res.best, params, 2.0)
         @test scaled.L == 0.0
     end
 end

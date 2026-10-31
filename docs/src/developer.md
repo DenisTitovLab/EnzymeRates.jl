@@ -71,19 +71,21 @@ with `Keq`, the `absolute` flag and the reference anchors; `FittingProblem` and
 (`Mechanism`, `AllostericMechanism`) as plain values whose fields any module reads with
 dots. Its constructors put a mechanism in canonical form and check it, and `show` prints a
 mechanism as the macro block that builds it. It hides canonical form, the representation
-checks and the `Sig` encoding of the compiled types.
+checks and the `Sig` encoding of the compiled types. A mechanism stores facts about its
+own graph (step groups and kinds, which steps run toward products, the allosteric
+conformation masks), and `Mechanisms` also answers the graph analyses that read them:
+rapid-equilibrium segments, turnover and unbalanced cycles, and the species present.
 
 **`Derivation`** turns a mechanism into its rate law. It decides whether the law is
 defined (the guard), solves the thermodynamic constraints, names the parameters, and
 derives the law with its generated code, printed text and key. It hides the King–Altman/Cha
 engine, the polynomials, the joint solve and a memo that derives each mechanism once for
-several questions. It also defines the conformation steps and rapid-equilibrium segments
-that `Enumeration` reads.
+several questions.
 
 **`Fitting`** fits a rate law to data. It hides the loss, the multi-start restarts, the
 scaling to the reference and the call into Optimization.jl.
 
-**`Enumeration`** proposes candidate mechanisms for a reaction: the base mechanisms that
+**`Enumeration`** proposes candidate mechanisms for a reaction: the starting mechanisms that
 identify fits first, and the children of each mechanism it keeps. It hides the seeds, the
 expansion moves and the structural filters that prune the search.
 
@@ -268,7 +270,7 @@ takes one tag per written group label, and
 `AllostericMechanism(catalytic, mwc_tags, multiplicity, sites)` composes a canonical
 catalytic mechanism with tags and sites. To change a mechanism, copy `m.nodes` and `m.steps`
 with new fields and call the constructor. Never mutate a built mechanism's vectors in
-place: its canonical form, hash, compiled Sig and memo entries depend on them.
+place: its canonical form, stored facts, hash, compiled Sig and memo entries depend on them.
 
 ### One request through the modules
 
@@ -278,7 +280,7 @@ fit:
 1. **The problem.** `@enzyme_reaction` (`DSL`) builds the `EnzymeReaction`
    (`Mechanisms`). `IdentifyRateEquationProblem(reaction, table; Keq)` (top level) checks
    the table into a `Data.RateData`.
-2. **The base mechanisms.** `Enumeration.starting_mechanisms` writes each seed as nodes and
+2. **The starting mechanisms.** `Enumeration.starting_mechanisms` writes each seed as nodes and
    steps, and the `Mechanism` constructor puts it in canonical form. A seed whose rate law
    is undefined fails `Derivation.check_valid_rate_equation(Bool, m)` and is
    dropped.

@@ -46,7 +46,7 @@ no enzyme of that conformation, a second free form included. The law deletes the
 steps and prunes the forms this strands; admission decides when that is the limit of the
 vanishing constants (spec section 7).
 """
-function _conformation_steps(m::Mechanism, excluded::BitVector)
+function _steps_joined_to_free_E(m::Mechanism, excluded::BitVector)
     joined = _joined_to_free_E(m, excluded)
     (k -> !excluded[k] && joined[m.steps[k].from]).(eachindex(m.steps))
 end

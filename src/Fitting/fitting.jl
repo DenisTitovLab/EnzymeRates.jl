@@ -352,7 +352,7 @@ scores the absolute turnover.
 
 ```julia
 fit = fit_rate_equation(FittingProblem(m, train; Keq = 2.0), optimizer)
-test_rate_equation(m, fit.params, test; Keq = 2.0)
+EnzymeRates.test_rate_equation(m, fit.params, test; Keq = 2.0)
 ```
 """
 function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple), table;

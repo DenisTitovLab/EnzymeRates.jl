@@ -1,5 +1,5 @@
 # ABOUTME: Tests of what a mechanism's stored graph holds (nodes, steps, kinetic groups,
-# ABOUTME: allosteric parts), `step_kind`, `groups`, `runs_toward_products`, step text.
+# ABOUTME: allosteric parts), `step_kind`, `groups`, the stored step facts, step text.
 
 const ER = EnzymeRates
 
@@ -302,7 +302,7 @@ end
     @test M.step_text(inhibited, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
 end
 
-@testset "runs_toward_products: a ping-pong's half-reactions" begin
+@testset "toward_products: a ping-pong's half-reactions" begin
     M = ER.Mechanisms
     m = ER.Mechanism(@enzyme_mechanism begin
         substrates: A, B

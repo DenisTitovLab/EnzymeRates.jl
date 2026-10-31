@@ -5,7 +5,6 @@ const ER = EnzymeRates
 
 @testset "active_steps and inactive_steps" begin
     M = ER.Mechanisms
-    D = ER.Derivation
     am = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P

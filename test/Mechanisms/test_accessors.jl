@@ -17,7 +17,8 @@
     params_mono = parameters(m_mono)
     @test :E_total in params_mono
     @test :Keq in params_mono
-    # dependent_parameter_values(m, values) is exactly the dependent constants to the parameters.
+    # dependent_parameter_values(m, values) is exactly the dependent constants to the
+    # parameters.
     values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
     dep_mono, _ = _testhelper_dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
     @test !isempty(dep_mono)
@@ -86,25 +87,8 @@ end
     @test dependent_parameter_values(m, map(big, p)).k_EP_to_ES isa BigFloat
     @test_throws ErrorException(
         "dependent_parameter_values: params must hold every name of " *
-        "parameters(m) except E_total; it lacks K_ES_to_E_S, Keq") dependent_parameter_values(
-        m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0))
-end
-
-@testset "parameters(m, values) points to dependent_parameter_values" begin
-    m = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end
-    p = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0)
-    msg = ErrorException("parameters(m, ...) returns names; use dependent_parameter_values(m, values) " *
-                         "for the dependent constants' values")
-    @test_throws msg parameters(m, p)
-    @test_throws msg parameters(EnzymeRates.Mechanism(m), p)
+        "parameters(m) except E_total; it lacks K_ES_to_E_S, Keq",
+    ) dependent_parameter_values(m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0))
 end
 
 @testset "dependent_parameter_values reproduces the dependents of a consistent point" begin

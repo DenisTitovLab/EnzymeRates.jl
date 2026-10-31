@@ -497,7 +497,8 @@ same graph in a type of its own.
 It also stores, one flag per catalytic step, the steps each conformation excludes
 (`excluded_active`, the steps of `:OnlyI` groups; `excluded_inactive`, those of `:OnlyA`
 groups) and the steps of each conformation (`active_steps`, `inactive_steps`:
-`_conformation_steps`). They take no part in `==` and `hash`.
+`_steps_joined_to_free_E`). They take no part in `==` and `hash`. Do not mutate the
+vectors of a built mechanism in place: the masks depend on `mwc_tags`.
 """
 struct AllostericMechanism
     catalytic::Mechanism
@@ -518,8 +519,8 @@ struct AllostericMechanism
         excluded_active = (e -> excludes(mwc_tags[e.group], :active)).(catalytic.steps)
         excluded_inactive = (e -> excludes(mwc_tags[e.group], :inactive)).(catalytic.steps)
         new(catalytic, copy(mwc_tags), catalytic_multiplicity, sites,
-            _conformation_steps(catalytic, excluded_active),
-            _conformation_steps(catalytic, excluded_inactive), excluded_active,
+            _steps_joined_to_free_E(catalytic, excluded_active),
+            _steps_joined_to_free_E(catalytic, excluded_inactive), excluded_active,
             excluded_inactive)
     end
 end

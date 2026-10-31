@@ -461,8 +461,8 @@ end
     # The thirteen mechanisms whose :OnlyI groups bind modifiers alone, read without the
     # guard: each law equals the rapid-equilibrium limit of the oracle's own deletion
     # network (`_testhelper_limit_law`) at 3 points, and the active conformation's
-    # denominator holds no constant of an :OnlyI group, since `conformation_steps` drops
-    # them.
+    # denominator holds no constant of an :OnlyI group, since the conformation's step mask
+    # (`active_steps`) drops them.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         @testset "$label" begin
             sub = _testhelper_single_subunit(am)

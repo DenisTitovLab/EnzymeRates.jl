@@ -114,11 +114,6 @@ function dependent_parameter_values(
     NamedTuple{Tuple(s.names[d.col] for d in deps)}(Tuple(value(d) for d in deps))
 end
 
-parameters(::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
-                   Mechanisms.AllostericMechanism}, ::NamedTuple) =
-    error("parameters(m, ...) returns names; use dependent_parameter_values(m, values) " *
-          "for the dependent constants' values")
-
 # ─── Edge masks and constant names ──────────────────────────
 
 """

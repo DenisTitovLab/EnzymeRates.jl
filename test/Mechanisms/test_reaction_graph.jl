@@ -1088,11 +1088,11 @@ function _testhelper_inactive_reach(g)
 end
 
 """
-Whether the sub-graph reads of `x` (`rapid_equilibrium_segments`, `conformation_steps`)
-give what the oracles read off its test reader's steps give (`_testhelper_re_segments`,
-`_testhelper_inactive_reach`): the catalytic graph's segments, form by form and
-breadth-first, with each form's positive offsets, and, for an allosteric mechanism, the
-inactive conformation's edges and their segments.
+Whether the sub-graph reads of `x` (`rapid_equilibrium_segments`, the stored conformation
+masks) give what the oracles read off its test reader's steps give
+(`_testhelper_re_segments`, `_testhelper_inactive_reach`): the catalytic graph's segments,
+form by form and breadth-first, with each form's positive offsets, and, for an allosteric
+mechanism, the inactive conformation's edges and their segments.
 """
 function _testhelper_subgraphs_agree(x)
     m, g = ER.Mechanisms.catalytic(x), _testhelper_graph(x)
@@ -1306,8 +1306,8 @@ end
     @test isempty([i for (i, x) in enumerate(init) if !_testhelper_round_trips(x)])
 end
 
-"""Whether the facts `m` stores are those its canonical fields give, and the functions that
-read them return them: its modifiers and groups, read off its nodes and steps here, and
+"""Whether the facts `m` stores are those its canonical fields give, and the stored fields
+hold them: its modifiers and groups, read off its nodes and steps here, and
 each step's kind, direction toward products and side names, as the graph reads compute
 them from the canonical fields."""
 function _testhelper_facts_hold(m::ER.Mechanism)

@@ -130,7 +130,8 @@ end
 The constants of `m` (values by name in `all_params`, `params` merged with
 `dependent_parameter_values(m, params)`) under the positional names a textbook rate law
 reads, by role. Written step `i` (in the order of `raw`'s written steps) takes the
-constants of the edge it became (`_canonicalize`), in the written direction: `k{i}f` and `k{i}r` at steady state, and at rapid equilibrium `K{i}`, a
+constants of the edge it became (`_canonicalize`), in the written direction: `k{i}f` and
+`k{i}r` at steady state, and at rapid equilibrium `K{i}`, a
 binding's dissociation constant or, for any other step, the equilibrium constant of the
 written direction. The inactive law's kept steps in a `:NonequalAI` group add `k{i}f_T`,
 `k{i}r_T` or `K{i}_T`. No spec in `MECHANISM_TEST_SPECS` writes a non-binding step against
@@ -695,7 +696,7 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         # constant but the steady-state rate constants alone.
         target = sign(v_orig) * (0.1 + 9.9 * rand(rng))
         v_unit = rate_equation(m, concs, merge(params, (E_total = 1.0,)))
-        anchored = _testhelper_scale_rate_constants(m, params, target / v_unit)
+        anchored = EnzymeRates.Fitting._scale_rate_constants(m, params, target / v_unit)
         for k in keys(params)
             if !(k in ss_names)
                 @test anchored[k] == params[k]
@@ -906,7 +907,8 @@ const _testhelper_fused_cases = [
     # The engine weighs each form of a rapid-equilibrium segment against the segment's
     # first form in the canonical form order (`rapid_equilibrium_segments`), so free E,
     # form 1, roots its own segment. A's modifier copy comes before Ab there: the table
-    # sorts A's copy just after A, before Ab. The law in lowest terms does not depend on the root.
+    # sorts A's copy just after A, before Ab. The law in lowest terms does not depend on the
+    # root.
     em = @enzyme_mechanism begin
         substrates: A, Ab
         products: P
@@ -1433,8 +1435,8 @@ end
 @testset "rate_equation reads concs and params by name in any order" begin
     # The body reads each input by name (`getfield`), so reordered NamedTuples, a data row
     # with Rate and group fields, and `params` merged with
-    # `dependent_parameter_values(m, params)` give the same value without allocating. A metabolite named x1 reads as a
-    # concentration beside the body's positional local x1.
+    # `dependent_parameter_values(m, params)` give the same value without allocating. A
+    # metabolite named x1 reads as a concentration beside the body's positional local x1.
     m = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
     params, concs, all_params = _testhelper_random_independent_params_concs(
         m, collect(metabolites(m)); rng = Random.MersenneTwister(91))
@@ -1609,9 +1611,9 @@ end
 end
 
 """Whether each reference line of `m`'s printed law, read back in 256-bit BigFloat
-(`_testhelper_eval_rate_lines`), equals the dependent constant `dependent_parameter_values(m, params)`
-computes, to 1e-12 relative, at a random point; false when the law prints no reference
-line."""
+(`_testhelper_eval_rate_lines`), equals the dependent constant
+`dependent_parameter_values(m, params)` computes, to 1e-12 relative, at a random point;
+false when the law prints no reference line."""
 function _testhelper_reference_lines_match(m)
     rng = Random.MersenneTwister(4)
     p = _testhelper_random_independent_params(m; rng)
@@ -1774,7 +1776,7 @@ end
         met_names = metabolites(m)
         concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
         v = rate_equation(m, concs, params)
-        scaled = _testhelper_scale_rate_constants(m, params, 3.0)
+        scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 3.0)
         @test rate_equation(m, concs, scaled) ≈ 3.0 * v rtol = 1e-9
     end
     # The exact names, in the order `RateConstants()` returns them: the set is the
@@ -1801,7 +1803,7 @@ end
         m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
         ks = (parameters(m)...,)
         params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))
-        scaled = _testhelper_scale_rate_constants(m, params, 10.0)
+        scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 10.0)
         ss = parameters(m, EnzymeRates.Derivation.RateConstants())
         @test keys(scaled) == ks
         @test !isempty(ss) && any(k -> !(k in ss), ks)

@@ -66,7 +66,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     function form(consumed, released, on_subs, on_prods)
         added, subtracted = setdiff(consumed, on_subs), [released; on_prods]
         bound = sort!(Mechanisms.Metabolite[Mechanisms.Metabolite.(on_subs, false);
-                                     Mechanisms.Metabolite.(on_prods, false)])
+                                            Mechanisms.Metabolite.(on_prods, false)])
         n = isempty(_net_atoms(reaction, added, subtracted)) ?
             Mechanisms.EnzymeForm(:E, bound, Symbol[], Symbol[]) :
             Mechanisms.EnzymeForm(:E, bound, sort!(added), sort!(subtracted))
