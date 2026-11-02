@@ -285,12 +285,12 @@ end
     expected = _testhelper_MAP_HEADER * join([
         "flowchart TB",
         "  top[\"<b><big>EnzymeRates</big></b><br/>Does it all.<br/><br/>" *
-        "Defines:<br/><b>★ identify()</b><br/><b>★ Result</b>\"]",
+        "Defines:<br/><b>★#nbsp;identify()</b><br/><b>★#nbsp;Result</b>\"]",
         "  fit[\"<b><big>Fitting</big></b><br/>Fits a law<br/>to data.\"]",
         "  mech[\"<b><big>Mechanisms</big></b><br/>Stores things.<br/><br/>" *
         "Types every module but Data reads:<br/>Mechanism\"]",
-        "  top -->|\"<b>★ fit()</b>\"| fit",
-        "  fit -->|\"<b>★ metabolites()</b><br/>compile_mechanism()\"| mech",
+        "  top -->|\"<b>★#nbsp;fit()</b>\"| fit",
+        "  fit -->|\"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()\"| mech",
         "  classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;",
         "  class top,fit,mech mod;", ""], "\n")
     _testhelper_with_tree(tree...) do root

@@ -28,27 +28,27 @@ and `julia test/update_module_map.jl` rewrites it.
   "lineColor": "#777777", "edgeLabelBackground": "#ffffff", "clusterBkg": "#eaf2ee",
   "clusterBorder": "#666666", "titleColor": "#1f4f42"}}}%%
 flowchart TB
-  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★ identify_rate_equation()</b><br/><b>★ IdentifyRateEquationProblem</b><br/><b>★ IdentifyRateEquationResults</b>"]
+  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★#nbsp;identify_rate_equation()</b><br/><b>★#nbsp;IdentifyRateEquationProblem</b><br/><b>★#nbsp;IdentifyRateEquationResults</b>"]
   dsl["<b><big>DSL</big></b><br/>Turns macro-written reactions and mechanisms<br/>into checked objects."]
   enum["<b><big>Enumeration</big></b><br/>Generates candidate mechanisms for a reaction."]
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
   der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
-  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★ EnzymeReaction</b><br/><b>★ EnzymeMechanism</b><br/><b>★ AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
-  top -->|"<b>★ @enzyme_reaction</b><br/><b>★ @enzyme_mechanism</b><br/><b>★ @allosteric_mechanism</b>"| dsl
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;EnzymeMechanism</b><br/><b>★#nbsp;AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
+  top -->|"<b>★#nbsp;@enzyme_reaction</b><br/><b>★#nbsp;@enzyme_mechanism</b><br/><b>★#nbsp;@allosteric_mechanism</b>"| dsl
   top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
-  top -->|"<b>★ fit_rate_equation()</b><br/><b>★ FittingProblem</b><br/>test_rate_equation()"| fit
-  top -->|"<b>★ rate_equation()</b><br/><b>★ rate_equation_string()</b><br/><b>★ parameters()</b><br/><b>★ dependent_parameter_values()</b><br/><b>★ IndependentParameters</b><br/><b>★ FittedParameters</b><br/><b>★ AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
+  top -->|"<b>★#nbsp;fit_rate_equation()</b><br/><b>★#nbsp;FittingProblem</b><br/>test_rate_equation()"| fit
+  top -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/><b>★#nbsp;IndependentParameters</b><br/><b>★#nbsp;FittedParameters</b><br/><b>★#nbsp;AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
   top -->|"RateData"| data
-  top -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
+  top -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
-  enum -->|"<b>★ metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★ rate_equation()</b><br/><b>★ parameters()</b><br/><b>★ FittedParameters</b><br/>RateConstants"| der
+  enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>RateConstants"| der
   fit -->|"RateData"| data
-  fit -->|"<b>★ metabolites()</b><br/>compile_mechanism()"| mech
-  der -->|"<b>★ metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
+  fit -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,enum,fit,der,data,mech mod;
 ```

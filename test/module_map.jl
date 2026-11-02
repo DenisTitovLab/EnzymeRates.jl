@@ -209,10 +209,11 @@ function _testhelper_box_sentence(file, mod::Symbol)
 end
 
 """A name as the diagram writes it: a function as `name()`, a macro or a type bare, an
-exported name in bold with a star."""
+exported name in bold with a star. A non-breaking space (Mermaid's `#nbsp;`) joins the star
+to the name, so a label that wraps never leaves the star on a line of its own."""
 function _testhelper_map_name(name, types, exports)
     text = startswith(string(name), "@") || name in types ? string(name) : "$name()"
-    name in exports ? "<b>★ $text</b>" : text
+    name in exports ? "<b>★#nbsp;$text</b>" : text
 end
 
 """The names in the order the diagram lists them: the exported ones first, as functions,
