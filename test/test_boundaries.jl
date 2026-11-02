@@ -299,7 +299,10 @@ end
         @test _testhelper_module_map(root) == expected
         doc = "text\n\n```mermaid\n$expected```\n\nmore\n"
         @test _testhelper_module_map_block_problems(doc, root) == String[]
-        stale = replace(doc, "Stores things." => "Stores.")
+        # A Windows checkout writes CRLF line endings.
+        @test _testhelper_module_map_block_problems(replace(doc, "\n" => "\r\n"), root) ==
+              String[]
+        stale =replace(doc, "Stores things." => "Stores.")
         @test _testhelper_module_map_block_problems(stale, root) == [
             "the Mermaid module map in docs/src/developer.md differs from the one " *
             "generated from src/; rewrite it with `julia test/update_module_map.jl`"]

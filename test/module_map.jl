@@ -271,9 +271,10 @@ end
 const _testhelper_MAP_FENCE = r"```mermaid\n(.*?)```\n"s
 
 """One line when the Mermaid block of the Markdown text `doc` is missing or differs from
-the module map generated from `root`, naming the command that rewrites it."""
+the module map generated from `root`, naming the command that rewrites it. CRLF line
+endings (a Windows checkout) compare as LF."""
 function _testhelper_module_map_block_problems(doc, root)
-    block = match(_testhelper_MAP_FENCE, doc)
+    block = match(_testhelper_MAP_FENCE, replace(doc, "\r\n" => "\n"))
     block !== nothing && block[1] == _testhelper_module_map(root) && return String[]
     ["the Mermaid module map in docs/src/developer.md differs from the one generated " *
      "from src/; rewrite it with `julia test/update_module_map.jl`"]
