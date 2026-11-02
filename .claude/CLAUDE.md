@@ -204,6 +204,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 ## Workflow
 
 - Always run tests before committing
+- Specs and plans under `docs/superpowers/` are working documents. Delete a change's spec and plan in the PR that implements it, before it merges: the code, tests, developer docs and `ROADMAP.md` are the lasting record, and git history keeps the rest.
 
 ## Code Style
 
