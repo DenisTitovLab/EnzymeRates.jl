@@ -31,6 +31,7 @@ OptimizationCMAEvolutionStrategy = "0.3"
 # 2.3.2 has a broken FastConvergence import (fixed in unreleased 2.4.0,
 # SciML/OrdinaryDiffEq.jl#3777); revert to "1, 2" once 2.4.0 is registered.
 OrdinaryDiffEqFIRK = "1"
+REPL = "1"
 Random = "1"
 SHA = "0.7, 1"
 Serialization = "1"
@@ -46,9 +47,10 @@ JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 OptimizationBBO = "3e6eede4-6085-4f62-9a71-46d9bc1eb92b"
 OptimizationCMAEvolutionStrategy = "bd407f91-200f-4536-9381-e4ba712f53f8"
 OrdinaryDiffEqFIRK = "5960d6e9-dd7a-4743-88e7-cf307b64f125"
+REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "OrdinaryDiffEqFIRK", "OptimizationBBO", "OptimizationCMAEvolutionStrategy", "Aqua", "JET", "Random", "Serialization"]
+test = ["Test", "OrdinaryDiffEqFIRK", "OptimizationBBO", "OptimizationCMAEvolutionStrategy", "Aqua", "JET", "REPL", "Random", "Serialization"]

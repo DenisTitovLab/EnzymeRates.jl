@@ -1,6 +1,8 @@
 # ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, underscore
 # ABOUTME: names, exports), the developer docs' module map, and the public names' docs.
 
+import REPL  # defines Base.Docs.doc(::Binding), read by the docstring testset
+
 include("module_map.jl")
 
 """The tables of a Markdown text, as `(; label, header, rows)`: `label` is the last
