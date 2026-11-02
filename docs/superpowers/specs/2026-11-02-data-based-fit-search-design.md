@@ -56,11 +56,11 @@ in `M`.
 
 | Constant | Centre | `order_M` |
 |---|---|---|
-| Dissociation K, regulator K | `s_M` | +1 |
+| Dissociation K (`:binding`, `:fused_binding`), regulator K | `s_M` | +1 |
 | First-order k | `r` | 0 |
 | Second-order k | `r / s_M` | −1 |
 | Isomerization K, `L` | 1 | 0 |
-| Other equilibrium K, stored direction | product of `s` | given off +1, taken up −1 |
+| Other equilibrium K, stored direction, such as `E + A + B ⇌ E(A, B)` | product of `s` | given off +1, taken up −1 |
 | Other rate constant | `r` over product of `s` | −1 per metabolite taken up |
 
 **Search:** `x0 = centre + 2 * randn()`, clamped to the box, and box `centre ± 15`. Each
@@ -107,6 +107,10 @@ explain `at_bound`.
 - **Orders match the law:** for every mechanism in `MECHANISM_TEST_SPECS`, scale each
   metabolite by its own factor, each constant by its orders and `Keq` to match, and assert
   that `rate_equation` does not change. This checks the orders against the derived law.
+  `MECHANISM_TEST_SPECS` holds a Theorell–Chance step, but a search of its file found no
+  step moving two metabolites in one direction, so the test also covers
+  `E + A + B <--> E(A, B)`, `E + A + B ⇌ E(A, B)`, `F + A + A ⇌ F(A, A)` and
+  `E(P, Q) <--> E + P + Q`, each written inline.
 - **Unit independence:** the same seeded fit in M, mM and µM returns the same determined
   constants after conversion, compared after the relative-mode scale. Throwaway runs
   agreed to about 1e-6 log units; the tolerance sits above that.
@@ -144,5 +148,6 @@ explain `at_bound`.
 - Seeded tests that pin an identify result may change, because starts change. If one
   breaks, bring it to Denis, and neither loosen it nor reseed it to pass.
 - Evidence so far is noiseless synthetic data on laws of 5 to 15 parameters, with one seed
-  per setting. Neither James's data nor a 20-parameter law has been run.
+  per setting. Neither James's data, a 20-parameter law nor a step moving two metabolites
+  in one direction has been run.
 - Whether this PR bumps the version is Denis's call at PR time.
