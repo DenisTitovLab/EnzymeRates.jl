@@ -208,10 +208,9 @@ package rejects:
 3. a face where the law is not the unique limit: a rapid-equilibrium segment with no form
    whose weight keeps the segment's lowest power of each of the face's metabolites, a
    segment whose lowest forms are joined only through other forms, a trap that the face
-   feeds and its fast exits cannot drain, or a second closed set of forms;
-4. tags with no limit (admission, above);
-5. a law with no value (0/0) on a face, which the macros reject; the derivation checks the
-   derived denominator once more.
+   feeds and its fast exits cannot drain, a second closed set of forms, or a law with no
+   value (0/0) there;
+4. tags with no limit (admission, above).
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so `rate_equation`

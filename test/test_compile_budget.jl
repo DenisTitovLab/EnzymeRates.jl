@@ -31,7 +31,7 @@ const SIG_NATIVE_BUDGET_KB               = 100   # baseline 2026-10-14: 34
 # Anchored to the EnzymeRates module prefix only. Counts every method
 # specialization Julia compiles that touches our module — our functions,
 # our types, Base methods specialized on our types (e.g.
-# Base.hash(::EnzymeRates.Edge, ...)), Core.kwcall plumbing, show/print.
+# Base.hash(::EnzymeRates.Mechanisms.Edge, ...)), Core.kwcall plumbing, show/print.
 # Filters out unrelated package precompiles (Optimization.jl, Tables.jl,
 # etc.) which would create dependency-noise false positives.
 #
@@ -115,12 +115,12 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     the @generated rate_equation body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
     #     Before both, the script counts the package image's `_rate_body` specializations.
-    #   - fit: the identify path on bi-bi mechanisms as _process_batch and _cv_fold_loss
-    #     take it: PASS1 (`_pass1_record`: complexity, the guard, the solve and its
-    #     fitted count, the law and class 5, the printed law, and the mechanism's text, id
-    #     and key, all on the concrete mechanism), PASS2 (FittingProblem and a CMA-ES
-    #     fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the first
-    #     of five written-out seeds compile everything that does not depend on the
+    #   - fit: the identify path on bi-bi mechanisms as _process_batch and
+    #     _cross_validation_loss take it: PASS1 (`_pass1_record`: complexity, the guard,
+    #     the solve and its fitted count, the law, the printed law, and the mechanism's
+    #     text, id and key, all on the concrete mechanism), PASS2 (FittingProblem and a
+    #     CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the
+    #     first of five written-out seeds compile everything that does not depend on the
     #     mechanism, so each fresh mechanism after them compiles only what its own type
     #     needs. The five differ in Sig length and in fitted names, and are picked by
     #     content, not by their place in the seeds. The census counts the method
@@ -133,22 +133,22 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:A), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:B), [:N => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:Q),   [:N => 1])],
-            EnzymeRates.RegulatorMults[],
+            [EnzymeRates.Mechanisms.Reactant(:A, [:C => 1]),
+             EnzymeRates.Mechanisms.Reactant(:B, [:N => 1])],
+            [EnzymeRates.Mechanisms.Reactant(:P, [:C => 1]),
+             EnzymeRates.Mechanisms.Reactant(:Q, [:N => 1])],
+            EnzymeRates.Mechanisms.Regulator[],
             Int[1],
         )
-        EnzymeRates.init_mechanisms(r)
+        EnzymeRates.Enumeration.init_mechanisms(r)
         r_uni = EnzymeRates.EnzymeReaction(
-            [EnzymeRates.ReactantAtoms(EnzymeRates.Substrate(:S), [:C => 1]),
-             EnzymeRates.ReactantAtoms(EnzymeRates.Product(:P),   [:C => 1])],
-            EnzymeRates.RegulatorMults[],
+            [EnzymeRates.Mechanisms.Reactant(:S, [:C => 1])],
+            [EnzymeRates.Mechanisms.Reactant(:P, [:C => 1])],
+            EnzymeRates.Mechanisms.Regulator[],
             Int[1],
         )
         GC.gc()
-        t_uni = @elapsed EnzymeRates.init_mechanisms(r_uni)
+        t_uni = @elapsed EnzymeRates.Enumeration.init_mechanisms(r_uni)
         println("UNI_WARM:", t_uni)
         """
     cold_script = """
@@ -156,12 +156,12 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         println("IMAGE_RATE_BODIES:", count(
             mi -> mi.specTypes.parameters[2] in
                   (EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism),
-            Base.specializations(only(methods(EnzymeRates._rate_body)))))
+            Base.specializations(only(methods(EnzymeRates.Derivation._rate_body)))))
         r_uni = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
         end
-        t = @elapsed EnzymeRates.init_mechanisms(r_uni)
+        t = @elapsed EnzymeRates.Enumeration.init_mechanisms(r_uni)
         println("UNI_COLD:", t)
         m = @enzyme_mechanism begin
             substrates: S
@@ -189,7 +189,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             (group = repeat(["G1", "G2"], inner = 4),
              Rate = [0.3, 0.5, 0.6, 0.8, 0.2, 0.4, 0.7, 0.9],
              A = repeat([0.5, 1.0, 2.0, 4.0], 2), B = repeat([1.0, 2.0], 4),
-             P = fill(0.1, 8), Q = fill(0.2, 8)); Keq = 2.0)
+             P = fill(0.1, 8), Q = fill(0.2, 8)); Keq = 2.0,
+            reference = [(A = 0.5, B = 1.0, P = 0.1, Q = 0.2) => 0.3])
         const OPT = CMAEvolutionStrategyOpt()
         const FIT_KW = (; n_restarts = 1, maxtime = 10.0, maxiters = 20, abstol = nothing,
                         reltol = nothing, callback = nothing, solver_kwargs = (;))
@@ -211,24 +212,23 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             pass1 = _testhelper_all_instances() - n0
             rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
-            fp = FittingProblem(ER.compile_mechanism(m), PROB.data;
-                                Keq = PROB.Keq, absolute = PROB.absolute,
-                                peak_range = PROB.peak_range)
+            em = ER.compile_mechanism(m)
+            fp = FittingProblem(em, PROB.rate_data.data; ER._fit_keywords(em, PROB)...)
             fit_rate_equation(fp, OPT; FIT_KW...)
-            ER._cv_fold_loss(ER.compile_mechanism(m), PROB, "G1";
-                             optimizer = OPT, FIT_KW...)
+            ER._cross_validation_loss(em, PROB.rate_data.data, "G1";
+                             ER._fit_keywords(em, PROB)..., optimizer = OPT, FIT_KW...)
             fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
                    (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
             s2 = _testhelper_instances(methods(show))
             sprint(show, ER.compile_mechanism(m))
             (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2, pass1)
         end
-        ms = ER.init_mechanisms(rxn)
+        ms = ER.Enumeration.init_mechanisms(rxn)
         # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
         # and once; encoding every seed first keeps it out of the per-mechanism counts
         # and measures its total for this process.
         n_sig, b_sig = _testhelper_all_instances(), Base.jit_total_bytes()
-        foreach(ER._sig_of, ms)
+        foreach(ER.Mechanisms._sig_of, ms)
         println("SIG_INSTANCES:", _testhelper_all_instances() - n_sig,
                 " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
         # Five bi-bi seeds with five Sig lengths and five fitted-name tuples, written
@@ -299,7 +299,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         end
         ems = ER.compile_mechanism.(picks)
         println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
-        println("FIT_NAMES:", length(unique(ER.fitted_params, ems)))
+        fitted_names(em) = ER.parameters(em, ER.FittedParameters())
+        println("FIT_NAMES:", length(unique(fitted_names, ems)))
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]
@@ -332,8 +333,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     # leaving the package's two calls compiling nothing.
     @testset "the generator's precompile signatures compile" begin
         @test n_image == 2
-        @test precompile(EnzymeRates._rate_body, (EnzymeRates.Mechanism,))
-        @test precompile(EnzymeRates._rate_body, (EnzymeRates.AllostericMechanism,))
+        @test precompile(EnzymeRates.Derivation._rate_body, (EnzymeRates.Mechanism,))
+        @test precompile(EnzymeRates.Derivation._rate_body,
+                         (EnzymeRates.AllostericMechanism,))
     end
 
     # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's
@@ -372,8 +374,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             products:   P[C], Q[N], R[O]
         end
         @test typeof(r_uni) === typeof(r_ter)
-        @test which(EnzymeRates.init_mechanisms, (typeof(r_uni),)) ===
-              which(EnzymeRates.init_mechanisms, (typeof(r_ter),))
+        @test which(EnzymeRates.Enumeration.init_mechanisms, (typeof(r_uni),)) ===
+              which(EnzymeRates.Enumeration.init_mechanisms, (typeof(r_ter),))
     end
 
     # The fit census walks Julia's global method table, which Julia has from 1.12 on.
@@ -444,6 +446,7 @@ end
     # text and derives the same generated body, compared by SHA-256, the same key and the
     # same printed law in both forms, for the 42 specs and the six gate laws (PASS1
     # derives and prints on the workers).
+    sha256 = EnzymeRates.Derivation.sha256
     mechs = [_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]
     append!(mechs, _testhelper_lift.(_testhelper_largest_enumerated_mechanisms))
     append!(mechs, _testhelper_lift.(_testhelper_large_ter_bi_mechanisms))
@@ -453,26 +456,27 @@ end
     script = """
         using EnzymeRates
         const ER = EnzymeRates
+        const sha256 = ER.Derivation.sha256
         for (i, text) in enumerate(split(read($(repr(file)), String), "\\n----\\n"))
-            m = ER._parse_mechanism(String(text))
-            println("BODY ", i, " ", bytes2hex(ER.sha256(string(ER._rate_body(m)))))
-            println("KEY ", i, " ",
-                    ER._canonical(ER._law(m), ER._mechanism_id(String(text))).key)
-            println("FULL ", i, " ", bytes2hex(ER.sha256(ER.rate_equation_string(m))))
+            m = ER.DSL.parse_mechanism(String(text))
+            println("BODY ", i, " ",
+                    bytes2hex(sha256(string(ER.Derivation._rate_body(m)))))
+            println("KEY ", i, " ", ER.Derivation.rate_equation_dedup_key(m).key)
+            println("FULL ", i, " ", bytes2hex(sha256(ER.rate_equation_string(m))))
             println("COEF ", i, " ",
-                    bytes2hex(ER.sha256(ER.rate_equation_string(m; coefficients = true))))
+                    bytes2hex(sha256(ER.rate_equation_string(m; coefficients = true))))
         end
         """
     lines = split(_testhelper_subprocess_output(script), '\n')
     rm(file; force = true)
     @test all(t -> count(startswith(t * " "), lines) == 48, ("BODY", "KEY", "FULL", "COEF"))
     for (i, m) in enumerate(mechs)
-        mine = bytes2hex(EnzymeRates.sha256(string(EnzymeRates._rate_body(m))))
+        mine = bytes2hex(sha256(string(EnzymeRates.Derivation._rate_body(m))))
         @test "BODY $i $mine" in lines
         key = _testhelper_pass1_canonical(m).key
         @test "KEY $i $key" in lines
-        full = bytes2hex(EnzymeRates.sha256(rate_equation_string(m)))
-        coef = bytes2hex(EnzymeRates.sha256(rate_equation_string(m; coefficients = true)))
+        full = bytes2hex(sha256(rate_equation_string(m)))
+        coef = bytes2hex(sha256(rate_equation_string(m; coefficients = true)))
         @test "FULL $i $full" in lines
         @test "COEF $i $coef" in lines
     end

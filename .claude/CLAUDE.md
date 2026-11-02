@@ -172,8 +172,8 @@ Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read
 
 ## API Design
 
-- `compile_mechanism` is NOT exported (internal). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
-- The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and edges that `Mechanism(raw)` / `AllostericMechanism(raw)` build from raw input (`RawMechanism`, `RawStep`, `RawForm`) — there is no separate working representation.
+- `compile_mechanism` and `test_rate_equation` are NOT exported (internal but usable as `EnzymeRates.test_rate_equation`). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.Enumeration.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
+- The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and steps that `Mechanism(substrates, products, nodes, steps)` / `AllostericMechanism(...)` build from `EnzymeForm` and `Step` lists, and whose derived facts (`groups`, `step_kinds`, `toward_products`, `step_sides`, `modifiers`) are stored fields read with dots — there is no separate working representation.
 - Data tables use a `group` column (not `Article`+`Fig`) to identify measurement groups sharing the same E_total
 - Keq is always user-provided, never estimated from data
 
@@ -187,8 +187,9 @@ julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 
 ```bash
 # Focused run of one test file (warm: skips the full suite's precompile and JIT; ~1.5 min for
-# the enumeration file). TestEnv activates the test environment in place.
-julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<file>.jl")'
+# the enumeration file). TestEnv activates the test environment in place. A module's tests
+# live in test/<Module>/; a file directly in test/ is named test/<file>.jl instead.
+julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<Module>/<file>.jl")'
 ```
 
 Use the focused run while iterating and the full suite once before committing. Four things to
@@ -203,6 +204,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 ## Workflow
 
 - Always run tests before committing
+- Specs and plans under `docs/superpowers/` are working documents. Delete a change's spec and plan in the PR that implements it, before it merges: the code, tests, developer docs and `ROADMAP.md` are the lasting record, and git history keeps the rest.
 
 ## Code Style
 
@@ -214,22 +216,26 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
 ### Parameter naming chokepoint (guard)
 
-All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/test_types.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal outside a parameter-name renderer.
+All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint in `src/Derivation/names.jl`; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/Derivation/test_names.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal in `src/` outside a parameter-name renderer, and on a renderer outside that file.
+
+### Module boundaries (guard)
+
+`src/` is six submodules layered `Mechanisms ← Derivation ← {Fitting, Enumeration, DSL}` and `Data ← Fitting` (`DSL` holds the macros and `parse_mechanism`; `Data` holds `RateData`), each in `src/<Module>/` with its interface listed as `const API = (...)` in `src/<Module>/<Module>.jl`; the top level (identify, the exports) uses all of them. `test/test_boundaries.jl` parses `src/` without loading the package and fails on four rules: (1) a name of another module (`Mod.name`, or `using ..Mod: name`) missing from that module's `API`; (2) a module naming a module its layer forbids; (3) an underscore name in an `API` list or used across modules; (4) an `export` in a submodule. To use another module's function, give it a name without an underscore, add it to that module's `API`, and call it qualified (`Derivation.fitted_parameter_count(m)`); outside `Mechanisms`, read a mechanism's stored fields with dots (`m.steps[k].from`, `m.groups`). Keep the names shared across modules to a minimum: each module is then deep, and you can work on it knowing only the other modules' interfaces. The Developer page lists each module's API in tables and draws the module map as a Mermaid diagram generated from `src/` (each box's sentence is the first sentence of its module's docstring), and the same test fails when the tables or the diagram disagree with `src/`: a change to an `API`, an export, a module docstring or a cross-module call updates `docs/src/developer.md` in the same commit, and `julia test/update_module_map.jl` rewrites the diagram.
 
 ### Canonical Step Form (load-bearing guard)
-Edge direction, edge order and group order are canonicalized in the `Mechanism`/`AllostericMechanism` constructors (`_canonicalize`). This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`), so `fitted_params` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
+Edge direction, edge order and group order are canonicalized in the `Mechanism`/`AllostericMechanism` constructors (`_canonicalize`). This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/Derivation/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`, in `src/Derivation/names.jl`), so `parameters(m, FittedParameters())` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
 
 
 
 
 ### `rate_equation` runtime perf is non-negotiable
 
-`rate_equation` MUST be allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`, and allocation-free and under `max(120 ns, 0.8 ns × denominator terms)` for the larger laws in `_testhelper_largest_enumerated_mechanisms` and `_testhelper_large_ter_bi_mechanisms`. Enforced by `_testhelper_test_rate_equation_performance` in `test/test_rate_eq_derivation.jl` (`allocs == 0`; `t < 120e-9`, or `t < max(120e-9, 0.8e-9 * n)` for a larger law with `n` denominator terms) plus the Expr-shape (binary calls, Horner form) and flat-string regression tests in the same file. Locally the 120-ns bound leaves about 4× headroom over the slowest `MECHANISM_TEST_SPECS` law ("LDH i-state NonequalAI 6-group, steady-state NAD group", about 26 ns) and about 9× over the next ("Random-order Bi-Bi", about 13 ns); shared CI runners can run a law 4-7× slower, so rerun a job that misses the bound rather than loosening it. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation contract and these bounds hold.
+`rate_equation` MUST be allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`, and allocation-free and under `max(120 ns, 0.8 ns × denominator terms)` for the larger laws in `_testhelper_largest_enumerated_mechanisms` and `_testhelper_large_ter_bi_mechanisms`. Enforced by `_testhelper_test_rate_equation_performance` in `test/Derivation/test_rate_eq_derivation.jl` (`allocs == 0`; `t < 120e-9`, or `t < max(120e-9, 0.8e-9 * n)` for a larger law with `n` denominator terms) plus the Expr-shape (binary calls, Horner form) and flat-string regression tests in the same file. Locally the 120-ns bound leaves about 4× headroom over the slowest `MECHANISM_TEST_SPECS` law ("LDH i-state NonequalAI 6-group, steady-state NAD group", about 26 ns) and about 9× over the next ("Random-order Bi-Bi", about 13 ns); shared CI runners can run a law 4-7× slower, so rerun a job that misses the bound rather than loosening it. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation contract and these bounds hold.
 
 
 ### Enumeration-engine tests
 
-Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expansion moves live in `test/test_mechanism_enumeration.jl` and follow three rules:
+Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expansion moves live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
 
 1. **Write the mechanism in the testset.** Define every fixture inline with `@enzyme_mechanism` or `@allosteric_mechanism`, even when that repeats a mechanism used elsewhere. A fixture pulled from `init_mechanisms`, a shared constant, or a helper cannot be reviewed without leaving the testset. The only exception is an aggregate regression pin over a whole seed set (a count over all `init_mechanisms(rxn)`), which must say so in a comment.
 2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.

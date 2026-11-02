@@ -9,15 +9,322 @@ deliberate performance boundary. **Singleton types** drive the compile-time
 rate-equation derivation; **concrete types** drive the mechanism enumeration.
 The two halves and the optimizer layer are described below.
 
+## Modules
+
+EnzymeRates is six submodules and a top level. Each submodule lives in `src/<Module>/`:
+`<Module>.jl` declares the module, includes its files and lists its interface as
+`const API = (...)`. Its tests live in `test/<Module>/`. The diagram below shows every
+exported name and every name one module takes from another, and the tables list every
+module's whole `API`; `test/test_boundaries.jl` fails when they disagree with `src/`. The
+diagram is generated: each box's sentence is the first sentence of its module's docstring,
+and `julia test/update_module_map.jl` rewrites it.
+
+### The module map
+
+```mermaid
+%%{init: {"theme": "base", "flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 70, "htmlLabels": true},
+  "themeVariables": {"fontFamily": "Helvetica, Arial, sans-serif", "fontSize": "13px",
+  "primaryColor": "#ffffff", "primaryBorderColor": "#666666", "primaryTextColor": "#222222",
+  "lineColor": "#777777", "edgeLabelBackground": "#ffffff", "clusterBkg": "#eaf2ee",
+  "clusterBorder": "#666666", "titleColor": "#1f4f42"}}}%%
+flowchart TB
+  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★#nbsp;identify_rate_equation()</b><br/><b>★#nbsp;IdentifyRateEquationProblem</b><br/><b>★#nbsp;IdentifyRateEquationResults</b>"]
+  dsl["<b><big>DSL</big></b><br/>Turns macro-written reactions and mechanisms<br/>into checked objects."]
+  enum["<b><big>Enumeration</big></b><br/>Generates candidate mechanisms for a reaction."]
+  fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
+  der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
+  data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;EnzymeMechanism</b><br/><b>★#nbsp;AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
+  top -->|"<b>★#nbsp;@enzyme_reaction</b><br/><b>★#nbsp;@enzyme_mechanism</b><br/><b>★#nbsp;@allosteric_mechanism</b>"| dsl
+  top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
+  top -->|"<b>★#nbsp;fit_rate_equation()</b><br/><b>★#nbsp;FittingProblem</b><br/>test_rate_equation()"| fit
+  top -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/><b>★#nbsp;IndependentParameters</b><br/><b>★#nbsp;FittedParameters</b><br/><b>★#nbsp;AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
+  top -->|"RateData"| data
+  top -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  dsl -->|"check_valid_rate_equation()"| der
+  dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
+  enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
+  enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>RateConstants"| der
+  fit -->|"RateData"| data
+  fit -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
+  classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
+  class top,dsl,enum,fit,der,data,mech mod;
+```
+
+★ bold: exported by EnzymeRates. Arrows carry every name one module takes from another;
+the Mechanisms types are listed in its box.
+
+An arrow points from a module to a module whose names it uses. A submodule names only the
+modules its arrows reach; `Mechanisms` and `Data` name none. Inside a module, code calls
+its own names bare; a call into another module is qualified:
+`Derivation.check_valid_rate_equation(m)`.
+
+### What each module does
+
+**`Data`** checks a rate table once and holds it. A `RateData` keeps the table's columns
+with `Keq`, the `absolute` flag and the reference anchors; `FittingProblem` and
+`IdentifyRateEquationProblem` each hold one. `Data` hides the column and anchor checks.
+
+**`Mechanisms`** is the data model. It holds reactions (`EnzymeReaction`) and mechanisms
+(`Mechanism`, `AllostericMechanism`) as plain values whose fields any module reads with
+dots. Its constructors put a mechanism in canonical form and check it, and `show` prints a
+mechanism as the macro block that builds it. It hides canonical form, the representation
+checks and the `Sig` encoding of the compiled types. A mechanism stores facts about its
+own graph (step groups and kinds, which steps run toward products, the allosteric
+conformation masks), and `Mechanisms` also answers the graph analyses that read them:
+rapid-equilibrium segments, turnover and unbalanced cycles, and the species present.
+
+**`Derivation`** turns a mechanism into its rate law. It decides whether the law is
+defined (the guard), solves the thermodynamic constraints, names the parameters, and
+derives the law with its generated code, printed text and key. It hides the King–Altman/Cha
+engine, the polynomials, the joint solve and a memo that derives each mechanism once for
+several questions.
+
+**`Fitting`** fits a rate law to data. It hides the loss, the multi-start restarts, the
+scaling to the reference and the call into Optimization.jl.
+
+**`Enumeration`** proposes candidate mechanisms for a reaction: the starting mechanisms that
+identify fits first, and the children of each mechanism it keeps. It hides the seeds, the
+expansion moves and the structural filters that prune the search.
+
+**`DSL`** reads the macro language: `@enzyme_reaction`, `@enzyme_mechanism`,
+`@allosteric_mechanism`, and `parse_mechanism`, which reads a mechanism's printed text
+back. It hides the parser. The macros run the guard, so they cannot live in `Mechanisms`.
+
+**The top level** (`src/EnzymeRates.jl`, `src/identify_rate_equation.jl`) holds
+`identify_rate_equation` and the exports. It hides the beam search, the one fit per rate
+law, cross-validation and the CSV output.
+
+### Module docstrings
+
+The first sentence of a module's docstring is the sentence in its box of the diagram.
+
+```@docs
+EnzymeRates
+EnzymeRates.Data
+EnzymeRates.Mechanisms
+EnzymeRates.Derivation
+EnzymeRates.Fitting
+EnzymeRates.Enumeration
+EnzymeRates.DSL
+```
+
+### Interfaces
+
+Each table lists a module's whole `API`; the top level's lists the names it defines and
+exports. "Used by" names the modules that call each name, and ✓ marks a name that
+`using EnzymeRates` brings in. The tests call more.
+
+**`Data`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `RateData` | A checked rate table with `Keq` and its anchors | Fitting, top level | |
+
+**`Mechanisms`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `EnzymeReaction` | A reaction and its regulators | DSL, Enumeration, top level | ✓ |
+| `Reactant` | A substrate or product with its atoms | DSL | |
+| `Regulator` | A declared regulator with its kind and effect | DSL | |
+| `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | |
+| | | Fitting, top level | |
+| `AllostericMechanism` | A `Mechanism` with MWC tags and sites | DSL, Derivation, | |
+| | | Enumeration, Fitting, top level | |
+| `EnzymeForm` | An enzyme form | DSL, Enumeration | |
+| `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
+| `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
+| `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
+| `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level | |
+| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, top level | ✓ |
+| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, top level | ✓ |
+| `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, | |
+| | | top level | |
+| `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
+| | | Fitting, top level | |
+| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
+| `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
+| `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
+| `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
+| `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
+| | steady-state steps between them | | |
+| `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
+| `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Derivation, Enumeration | |
+| `present_species` | The forms a set of steps touches | Derivation | |
+| `segment_walk` | The segments of a graph of transitions, by breadth-first walk | Derivation | |
+| `check_decodable_names` | Errors when names could spell one string two ways | DSL | |
+| `check_conformation_label` | Errors on a malformed conformation label | DSL | |
+
+**`Derivation`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `rate_equation` | Evaluates the rate law, allocation-free | Fitting, top level | ✓ |
+| `rate_equation_string` | The rate law as text | top level | ✓ |
+| `parameters` | Parameter names by kind | Fitting, top level | ✓ |
+| `dependent_parameter_values` | The dependent constants' values from the independent ones | top level | ✓ |
+| `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
+| `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
+| `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
+| `RateConstants` | Kind: the steady-state rate constants | Fitting | |
+| `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
+| `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
+| `rate_equation_term_count` | The law's term count, V×τ, before derivation | top level | |
+| `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
+
+**`Fitting`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `FittingProblem` | A compiled mechanism with its `RateData` | top level | ✓ |
+| `fit_rate_equation` | Fits a problem with an optimizer | top level | ✓ |
+| `test_rate_equation` | The loss of given parameters on a rate table | top level | |
+
+**`Enumeration`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `starting_mechanisms` | The mechanisms identify fits first | top level | |
+| `expand_mechanisms` | The children of each parent, by every expansion move | top level | |
+
+**`DSL`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `@enzyme_reaction` | Builds an `EnzymeReaction` | top level | ✓ |
+| `@enzyme_mechanism` | Builds, checks and compiles a mechanism | top level | ✓ |
+| `@allosteric_mechanism` | Builds, checks and compiles an MWC mechanism | top level | ✓ |
+| `parse_mechanism` | Reads a mechanism's printed text back | | |
+
+**The top level**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `IdentifyRateEquationProblem` | A reaction with its checked `RateData` | | ✓ |
+| `IdentifyRateEquationResults` | The selected mechanism and the CV table | | ✓ |
+| `identify_rate_equation` | Searches mechanisms, selects one by CV | | ✓ |
+
+### The mechanism data model
+
+Stored data is read with dots; derived data is a function. A mechanism is a list of nodes
+(enzyme forms) and a list of steps. A node or a step is an integer index into `m.nodes`
+or `m.steps`, and a set of steps is a `BitVector` over `m.steps`. Code reads
+`m.nodes[x].bound`, `m.steps[k].from` or `am.mwc_tags[g]` directly, and calls a function
+only for a fact the fields do not store, such as `form_text(m, f)`.
+
+| Type | Field | Holds |
+|:-----|:------|:------|
+| `Metabolite` | `name::Symbol` | the metabolite's name |
+| | `modifier::Bool` | whether it binds as a modifier, such as `A::Mod` |
+| `EnzymeForm` | `conformation::Symbol` | the conformation label, such as `E` or `F` |
+| | `bound::Vector{Metabolite}` | the metabolites the form binds |
+| | `added::Vector{Symbol}` | the substrates its residual adds |
+| | `subtracted::Vector{Symbol}` | the products its residual subtracts |
+| `Step` | `from::Int`, `to::Int` | its two nodes, in its stored direction |
+| | `taken_up::Vector{Metabolite}` | the metabolites it takes up going `from → to` |
+| | `given_off::Vector{Metabolite}` | the metabolites it gives off going `from → to` |
+| | `rapid_equilibrium::Bool` | whether it is at rapid equilibrium |
+| | `group::Int` | its kinetic group |
+| `Mechanism` | `substrates::Vector{Symbol}` | the substrates, sorted |
+| | `products::Vector{Symbol}` | the products, sorted |
+| | `nodes::Vector{EnzymeForm}` | free E first, then the other forms in content order |
+| | `steps::Vector{Step}` | each step physical-forward, in content order |
+| | `modifiers::Vector{Symbol}` | stored: every name bound as a modifier, sorted |
+| | `groups::Vector{Vector{Int}}` | stored: each kinetic group's steps |
+| | `step_kinds::Vector{Symbol}` | stored: each step's kind, such as `:binding` |
+| | `toward_products::BitVector` | stored: whether each step runs toward products |
+| | `step_sides::Vector{Tuple{String,String}}` | stored: each step's two side names |
+| `AllostericMechanism` | `catalytic::Mechanism` | the catalytic graph |
+| | `mwc_tags::Vector{Symbol}` | one tag per kinetic group: `:OnlyA`, `:OnlyI`, |
+| | | `:EqualAI` or `:NonequalAI` |
+| | `catalytic_multiplicity::Int` | the number of catalytic subunits |
+| | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
+| | `active_steps::BitVector` | stored: the active conformation's steps |
+| | `inactive_steps::BitVector` | stored: the inactive conformation's steps |
+| | `excluded_active::BitVector` | stored: the steps the active one excludes |
+| | `excluded_inactive::BitVector` | stored: the steps the inactive one excludes |
+| `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
+| | `multiplicity::Int` | the number of such sites |
+| | `mwc_tags::Vector{Symbol}` | one tag per ligand |
+| `Reactant` | `name::Symbol` | the substrate's or product's name |
+| | `atoms::Vector{Pair{Symbol,Int}}` | its atoms, `element => count` |
+| `Regulator` | `name::Symbol` | the regulator's name |
+| | `kind::Symbol` | `:allosteric` or `:competitive` |
+| | `effect::Symbol` | `:activator`, `:inhibitor` or `:unspecified` |
+| `EnzymeReaction` | `substrates::Vector{Reactant}` | the substrates |
+| | `products::Vector{Reactant}` | the products |
+| | `regulators::Vector{Regulator}` | the declared regulators |
+| | `allowed_catalytic_multiplicities::Vector{Int}` | the subunit counts to enumerate |
+| | `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` | pairs that share one site |
+
+Each list of a node or a step is sorted. Every construction path computes the facts marked
+stored once from the other fields; `==` and `hash` leave them out. The constructor
+`Mechanism(substrates, products, nodes, steps)` takes nodes in any order, a node any number
+of times, and steps in either direction with kinetic group labels 1, 2, …; it puts them in
+canonical form and checks them.
+`AllostericMechanism(substrates, products, nodes, steps, mwc_tags, multiplicity, sites)`
+takes one tag per written group label, and
+`AllostericMechanism(catalytic, mwc_tags, multiplicity, sites)` composes a canonical
+catalytic mechanism with tags and sites. To change a mechanism, copy `m.nodes` and `m.steps`
+with new fields and call the constructor. Never mutate a built mechanism's vectors in
+place: its canonical form, stored facts, hash, compiled Sig and memo entries depend on them.
+
+### One request through the modules
+
+`identify_rate_equation` crosses every module on its way from a reaction to the selected
+fit:
+
+1. **The problem.** `@enzyme_reaction` (`DSL`) builds the `EnzymeReaction`
+   (`Mechanisms`). `IdentifyRateEquationProblem(reaction, table; Keq)` (top level) checks
+   the table into a `Data.RateData`.
+2. **The starting mechanisms.** `Enumeration.starting_mechanisms` writes each seed as nodes and
+   steps, and the `Mechanism` constructor puts it in canonical form. A seed whose rate law
+   is undefined fails `Derivation.check_valid_rate_equation(Bool, m)` and is
+   dropped.
+3. **One fit per law.** The top level asks `Derivation` five questions about each new
+   mechanism: `rate_equation_term_count` and `parameters(m, FittedParameters())` skip a
+   mechanism too large to fit, `check_valid_rate_equation` rejects an undefined law,
+   `rate_equation_string` prints the law, and `rate_equation_dedup_key` gives its key.
+   Mechanisms with one key share one law, so one mechanism per key is fitted.
+4. **The fit.** `Mechanisms.compile_mechanism` lifts that mechanism to its singleton
+   type, and `FittingProblem` and `fit_rate_equation` (`Fitting`) fit it. The loss calls
+   the generated `Derivation.rate_equation` on every data row at every evaluation.
+5. **The beam.** The top level keeps the laws whose loss is close to the best at their
+   parameter count, and `Enumeration.expand_mechanisms` proposes their mechanisms'
+   children. Steps 3 to 5 repeat until no new law qualifies.
+6. **The selection.** The top level cross-validates the best candidates at each
+   parameter count: it refits each candidate once per data group, holding that group out
+   (`fit_rate_equation`), and scores the fit on the held-out group (`test_rate_equation`).
+   The 1-SE rule picks the result. The CSVs store each mechanism as its printed text
+   (`show`), which `DSL.parse_mechanism` can read back.
+
+### The boundary test
+
+`test/test_boundaries.jl` parses `src/` with `Meta.parseall`, without loading the
+package, and fails on:
+
+1. a name of another module, as `Mod.name` or imported by `using`, that the module's
+   `API` list lacks;
+2. a module naming a module it may not depend on;
+3. an underscore name in an `API` list or used across modules;
+4. an `export` in a module, which would let `using ..Mod` bring in bare names.
+
+To use another module's function, add it to that module's `API` list under a name
+without an underscore. The test also parses this page and fails when a table under
+"Modules" disagrees with `src/`, naming the module and the names to add or remove.
+
 ## Derivation architecture
 
 A mechanism's rate equation is derived once, at compile time, by the
-King–Altman/Cha method in `@generated` functions (`src/codegen.jl`).
+King–Altman/Cha method in `@generated` functions (`src/Derivation/codegen.jl`).
 To make that possible, a mechanism is encoded as a **singleton type** — the
 exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{Sig}`
-(`src/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's canonical
-reaction graph as a tuple of integers (`_sig_of`), so the order or direction in which
-the steps were written does not change the resulting type. The compiler
+(`src/Mechanisms/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's
+canonical reaction graph as a tuple of integers (`_sig_of`), so the order or direction in
+which the steps were written does not change the resulting type. The compiler
 specializes the derivation per type, so the symbolic King–Altman work runs
 during precompilation rather than at every call.
 
@@ -28,9 +335,9 @@ form (`_horner`), that must be
 **allocation-free and fast**: under 120 ns per call for every fixture mechanism, and
 under `max(120 ns, 0.8 ns × denominator terms)` for the three largest enumerated bi-bi
 laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms).
-`_testhelper_test_rate_equation_performance` (`test/test_rate_eq_derivation.jl`)
+`_testhelper_test_rate_equation_performance` (`test/Derivation/test_rate_eq_derivation.jl`)
 measures each law's allocations and time per call, and the tests assert
-`allocs == 0` and the law's bound. `rate_equation_string` (`src/print.jl`)
+`allocs == 0` and the law's bound. `rate_equation_string` (`src/Derivation/print.jl`)
 prints the law rather than the code: each denominator term over the unit rule's normalizer,
 dimensionless whenever the law has one. `rate_equation`'s speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
@@ -47,54 +354,54 @@ enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`
 
 `compile_mechanism` (internal) is the boundary between the two representations:
 `compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
-`compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The
-lifts back, `Mechanism(em)` and `AllostericMechanism(aem)`, decode the Sig
-(`_mechanism_from_sig`, `_allosteric_mechanism_from_sig`) into the mechanism it encodes,
-so a mechanism survives the round trip unchanged. Decoding trusts the Sig, which only
-`_sig_of` writes: a plain Sig's decoding checks nothing, and an allosteric one's runs only
-the composition constructor's tag and site checks. A mechanism of either representation
-prints as the macro block that builds it (`show`,
-`src/dsl.jl`), from the concrete mechanism, so the compiled types' `show` takes its
-argument `@nospecialize` and `@nospecializeinfer` and compiles once. `_parse_mechanism`
-reads that text back through the macros' walker and checks, never evaluating it, and
-identify's CSVs store it with a short id (`_mechanism_id`).
+`compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The lifts
+back, `Mechanism(em)` and `AllostericMechanism(aem)`, decode the Sig (`_mechanism_from_sig`,
+`_allosteric_mechanism_from_sig`) into the mechanism it encodes, so a mechanism survives the
+round trip unchanged. Decoding trusts the Sig, which only `_sig_of` writes: a plain Sig's
+decoding checks nothing, and an allosteric one's runs only the composition constructor's tag
+and site checks. A mechanism of either representation prints as the macro block that builds
+it (`show`, `src/Mechanisms/text.jl`), from the concrete mechanism, so the compiled types'
+`show` takes its argument `@nospecialize` and `@nospecializeinfer` and compiles once.
+`DSL.parse_mechanism` reads that text back through the macros' walker and checks, never
+evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
 
-Only the `@generated` methods (`rate_equation`, `parameters`, `fitted_params`,
-`metabolites`) do work per singleton type: `rate_equation` runs the derivation,
-`fitted_params` and `parameters` run its constraint solve, and `metabolites` reads names off
-the lifted mechanism. The lifts read the Sig at run time, and the derivation helpers that
-take a singleton or its type take it `@nospecialize`, so they compile once for all
-mechanisms. Each mechanism type then pays for its generated bodies and the derivation
-they run, and for the methods that specialize on it: `all_parameters`, Base's
-`text/plain` display, `LogConcentrationTurnover`, and `FittingProblem` and `loss!` below.
-`FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
-`fitted_params` and `metabolites` as constants and calls the generated `rate_equation`
-without dispatch. The optimizer never sees that type. `fit_rate_equation` takes its
-`FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`, which
-holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the solver
-one problem type: `solve` and the solver compile once per optimizer, not once per mechanism.
-The peak search that scales a relative fit (`_peak_turnover`) wraps the mechanism's turnover
-the same way, so its search loop compiles once.
+Only the `@generated` methods (`rate_equation`, `parameters`, `metabolites`) do work per
+singleton type: `rate_equation` runs the derivation, `parameters` runs its constraint solve,
+and `metabolites` reads names off the lifted mechanism. The lifts read the Sig at run time,
+and the derivation helpers that take a singleton or its type take it `@nospecialize`, so
+they compile once for all mechanisms. Each mechanism type then pays for its generated bodies
+and the derivation they run, and for the methods that specialize on it:
+`dependent_parameter_values`, Base's `text/plain` display, and `FittingProblem` and `loss!`
+below. `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
+`parameters(m, FittedParameters())` and `metabolites` as constants and calls the generated
+`rate_equation` without dispatch. The optimizer never sees that type. `fit_rate_equation`
+takes its `FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`,
+which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the
+solver one problem type: `solve` and the solver compile once per optimizer, not once per
+mechanism.
 
 ### The joint thermodynamic solve
 
-`_solve` (`src/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`): a column per constant of every edge (`_Column`), with an inactive
-copy for each edge of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group; a row per fundamental
-cycle and conformation, and a row tying each further member of a kinetic class to its first.
-It orders the columns by `_priority_key` (`_ordered_columns`) and reduces the system
+`_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
+(`_joint_system`) over the columns `constant_columns(m)` lists: a column per
+constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
+`:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
+member of a kinetic class to its first. The columns come ordered by `_priority_key`
+(`_ordered_columns`), and the solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
 returns them with the independents and the fitted names as a `_Solve`, which the engine,
-`parameters`, `fitted_params`, `all_parameters`, code generation and the printer read.
+`parameters`, code generation and the printer read.
 Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
-dependent reads them. Each class is named after its member
-that comes last in that order (`_kept_members`), through the `name(p, m)` chokepoint. The
-engine (`_law`, `src/engine.jl`) derives each conformation's
-law on a mask of the edges it keeps (`_active_mask(am)`, `_inactive_mask(am)`; every edge
-of a plain mechanism). Every edge keeps its stored direction, so
-both conformations share the mechanism's orientation and names. The canonical form
+dependent reads them. Each class is named after its member that comes last in that order
+(`_kept_members`), through the `name(p, m)` chokepoint; `constant_columns` returns each
+column's name with it, so the naming rule lives in `src/Derivation/names.jl`. The
+engine (`_law`,
+`src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
+keeps (`am.active_steps`, `am.inactive_steps`; every edge
+of a plain mechanism). Every edge keeps its stored direction, so both conformations share
+the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 in content order (conformation label, bound metabolites, residual); an edge that neither
 chemistry nor graph context orients runs from the earlier form; and a tied group's lead
@@ -105,118 +412,130 @@ decides the dependents and so the fitted names: a change to it changes fitted na
 
 ### The law, its code, its text and its key
 
-`src/poly.jl` holds sparse polynomials over integer-indexed variables (`_Poly`), with
-rational exponents for constants and checked `Int64` coefficients: under the term cap no
-coefficient leaves `Int64`, so an overflow is an internal error. `_law(m, s, mask)`
-(`src/engine.jl`) derives one conformation's law, `_Law`, as `v = E_total·H·Q/D`. It
-contracts each rapid-equilibrium segment to a node rooted at its first form (free E roots
+`src/Derivation/poly.jl` holds sparse polynomials over integer-indexed variables (`_Poly`),
+with rational exponents for constants and checked `Int64` coefficients: under the term cap
+no coefficient leaves `Int64`, so an overflow is an internal error. `_law(m, s, mask)`
+(`src/Derivation/engine.jl`) derives one conformation's law, `_Law`, as `v = E_total·H·Q/D`.
+It contracts each rapid-equilibrium segment to a node rooted at its first form (free E roots
 its own), sums the spanning trees of the segment graph, builds the numerator from each
 steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − Π[P]/Keq`
 exactly and brings `Q` and `D` to lowest terms in the concentrations. An MWC law
 (`_AlloLaw`) holds both conformations' laws, their free-E weights over a common factor and
-the regulatory sites' polynomials. `_eq_complexity` counts V×τ, both conformations of an
-MWC law together, by a checked Bareiss determinant; the cap (`_assert_derivable`) and
-identify's `eq_complexity_filter` read it before any polynomial is built. `_Poly`, `_Law`
+the regulatory sites' polynomials. `rate_equation_term_count` counts V×τ, both
+conformations of an MWC law together, by a checked Bareiss determinant; the cap
+(`_assert_derivable`) and identify's `eq_complexity_filter` read it before any polynomial is
+built. `_Poly`, `_Law`
 and `_AlloLaw` are mutable structs with `const` fields, never an immutable wrapper of one
 reference: Julia 1.12 and 1.13 can hoist such a wrapper's box out of a loop that merges it
 with another type, without a write barrier.
 
-`_rate_body` (`src/codegen.jl`) emits the law as straight-line locals: the dependents in
-solve-column order, each segment's weight and tree sums, `Q`, `H` and the MWC terms, all in
-greedy Horner form with binary `+` and `*`. Each input is read by name into a positional
-local, so a `NamedTuple` in any field order works, and reciprocals and roots (`sqrt`, or
-`x^(one(x)/q)`) are computed once.
+`_rate_body` (`src/Derivation/codegen.jl`) emits the law as straight-line locals: the
+dependents in solve-column order, each segment's weight and tree sums, `Q`, `H` and the MWC
+terms, all in greedy Horner form with binary `+` and `*`. Each input is read by name into a
+positional local, so a `NamedTuple` in any field order works, and reciprocals and roots
+(`sqrt`, or `x^(one(x)/q)`) are computed once.
 
 `rate_equation_string` divides the law by the unit rule's normalizer (`_normalizer`,
-`src/normalize.jl`: the constant term, else Cleland's normalizer when the denominator holds
-`ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on the first
-affinely independent terms), so every denominator term is dimensionless; a law with no such
-normalizer prints as derived. With `coefficients = true` it prints the law in named
-coefficients.
+`src/Derivation/normalize.jl`: the constant term, else Cleland's normalizer when the
+denominator holds `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on
+the first affinely independent terms), so every denominator term is dimensionless; a law
+with no such normalizer prints as derived. With `coefficients = true` it prints the law in
+named coefficients.
 
-`_canonical` (`src/key.jl`) labels a law canonically: each part to lowest terms, the fitted
-constants coloured by refinement on the term–constant incidence and individualized while
-colours tie, the concentrations by name. The SHA-256 of its text is the law's key, by which
-identify fits one mechanism per law and reads that fit through each mechanism's own names
-(the canonical order). At 100 labellings the search stops, and the law takes its
-mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly for a
-rescaling of the other constants that absorbs `L` in a one-subunit variant whose inactive
-conformation turns nothing over, and it alone decides an L phantom (`_is_phantom`). Such a
-variant reads the fit of its active law when that law holds every fitted constant but `L`
-and a mechanism with that law was fitted in an earlier batch or is fitted in the variant's
-own (`_process_batch`).
+`_canonical` (`src/Derivation/key.jl`) labels a law canonically: each part to lowest terms,
+the fitted constants coloured by refinement on the term–constant incidence and
+individualized while colours tie, the concentrations by name. The SHA-256 of its text is the
+law's key, by which identify fits one mechanism per law and reads that fit through each
+mechanism's own names (the canonical order). At 100 labellings the search stops, and the law
+takes its mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly
+for a rescaling of the other constants that absorbs `L` in a one-subunit variant whose
+inactive conformation turns nothing over, and it alone decides an L phantom (`_is_phantom`).
+`rate_equation_dedup_key(m)` gives identify a mechanism's key and the key of the fit it
+reads: its own, or for such a variant its active law's when that law holds every fitted
+constant but `L`. The variant reads that fit when a mechanism with that law was fitted in
+an earlier batch or is fitted in the variant's own (`_process_batch`).
+
+Identify asks one mechanism four questions in a row: `check_valid_rate_equation`,
+`parameters`, `rate_equation_string` and `rate_equation_dedup_key`. A private memo (`_Memo`,
+`src/Derivation/memo.jl`) keeps the guard verdict, joint solve and law of the last
+concrete mechanism asked about, matched by `===`, so each is derived once for all four.
+The memo holds one mechanism in the task's local storage, so it never grows and tasks
+share nothing. The compiled types' derivation never reads it.
 
 ## Well-posedness guard
 
-`src/admission.jl` decides whether a mechanism's rate law is the unique fast-equilibrium
-limit of mass-action kinetics wherever data sit. `_guard(m)` reads the reaction graph
-through masks and flag overrides and never constructs a mechanism, so a move can judge a
-candidate on its flags (`_faces_pass(m, re)`). It returns an isbits `_Verdict` (fault,
-limit-test verdict, face, conformation, edge), never a `Union` that a loop reads: Julia
-1.12 and 1.13 can hoist the box of a `Union` value out of a loop without a write barrier,
-which corrupts the heap. `_check_well_posed(m)` throws `_guard_message(m, v)`, which
-names each step by its DSL line (`_step_text`) and the face; `_is_well_posed(m)` is the
+The guard (`src/Derivation/guard.jl`, with `limit_test.jl`, `admission.jl` and
+`messages.jl` beside it) decides whether a mechanism's rate law is the unique
+fast-equilibrium limit of mass-action kinetics wherever data sit. `_guard(m)` reads the
+reaction graph through masks and never constructs a mechanism. It returns an isbits
+`_Verdict` (fault, limit-test verdict, face, conformation, edge), never a `Union` that a
+loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop
+without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
+`_guard_message(m, v)`, which names each step by its DSL line (`step_text`) and the face;
+`check_valid_rate_equation(Bool, m)` returns the verdict instead, the
 enumerator's drop test.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
-reaches through them (`_law_mask`), and the **ε-network**, every step of both
+reaches through them (`active_steps`, `inactive_steps`), and the **ε-network**, every step of both
 conformations, each excluded step marked vanishing and an excluded rapid-equilibrium plain
 binding kept fast (`_eps_network`). The faces (`_faces`) are bit masks over the metabolite
 names. In order it checks class 1, a cycle that turns the reaction over
-(`_has_turnover_cycle`); class 2, no fast cycle of the ε-network that takes up a name net;
+(`has_turnover_cycle`); class 2, no fast cycle of the ε-network that takes up a name net;
 admission's interior (`_admission_interior`: existence by components and arcs, islands,
 the active conformation's turnover); then on each face class 3 (`_check_face`: closed
 classes, bottomless segments, the aggregated chains, and a limit test modulo 2^61 − 1 where
 structure decides nothing) and admission's face condition (`_admission_face`: the
 ε-network's closed classes, stranded basins, and the fewest-slow-transitions in-tree test
-per excluding conformation and for both together). Class 5, a denominator that keeps no
-monomial on a face, runs on the derived law (`_assert_support`) wherever a law is
-derived for use: the generated `rate_equation`, identify's PASS1 and
-`rate_equation_string`. The macros, the parser
-and the derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`
-and identify's `_base_tier` drop; the flip move runs classes 2 and 3 on each candidate's
-flags; the tagging and change-tag moves filter by admission alone (`_admits`) and leave
-class 3 to the exit.
+per excluding conformation and for both together). The macros, the parser and the
+derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and
+`Enumeration.starting_mechanisms` drop. The flip move runs it on each candidate it builds,
+the split move on each candidate whose count rises, and the tagging move on each tag set
+its base search tries.
 
 ## Enumeration engine architecture
 
-Mechanism enumeration uses the **concrete types** `Mechanism` and
-`AllostericMechanism` (`src/types.jl`) — internal, not exported. A `Mechanism` is a
-reaction graph in canonical form: its sorted `substrates` and `products`; `table`, each
-metabolite entry its forms and steps hold, once, sorted by name and then by whether it
-binds as a modifier (`Met`), a reactant and its modifier copy being two entries;
-`conformations`, the sorted conformation labels; `forms` (`Form`: a label's index, and the
-entries it binds, adds and subtracts, each a packed count of table entries, `Counts`);
-`edges` (`Edge`: two form indices, the entries the step takes up and gives off, and its
-rapid-equilibrium flag); and `group[k]`, edge `k`'s kinetic group. It holds no reaction,
-and `==` and `hash` read its fields alone, alike in every process. An
-`AllostericMechanism` holds a catalytic `Mechanism`, one allosteric tag per kinetic
-group, the catalytic multiplicity and the regulatory sites.
+Mechanism enumeration uses the **concrete types** `Mechanism` and `AllostericMechanism`
+(`src/Mechanisms/types.jl`) — internal, not exported. A `Mechanism` is a reaction graph in
+canonical form: its sorted `substrates` and `products`; `nodes` (`EnzymeForm`: an enzyme
+form's conformation label, the metabolites it binds, and the substrates it adds and the
+products it subtracts as its residual); and `steps` (`Step`: two node indices, the
+metabolites the step takes up and gives off, its rapid-equilibrium flag and its kinetic
+group). Each list of metabolites (`Metabolite`: a name, and whether it binds as a modifier,
+so a reactant and its modifier copy are two metabolites) and of names is sorted. It holds
+no reaction, and `==` and `hash` read these fields alone, not the facts a mechanism
+stores, alike in every process. An `AllostericMechanism` holds a catalytic `Mechanism`, one
+allosteric tag per kinetic group, the catalytic multiplicity and the regulatory sites.
+Every module reads these fields with dots (see [The mechanism data model](@ref)).
 
-The macros, the parser and the moves that change flags, groups or steps write a mechanism
-as raw input (`RawMechanism` of `RawStep`s between `RawForm`s, and
-`RawAllostericMechanism`): its steps in written order and direction. `Mechanism(raw)` and
-`AllostericMechanism(raw)` build its canonical graph (`_canonicalize`) and check it. The
-moves that tag a mechanism or change its regulatory sites compose the parent's catalytic
-graph with other tags or sites through the composition constructor,
-`AllostericMechanism(m, tags, multiplicity, sites)` (directly or by `_with`), which runs
-only its tag and site checks. Going `from → to`, an edge takes
-up the entries in `consumed` and gives off those in `released`. Steps are classified by
-these counts. A binding takes up exactly one metabolite and gives off none
-(`_is_binding`). It is plain when its target form is its source form with that metabolite
-added, the residual unchanged and the conformation free to change (`_is_plain_binding`),
-and fused otherwise, as when the last substrate binds straight into the product-bound
-form (`E(A) + B → E(P, Q)`). The constructor rejects a binding whose forms match a plain
-binding by name but not by role, such as `E + P::Mod ⇌ E(P)`. An isomerization takes up
-and gives off nothing (`_is_iso`); a Theorell–Chance step takes up one metabolite and
-gives off another. `_is_chemistry` is true for every edge but a plain binding; the
-allosteric moves (`_chemistry_groups`), admission, the joint
-solve's priority (`_priority_key`) and `_merged_complexes` read it to tell catalysis from
+The macros, the parser and the enumeration build a mechanism from nodes and steps.
+`Mechanism(substrates, products, nodes, steps)` takes the nodes in any order, a node any
+number of times, and each step in either direction with its kinetic group label (1, 2, …,
+each used); `AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
+multiplicity, sites)` takes the tag of each written group label. Both build the canonical
+graph (`_canonicalize`) and check it; the macros check the names under `modifiers:`
+themselves. The seeds write their topologies, dead ends and bases as nodes and steps; the
+moves copy a parent's `m.nodes` and `m.steps` with new flags, groups or bound inhibitors
+(`_regrouped`, `_with_flags`, `_dead_end_graph`). The moves that tag a mechanism or change
+its regulatory sites compose the parent's catalytic graph with other tags or sites through
+the composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)`, which
+runs only its tag and site checks. Going `from → to`, a step takes up
+the metabolites in `taken_up` and gives off those in `given_off`. Steps are classified by
+these lists. A binding takes up exactly one metabolite and gives off none. It is plain
+(`:binding`) when its target form is its source form with that metabolite added, the
+residual unchanged and the conformation free to change (`_is_plain_binding`), and fused
+(`:fused_binding`) otherwise, as when the last substrate binds straight into the
+product-bound form (`E(A) + B → E(P, Q)`).
+The constructor rejects a binding whose forms match a plain binding by name but not by role,
+such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
+Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
+Every edge but a plain binding (a `step_kinds` entry other than `:binding`) is chemistry; the
+allosteric moves (`_chemistry_groups`, in `Enumeration`), admission, the joint solve's
+priority (`_priority_key`) and `_merged_complexes` read `step_kinds` to tell catalysis from
 binding. The derivation reads every binding alike, so a fused binding's rapid-equilibrium
-constant is a dissociation constant and its steady-state pair a binding and a release
-rate constant. Every step's constants are named by the two sides of its kinetic class's
-kept member — each side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for
+constant is a dissociation constant and its steady-state pair a binding and a release rate
+constant. Every step's constants are named by the two sides of its kinetic class's kept
+member — each side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for
 `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`, `k_EA_B_to_EQ_P` for
 `E(A) + B <--> E(Q) + P`).
 
@@ -241,47 +560,42 @@ sorts the sites.
 The constructors check representation and the `:OnlyI` rule only (`_check_declarations`,
 `_check_representation`, and for an allosteric mechanism `_check_tags`,
 `_check_onlyi_groups` and `_check_ligands`): names a metabolite can take and conformation
-labels shaped as labels,
-none a metabolite's name; every name the steps hold declared, and every declared name
-taken up, given off or bound by some step; residuals that add substrates and subtract
-products; the free form E (nothing bound, no residual), and edges that join every form to
-it. They also enforce the kinetic-group rules. A group's edges take up and give off the
-same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused and a plain
-binding of one metabolite may share a group and a Theorell–Chance step cannot share one
-with a binding. A reaction — the pair of an edge's two sides — appears in one edge
+labels shaped as labels, none a metabolite's name; every name the steps hold declared, and
+every declared name taken up, given off or bound by some step; residuals that add substrates
+and subtract products; the free form E (nothing bound, no residual), and edges that join
+every form to it. They also enforce the kinetic-group rules. A group's edges take up and
+give off the same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused and
+a plain binding of one metabolite may share a group and a Theorell–Chance step cannot share
+one with a binding. A reaction — the pair of an edge's two sides — appears in one edge
 (`_check_each_reaction_once`). No two distinct forms render one name
-(`_check_distinct_form_names`): a form's name joins its conformation and bound
-metabolites without a separator, so E with a metabolite `star` bound and the free
-conformation `Estar` would both be `Estar` and share their constants' names. Names that
-spell one string two ways, such as `NAD`, `P` and `NADP`, never reach the constructor:
-`@enzyme_reaction` and the mechanism macros reject them (`_check_uniquely_decodable`).
-Whether a mechanism's rate law is defined is the well-posedness guard's question
-(`src/admission.jl`; see [Well-posedness guard](@ref)). The macros, the parser and every
-derivation entry throw on a mechanism it rejects (`_check_well_posed`), and identify's base
-tier and the enumerator's exits drop one (`_is_well_posed`), except that init's exit runs
-the guard on its seeds and checks class 1 on their variants, whose classes 2 and 3 the flip
-search ran (`_faces_pass`). The constructors and the Sig decoder do not run it.
+(`_check_distinct_form_names`): a form's name joins its conformation and bound metabolites
+without a separator, so E with a metabolite `star` bound and the free conformation `Estar`
+would both be `Estar` and share their constants' names. Names that spell one string two
+ways, such as `NAD`, `P` and `NADP`, never reach the constructor: `@enzyme_reaction` and the
+mechanism macros reject them (`check_decodable_names`). Whether a mechanism's rate law is
+defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
+[Well-posedness guard](@ref)). The macros, the parser and every derivation entry throw on a
+mechanism it rejects (`check_valid_rate_equation`), and identify's base tier, the
+enumerator's exits and its flip, split and tagging searches drop one
+(`check_valid_rate_equation(Bool, m)`). The constructors and the Sig decoder do
+not run it.
 
-These are ordinary value types to avoid excessive precompilation costs. The enumeration builds,
-expands, and deduplicates many thousands of candidate mechanisms (see
-[The enumeration engine](@ref)). If each candidate were a singleton parametric
-type, merely constructing it would trigger compiler specialization — the same
-precompilation cost the derivation pays — multiplied across thousands of
-mechanisms, which would be prohibitive. Carrying mechanism structure as runtime
-values instead means enumeration and deduplication cost no compilation at all.
-Only the candidates the search actually fits are lifted to singleton types, one
-at a time, through `compile_mechanism`.
+These are ordinary value types to avoid excessive precompilation costs. The enumeration
+builds, expands, and deduplicates many thousands of candidate mechanisms (see
+[The enumeration engine](@ref)). If each candidate were a singleton parametric type, merely
+constructing it would trigger compiler specialization — the same precompilation cost the
+derivation pays — multiplied across thousands of mechanisms, which would be prohibitive.
+Carrying mechanism structure as runtime values instead means enumeration and deduplication
+cost no compilation at all. Only the candidates the search actually fits are lifted to
+singleton types, one at a time, through `compile_mechanism`.
 
-The moves never emit a child that is provably a reparameterization
-of its parent. The split move divides a group by binding context and accepts a
-set of splits only if the independent-parameter count rises; the count comes from
-the thermodynamic constraint solve, and for a `Mechanism` it is evaluated without
-building the child, from a cycle basis computed once per parent
-(`_partition_independent_count`). For an `AllostericMechanism` it is the joint solve's
-count on the built child, which derives no rate polynomial (`_split_gain_test`).
-A split never changes admission's interior verdict, since both parts keep the group's tag,
-and a child the guard rejects, inside or on a face, is dropped where `expand_mechanisms`
-returns it. The search extends a failed set by the splits of the groups that share its
+The moves never emit a child that is provably a reparameterization of its parent. The
+split move divides a group by binding context and accepts a set of splits only if the
+independent-parameter count rises and the guard accepts the built child; the count comes
+from the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A
+split never changes admission's interior verdict, since both parts keep the group's tag. A
+set whose child the guard rejects counts as failed, like one whose count does not rise,
+and the search extends a failed set by the splits of the groups that share its
 rapid-equilibrium segments. The RE→SS move flips whole groups and
 accepts a set only if the rapid-equilibrium segment count rises and every flipped group
 carries net flux in the child. In a `Mechanism` it never offers as a unit a flank
@@ -318,7 +632,7 @@ either copy may keep both constants separable.
 `expand_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
 Duplicate laws that survive these proofs share one fit, an L phantom's key aside:
-identify fits one mechanism per key (`_canonical`, `src/key.jl`). A numerical
+identify fits one mechanism per key (`_canonical`, `src/Derivation/key.jl`). A numerical
 identifiability rank exists only in the test suite, as an oracle for the proofs and the
 L-phantom certificate; nothing in `src/` estimates identifiability numerically.
 
@@ -330,18 +644,18 @@ replaces a form whose only two steps are bindings into it by one Theorell–Chan
 step in a group of its own. Every step of a base starts at rapid equilibrium. The
 variants are the inclusion-minimal sets of the base's flux-carrying groups
 (`_minimal_flips`) whose flip to steady state leaves no rapid-equilibrium
-turnover cycle (`_re_turnover_cycle`: each RE step weighted by its uptake of
-substrates minus products, a turnover cycle being a cycle of nonzero weight),
+turnover cycle (`has_turnover_cycle`: a cycle of RE steps whose net uptake of the
+first substrate is nonzero),
 keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
 equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
-passes the guard's face check and keeps every steady-state group flux-carrying.
+passes the guard and keeps every steady-state group flux-carrying.
 `_seed_candidate_screen` runs the first three tests on index arrays with a
 weighted union-find, so the other two run only on a candidate that passes them. A
 merged variant whose every merged complex has two steady-state steps, each alone
 in its group, has the family of the unmerged chain with rapid-equilibrium flanks
 at the same count and is skipped. `_degenerate`, the failure of V or C on the
-active-state graph, marks the starting mechanisms that `_base_tier`
-(`src/identify_rate_equation.jl`) replaces by their flip children that are not
+active-state graph, marks the starting mechanisms that `starting_mechanisms`
+(`src/Enumeration/seeds.jl`) replaces by their flip children that are not
 degenerate.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
@@ -351,15 +665,15 @@ that can give such a mechanism a non-hyperbolic catalytic scheme consult
 parent at multiplicity 1 only, and above one subunit the tagging and change-tag
 moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
 (`_expand_re_to_ss`), drop a child that fails the predicate. On an
-`AllostericMechanism` the predicate reads each conformation's law (`_active_mask`,
-`_inactive_mask`), since a conformation that runs part of the catalytic graph can
+`AllostericMechanism` the predicate reads each conformation's law
+(`active_steps`, `inactive_steps`), since a conformation that runs part of the catalytic graph can
 carry a power the whole graph lacks. The predicate scores
 the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
 edge that touches a form holding a modifier, a reactant's modifier copy included: for
 each substrate and product, a directed steady-state edge scores one if it binds the
 metabolite in that direction plus the count the edge's source form carries beyond its
-segment's bottom form (the offsets of `_segments`, which the split move's
-`_bottomless_segment` also reads), and a segment scores the most any of its forms
+segment's bottom form (the offsets of `rapid_equilibrium_segments`, whose `bottom` also
+reads them), and a segment scores the most any of its forms
 carries. The equation's degree in the
 metabolite is the best score over root segments and spanning arborescences toward
 the root; the predicate decides "at most 1" with reachability checks
@@ -375,9 +689,9 @@ move.
 ## Optimization algorithm architecture
 
 Fitting reaches solvers only through Optimization.jl; the package ships no solver of
-its own. `fit_rate_equation` (`src/fitting.jl`) builds an `OptimizationProblem`
-whose objective, `_fit_loss`, scores each point with `loss!` through a
-`FitObjective` (see [Derivation architecture](@ref)), and calls
+its own. `fit_rate_equation` (`src/Fitting/fit_rate_equation.jl`) builds an
+`OptimizationProblem` whose objective, `_fit_loss`, scores each point with `loss!`
+through a `FitObjective` (see [Derivation architecture](@ref)), and calls
 `Optimization.solve` with whatever optimizer the caller passes. This gives the
 package access to the global, gradient-free optimizers that non-convex
 rate-equation fitting needs — CMA-ES (`OptimizationCMAEvolutionStrategy`) and

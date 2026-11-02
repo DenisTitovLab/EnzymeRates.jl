@@ -16,7 +16,7 @@ loss = (1/N) Σᵢ (log(|predicted rateᵢ|) − log(|measured rateᵢ|))²
 
 ### Centered vs uncentered
 
-The loss formula switches on `fp.absolute` (see
+The loss formula switches on `fp.rate_data.absolute` (see
 [Normalized vs absolute rate](@ref)):
 
 - **Relative mode** (`absolute = false`, the default): each group's log-ratios

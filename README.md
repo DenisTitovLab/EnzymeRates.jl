@@ -60,7 +60,11 @@ rxn = @enzyme_reaction begin
     products:   P[C]
 end
 
-prob    = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+# A turnover at stated concentrations sets the scale of the rate constants: a measured
+# kcat, or, as here, a row of the data.
+reference = [(S = data.S[1], P = data.P[1]) => data.Rate[1]]
+
+prob    = IdentifyRateEquationProblem(rxn, data; Keq = 2.0, reference)
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
 
 results.best                               # the identified mechanism

@@ -1,10 +1,11 @@
 # ABOUTME: Beam-search pipeline to identify the best rate equation.
 # ABOUTME: Enumerates mechanisms, fits one representative per rate-law key
-# ABOUTME: (`_canonical`), and selects among the fits by cross-validation.
+# ABOUTME: (`rate_equation_dedup_key`), and selects among the fits by cross-validation.
 
 using DataFrames
 using CSV
 using Statistics
+using SHA: sha256
 
 """
     IdentifyRateEquationProblem{D}
@@ -14,49 +15,65 @@ constant for rate equation identification.
 
 # Fields
 - `reaction`: the `EnzymeReaction` instance
-- `data`: `NamedTuple` of column vectors with `:group`,
-  `:Rate`, and metabolite columns
-- `Keq`: fixed equilibrium constant
-- `absolute`: `false` (the default) treats the data as relative and scales every fit to
-  peak turnover 1; `true` treats it as absolute per-enzyme turnover (see `FittingProblem`)
-- `peak_range`: the concentration range `(lo, hi)` of the peak-turnover scale (see
-  `FittingProblem`), in the data's concentration units; the default covers physiological
-  concentrations in M or mM, and data in µM need a higher upper bound
+- `rate_data`: the validated table (`NamedTuple` of column vectors with `:group`, `:Rate`
+  and metabolite columns), `Keq` (fixed equilibrium constant), `absolute` and
+  `reference`, as a `RateData`. `absolute = false` (the default) treats the data as
+  relative and scales every fit to the reference turnovers, or, without any, so the
+  largest rate it predicts over the data rows (`E_total = 1`) is 1; `true` treats it as
+  absolute per-enzyme turnover (see `FittingProblem`).
+  `reference` holds the anchors `concentrations => turnover` that set every relative
+  fit's scale (see `FittingProblem`), keyed by the reaction's metabolites, with any
+  metabolite left out at zero; empty in absolute mode and when a relative table gives none
 
 Construct it with `IdentifyRateEquationProblem(reaction, table; Keq, absolute = false,
-peak_range = (1e-12, 1e3))`.
+reference)`; `reference` is optional in relative mode and refused in absolute mode.
+Each fit reads the anchors' concentrations of the metabolites its mechanism binds, so a
+mechanism that leaves out an optional regulator ignores that regulator's concentration.
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
-    reaction::EnzymeReaction
-    data::D
-    Keq::Float64
-    absolute::Bool
-    peak_range::Tuple{Float64,Float64}
+    reaction::Mechanisms.EnzymeReaction
+    rate_data::Data.RateData{D}
 end
 
+"""The distinct metabolite names of `rxn`: substrates, then products, then regulators,
+each in stored order, keeping a name's first occurrence."""
+_metabolite_names(rxn::Mechanisms.EnzymeReaction) =
+    unique!(Symbol[[r.name for r in rxn.substrates]; [r.name for r in rxn.products];
+                   [reg.name for reg in rxn.regulators]])
+
 function IdentifyRateEquationProblem(
-    reaction::EnzymeReaction, table; Keq::Real,
-    absolute::Bool=false, peak_range=DEFAULT_PEAK_RANGE
+    reaction::Mechanisms.EnzymeReaction, table; Keq::Real,
+    absolute::Bool=false, reference=nothing
 )
     mnames = _metabolite_names(reaction)
-    # The search fits allosteric mechanisms, and their rate equations take the
-    # conformational constant L, so a metabolite named L would fail every one of them.
-    # The reaction's constructor rejects the name L (`_RESERVED_NAMES`), so this check
-    # cannot fire for a reaction the constructor builds.
-    :L in mnames && error(
-        "Metabolite L has the name of the conformational constant L of the allosteric " *
-        "mechanisms the search fits; rename the metabolite")
     # Every metabolite the reaction declares needs a concentration column.
-    data = _rate_table(table, mnames, Keq)
+    rate_data = Data.RateData(table, mnames; Keq, absolute, reference, owner = "reaction")
 
     # Validate at least 2 groups for CV
-    n_groups = length(unique(data.group))
+    n_groups = length(unique(rate_data.data.group))
     n_groups >= 2 || error(
         "Need at least 2 unique groups for " *
         "cross-validation, got $n_groups")
 
-    IdentifyRateEquationProblem{typeof(data)}(reaction, data, Keq, absolute,
-                                              _peak_range(peak_range))
+    IdentifyRateEquationProblem(reaction, rate_data)
+end
+
+"""
+The `FittingProblem` keywords of `prob` for `mechanism`: `Keq`, `absolute` and, in
+relative mode with a reference, `prob.rate_data.reference` with each anchor's
+concentrations limited to the metabolites `mechanism` binds (it does not respond to the
+others). The reference keeps the problem's element type, so every fit and fold passes
+keywords of one type.
+"""
+function _fit_keywords(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+                       prob::IdentifyRateEquationProblem)
+    (; Keq, absolute, reference) = prob.rate_data
+    (absolute || isempty(reference)) && return (; Keq, absolute)
+    mets = Mechanisms.metabolites(mechanism)
+    (; Keq, absolute,
+       reference = Pair{NamedTuple, Float64}[
+           NamedTuple{Tuple(filter(in(mets), keys(concs)))}(concs) => turnover
+           for (concs, turnover) in reference])
 end
 
 """
@@ -71,7 +88,7 @@ Results from `identify_rate_equation`.
   top candidates per param count
 """
 struct IdentifyRateEquationResults
-    best::AbstractEnzymeMechanism
+    best::Mechanisms.AbstractEnzymeMechanism
     cv_results::DataFrame
 end
 
@@ -105,7 +122,7 @@ and data using beam search.
   thresholds via `min`; `min_beam_width` is a cumulative
   per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: skip, before fitting, any mechanism with
-  more fitted constants than this (`fitted_params`), so the search stops
+  more fitted constants than this (`FittedParameters`), so the search stops
   at this parameter count
 - `eq_complexity_filter::Int = 337`: skip (before fitting, before any
   derivation) any mechanism whose rate equation is more complex than this —
@@ -298,21 +315,12 @@ function _rows_to_dataframe(rows)
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
         fit_source_id = Union{Missing,String}[r.fit_source_id for r in rows],
         L_phantom = Union{Missing,Bool}[r.L_phantom for r in rows],
-        peak_at_range_edge =
-            Union{Missing,Bool}[get(r, :peak_at_range_edge, missing) for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [get(r.params, pn, missing) for r in rows]
     end
     df
 end
-
-"""
-A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of `text`,
-the mechanism's DSL text (`show`), so every process and Julia version gives one mechanism
-one id.
-"""
-_mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
 
 """
 Select this sweep's parents among the count-`c` mechanisms with `losses` and rate-law
@@ -370,52 +378,61 @@ function _select_count!(
     findall(in(selected), law_keys)
 end
 
+"""A mechanism's id in identify's CSVs: the first 16 hex digits of the SHA-256 of its text
+(`show`), so every process and Julia version gives one mechanism one id."""
+_mechanism_id(text::AbstractString) = bytes2hex(sha256(text))[1:16]
+
 """
-A fit as identify stores it, once per rate-law key (`_canonical`): `values` holds the
-fitted constants at their canonical positions (`_Canonical.order`), then `L` for an MWC
-law, so every mechanism with that key reads them through its own canonical order;
-`loss`, `retcode` and `peak_at_range_edge` are `fit_rate_equation`'s; `source` is the
+A fit as identify stores it, once per rate-law key (`rate_equation_dedup_key`): `values`
+holds the fitted constants at their canonical positions (its `parameters`), then `L` for an
+MWC law, so every mechanism with that key reads them through its own canonical order;
+`loss` and `retcode` are `fit_rate_equation`'s; `source` is the
 mechanism that was fitted and `source_id` its `mechanism_id`.
 """
 struct _Fit
     values::Vector{Float64}
     loss::Float64
     retcode::Symbol
-    peak_at_range_edge::Bool
-    source::Union{Mechanism, AllostericMechanism}
+    source::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     source_id::String
 end
 
+"""A rate law's key and its fitted constants in canonical order
+(`rate_equation_dedup_key`)."""
+const _LawKey = @NamedTuple{key::String, order::Vector{Symbol}}
+
 """
-A mechanism `_pass1_record` derived: its fitted constants in `fitted_params`
-order, its text and the text's id (`_mechanism_id`), its printed law, its law's canonical
-form (`canon`), whether it is an L phantom that reads another law's fit (`_is_phantom`),
-and `canon0`, the canonical form of the law whose fit it reads: for a phantom its active
-law, its law at `L = 0`; `canon` otherwise.
+A mechanism `_pass1_record` derived: its fitted constants in `FittedParameters`
+order, its text and the text's id (`mechanism_id`), its printed law, its law's key
+(`canon`), whether it is an L phantom that reads another law's fit
+(`rate_equation_dedup_key` gives it a fit key other than its key), `canon0`, the key of the
+law whose fit it reads (for a phantom its active law, its law at `L = 0`; `canon`
+otherwise), and whether its law's labelling reached the leaf cap (`capped`).
 """
 struct _Candidate
-    mech::Union{Mechanism, AllostericMechanism}
+    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     fitted::Vector{Symbol}
     mechanism::String
     mechanism_id::String
     eq_text::String
-    canon::_Canonical
+    canon::_LawKey
     phantom::Bool
-    canon0::_Canonical
+    canon0::_LawKey
+    capped::Bool
 end
 
 """Candidate `c` as an ordinary candidate: not an L phantom, it reads the fit of its own law
 (`canon0 = c.canon`)."""
 _unflagged(c::_Candidate) = _Candidate(c.mech, c.fitted, c.mechanism, c.mechanism_id,
-                                       c.eq_text, c.canon, false, c.canon)
+                                       c.eq_text, c.canon, false, c.canon, c.capped)
 
 """The order in which candidate `c` reads its fit's values (`_Fit`): the canonical order of
 the law whose fit it reads (`canon0`), then `L` for an MWC law."""
 _fit_order(c::_Candidate) =
-    c.mech isa AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
+    c.mech isa Mechanisms.AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
 
 """
-The parameters of candidate `c` as its row holds them, in its `fitted_params` order: a
+The parameters of candidate `c` as its row holds them, in its `FittedParameters` order: a
 fit's `values`, stored at canonical positions, read through `order`, the candidate's own
 order for those positions.
 """
@@ -425,10 +442,10 @@ function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float6
 end
 
 """One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
-(`_canonical`), the key of the fit it reads (`fit_key`: its own, or for an L phantom the
-key of its law at `L = 0`), and its CSV row."""
+(`rate_equation_dedup_key`), the key of the fit it reads (`fit_key`: its own, or for an L
+phantom the key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
-    mech::Union{Mechanism, AllostericMechanism}
+    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     n_params::Int
     loss::Float64
     retcode::Symbol
@@ -440,7 +457,7 @@ end
 """A mechanism that failed at derivation, compilation, fit or expansion, with the
 exception message captured as a string. Kept for the CSV + summary."""
 struct FitFailure
-    mech::Union{Mechanism, AllostericMechanism}
+    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     error::String
 end
 
@@ -468,8 +485,7 @@ function _failure_row(f::FitFailure)
      key = missing,
      fit_inherited = missing,
      fit_source_id = missing,
-     L_phantom = missing,
-     peak_at_range_edge = missing)
+     L_phantom = missing)
 end
 
 """
@@ -534,38 +550,29 @@ end
 """
 PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete mechanism
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
-checked before any derivation); check it with the guard (`_check_well_posed`); skip it
-over `max_param_count` by its solve's fitted constants (`_solve`, `:param_skip`); else
-derive its law (`_law`), check the law on the guard's faces (`_assert_support`), print it
-(`_law_text`), take its text and the text's id (`_mechanism_id`), label the law
-canonically (`_canonical`; a law whose labelling reaches the leaf cap gets a key of its
-own) and decide whether it is an L phantom (`_is_phantom`) and, for one, the canonical
-form of its law at `L = 0`. Returns the skip's symbol, a `FitFailure` when a step throws,
-else a `_Candidate`.
+`rate_equation_term_count`, checked before any derivation); check it with the guard
+(`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
+(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` with its
+coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
+and the key of the fit it reads (`rate_equation_dedup_key`; a law whose labelling reaches
+the leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
+Returns the skip's symbol, a `FitFailure` when a step throws, else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
     try
-        _eq_complexity(m) > eq_complexity_filter && return :complexity_skip
-        _check_well_posed(m)
-        s = _solve(m)
-        length(s.fitted) > max_param_count && return :param_skip
-        _with_law(m, s) do m, s, L
-            eq_text = _law_text(m, s, L; coefficients = true)
-            text = sprint(show, m)
-            id = _mechanism_id(text)
-            canon = _canonical(L, id)
-            # An L phantom reads the fit of its law at L = 0, its active law, when that
-            # law holds every fitted constant but L. A regulatory site whose ligands are
-            # all :EqualAI has one factor in both conformations, so the certificate
-            # admits it, yet the active law lacks its constants: the check fits such a
-            # phantom itself, so a row never reads names its fit lacks.
-            phantom = m isa AllostericMechanism && _is_phantom(L)
-            canon0 = phantom ? _canonical(L.active, id) : canon
-            if phantom && Set(canon0.order) != Set(s.fitted[1:(end - 1)])
-                phantom, canon0 = false, canon
-            end
-            _Candidate(m, s.fitted, text, id, eq_text, canon, phantom, canon0)
-        end
+        Derivation.rate_equation_term_count(m) > eq_complexity_filter &&
+            return :complexity_skip
+        Derivation.check_valid_rate_equation(m)
+        fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
+        length(fitted) > max_param_count && return :param_skip
+        eq_text = Derivation.rate_equation_string(m; coefficients = true)
+        k = Derivation.rate_equation_dedup_key(m)
+        canon = (key = k.key, order = k.parameters)
+        phantom = k.fit_key != k.key
+        canon0 = phantom ? (key = k.fit_key, order = k.fit_parameters) : canon
+        text = sprint(show, m)
+        _Candidate(m, fitted, text, _mechanism_id(text), eq_text, canon, phantom,
+                   canon0, k.capped)
     catch e
         FitFailure(m, _exc_string(e))
     end
@@ -589,15 +596,16 @@ mechanism with that key reads it through its own canonical order, so its row car
 own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
 needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
 an earlier iteration is never refit. A representative whose fit throws fails ALL the
-mechanisms with its key (all-or-nothing per law). An L phantom (`_is_phantom`: a rescaling
-certificate, which needs one catalytic subunit and an inactive conformation that turns
-nothing over) is never a representative. It reads the fit of its law at `L = 0`, its active
-law's key (`fit_key`), from `memo` or from this batch's representatives, through its own
-order and with `L = 0`, and its row sets `L_phantom`. A phantom whose law at `L = 0` has no
-fit there, or lacks one of its other fitted constants, is fitted as an ordinary candidate;
-so is one whose source's fit throws, after the representatives. When a phantom is demoted
-after its source's fit threw, `log` gets one more message, its lines joined by a newline
-and two spaces: one per such phantom,
+mechanisms with its key (all-or-nothing per law). An L phantom (`rate_equation_dedup_key`
+gives it a fit key other than its key: a rescaling certificate, which needs one catalytic
+subunit and an inactive conformation that turns nothing over) is never a representative. It
+reads the fit of its law at `L = 0`, its active law's key (`fit_key`), from `memo` or from
+this batch's representatives, through its own order and with `L = 0`, and its row sets
+`L_phantom`. A phantom whose law at `L = 0` has
+no fit there, or lacks one of its other fitted constants, is fitted as an ordinary
+candidate; so is one whose source's fit throws, after the representatives. When a phantom
+is demoted after its source's fit threw, `log` gets one more message, its lines joined by a
+newline and two spaces: one per such phantom,
 `"source fit threw for L phantom <id>; it reads its own key's fit"`. A row's
 `fit_inherited` is `false` when its mechanism is its fit's source and `true`
 otherwise, and `fit_source_id` names the source. `parent_of` maps a child to its parent's
@@ -643,7 +651,7 @@ function _process_batch(
     n_cx_skip = count(==(:complexity_skip), records)
     n_seen_skip = length(mechs) - length(fresh)
     capped = ["leaf cap reached for $(c.mechanism_id); fitted under its own key"
-              for c in records if c isa _Candidate && c.canon.capped]
+              for c in records if c isa _Candidate && c.capped]
     log(join([_prefit_summary(length(reps),
                   count(c -> c isa _Candidate, records) - length(reps),
                   n_param_skip, n_cx_skip, n_seen_skip;
@@ -656,11 +664,11 @@ function _process_batch(
     function fit!(reps::Vector{_Candidate})
         rep_fits = pmap(reps) do r
             try
-                fp = FittingProblem(compile_mechanism(r.mech), prob.data;
-                    Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
+                em = Mechanisms.compile_mechanism(r.mech)
+                fp = FittingProblem(em, prob.rate_data.data; _fit_keywords(em, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
                 _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
-                     fit.peak_at_range_edge, r.mech, r.mechanism_id)
+                     r.mech, r.mechanism_id)
             catch e
                 _exc_string(e)
             end
@@ -713,7 +721,6 @@ function _process_batch(
             fit_inherited = fit.source_id != c.mechanism_id,
             fit_source_id = fit.source_id,
             L_phantom = c.phantom,
-            peak_at_range_edge = fit.peak_at_range_edge,
         )
         push!(entries, BatchEntry(c.mech, length(c.fitted), fit.loss, fit.retcode,
                                   c.canon.key, fit_key, row))
@@ -727,10 +734,10 @@ joins the `frontier` (the unexpanded work queue — ALL structurally-distinct
 mechanisms, no key dedup); `best_loss_by_count` tracks the per-count running
 min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
 entries with DISTINCT rate-law keys (lowest loss each) per param count. An entry whose
-loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite) is
-skipped: it is never expanded, never sets a best loss and never enters LOOCV; its row
-is already in the batch's CSV. Returns the set of counts whose best loss strictly
-dropped (or first appeared) in this batch.
+loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite or when
+the fit cannot match the reference turnovers) is skipped: it is never expanded, never
+sets a best loss and never enters LOOCV; its row is already in the batch's CSV. Returns
+the set of counts whose best loss strictly dropped (or first appeared) in this batch.
 """
 function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                   n_cv_candidates)
@@ -801,19 +808,22 @@ each child to the `BatchEntry` of the first parent that produced it, and
 expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
-                         reaction::EnzymeReaction)
+                         reaction::Mechanisms.EnzymeReaction)
     results = pmap([pe.mech for pe in to_expand]) do m
         # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
         # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
         try
-            (expand_mechanisms(Union{Mechanism, AllostericMechanism}[m], reaction),
+            (Enumeration.expand_mechanisms(
+                 Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[m], reaction),
              nothing)
         catch e
-            (Union{Mechanism, AllostericMechanism}[], FitFailure(m, _exc_string(e)))
+            (Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[],
+             FitFailure(m, _exc_string(e)))
         end
     end
-    parent_of = Dict{Union{Mechanism, AllostericMechanism}, BatchEntry}()
-    children = Union{Mechanism, AllostericMechanism}[]
+    parent_of =
+        Dict{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, BatchEntry}()
+    children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
     expand_failures = FitFailure[]
     for (pe, (kids, failure)) in zip(to_expand, results)
         failure === nothing || push!(expand_failures, failure)
@@ -827,55 +837,28 @@ function _expand_parents(to_expand::Vector{BatchEntry},
 end
 
 """
-The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
-(`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
-that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
-worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
-ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
-step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
-degeneracy condition reads. An expansion error is returned as a failure, one per seed,
-carrying the seed; a flip child whose rate law the guard rejects (`_is_well_posed`) is
-dropped, as `expand_mechanisms` drops one.
+The `FitFailure`s of `Enumeration.starting_mechanisms`' `(mechanism, message)` failure
+pairs.
 """
-function _base_tier(mechs::Vector, rxn::EnzymeReaction)
-    base = Union{Mechanism, AllostericMechanism}[m for m in mechs if !_degenerate(m)]
-    failures = FitFailure[]
-    for m in mechs
-        _degenerate(m) || continue
-        try
-            children = filter!(_is_well_posed, _expand_re_to_ss(m))
-            for child in children
-                _assert_atom_conserving(child, rxn)
-                _degenerate(child) || push!(base, child)
-            end
-        catch e
-            push!(failures, FitFailure(m, _exc_string(e)))
-        end
-    end
-    unique!(base), failures
-end
+_fit_failures(failures) = [FitFailure(m, msg) for (m, msg) in failures]
 
 """
     _required_regulators(rxn, optional_allosteric_regulators,
                          optional_competitive_inhibitors)
         -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
 
-The regulators the beam seed must bind: every `AllostericRegulator` and every
-`CompetitiveInhibitor` declared in `rxn`, minus the names the caller marked
-optional. Both sets empty means the beam takes its seeds from `init_mechanisms`; a
-non-empty set means it takes them from `seed_mechanisms`. Either way the base tier
-fits the seeds that are not degenerate and, in place of those that are, their flip
-children that are not (`_base_tier`).
+The regulators the beam seed must bind: every allosteric regulator and every
+competitive inhibitor declared in `rxn`, minus the names the caller marked
+optional. Both sets empty means the beam starts from the unregulated seeds; see
+`Enumeration.starting_mechanisms`.
 """
-function _required_regulators(rxn::EnzymeReaction,
+function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
                               optional_competitive_inhibitors::Vector{Symbol})
-    required(T, optional) = setdiff(
-        Set{Symbol}(name(regulator(rm)) for rm in regulators(rxn)
-                    if regulator(rm) isa T),
-        optional)
-    (required(AllostericRegulator, optional_allosteric_regulators),
-     required(CompetitiveInhibitor, optional_competitive_inhibitors))
+    required(kind, optional) = setdiff(
+        Set{Symbol}(reg.name for reg in rxn.regulators if reg.kind === kind), optional)
+    (required(:allosteric, optional_allosteric_regulators),
+     required(:competitive, optional_competitive_inhibitors))
 end
 
 function _beam_search(
@@ -897,9 +880,9 @@ function _beam_search(
     # member of a selected key expands without budget, and a late member of any other
     # key is judged again.
     selected_keys = Set{String}()
-    # Fits by rate-law key, at canonical positions (`_Fit`; scaled to peak turnover 1 in
-    # relative mode), shared across iterations so each distinct law is fit exactly once
-    # over the whole search. LOOCV refits each key's source on its folds.
+    # Fits by rate-law key, at canonical positions (`_Fit`; scaled to the reference
+    # turnovers in relative mode), shared across iterations so each distinct law is fit
+    # exactly once over the whole search. LOOCV refits each key's source on its folds.
     memo = Dict{String,_Fit}()
     # Structures already produced — each is expanded at most once (termination).
     # This preserves the selected model: expansion is deterministic, so a
@@ -941,16 +924,14 @@ function _beam_search(
     progress("EnzymeRates v$(pkgversion(EnzymeRates))")
 
     # ── Base tier: fit every seed, with each degenerate seed replaced by its
-    # non-degenerate flip children (`_base_tier`; no bucketing — siblings) ──
+    # non-degenerate flip children (`starting_mechanisms`; no bucketing — siblings) ──
     progress("Enumerating initial mechanisms…")
     required_allo, required_comp = _required_regulators(
         prob.reaction, optional_allosteric_regulators,
         optional_competitive_inhibitors)
-    seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        unique!(collect(init_mechanisms(prob.reaction))) :
-        unique!(collect(seed_mechanisms(
-            prob.reaction, required_allo, required_comp)))
-    base, base_expand_failures = _base_tier(seeds, prob.reaction)
+    base, base_failures = Enumeration.starting_mechanisms(
+        prob.reaction, required_allo, required_comp)
+    base_expand_failures = _fit_failures(base_failures)
     # A degenerate seed's expansion error is recorded like a fit failure (a row of
     # initial_mechanisms.csv and the errored bucket).
     base_batch = run_batch!(base, base_expand_failures,
@@ -1022,15 +1003,63 @@ function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)
 end
 
 """
+    _fold_problem(mechanism, data, mask; keywords...) → FittingProblem
+
+The `FittingProblem` of `mechanism` on the rows of `data` that `mask` selects, with the
+`FittingProblem` `keywords`. The fold copies its rows rather than viewing them, so its
+problem has the full fit's type and `loss!` does not compile a second time for it; the
+copy is small next to a fit.
+"""
+function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+                       data::NamedTuple, mask; keywords...)
+    FittingProblem(mechanism, map(col -> col[mask], data); keywords...)
+end
+
+"""
+    _cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference = nothing,
+        optimizer, kwargs...) → Float64
+
+The loss on the rows of `data` whose `group` is `held_out` of `mechanism` fitted to the
+other rows: `fit_rate_equation(problem, optimizer; kwargs...)` on a `FittingProblem` with
+`Keq`, `absolute` and `reference`, which absolute mode leaves `nothing`, scored by
+`test_rate_equation`. A training fit that fails its reference (`:ReferenceFailed`) keeps
+its parameters unscaled, and the relative loss, blind to the scale, still scores them. A
+non-finite loss raises (naming the held-out group): a corrupted fold must abort model
+selection rather than propagate a bad score.
+
+This function and `_fold_problem` take `mechanism` `@nospecialize`. Cross-validation runs a
+candidate's folds after its full fit, which compiled `loss!` for that type, so a fold
+infers and compiles nothing for the mechanism.
+"""
+function _cross_validation_loss(
+    @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+    data::NamedTuple, held_out;
+    Keq, absolute, reference = nothing, optimizer, kwargs...)
+    held = data.group .== held_out
+    fit = fit_rate_equation(
+        _fold_problem(mechanism, data, .!held; Keq, absolute, reference),
+        optimizer; kwargs...)
+    test_loss = test_rate_equation(mechanism, fit.params, map(col -> col[held], data);
+                                   Keq, absolute)
+    # A non-finite fold loss means the fit is unusable; aborting model
+    # selection is correct (re-run CV from the saved CSVs after fixing
+    # the fit).
+    isfinite(test_loss) || error(
+        "LOOCV produced a non-finite test loss for held-out group " *
+        "$held_out — the fit is unusable; aborting model selection.")
+    test_loss
+end
+
+"""
     _cv_model_selection(pool, memo, prob; optimizer, se_threshold, save_dir,
                         show_progress, kwargs...) -> IdentifyRateEquationResults
 
 Cross-validate the candidates of `pool` (the cv pool `_beam_search` returns) by leaving
-one group of `prob.data` out at a time, select one by the 1-SE rule (`_select_best_row`)
-and write `loocv_results.csv` and `best_equation.csv` to `save_dir`. A candidate's fold
-losses come from fitting, on each fold, the source of the fit it reads
-(`memo[e.fit_key].source`), so candidates that read one fit share their fold losses and
-each fit's folds run once.
+one group of `prob.rate_data.data` out at a time, select one by the 1-SE rule
+(`_select_best_row`) and write `loocv_results.csv` and `best_equation.csv` to
+`save_dir`. A candidate's fold losses come from fitting, on each fold, the source of the
+fit it reads (`memo[e.fit_key].source`), so candidates that read one fit share their fold
+losses and each fit's folds run once.
 """
 function _cv_model_selection(
     pool::Vector{BatchEntry}, memo::Dict{String,_Fit},
@@ -1056,10 +1085,12 @@ function _cv_model_selection(
     # a (fit key, fold) grid so all folds run across every worker. `pmap` keeps the grid
     # order (the fold varies fastest), so column j of `by_fit` holds fit key j's fold
     # losses in `groups` order, and column ci of `scores` candidate ci's.
-    groups = unique(prob.data.group)
+    groups = unique(prob.rate_data.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
     fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
-        _cv_fold_loss(compile_mechanism(m), prob, g; optimizer, kwargs...)
+        mechanism = Mechanisms.compile_mechanism(m)
+        _cross_validation_loss(mechanism, prob.rate_data.data, g;
+            _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
     end
     by_fit = reshape(Float64.(fold_losses), length(groups), :)
     scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys) for e in candidates]]
@@ -1068,10 +1099,10 @@ function _cv_model_selection(
     cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
-    best_mechanism = compile_mechanism(candidates[best_row_idx].mech)
+    best_mechanism = Mechanisms.compile_mechanism(candidates[best_row_idx].mech)
 
     # Flatten per-fold scores into one column per held-out group.
-    # Group order matches the `groups = unique(prob.data.group)` iteration above.
+    # Group order matches the `groups = unique(prob.rate_data.data.group)` iteration above.
     for (i, g) in enumerate(groups)
         cv_df[!, Symbol("cv_fold_$g")] = scores[i, :]
     end
@@ -1089,44 +1120,6 @@ function _cv_model_selection(
     CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
-end
-
-"""
-One LOOCV fold: fit `mechanism` on every group except `held_out`, score it on
-`held_out`, and return the finite test loss. A non-finite
-test loss raises (naming the held-out group) — a corrupted fold must abort model
-selection rather than propagate a bad score.
-
-This function and `_fold_problem` take `mechanism` `@nospecialize`. LOOCV runs a
-candidate's folds after its full fit, which compiled `loss!` for the folds' problem type,
-so a fold infers and compiles nothing for the mechanism.
-"""
-function _cv_fold_loss(
-    @nospecialize(mechanism::AbstractEnzymeMechanism),
-    prob::IdentifyRateEquationProblem, held_out;
-    optimizer, kwargs...)
-    held = prob.data.group .== held_out
-    fit = fit_rate_equation(_fold_problem(mechanism, prob, .!held), optimizer; kwargs...)
-    # `fit.params` is keyed by `fitted_params(mechanism)`, the order `loss!` reads.
-    test_loss = loss!([log(v) for v in fit.params], _fold_problem(mechanism, prob, held))
-    # A non-finite fold loss means the fit is unusable; aborting model
-    # selection is correct (re-run CV from the saved CSVs after fixing
-    # the fit).
-    isfinite(test_loss) || error(
-        "LOOCV produced a non-finite test loss for held-out group " *
-        "$held_out — the fit is unusable; aborting model selection.")
-    test_loss
-end
-
-"""
-The `FittingProblem` of `mechanism` on the rows of `prob.data` that `mask` selects. The
-fold copies its rows rather than viewing them, so its problem has the full fit's type and
-`loss!` does not compile a second time for it; the copy is small next to a fit.
-"""
-function _fold_problem(@nospecialize(mechanism::AbstractEnzymeMechanism),
-                       prob::IdentifyRateEquationProblem, mask)
-    FittingProblem(mechanism, map(col -> col[mask], prob.data);
-        Keq=prob.Keq, absolute=prob.absolute, peak_range=prob.peak_range)
 end
 
 """

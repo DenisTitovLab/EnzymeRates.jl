@@ -15,24 +15,46 @@ Order = [:function, :macro, :type]
 
 ## Functions
 
-```@autodocs
-Modules = [EnzymeRates]
-Private = false
-Order = [:function]
+```@docs
+fit_rate_equation(::FittingProblem, ::Any)
+identify_rate_equation(::IdentifyRateEquationProblem)
+metabolites(::M) where M<:Mechanisms.AbstractEnzymeMechanism
+parameters(::Any)
+dependent_parameter_values(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism}, ::NamedTuple)
+rate_equation(::M_type, ::NamedTuple, ::NamedTuple) where M_type<:Mechanisms.AbstractEnzymeMechanism
+rate_equation_string(::Union{AllostericMechanism, Mechanism})
+```
+
+## Internal but usable
+
+`test_rate_equation` is not exported; call it as `EnzymeRates.test_rate_equation`.
+
+```@docs
+EnzymeRates.test_rate_equation(::Any, ::NamedTuple, ::Any)
 ```
 
 ## Macros
 
-```@autodocs
-Modules = [EnzymeRates]
-Private = false
-Order = [:macro]
+```@docs
+@allosteric_mechanism
+@enzyme_mechanism
+@enzyme_reaction
 ```
 
 ## Types
 
-```@autodocs
-Modules = [EnzymeRates]
-Private = false
-Order = [:type]
+```@docs
+AllParameters
+AllostericEnzymeMechanism
+AllostericEnzymeMechanism(::AllostericMechanism)
+EnzymeMechanism
+EnzymeMechanism(::Mechanism)
+EnzymeReaction
+FittedParameters
+FittingProblem
+FittingProblem(::Mechanisms.AbstractEnzymeMechanism, ::Any)
+FittingProblem(::Union{AllostericMechanism, Mechanism}, ::Any)
+IdentifyRateEquationProblem
+IdentifyRateEquationResults
+IndependentParameters
 ```

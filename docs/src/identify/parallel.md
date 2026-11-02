@@ -39,7 +39,10 @@ rxn = @enzyme_reaction begin
     substrates: A[C], B[C]
     products:   P[C], Q[C]
 end
-prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0)
+# A measured turnover at stated concentrations sets the scale of the rate constants;
+# here the first data row.
+reference = [(A = data.A[1], B = data.B[1], P = data.P[1], Q = data.Q[1]) => data.Rate[1]]
+prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0, reference)
 
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
 
@@ -77,7 +80,10 @@ rxn = @enzyme_reaction begin
     substrates: A[C], B[C]
     products:   P[C], Q[C]
 end
-prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0)
+# A measured turnover at stated concentrations sets the scale of the rate constants;
+# here the first data row.
+reference = [(A = data.A[1], B = data.B[1], P = data.P[1], Q = data.Q[1]) => data.Rate[1]]
+prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0, reference)
 
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
 

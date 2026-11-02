@@ -1,9 +1,11 @@
 # ABOUTME: Top-level module; defines the public API and include order.
-# ABOUTME: Exports the 17 public names and wires together src/ source files.
+# ABOUTME: Exports the 19 public names and wires together src/ source files.
+"""Finds the best mechanism for a reaction from measured rates."""
 module EnzymeRates
 
 # Types
 export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism
+export IndependentParameters, FittedParameters, AllParameters
 export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
@@ -11,47 +13,29 @@ export IdentifyRateEquationProblem, IdentifyRateEquationResults
 export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 # Core API
-export rate_equation, rate_equation_string, parameters, all_parameters, metabolites
-export rescale_parameter_values
+export rate_equation, rate_equation_string, parameters, dependent_parameter_values,
+    metabolites
 
 # Fitting & model selection
-export fit_rate_equation
-export identify_rate_equation
+export fit_rate_equation, identify_rate_equation
 
 
 using Dates
-using LinearAlgebra: det
-using Tables
-using Optimization
 using Distributed
-using FunctionWrappers: FunctionWrapper
-import Unicode
-using SHA: sha256
 
-include("types.jl")
-include("names.jl")
-include("dsl.jl")
-include("rate_eq_derivation.jl")
-include("thermo.jl")
-include("poly.jl")
-include("engine.jl")
-include("normalize.jl")
-include("print.jl")
-include("key.jl")
-include("codegen.jl")
-include("admission.jl")
-include("fitting.jl")
-include("mechanism_enumeration.jl")
+include("Data/Data.jl")
+using .Data: Data
+include("Mechanisms/Mechanisms.jl")
+using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
+    metabolites, Mechanism, AllostericMechanism, compile_mechanism
+include("Derivation/Derivation.jl")
+using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
+    dependent_parameter_values, IndependentParameters, FittedParameters, AllParameters
+include("DSL/DSL.jl")
+using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
+include("Fitting/Fitting.jl")
+using .Fitting: Fitting, FittingProblem, fit_rate_equation, test_rate_equation
+include("Enumeration/Enumeration.jl")
 include("identify_rate_equation.jl")
-
-# Every mechanism macro call runs the guard, the flip search runs `_faces_pass` and the
-# first `rate_equation` call of a mechanism runs `_rate_body`, so all three compile into
-# the package image rather than in each session.
-precompile(_guard, (Mechanism,))
-precompile(_guard, (AllostericMechanism,))
-precompile(_faces_pass, (Mechanism, BitVector))
-precompile(_faces_pass, (AllostericMechanism, BitVector))
-precompile(_rate_body, (Mechanism,))
-precompile(_rate_body, (AllostericMechanism,))
 
 end

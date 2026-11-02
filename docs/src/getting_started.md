@@ -123,16 +123,20 @@ for g in 1:3, _ in 1:8
     push!(Svals, s); push!(Pvals, p)
 end
 data = (group = groups, Rate = Rate, S = Svals, P = Pvals)
+reference = [(S = Svals[1], P = Pvals[1]) => Rate[1]]
 
-fp = FittingProblem(m, data; Keq = 2.0)
-fitted_params, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1, maxtime = 2.0)
+fp = FittingProblem(m, data; Keq = 2.0, reference)
+fitted, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1, maxtime = 2.0)
 retcode
 ```
 
 The data table has a `group` column identifying measurement batches that share
 one `E_total`, a `Rate` column with measured rates, and one column per
 metabolite or regulator name (here `S` and `P`). `Keq` is a required keyword,
-always user-supplied.
+always user-supplied. The fit removes each group's arbitrary scale, and `reference`, a
+turnover at stated concentrations (here the first data row), sets the scale of the
+returned rate constants (omit it and the largest predicted rate over the data rows, at
+`E_total = 1`, is scaled to 1); see [Normalized vs absolute rate](@ref).
 
 ---
 
@@ -146,7 +150,7 @@ Build an `IdentifyRateEquationProblem` from the reaction and data, then run
 in seconds:
 
 ```@example getting-started
-prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0)
+prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0, reference)
 
 results = identify_rate_equation(prob;
     min_beam_width = 1,

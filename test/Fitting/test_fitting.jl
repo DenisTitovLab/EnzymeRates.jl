@@ -1,0 +1,595 @@
+# ABOUTME: Tests for fitting rate equations to data via FittingProblem and
+# ABOUTME: fit_rate_equation, including loss evaluation and parameter recovery.
+using Tables
+using Optimization
+using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
+
+# An optimizer stub whose every solve returns `u` for each log-space coordinate, so a
+# fit's raw constants are known exactly and the scale applied to them can be checked.
+# With `infinite = true` every solve reports an infinite objective, as a fit with no
+# finite loss does.
+struct _testhelper_ConstantStubOpt
+    u::Float64
+    infinite::Bool
+end
+_testhelper_ConstantStubOpt(u; infinite = false) = _testhelper_ConstantStubOpt(u, infinite)
+Optimization.allowsbounds(::_testhelper_ConstantStubOpt) = true
+function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
+        opt::_testhelper_ConstantStubOpt; kwargs...)
+    u = fill(opt.u, length(prob.u0))
+    build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u,
+                   opt.infinite ? Inf : prob.f(u, prob.p); retcode = ReturnCode.Success)
+end
+
+@testset "Fitting" begin
+
+    # ── Helper: build a Uni-Uni mechanism ─────────────────────────────────────
+    # Fitted: k_E_S_to_ES, k_ES_to_E_S, k_ES_to_E_P. The true points below put
+    # k_ES_to_E_P = 5 at Keq = 2, so the Haldane-derived product rebinding rate is
+    # k_E_P_to_ES = k_E_S_to_ES·k_ES_to_E_P/(Keq·k_ES_to_E_S) = 1.
+    uni_uni = @enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E + P
+        end
+    end
+
+    # True point and 5-point concentration grid shared by the uni-uni testsets below.
+    Keq_val = 2.0
+    true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0,
+                   Keq = Keq_val, E_total = 1.0)
+    concs5 = [
+        (S = 1.0, P = 0.1),
+        (S = 2.0, P = 0.1),
+        (S = 5.0, P = 0.1),
+        (S = 1.0, P = 0.5),
+        (S = 2.0, P = 0.5),
+    ]
+
+    # ── Helper: an allosteric uni-uni with an inactive-state regulator R ──────
+    allo = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyI
+    end
+    allo_fitted = parameters(allo, FittedParameters())
+    allo_params = merge(
+        NamedTuple{allo_fitted}(ntuple(i -> 1.0 + 0.1 * i, length(allo_fitted))),
+        (Keq = Keq_val, E_total = 1.0))
+    allo_concs = [(S = Float64(i), P = 0.1, R = 0.5) for i in 1:20]
+
+    # ── Synthetic data generator ──────────────────────────────────────────────
+    function _testhelper_make_synthetic_data(
+            mechanism, true_params, concs_list;
+            groups=fill("G1", length(concs_list)),
+    )
+        rates = Float64[]
+        for (i, concs) in enumerate(concs_list)
+            r = rate_equation(mechanism, concs, true_params)
+            push!(rates, r)
+        end
+        met_names = metabolites(mechanism)
+        cols = Dict{Symbol, Vector}()
+        cols[:group] = groups
+        cols[:Rate] = rates
+        for mn in met_names
+            cols[mn] = [concs[mn] for concs in concs_list]
+        end
+        return (; (k => cols[k] for k in (:group, :Rate, met_names...))...)
+    end
+
+    # ── BlackBoxOptim fit: the only warning is its convergence ────────────────
+    # BlackBoxOptim can converge on these fits before maxtime: an absolute loss has a
+    # single optimum, and a centered population can collapse along its scale direction.
+    # It then stops because the search has converged, a reason Optimization does not
+    # recognize, so Optimization warns. Runs `fit`, checks that every warning it logs
+    # is that one, and returns its result.
+    function _testhelper_fit_capturing_convergence(fit)
+        logs, result = Test.collect_test_logs(fit)
+        @test all(l -> l.level < Base.CoreLogging.Warn ||
+                       occursin("probably search has converged", string(l.message)), logs)
+        result
+    end
+
+    # ── Mechanism-level accessors ─────────────────────────────────────────────
+    @testset "Mechanism-level accessors" begin
+        all_param_syms = parameters(uni_uni)
+        expected_fitted = Tuple(p for p in all_param_syms if p !== :E_total && p !== :Keq)
+
+        @test parameters(uni_uni, FittedParameters()) == expected_fitted
+        @test metabolites(uni_uni) == (:S, :P)
+    end
+
+    # ── FittingProblem construction ───────────────────────────────────────────
+    @testset "Construction" begin
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                            reference=_testhelper_row_reference(data))
+
+        @test length(fp.log_abs_rates) == 5
+        @test length(fp.group_point_indexes) == 1
+        @test length(fp.group_point_indexes[1]) == 5
+    end
+
+    # ── Multi-group centering invariance ─────────────────────────────────────
+    @testset "Multi-group centering invariance" begin
+        # Two groups, each independently scaled
+        data1 = _testhelper_make_synthetic_data(uni_uni, true_params, concs5;
+            groups=["G1","G1","G1","G2","G2"])
+        fp1 = FittingProblem(uni_uni, data1; Keq=Keq_val,
+                             reference=_testhelper_row_reference(data1))
+
+        # Scale group1 by 5x and group2 by 100x
+        rates2 = copy(data1.Rate)
+        rates2[1:3] .*= 5.0
+        rates2[4:5] .*= 100.0
+        data2 = merge(data1, (Rate = rates2,))
+        fp2 = FittingProblem(uni_uni, data2; Keq=Keq_val,
+                             reference=_testhelper_row_reference(data2))
+
+        np = length(parameters(uni_uni, FittedParameters()))
+        @test all(1:10) do _
+            x = randn(np) .* 2.0
+            isapprox(EnzymeRates.Fitting.loss!(x, fp1), EnzymeRates.Fitting.loss!(x, fp2);
+                     rtol=1e-12)
+        end
+    end
+
+    # ── Absolute mode: uncentered loss (absolute=true) ─────────────────────────
+    @testset "Absolute mode uncentered loss" begin
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
+        pn = parameters(uni_uni, FittedParameters())
+        x_true = [log(true_params[p]) for p in pn]
+
+        fp_rel = FittingProblem(uni_uni, data; Keq=Keq_val,  # relative (default)
+                                reference=_testhelper_row_reference(data))
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
+
+        # At true params both modes are ~0 (predictions match data exactly).
+        @test EnzymeRates.Fitting.loss!(x_true, fp_rel) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.Fitting.loss!(x_true, fp_abs) ≈ 0.0 atol=1e-20
+
+        # Scale every rate by 3 (a pure per-group offset). Relative loss is
+        # invariant (centering removes it); absolute loss sees it: every
+        # residual becomes log(3), so absolute loss = log(3)^2.
+        data3 = merge(data, (Rate = data.Rate .* 3.0,))
+        fp_rel3 = FittingProblem(uni_uni, data3; Keq=Keq_val,
+                                 reference=_testhelper_row_reference(data3))
+        fp_abs3 = FittingProblem(uni_uni, data3; Keq=Keq_val, absolute=true)
+        @test EnzymeRates.Fitting.loss!(x_true, fp_rel3) ≈ 0.0 atol=1e-20
+        @test EnzymeRates.Fitting.loss!(x_true, fp_abs3) ≈ log(3.0)^2 rtol=1e-8
+    end
+
+    # ── absolute and reference keywords ───────────────────────────────────────
+    @testset "absolute and reference keywords" begin
+        ok_data = (group = ["G1"], Rate = [1.0], S = [1.0], P = [0.1])
+        ref = _testhelper_row_reference(ok_data)
+        fp = FittingProblem(uni_uni, ok_data; Keq=1.0, reference=ref)
+        @test fp.rate_data.absolute === false
+        @test fp.rate_data.reference == [(S = 1.0, P = 0.1) => 1.0]
+        fp_abs = FittingProblem(uni_uni, ok_data; Keq=1.0, absolute=true)
+        @test fp_abs.rate_data.absolute === true && isempty(fp_abs.rate_data.reference)
+        # An integer Keq converts to the Float64 field.
+        @test FittingProblem(uni_uni, ok_data; Keq=2, reference=ref).rate_data.Keq === 2.0
+        # The concrete-mechanism constructor passes the keywords on.
+        fp_conc = FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
+                                 reference=ref)
+        @test fp_conc.rate_data.absolute === false && fp_conc.rate_data.reference == ref
+        @test FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data; Keq=1.0,
+                             absolute=true).rate_data.absolute === true
+        # There is no kcat keyword: a `reference` sets the scale.
+        @test_throws MethodError FittingProblem(uni_uni, ok_data; Keq=1.0, reference=ref,
+                                                scale_k_to_kcat=1.0)
+    end
+
+    # ── Sign-mismatch penalty ─────────────────────────────────────────────────
+    # Regression test for all-mismatch groups: when every prediction in a
+    # group is a sign mismatch, centering must not zero every deviation.
+    # The loss must be nonzero to distinguish a bad mechanism from a perfect one.
+    # Three sub-cases exercise each kind of mismatch that sets buf[i] = 10.0:
+    #   (i)  pred == 0.0            (S=0, P=0)
+    #   (ii) pred < 0, Rate > 0     (S=0, P>0: only the reverse term survives, so pred
+    #        is always negative)
+    #   (iii) pred > 0, Rate < 0    (S>0, P=0: only the forward term survives, so pred
+    #        is always positive)
+    # In all cases every point in the group is a mismatch so the expected
+    # loss is: (0 from centering + 100.0 × n_mismatch) / n_data = 100.0
+    @testset "All-mismatch group not cancelled by centering" begin
+        pn = parameters(uni_uni, FittedParameters())
+        x = randn(length(pn))
+
+        @testset "zero prediction (S=0, P=0)" begin
+            data = (
+                group = fill("G1", 5),
+                Rate  = [1.0, 2.0, 3.0, 4.0, 5.0],
+                S     = zeros(5),
+                P     = zeros(5),
+            )
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                                reference=_testhelper_row_reference(data))
+            l = EnzymeRates.Fitting.loss!(x, fp)
+            @test l > 0.0
+            @test l ≈ 100.0
+        end
+
+        @testset "sign mismatch: pred<0, Rate>0 (S=0, P>0)" begin
+            # With S=0 the forward numerator term vanishes; only the reverse
+            # term (∝ -P) remains, so pred < 0 for any positive parameters.
+            data = (
+                group = fill("G1", 5),
+                Rate  = [1.0, 2.0, 3.0, 4.0, 5.0],
+                S     = zeros(5),
+                P     = [0.1, 0.2, 0.3, 0.4, 0.5],
+            )
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                                reference=_testhelper_row_reference(data))
+            l = EnzymeRates.Fitting.loss!(x, fp)
+            @test l > 0.0
+            @test l ≈ 100.0
+        end
+
+        @testset "sign mismatch: pred>0, Rate<0 (S>0, P=0)" begin
+            # With P=0 the reverse numerator term vanishes; only the forward
+            # term (∝ S) remains, so pred > 0 for any positive parameters.
+            data = (
+                group = fill("G1", 5),
+                Rate  = [-1.0, -2.0, -3.0, -4.0, -5.0],
+                S     = [0.1, 0.2, 0.3, 0.4, 0.5],
+                P     = zeros(5),
+            )
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                                reference=_testhelper_row_reference(data))
+            l = EnzymeRates.Fitting.loss!(x, fp)
+            @test l > 0.0
+            @test l ≈ 100.0
+        end
+    end
+
+    # ── Zero allocations ──────────────────────────────────────────────────────
+    # Measured inside a function so the count excludes boxing the Float64 return
+    # of a dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
+    loss_allocs(x, fp) = @allocated EnzymeRates.Fitting.loss!(x, fp)
+
+    @testset "Zero allocations" begin
+        concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                            reference=_testhelper_row_reference(data))
+
+        x = randn(length(parameters(uni_uni, FittedParameters())))
+        loss_allocs(x, fp)  # warmup
+        allocs = loss_allocs(x, fp)
+        @test allocs == 0
+
+        # Absolute mode (uncentered branch) is equally allocation-free.
+        fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
+        loss_allocs(x, fp_abs)  # warmup
+        allocs_abs = loss_allocs(x, fp_abs)
+        @test allocs_abs == 0
+    end
+
+    # loss! builds each data point's concentration NamedTuple from metabolites(m), so an
+    # allosteric mechanism's metabolite names must be a compile-time constant as well.
+    @testset "Zero allocations: allosteric mechanism" begin
+        data = _testhelper_make_synthetic_data(allo, allo_params, allo_concs)
+        fp = FittingProblem(allo, data; Keq=Keq_val,
+                            reference=_testhelper_row_reference(data))
+
+        x = randn(length(allo_fitted))
+        loss_allocs(x, fp)  # warmup
+        allocs = loss_allocs(x, fp)
+        @test allocs == 0
+    end
+
+    # ── Optimizer boundary ────────────────────────────────────────────────────
+    # fit_rate_equation hands Optimization.jl one problem type whatever the mechanism and
+    # its data, so solve and the solver compile once per optimizer, not once per
+    # mechanism. The objective must still return loss! and allocate nothing, for a Vector
+    # and for the column view of its population that CMA-ES passes.
+    function _testhelper_optimization_problem(fp)
+        n = length(parameters(fp.mechanism, FittedParameters()))
+        EnzymeRates.Fitting._optimization_problem(fp, zeros(n), fill(-15.0, n),
+                                                  fill(15.0, n))
+    end
+    objective_allocs(prob, x) = @allocated prob.f(x, prob.p)
+
+    @testset "Optimizer boundary" begin
+        data_uni = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
+        fp_uni = FittingProblem(uni_uni, data_uni; Keq=Keq_val,
+                                reference=_testhelper_row_reference(data_uni))
+        data_allo = _testhelper_make_synthetic_data(allo, allo_params, allo_concs)
+        fp_allo = FittingProblem(allo, data_allo; Keq=Keq_val,
+                                 reference=_testhelper_row_reference(data_allo))
+
+        @testset "one problem type for every mechanism" begin
+            @test typeof(_testhelper_optimization_problem(fp_uni)) ===
+                  typeof(_testhelper_optimization_problem(fp_allo))
+        end
+
+        @testset "objective returns loss! and allocates nothing" begin
+            for fp in (fp_uni, fp_allo)
+                prob = _testhelper_optimization_problem(fp)
+                population = randn(length(prob.u0), 3)
+                x = population[:, 2]
+                for x_in in (x, view(population, :, 2))
+                    @test prob.f(x_in, prob.p) == EnzymeRates.Fitting.loss!(x, fp)
+                    objective_allocs(prob, x_in)  # warmup
+                    @test objective_allocs(prob, x_in) == 0
+                end
+            end
+        end
+    end
+
+    # ── Speed benchmark ───────────────────────────────────────────────────────
+    @testset "Speed" begin
+        # Build a larger mechanism: Ordered Bi-Bi
+        # Decomposed ordered bi-bi: the central complex EAB↔EPQ becomes an
+        # explicit iso step E(A, B) <--> E(P, Q). 5 steps total (was 4 in
+        # the lumped-central-complex form); fitter recovers k1-k5 params.
+        ordered_bi_bi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+
+        bb_Keq = 1.5
+        bb_params_syms = parameters(ordered_bi_bi)
+        # Generate random params
+        param_vals = ntuple(i -> 1.0 + 9.0 * rand(), length(bb_params_syms))
+        bb_true_params = NamedTuple{bb_params_syms}(param_vals)
+        bb_true_params = merge(bb_true_params, (Keq = bb_Keq, E_total = 1.0))
+
+        # 500 synthetic datapoints
+        n_points = 500
+        concs_list = [(A = 0.1 + 9.9*rand(), B = 0.1 + 9.9*rand(),
+                       P = 0.1 + 9.9*rand(), Q = 0.1 + 9.9*rand()) for _ in 1:n_points]
+        groups = [string("G", div(i-1, 50)+1) for i in 1:n_points]
+
+        rates = [rate_equation(ordered_bi_bi, c, bb_true_params) for c in concs_list]
+        met_names_bb = metabolites(ordered_bi_bi)
+        data = (
+            group = groups,
+            Rate = rates,
+            (mn => [c[mn] for c in concs_list] for mn in met_names_bb)...
+        )
+        fp = FittingProblem(ordered_bi_bi, data; Keq=bb_Keq,
+                            reference=_testhelper_row_reference(data))
+
+        x = randn(length(parameters(ordered_bi_bi, FittedParameters())))
+        EnzymeRates.Fitting.loss!(x, fp)  # warmup/compile
+
+        # Minimum over several batches defeats the GC/scheduling inflation a
+        # single mean suffers (matches _testhelper_test_rate_equation_performance); the
+        # accumulator's finiteness check keeps the calls from being elided.
+        best_us = Inf
+        acc = 0.0
+        for _ in 1:5
+            acc = 0.0
+            t = @elapsed for _ in 1:2000; acc += EnzymeRates.Fitting.loss!(x, fp); end
+            best_us = min(best_us, t / 2000 * 1e6)
+        end
+        isfinite(acc) || error("loss! produced a non-finite result")
+        # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
+        @test best_us < 70
+    end
+
+    # ── fit_rate_equation: relative fits come back at the reference turnover ──
+    # The scale applies to every fitted point, so the assertions hold at any fit quality
+    # and a half-second budget is enough.
+    @testset "relative fits come back at the reference turnover" begin
+        using OptimizationBBO
+        concs_list = [
+            (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+            (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
+            (S = 0.5, P = 0.5), (S = 1.0, P = 0.5), (S = 2.0, P = 0.5),
+        ]
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
+        opt = BBO_adaptive_de_rand_1_bin_radiuslimited()
+
+        # The first data row (best of 2 restarts) and the fifth.
+        for (row, n_restarts) in ((1, 2), (5, 1))
+            reference = _testhelper_row_reference(data; row)
+            fp = FittingProblem(uni_uni, data; Keq=Keq_val, reference)
+            res = _testhelper_fit_capturing_convergence() do
+                fit_rate_equation(fp, opt; n_restarts, maxtime=0.5)
+            end
+            @test keys(res) == (:params, :loss, :retcode)
+            @test keys(res.params) == parameters(uni_uni, FittedParameters())
+            @test isfinite(res.loss)
+            @test res.retcode isa Symbol
+            concs, turnover = only(reference)
+            @test rate_equation(uni_uni, concs,
+                                merge(res.params, (Keq = Keq_val, E_total = 1.0))) ≈
+                  turnover rtol=1e-9
+        end
+    end
+
+    # ── fit_rate_equation: the scale on known raw constants ───────────────────
+    @testset "reference scale, failed reference and absolute mode on known constants" begin
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
+        pn = parameters(uni_uni, FittedParameters())
+        _testhelper_stub_fit(u; kwargs...) = fit_rate_equation(
+            FittingProblem(uni_uni, data; Keq=Keq_val, kwargs...),
+            _testhelper_ConstantStubOpt(u); n_restarts=1)
+        # Every raw constant is exp(0) = 1, so at Keq = 2 the product rebinding rate is
+        # 1/2 and v = (S − P/2)/(2 + S + P/2): 1/3 at S = 1 alone. A turnover of 2 there
+        # scales every fitted constant, each a rate constant, by 6.
+        rel = _testhelper_stub_fit(0.0; reference=[(S = 1.0,) => 2.0])
+        @test keys(rel) == (:params, :loss, :retcode)
+        @test all(v -> isapprox(v, 6.0; rtol=1e-12), values(rel.params))
+        @test rel.retcode === :Success && isfinite(rel.loss)
+        # The product alone runs the law backwards, against a forward reference turnover:
+        # no factor matches it, so the fit fails without throwing and keeps its constants.
+        wrong_sign = _testhelper_stub_fit(0.0; reference=[(P = 1.0,) => 1.0])
+        @test wrong_sign.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test wrong_sign.loss == Inf && wrong_sign.retcode === :ReferenceFailed
+        # At exp(-700) every product of two constants underflows to zero, so the law
+        # predicts zero turnover at the reference: the fit fails the same way.
+        tiny = _testhelper_stub_fit(-700.0; reference=[(S = 1.0,) => 2.0])
+        @test all(==(exp(-700.0)), values(tiny.params))
+        @test tiny.loss == Inf && tiny.retcode === :ReferenceFailed
+        # With no finite restart the fit returns before the reference step, so its retcode
+        # says so even where the reference would fail.
+        no_finite = fit_rate_equation(
+            FittingProblem(uni_uni, data; Keq=Keq_val, reference=[(P = 1.0,) => 1.0]),
+            _testhelper_ConstantStubOpt(0.0; infinite=true); n_restarts=1)
+        @test no_finite.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test no_finite.loss == Inf && no_finite.retcode === :NoFiniteLoss
+        # Absolute mode returns the fitted constants as they are.
+        absolute_fit = _testhelper_stub_fit(0.0; absolute=true)
+        @test keys(absolute_fit) == (:params, :loss, :retcode)
+        @test absolute_fit.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+    end
+
+    # ── solver-option forwarding (named commons + solver_kwargs) ──
+    @testset "solver kwarg forwarding" begin
+        using OptimizationCMAEvolutionStrategy
+        concs_list = [
+            (S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
+            (S = 5.0, P = 0.1), (S = 10.0, P = 0.1),
+        ]
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                            reference=_testhelper_row_reference(data))
+
+        # Default (empty) solver_kwargs runs on a solver that rejects unknown
+        # options — no solver-specific option is force-injected.
+        res = fit_rate_equation(fp, CMAEvolutionStrategyOpt();
+            n_restarts=1, maxtime=1.0)
+        @test isfinite(res.loss)        # a finite loss means a fit actually ran
+
+        # solver_kwargs is forwarded verbatim: an option no optimizer
+        # recognizes surfaces as an error (proves the bag reaches `solve`);
+        # a bogus name keeps this independent of any real option's support.
+        @test_throws Exception fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt();
+            n_restarts=1, maxtime=1.0,
+            solver_kwargs=(; not_a_real_solver_option=1))
+
+        # Merge semantics: the same key in both a named common option and
+        # solver_kwargs does NOT raise a duplicate-keyword error (a naive
+        # double-splat would). The override value taking effect is guaranteed
+        # by `merge(common, solver_kwargs)` in fit_rate_equation; here we
+        # assert the call succeeds and produces a finite-loss fit.
+        res2 = fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt();
+            n_restarts=1, maxtime=60.0, solver_kwargs=(; maxtime=1.0))
+        @test isfinite(res2.loss)
+
+        # Clean break: popsize/verbose are no longer accepted named kwargs.
+        @test_throws Exception fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, popsize=200)
+        @test_throws Exception fit_rate_equation(
+            fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, verbose=-9)
+    end
+
+    # ── maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
+    @testset "maxtime forwarded to Optimization.solve" begin
+        # A stub optimizer that records the `maxtime` kwarg it receives, so the
+        # forwarding path (fit_rate_equation -> the `common = (; maxtime,
+        # maxiters)` merge -> Optimization.solve) can be asserted end-to-end
+        # without depending on a real solver's behavior.
+        mutable struct _testhelper_MaxtimeStubOpt
+            maxtime_seen::Union{Nothing, Real}
+        end
+        _testhelper_MaxtimeStubOpt() = _testhelper_MaxtimeStubOpt(nothing)
+        Optimization.allowsbounds(::_testhelper_MaxtimeStubOpt) = true
+        function Optimization.SciMLBase.__solve(
+                prob::Optimization.OptimizationProblem,
+                opt::_testhelper_MaxtimeStubOpt; kwargs...)
+            opt.maxtime_seen = kwargs[:maxtime]
+            u = zeros(length(prob.u0))
+            cache = DefaultOptimizationCache(prob.f, prob.p)
+            build_solution(cache, opt, u, prob.f(u, prob.p); retcode = ReturnCode.Success)
+        end
+
+        concs_list = [(S = 1.0, P = 0.1), (S = 2.0, P = 0.1)]
+        data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
+        fp = FittingProblem(uni_uni, data; Keq=Keq_val,
+                            reference=_testhelper_row_reference(data))
+
+        stub = _testhelper_MaxtimeStubOpt()
+        fit_rate_equation(fp, stub; n_restarts=1, maxtime=1.23)
+        @test stub.maxtime_seen == 1.23
+    end
+
+    # ── fit_rate_equation compiles no NamedTuple indexing per mechanism ───────
+    # fit_rate_equation takes its FittingProblem @nospecialize and passes the fitted
+    # parameters around as a NamedTuple keyed by their names. Indexing it by name would
+    # dispatch at run time: each fit whose parameter names no earlier fit used compiles
+    # a getindex method instance for them and infers Base's slow NamedTuple fallback.
+    # Inferred only as a Tuple, the names also match the getindex method of Static.jl,
+    # which the full suite loads before this file. Counts the getindex method instances,
+    # inferred or compiled, on a NamedTuple keyed by any of `names`.
+    function _testhelper_namedtuple_getindex_instances(names)
+        keyed(T) = T isa DataType && T <: NamedTuple && !isdisjoint(fieldnames(T), names)
+        count(mi -> mi.specTypes isa DataType && any(keyed, mi.specTypes.parameters),
+              (mi for m in methods(getindex) for mi in Base.specializations(m)))
+    end
+
+    @testset "fit_rate_equation compiles no NamedTuple indexing per mechanism" begin
+        using OptimizationCMAEvolutionStrategy
+        optimizer = CMAEvolutionStrategyOpt()
+        # A first fit compiles fit_rate_equation for this optimizer and these options.
+        data_warm = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
+        fp_warm = FittingProblem(uni_uni, data_warm; Keq=Keq_val,
+                                 reference=_testhelper_row_reference(data_warm))
+        fit_rate_equation(fp_warm, optimizer; n_restarts=1, maxiters=10)
+        # Metabolite names no other test uses, so no earlier test has fit this mechanism.
+        unseen = @enzyme_mechanism begin
+            substrates: Sidx
+            products:   Pidx
+            steps: begin
+                E + Sidx <--> E(Sidx)
+                E(Sidx) <--> E + Pidx
+            end
+        end
+        data_unseen = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
+                       Sidx = [1.0, 2.0, 3.0, 4.0], Pidx = [0.1, 0.2, 0.3, 0.4])
+        fp_unseen = FittingProblem(unseen, data_unseen; Keq=Keq_val,
+                                   reference=_testhelper_row_reference(data_unseen))
+        unseen_names = parameters(unseen, FittedParameters())
+        n = _testhelper_namedtuple_getindex_instances(unseen_names)
+        fit_rate_equation(fp_unseen, optimizer; n_restarts=1, maxiters=10)
+        @test _testhelper_namedtuple_getindex_instances(unseen_names) == n
+    end
+
+    # ── Validation errors ──────────────────────────────────────────────────────
+    # The table and reference checks are tested in test/Data/test_rate_data.jl.
+    @testset "Validation errors reach the caller" begin
+        data_zero = (group = ["G1"], Rate = [0.0], S = [1.0], P = [0.1])
+        @test_throws(ErrorException("Zero rate at row 1: log(0) is undefined"),
+                     FittingProblem(uni_uni, data_zero; Keq=1.0,
+                                    reference=[(S = 1.0, P = 0.1) => 1.0]))
+        # A metabolite of the mechanism named after a required column
+        rate_named = @enzyme_mechanism begin
+            substrates: Rate
+            products:   P
+            steps: begin
+                E + Rate <--> E(Rate)
+                E(Rate) <--> E + P
+            end
+        end
+        @test_throws(
+            ErrorException("Metabolite Rate has the name of the required Rate column; " *
+                           "rename the metabolite"),
+            FittingProblem(rate_named, (group = ["G1"], Rate = [1.0], P = [0.1]); Keq=1.0,
+                           reference=[(P = 0.1,) => 1.0]))
+    end
+
+end
