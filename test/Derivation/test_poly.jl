@@ -14,6 +14,30 @@
     @test P._mexp(P._monomial(1 => 1//2), 2) == 0
 end
 
+# A law splats a mechanism-dependent number of pairs into `_monomial`; if a new count
+# compiled code, a fresh mechanism would compile during identify's PASS1, and which code
+# it compiled would depend on compile order.
+@testset "a monomial of a new number of pairs compiles nothing" begin
+    P = EnzymeRates.Derivation
+    if isdefined(Core, :methodtable)
+        function _testhelper_instance_count()
+            meths = Method[]
+            Base.visit(m -> push!(meths, m), Core.methodtable)
+            sum(m -> count(_ -> true, Base.specializations(m)), meths)
+        end
+        monomial_of(n) = P._monomial((v => 1 for v in 1:n)...)
+        expected = [v => 1//1 for v in 1:29]
+        monomial_of(1) == monomial_of(2) == monomial_of(3) == expected
+        n0 = _testhelper_instance_count()
+        m = monomial_of(29)
+        n1 = _testhelper_instance_count()
+        @test n1 == n0
+        @test m == expected
+    else
+        @test_skip "counting method instances needs the global method table of Julia 1.12"
+    end
+end
+
 @testset "polynomials add, subtract and multiply exactly" begin
     P = EnzymeRates.Derivation
     x, y = P._term(P._monomial(1 => 1)), P._term(P._monomial(2 => 1))

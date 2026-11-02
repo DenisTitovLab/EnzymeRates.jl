@@ -58,9 +58,16 @@ end
 _mpow(a::_Mono, e::Union{Integer, _Exp}) =
     iszero(e) ? _Mono() : _Mono([v => x * e for (v, x) in a])
 
-"""The monomial of the `variable => exponent` pairs `ps`; a variable may repeat."""
-_monomial(ps::Pair{Int}...) =
-    foldl(_mmul, (_Mono([v => _Exp(e)]) for (v, e) in ps if e != 0); init = _Mono())
+"""The monomial of the `variable => exponent` pairs `ps`; a variable may repeat. A plain
+loop: a reduction over the tuple would build iterator types from the tuple's runtime
+length and compile again for each new number of pairs."""
+function _monomial(ps::Pair{Int}...)
+    m = _Mono()
+    for (v, e) in ps
+        iszero(e) || (m = _mmul(m, _Mono([v => _Exp(e)])))
+    end
+    m
+end
 
 """The exponent of variable `v` in `a`."""
 function _mexp(a::_Mono, v::Int)
