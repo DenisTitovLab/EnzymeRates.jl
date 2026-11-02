@@ -12,14 +12,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   step sides. Across the 251,107 mechanisms the ter-ter `init_mechanisms` testset retains,
   the live heap grew 48% (1,272 to 1,883 MiB) and the peak resident set from 2.3 to 3.1 GB.
   The extra garbage collection makes the call about 20% slower (94 s to 117 s on Julia 1.13);
-  its time limit is 200 s. The step sides cost most: two strings per step, 668 of the 5,408
-  retained bytes per mechanism. Denis raised the limit instead of taking one of three
-  measured options: (A) keep already-sorted input vectors instead of copying them,
-  which lets a mechanism share the caller's vectors (72 s, 24% under the time before the
-  facts were stored); (B) compute `step_sides` on demand (102 s, 13% under the time with the
-  facts, 8% over the time before them); (D) reuse the variants the flip search in
-  `_seed_variants` already builds (with A and B, 51 s, 45% under the time before the
-  facts). No benchmark or pin yet covers the live bytes of a held result set.
+  its time limit is 400 s, since CI runners take up to 313 s. The step sides cost most:
+  two strings per step, 668 of the 5,408 retained bytes per mechanism. Denis raised the
+  limit instead of taking one of three measured options: (A) keep already-sorted input
+  vectors instead of copying them, which lets a mechanism share the caller's vectors (72 s,
+  24% under the time before the facts were stored); (B) compute `step_sides` on demand
+  (102 s, 13% under the time with the facts, 8% over the time before them); (D) reuse the
+  variants the flip search in `_seed_variants` already builds (with A and B, 51 s, 45%
+  under the time before the facts). No benchmark or pin yet covers the live bytes of a held
+  result set.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
