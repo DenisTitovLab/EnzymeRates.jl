@@ -11,6 +11,6 @@ using Optimization: Optimization
 
 const API = (:FittingProblem, :fit_rate_equation, :test_rate_equation)
 
-include("fitting.jl")
+include("fit_rate_equation.jl")
 
 end

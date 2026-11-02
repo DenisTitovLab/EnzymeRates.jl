@@ -29,11 +29,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   constant, describes it. Only hand-written mechanisms meet this: enumerated dead-end
   bindings stay at rapid equilibrium.
 - **A fit is not thread-safe.**
-  `loss!` (`src/Fitting/fitting.jl`) writes its problem's shared `log_ratios_buffer`, and
-  `_fit_loss` copies each point into the one `x_buf` of its `FitObjective`, so an
-  optimizer that scores points on several threads at once, such as CMA-ES with
-  `multi_threading` passed through `solver_kwargs`, would race on both buffers. Fits run
-  in parallel only across `pmap` workers, each of which builds its own problem.
+  `loss!` (`src/Fitting/fit_rate_equation.jl`) writes its problem's shared
+  `log_ratios_buffer`, and `_fit_loss` copies each point into the one `x_buf` of its
+  `FitObjective`, so an optimizer that scores points on several threads at once, such as
+  CMA-ES with `multi_threading` passed through `solver_kwargs`, would race on both buffers.
+  Fits run in parallel only across `pmap` workers, each of which builds its own problem.
 - **`BigInt` arithmetic inflates the GC's live-byte count.**
   Class 3's model point (`_model_point`, `src/Derivation/limit_test.jl`; an integer null
   space in `Rational{BigInt}`) raises `Base.gc_live_bytes` by bytes that no live object
@@ -215,8 +215,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
 - **Seed each identify fit from its mechanism's content.**
-  `fit_rate_equation` (`src/Fitting/fitting.jl`) draws each restart's starting point with
-  `randn` from the running task's random stream, and `_process_batch`
+  `fit_rate_equation` (`src/Fitting/fit_rate_equation.jl`) draws each restart's starting
+  point with `randn` from the running task's random stream, and `_process_batch`
   (`src/identify_rate_equation.jl`) fits a batch's representatives in the iteration order of
   a `Dict` keyed by the rate-law key (`_canonical`), filled in the order the moves emit the
   mechanisms. So a change of emission order or of a law's key moves the starting points of
