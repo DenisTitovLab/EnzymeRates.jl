@@ -727,3 +727,60 @@ taking on a solver dependency or locking users into one algorithm. Optimization.
 common options (`maxtime`, `maxiters`, …) are named keyword arguments, and
 solver-specific options pass through a `solver_kwargs` named tuple; see
 [Loss & optimizers](@ref) for the user-facing view.
+
+### What a fit costs
+
+A fit costs `n_restarts` × evaluations per restart × table rows × time per row. A CMA-ES
+restart in the PFKP and PGK searches runs 5,000 to 55,000 evaluations, so time per row
+decides the speed of a search. Compilation does not: it takes 2–4% of a fit.
+
+The table gives `loss!` in ns per row on the PFK table (486 rows) and the PGK table (386
+rows), for the same laws at each version. Dependencies match the 0.10.0 cluster run; the
+machine is one aarch64 core on Julia 1.13.3.
+
+| Version | PFKP, 13 params | PFKP, 20 params | PGK, 9 params | PGK, 13 params |
+|:--------|----------------:|----------------:|--------------:|---------------:|
+| 0.8.0 | 1,065 | 1,107 | 130 | 436 |
+| 0.9.0 (#83) | 39 | 77 | 129 | 529 |
+| 0.9.1 (#84, fitter compiled once) | 40 | 78 | 131 | 283 |
+| #85 (Horner form) | 39 | 76 | 33 | 70 |
+| 0.10.0 at `663501af` | 11 | 21 | 21 | 39 |
+
+Three changes account for the gain:
+
+- **Run-time dispatch in `loss!`.** `rate_equation` took 41 ns and allocated nothing at
+  0.8.0, while `loss!` took about 1,000 ns per row and allocated 778 KB per call. Reading
+  the metabolite names looped over the regulatory sites, so a mechanism with regulators
+  gave `loss!` a `Tuple` of unknown length, and every row dispatched `ntuple`,
+  `rate_equation`, `sign` and `log` at run time. PGK's mechanisms have no regulators and
+  allocated nothing. 0.9.0 made the names a compile-time constant.
+- **Horner form.** Large laws run 4× faster, because the form removes multiplications. The
+  generated code emits no `muladd`, and Julia does not contract `x * y + z` by itself, so it
+  executes no fused multiply-adds. Small laws gain nothing.
+- **The commits from #85 to 0.10.0.** These add a further 1.6–3.6×. They include the joint
+  solve and the one law engine; this range has not been bisected further.
+
+The fit counts changed far less, and the losses agree: 89% of PFKP's and 87% of PGK's fits
+at 0.10.0 pair with a fit at 0.8.0 of equal parameter count within a relative loss of 10⁻⁸.
+These pairs match values, not verified mechanism identities.
+
+|  | PFKP | PGK |
+|:-|-----:|----:|
+| Fits, 0.8.0 → 0.10.0 | 132,836 → 119,453 | 18,677 → 15,700 |
+| Seconds per fit on one core, 0.8.0 → 0.10.0 | 162 → 2.7 | 37.5 → 1.4 |
+| Speedup per fit on one core (95% interval) | 60× (49–73) | 27× (17–41) |
+| Cluster core-seconds per fit, 0.8.0 → 0.10.0 | ≥ 614 → 24 | 247 → 24 |
+
+Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 PGK at 0.8.0,
+120 of each at 0.10.0. Cluster core-seconds are wall time × workers ÷ fits, so they include
+startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached its 24 h
+limit during cross-validation, so its figure is a lower bound.
+
+The cluster gained less than a single core did: at least 25× and 10×. Assuming the 0.8.0
+runs spent all their time on the CPU sets the cluster's core speed, and puts fitting at no
+more than about 40% of the 0.10.0 wall time. The rest is not measured, because `progress.log`
+carries no timestamps.
+
+`rate_equation`'s performance gate cannot see a slow `loss!`. The testset
+`Zero allocations: allosteric mechanism` in `test/Fitting/test_fitting.jl` guards this path
+with a mechanism that has a regulator.

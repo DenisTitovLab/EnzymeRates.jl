@@ -154,15 +154,24 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
   forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
   medium.
-- **Profile the first v0.9.0 HPC runs.**
-  Every search-cost number on hand comes from runs made before 0.8.0: 66% of equations
-  duplicated under renaming, `to_allosteric` producing 47% of LDH children, 94% of fits
-  non-parsimonious. On the next LDH, PGK and PFKP runs, measure fits whose parent fails
-  the final parsimony cutoff, children and survivors per move, same-function laws that
-  the key misses, equal only after a reparametrization (`_canonical`,
-  `src/Derivation/key.jl`), zero-gain `change_allo_state` children, and how many PGK rows
-  identify flags `L_phantom`. These numbers rank the open search-speed and deduplication
-  ideas. Priority: medium.
+- **Log the time of each search phase.**
+  `progress.log` carries no timestamps, so a cluster run cannot say where its wall time goes.
+  The 0.10.0 PFKP and PGK runs spent an estimated 40% of it at most on fits (Developer page,
+  What a fit costs); startup across about 800 workers, enumeration, PASS 1, serial work on
+  the master and idle workers at the end of a batch share the rest. A timestamp on each line
+  would rank all the search-speed ideas below. Priority: high.
+- **Profile the search on the HPC runs.**
+  In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of another
+  fit at the same parameter count. These may be laws the key misses, equal only after a
+  reparametrization (`_canonical`, `src/Derivation/key.jl`), or laws that differ only outside
+  the data. Separating the two would size a saving of up to 3–4×. Still unmeasured on these
+  runs: fits whose parent fails the final parsimony cutoff, children and survivors per move,
+  zero-gain `change_allo_state` children, and how many PGK rows identify flags `L_phantom`.
+  Priority: medium.
+- **Drop `rate_equation` from the search CSVs.**
+  The printed law takes 56% of the bytes of PFKP's search CSVs and 95% of PGK's (684 of 717
+  MB at 31 KB per row), and `rate_equation_string` regenerates it from the `mechanism` column.
+  `best_equation.csv` and `loocv_results.csv` would keep it. Waits for Denis's decision.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   `@enzyme_reaction` rejects a regulator's multiplicity list such as `A(1, 2)`; the
   syntax returns with this feature. `_expand_to_allosteric` and
@@ -222,6 +231,21 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   62 such bi-bi variants on 16 keys in a sampled round 2). Applying the exclusion to
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
+- **Spend fewer restarts per fit.**
+  Over 120 sampled fits per enzyme, the best of 10 restarts took half the time of 20 and came
+  within 1% of the best of 20 in 98% of PFKP's fits (worst 10.7% above it) and in all of PGK's.
+  Stopping once the best loss recurs 4 times gives 1.7× and 2.4×, and 2% of PFKP's fits end
+  more than 5% high. A loss above the beam's cutoff drops a mechanism for good, so test a rule
+  by comparing whole search results, not single fits.
+- **Start a child's restarts from its parent's fit.**
+  A child usually holds its parent as a limit, so one restart could begin at the parent's
+  parameters. Not measured.
+- **Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`.**
+  A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row loop:
+  `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call compile
+  time. `muladd` gives 2–18%, and the generated code then breaks the binary `+` and `*` shape
+  that the tests assert. Both leave the loss unchanged to 12 digits. They were measured
+  separately on aarch64, and neither has been measured on the cluster's x86 cores.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/Fitting/fit_rate_equation.jl`) draws each restart's starting
   point with `randn` from the running task's random stream, and `_process_batch`
