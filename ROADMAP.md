@@ -70,8 +70,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   a 0 prediction gets (`test/Derivation/test_admission.jl`). Adding these corners to the
   faces would drop at least these 369 mechanisms, 93 of whose laws have a limit there.
 - **On Julia 1.11 the full suite can peak above 4 GB.**
-  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12 GB (3.84 GiB) in
-  one run; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
+  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB (3.84-3.86
+  GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
   of the ter-ter entry below grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
   `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
   1 GB of garbage. No test value retains the garbage: a full collection after the testset
