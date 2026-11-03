@@ -179,6 +179,19 @@ The bans on history in comments and the `ABOUTME` rule stay.
 
 - `.gitignore` gains `.claude/settings.local.json`. "STOP and ask about untracked files" stays,
   and this file no longer triggers it every session.
+- A new `codecov.yml` sets a fixed patch target, in place of today's default, which requires a
+  patch to match the project's 99.7%:
+
+  ```yaml
+  coverage:
+    status:
+      patch:
+        default:
+          target: 95%
+  ```
+
+  Decided by Denis, who also decided against a local coverage script or a coverage rule: most
+  lines are already covered, and at least some recent failures were false misses.
 - `ROADMAP.md` gains two Ideas: review `identify_rate_equation`'s keyword arguments (at least
   18, such as `eq_complexity_filter = 337`) under the new rule, and `DSL.parse_mechanism`, a
   public name that no other module in `src/` uses.
@@ -193,6 +206,7 @@ The bans on history in comments and the `ABOUTME` rule stay.
   is loosened.
 - A deliberately private cross-module call fails rule 1, checked by the existing fixtures.
 - The docs build passes.
+- `codecov.yml` passes Codecov's validator, and this PR's check reports the 95% target.
 - Each symbol and path `CLAUDE.md` names exists in the tree.
 
 ## Delivery
