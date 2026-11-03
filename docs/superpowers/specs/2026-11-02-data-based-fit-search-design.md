@@ -200,9 +200,9 @@ _log_centre(p::Derivation.RegulatorParameter, m, s, r) = log(s[p.ligand])
 _log_centre(::Derivation.AllostericParameter, m, s, r) = 0.0
 ```
 
-`m` is the concrete mechanism, lifted once per fit from `fp.mechanism` with
-`Mechanisms.Mechanism(em)` or `Mechanisms.AllostericMechanism(aem)`. `_sum_log` reads each
-`Metabolite.name`. The centres line up with the fitted names by position.
+`m` is the concrete mechanism, lifted once per fit from `fp.mechanism` by `_concrete`, private
+to `Fitting` and added in stage 1. `_sum_log` reads each `Metabolite.name`. The centres line up
+with the fitted names by position.
 
 **Search:** `x0 = centre + 2 * randn()`, clamped to the box, and box `centre ± 15`. Each
 restart draws anew, and the box width stays as it is today.
@@ -212,17 +212,26 @@ their defaults become data-based. Cross-validation folds get their centres from 
 training rows, because each fold builds its own `FittingProblem`.
 
 **Relative-mode scale, done in stage 1:** `_scale_rate_constants` reads the step's flag and
-keeps its behaviour on fitted parameters. `merge` keeps the order of `params` and leaves entries that are not
-fitted constants, such as `Keq` and `E_total`, unchanged; tests pass those.
+keeps its behaviour on fitted parameters. It still takes concrete and compiled mechanisms
+alike, as its tests pin, through `_concrete`. `merge` keeps the order of `params` and leaves
+entries that are not fitted parameters, such as `Keq` and `E_total`, unchanged; tests pass
+those.
 
 ```julia
 _scaled(p::Derivation.StepParameter, m, value, factor) =
     Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium ? value : value * factor
 _scaled(p, m, value, factor) = value
 
-_scale_rate_constants(m, params, factor) = merge(params, NamedTuple(
-    Derivation.name(p, m) => _scaled(p, m, params[Derivation.name(p, m)], factor)
-    for p in Derivation.parameter_info(m)))
+_concrete(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
+_concrete(m::Mechanisms.AllostericEnzymeMechanism) = Mechanisms.AllostericMechanism(m)
+_concrete(m) = m
+
+function _scale_rate_constants(@nospecialize(mechanism), params, factor)
+    m = _concrete(mechanism)
+    merge(params, NamedTuple(
+        Derivation.name(p, m) => _scaled(p, m, params[Derivation.name(p, m)], factor)
+        for p in Derivation.parameter_info(m)))
+end
 ```
 
 **At-bound flag:** a fourth result field, `at_bound`, a tuple of fitted-constant names. A
@@ -321,7 +330,9 @@ explain `at_bound`. `fit_rate_equation`'s docstring describes the new defaults a
 - `slot` as an Int in place of a `reverse` flag, keeping `_Column`'s field, and `inactive` in
   place of the `state` symbol, because the mechanism gives the tag.
 - `name` and `parameter_info` take concrete mechanisms only, so the `MethodError` checks stay
-  and `Fitting` lifts once per fit.
+  and `Fitting` lifts once per fit. `_scale_rate_constants` keeps accepting compiled mechanisms
+  through `_concrete`, because three test files pass them and a comment in a fourth pins the
+  promise; narrowing it would change stage 1's behaviour and widen its test edits.
 - `_edge_names` moves to the test fixtures, because only tests still call it.
 - The rule that a binding's K reads as a dissociation constant appears in `name`, in
   `_joint_system` and in `_log_centre`. A third copy costs less than another shared name, and
