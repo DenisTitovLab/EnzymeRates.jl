@@ -67,19 +67,18 @@ When asked to do something, just do it - including obvious follow-up actions nee
 
 ## Naming
 
-Choose names with care. A name says what a function does, so that a reader, human or agent, can follow a call without opening its docstring. Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a function that mutates its arguments, a leading `_` on an internal name.
+Choose names with care. A name describes what the thing does, specifically enough that a reader, human or agent, can follow a call without opening its docstring. Read a name together with its arguments: `name(p, m)` is clear, and dispatch means it needs no `parameter_` prefix. A longer name is better than a vague one. Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a function that mutates its arguments, a leading `_` on an internal name.
+
+- `has_turnover_cycle(m)`, not `check(m)`
+- `dependent_parameter_values(m, ...)`, not `compute_values(m, ...)`
+- `rate_equation_dedup_key(m)`, not `key(m)`
+- `_to_concrete_mechanism(m)`, not `_concrete(m)`
 
   - Names MUST tell what code does, not how it's implemented or its history
   - When changing code, never document the old behavior or the behavior change
   - NEVER use implementation details in names (e.g., "ZodValidator", "MCPWrapper", "JSONParser")
   - NEVER use temporal/historical context in names (e.g., "NewAPI", "LegacyHandler", "UnifiedTool", "ImprovedInterface", "EnhancedParser")
-  - NEVER use pattern names unless they add clarity (e.g., prefer "Tool" over "ToolFactory")
-
-  Good names tell a story about the domain:
-  - `Tool` not `AbstractToolInterface`
-  - `RemoteTool` not `MCPToolWrapper`
-  - `Registry` not `ToolRegistryManager`
-  - `execute()` not `executeToolWithValidation()`
+  - NEVER use pattern names unless they add clarity
 
 ## Code Comments
 
