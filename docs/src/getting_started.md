@@ -150,8 +150,8 @@ Each constant's search box spans about 6.5 decades either side of a centre taken
 data's concentrations and rates. `fit_rate_equation` returns `at_bound`, the names of the
 constants whose best point lies within 0.01 log units of the box edge. A name in
 `at_bound` does not mean the value is wrong: a constant that no data constrain wanders
-across the box. It means the data do not pin that constant down. Pass `lb` and `ub` to
-widen or narrow the box.
+across the box. It means the data do not pin that constant down. Pass the `fit_rate_equation`
+keywords `lb` and `ub` to widen or narrow the box.
 
 ---
 

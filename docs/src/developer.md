@@ -399,8 +399,8 @@ One type family in `src/Derivation/names.jl` describes every constant a fit esti
 A value holds no other fact and means nothing without its mechanism. At slot 1 a
 `StepParameter` is a rapid-equilibrium step's equilibrium constant or a steady-state step's
 rate constant in its stored direction; at slot 2, a steady-state step's rate constant in the
-reverse direction. The step's flag says which, so the type cannot express a K on a
-steady-state step or a k on a rapid-equilibrium one. `name(p, m)` renders the name from the
+reverse direction. The step's flag says which. A K on a steady-state step or a k on a
+rapid-equilibrium one constructs but has no name: `name` errors on it. `name(p, m)` renders the name from the
 step's sides and the kept member of its kinetic class, and derives the conformation tag from
 `inactive` and the group's or ligand's allosteric tag. `parameters` returns these names as
 Symbols, and the rate law takes them at compile time.
@@ -409,8 +409,8 @@ Symbols, and the rate law takes them at compile time.
 
 `_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
 (`_joint_system`) over the columns `constant_columns(m)` lists, each a `StepParameter`: a
-column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
-`:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
+column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`,
+`:OnlyA` or `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
 member of a kinetic class to its first. The columns come ordered by `_priority_key`
 (`_ordered_columns`), and the solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on

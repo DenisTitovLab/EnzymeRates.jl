@@ -313,7 +313,8 @@ end
             (n_params = 3, loss = 0.5, mechanism = "M", mechanism_id = "0000000000000001",
              rate_equation = "v = ...", retcode = "Success", error = missing,
              params = (a = 1.0,), key = "0123456789abcdef",
-             fit_source_id = "0000000000000001", fit_inherited = false, L_phantom = false, at_bound = ""),
+             fit_source_id = "0000000000000001", fit_inherited = false,
+             L_phantom = false, at_bound = ""),
             (n_params = missing, loss = missing, mechanism = "M",
              mechanism_id = "0000000000000001", rate_equation = missing, retcode = missing,
              error = "StackOverflowError: ", params = (;), key = missing,
@@ -600,8 +601,9 @@ end
         @test bestf.key[1] == _testhelper_key_of(best_row.mechanism)
         # The fit on all rows: the same flags as the LOOCV table's row for that law.
         @test "at_bound" in names(bestf)
-        @test coalesce(bestf.at_bound[1], "") ==
-              coalesce(cvf.at_bound[findfirst(==(bestf.key[1]), cvf.key)], "")
+        @test ismissing(bestf.at_bound[1]) || bestf.at_bound[1] isa AbstractString
+        @test isequal(bestf.at_bound[1],
+                      cvf.at_bound[findfirst(==(bestf.key[1]), cvf.key)])
     end
 
     @testset "save_dir non-empty check" begin

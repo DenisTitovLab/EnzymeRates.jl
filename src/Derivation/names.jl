@@ -75,10 +75,10 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm.step_sides[kept[(g, slot, inactive)]]
 end
 
-"""The state token of `p` in `m`, the one its name takes: `:None` in a plain mechanism; `:I`
-for an inactive copy; `:EqualAI` or `:A` for an active constant of an allosteric
-mechanism."""
-_state(m::_AnyMech, p::StepParameter) =
+"""The conformation tag of `p` in `m`, the one its name takes: `:None` in a plain
+mechanism; `:I` for an inactive copy; `:EqualAI` or `:A` for an active constant of an
+allosteric mechanism."""
+_conformation_tag(m::_AnyMech, p::StepParameter) =
     m isa Mechanisms.Mechanism ? :None : p.inactive ? :I :
     m.mwc_tags[m.catalytic.steps[p.step].group] === :EqualAI ? :EqualAI : :A
 
@@ -92,7 +92,7 @@ _state(m::_AnyMech, p::StepParameter) =
 # once and passes.
 function name(p::StepParameter, m::_AnyMech, kept = _kept_members(m))
     cm = Mechanisms.catalytic(m)
-    state = _state(m, p)
+    state = _conformation_tag(m, p)
     s = _constant_sides(m, p.step, p.slot, state, kept)
     if cm.steps[p.step].rapid_equilibrium
         binds = cm.step_kinds[p.step] in (:binding, :fused_binding)

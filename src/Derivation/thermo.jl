@@ -257,7 +257,9 @@ function _solve(m::_AnyMech)
     names = cols.names
     last_of = Dict(_class(m, c) => i for (i, c) in enumerate(sys.columns))
     kept_in_law(i) = cols.in_law[i] && last_of[_class(m, sys.columns[i])] == i
-    reg = _regulator_names(m)
+    regulators = _regulator_parameters(m)
+    reg = m isa Mechanisms.AllostericMechanism ?
+          Symbol[name(p, m) for p in regulators] : Symbol[]
     rendered = [names[filter(kept_in_law, 1:n)]; reg]
     allunique(rendered) || error(
         "Constants of this mechanism's rate equation share a name (" *
@@ -282,7 +284,7 @@ function _solve(m::_AnyMech)
             c.inactive || haskey(column, key) || (column[key] = i)
         end
     end
-    info = Parameter[sys.columns[independents]; _regulator_parameters(m)]
+    info = Parameter[sys.columns[independents]; regulators]
     fitted = [names[independents]; reg]
     if m isa Mechanisms.AllostericMechanism
         push!(info, AllostericParameter())
@@ -304,11 +306,6 @@ function _regulator_parameters(am::Mechanisms.AllostericMechanism)
            !Mechanisms.excludes(tag, inactive ? :inactive : :active)]
     [params(false); params(true)]
 end
-
-"""The names of `m`'s regulator parameters (`_regulator_parameters`)."""
-_regulator_names(::Mechanisms.Mechanism) = Symbol[]
-_regulator_names(am::Mechanisms.AllostericMechanism) =
-    Symbol[name(p, am) for p in _regulator_parameters(am)]
 
 _solve(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
     _solve(_derivation_input(M))

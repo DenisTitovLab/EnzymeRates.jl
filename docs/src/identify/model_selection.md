@@ -155,6 +155,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `fit_inherited` | `true` when the row reads another mechanism's fit: one with the same key, under the row's own names, or, for an L phantom, the fit of the law it reduces to; `false` for the mechanism actually fit. |
 | `fit_source_id` | `mechanism_id` of the mechanism whose fit the row reads, the row's own when it was fit. |
 | `L_phantom` | `true` for a one-subunit allosteric variant whose inactive conformation turns nothing over, when an exact rescaling of its other constants absorbs its `L`, its active conformation's law holds every fitted constant but `L`, and a mechanism with that law was fitted earlier in the search or is fitted in the variant's own iteration: the data cannot determine `L`, so the row reads that fit, with `L = 0`, and keeps its own `n_params`. Such a variant is fitted like any other candidate, `L` included, and its flag is `false`, when no mechanism with that law was fitted earlier in the search or is fitted in its own iteration, or when that mechanism's fit throws. |
+| `at_bound` | The names of the parameters at an edge of the search box in the fit on all rows, joined by `;`; empty (read back as `missing`) when none. |
 | one per fitted parameter | Fitted parameter value, scaled to the `reference` turnovers in relative mode, or `missing` if the mechanism lacks that parameter. |
 | `cv_score` | Mean of per-fold losses (lower is better). |
 | `cv_score_se` | Standard error of the per-fold losses: `std(fold_scores) / √n_folds`. |
