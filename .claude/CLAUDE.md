@@ -39,6 +39,7 @@ When asked to do something, just do it - including obvious follow-up actions nee
 
 - YAGNI. The best code is no code. Don't add features we don't need right now.
 - When it doesn't conflict with YAGNI, architect for extensibility and flexibility.
+- Prefer deep functions and modules: a simple interface and few shared names, with the complexity buried inside, so that callers can use them without knowing the implementation.
 
 
 ## Test Driven Development  (TDD)
@@ -217,6 +218,13 @@ Edge direction, edge order and group order are canonicalized in the `Mechanism`/
 
 `rate_equation` MUST be allocation-free and sub-120-ns per call for every mechanism in `MECHANISM_TEST_SPECS`, and allocation-free and under `max(120 ns, 0.8 ns × denominator terms)` for the larger laws in `_testhelper_largest_enumerated_mechanisms` and `_testhelper_large_ter_bi_mechanisms`. Enforced by `_testhelper_test_rate_equation_performance` in `test/Derivation/test_rate_eq_derivation.jl` (`allocs == 0`; `t < 120e-9`, or `t < max(120e-9, 0.8e-9 * n)` for a larger law with `n` denominator terms) plus the Expr-shape (binary calls, Horner form) and flat-string regression tests in the same file. Shared CI runners can run a law 4-7× slower, so rerun a job that misses the bound rather than loosening it. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation contract and these bounds hold.
 
+
+### Derivation tests
+
+Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
+
+1. **Write the full mechanism down.** Define every mechanism step by step with `@enzyme_mechanism` or `@allosteric_mechanism`, in the testset or in a `MECHANISM_TEST_SPECS` entry. A fixture taken from the enumerator or built by a helper cannot be checked against its rate equation by reading it. The only exception is an aggregate check over a whole population, which must say so in a comment.
+2. **Compare with a separately derived rate equation.** Compare `rate_equation`'s output at random parameters and concentrations with a rate equation derived without `src/Derivation`: by hand or from a textbook (`analytical_rate_fn`), or from the mechanism's mass-action steady state (`_testhelper_reference_qssa`). The package's own printed law or a stored output does not count. Property assertions (Haldane equilibrium, ODE steady state) and golden pins are welcome in addition, never instead.
 
 ### Enumeration-engine tests
 
