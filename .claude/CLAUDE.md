@@ -81,7 +81,6 @@ Keep how and when out of names:
 - Names MUST tell what code does, not how it's implemented or its history
 - When changing code, never document the old behavior or the behavior change
 - NEVER use temporal/historical context in names (e.g., "NewAPI", "LegacyHandler", "UnifiedTool", "ImprovedInterface", "EnhancedParser")
-- NEVER use pattern names unless they add clarity
 
 ## Code Comments
 
