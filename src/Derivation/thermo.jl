@@ -9,10 +9,10 @@ and conformation, except that the copy of an edge in the conformation that exclu
 (`excluded_active`, `excluded_inactive`: an `:OnlyA` edge's inactive copy, an `:OnlyI`
 edge's active one) is a class of its own.
 """
-_class(m::_AnyMech, c::_Column) =
-    _excluded_steps(m, c.inactive ? 2 : 1)[c.edge] ?
-    (c.edge, c.slot, c.inactive, true) :
-    (Mechanisms.catalytic(m).steps[c.edge].group, c.slot, c.inactive, false)
+_class(m::_AnyMech, c::StepParameter) =
+    _excluded_steps(m, c.inactive ? 2 : 1)[c.step] ?
+    (c.step, c.slot, c.inactive, true) :
+    (Mechanisms.catalytic(m).steps[c.step].group, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
@@ -101,7 +101,8 @@ function _joint_system(m::_AnyMech, cols = constant_columns(m))
     index = Dict(c => i for (i, c) in enumerate(columns))
     # An inactive constant reads its own column when its group has one, else the active.
     column(k, slot, inactive) =
-        get(() -> index[_Column((k, slot, false))], index, _Column((k, slot, inactive)))
+        get(() -> index[StepParameter(k, slot, false)], index,
+            StepParameter(k, slot, inactive))
     Z, multiples = _fundamental_cycles(cm, flat)
     rows, rhs = Vector{Int}[], Int[]
     for inactive in (allosteric ? (false, true) : (false,)), i in eachindex(multiples)
@@ -211,17 +212,19 @@ elimination order, and `names` each column's name, that of its class's kept memb
 (`constant_columns`). `column` maps each bare constant to its column; an `:EqualAI`
 edge's inactive constant reads its active column. `independents` lists the law's free
 columns, sorted by name (`isless` on the strings, so `K_…` precedes `k_…`), and
-`dependents` every pivot column of the law, in column order. `fitted` holds the fitted
-constants in `FittedParameters` order: the independents' names, then an allosteric
-mechanism's regulator constants (`_regulator_names`: those of the active
-conformation, then the inactive conformation's own, site by site) and `L`.
+`dependents` every pivot column of the law, in column order. `info` holds the fitted
+parameters in `FittedParameters` order: the independents' columns, then an allosteric
+mechanism's regulator parameters (`_regulator_parameters`: those of the active
+conformation, then the inactive conformation's own, site by site) and
+`AllostericParameter()`. `fitted` holds their names.
 """
 struct _Solve
-    columns::Vector{_Column}
+    columns::Vector{StepParameter}
     names::Vector{Symbol}
-    column::Dict{_Column, Int}
+    column::Dict{StepParameter, Int}
     independents::Vector{Int}
     dependents::Vector{_Dependent}
+    info::Vector{Parameter}
     fitted::Vector{Symbol}
 end
 
@@ -275,30 +278,37 @@ function _solve(m::_AnyMech)
     column = Dict(c => i for (i, c) in enumerate(sys.columns))
     if m isa Mechanisms.AllostericMechanism
         for (i, c) in enumerate(sys.columns)
-            key = _Column((c.edge, c.slot, true))
+            key = StepParameter(c.step, c.slot, true)
             c.inactive || haskey(column, key) || (column[key] = i)
         end
     end
-    fitted = names[independents]
-    m isa Mechanisms.AllostericMechanism && append!(fitted, reg, (:L,))
-    _Solve(sys.columns, names, column, independents, dependents, fitted)
+    info = Parameter[sys.columns[independents]; _regulator_parameters(m)]
+    fitted = [names[independents]; reg]
+    if m isa Mechanisms.AllostericMechanism
+        push!(info, AllostericParameter())
+        push!(fitted, name(AllostericParameter(), m))
+    end
+    _Solve(sys.columns, names, column, independents, dependents, info, fitted)
 end
 
-"""The regulator constants of `m` in `FittedParameters` order (`regulator_constant`):
-those of the active conformation, then the inactive conformation's own, site by site; an
-`:EqualAI` ligand's one name is listed with the active ones. A plain mechanism has
-none."""
-_regulator_names(::Mechanisms.Mechanism) = Symbol[]
-function _regulator_names(am::Mechanisms.AllostericMechanism)
-    names(inactive) = Symbol[K for site in am.regulatory_sites
-                             for (lig, tag) in zip(site.ligands,
-                                                   site.mwc_tags)
-                             if !(inactive && tag === :EqualAI)
-                             for K in (regulator_constant(am, lig, tag,
-                                                          inactive),)
-                             if K !== nothing]
-    [names(false); names(true)]
+"""The regulator parameters of `m` in `FittedParameters` order: those of the active
+conformation, then the inactive conformation's own, site by site; an `:EqualAI` ligand's
+one parameter is listed with the active ones, and a ligand has none in a conformation it
+is absent from. A plain mechanism has none."""
+_regulator_parameters(::Mechanisms.Mechanism) = RegulatorParameter[]
+function _regulator_parameters(am::Mechanisms.AllostericMechanism)
+    params(inactive) = RegulatorParameter[
+        RegulatorParameter(lig, inactive) for site in am.regulatory_sites
+        for (lig, tag) in zip(site.ligands, site.mwc_tags)
+        if !(inactive && tag === :EqualAI) &&
+           !Mechanisms.excludes(tag, inactive ? :inactive : :active)]
+    [params(false); params(true)]
 end
+
+"""The names of `m`'s regulator parameters (`_regulator_parameters`)."""
+_regulator_names(::Mechanisms.Mechanism) = Symbol[]
+_regulator_names(am::Mechanisms.AllostericMechanism) =
+    Symbol[name(p, am) for p in _regulator_parameters(am)]
 
 _solve(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
     _solve(_derivation_input(M))

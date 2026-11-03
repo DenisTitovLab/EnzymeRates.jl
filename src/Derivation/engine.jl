@@ -217,7 +217,7 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
         value = _column_values(vars, s)
         nc = length(concentrations)
         sub(p) = _subst(v -> v <= nc ? nothing :
-                             value[s.column[_Column((b.cols[v - nc]..., inactive))]],
+                             value[s.column[StepParameter(b.cols[v - nc]..., inactive)]],
                       p)
         side(xs) = _monomial((vars.index[x] => 1 for x in xs)...)
         H = _term(side(m.substrates)) -

@@ -7,17 +7,14 @@ using ..Mechanisms: Mechanisms
 using LinearAlgebra: det
 using SHA: sha256
 
-const API = (:AllParameters, :FittedParameters, :IndependentParameters, :RateConstants,
+const API = (:AllParameters, :AllostericParameter, :FittedParameters,
+    :IndependentParameters, :RateConstants, :RegulatorParameter, :StepParameter,
     :check_valid_rate_equation, :dependent_parameter_values, :fitted_parameter_count,
-    :parameters, :rate_equation, :rate_equation_term_count, :rate_equation_dedup_key,
-    :rate_equation_string)
+    :name, :parameter_info, :parameters, :rate_equation, :rate_equation_term_count,
+    :rate_equation_dedup_key, :rate_equation_string)
 
 """A plain or an allosteric mechanism."""
 const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-
-"""A column of the joint solve (`constant_columns`): slot `slot` of step `edge`
-of the catalytic graph, in the inactive conformation when `inactive`."""
-const _Column = @NamedTuple{edge::Int, slot::Int, inactive::Bool}
 
 """The two conformations by the index the guard gives them: 1 active, 2 inactive."""
 const _CONFORMATIONS = (:active, :inactive)

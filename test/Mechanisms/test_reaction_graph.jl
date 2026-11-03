@@ -211,7 +211,8 @@ end
         ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
-        "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
+        "rendered regulator parameter names would collide. " *
+        "Same-ligand-two-sites is not enumerated."),
                  ER.AllostericMechanism(
                      m, [:EqualAI, :EqualAI, :OnlyA], 2,
                      [sites; EnzymeRates.Mechanisms.RegulatorySite([:X], 4, [:OnlyA])]))
@@ -486,7 +487,8 @@ end
                                                        [:OnlyA, :OnlyI, :OnlyI])]))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand R appears in two distinct regulatory sites; " *
-        "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
+        "rendered regulator parameter names would collide. " *
+        "Same-ligand-two-sites is not enumerated."),
         _testhelper_allosteric(tags, 2, [site([:R], 2, [:OnlyA]), site([:R], 4, [:OnlyI])]))
     # A ligand takes no name a metabolite cannot take.
     @test_throws(ErrorException("AllostericMechanism: \"1R\" cannot name a metabolite; a " *

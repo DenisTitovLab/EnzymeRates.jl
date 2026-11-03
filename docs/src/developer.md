@@ -170,6 +170,11 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
 | `RateConstants` | Kind: the steady-state rate constants | Fitting | |
+| `StepParameter` | A constant of a step: its step, slot and conformation | | |
+| `RegulatorParameter` | A regulator ligand's constant in one conformation | | |
+| `AllostericParameter` | The allosteric constant `L` | | |
+| `parameter_info` | The fitted parameters, in `parameters` order | | |
+| `name` | The name of a parameter in a concrete mechanism | | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
 | `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
 | `rate_equation_term_count` | The law's term count, V×τ, before derivation | top level | |
@@ -380,11 +385,32 @@ which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism g
 solver one problem type: `solve` and the solver compile once per optimizer, not once per
 mechanism.
 
+### Parameters
+
+One type family in `src/Derivation/names.jl` describes every constant a fit estimates, and
+`parameter_info(m)` lists them for a concrete mechanism in
+`parameters(m, FittedParameters())` order:
+
+| Type | What it points at |
+|:-----|:------------------|
+| `StepParameter(step, slot, inactive)` | Slot `slot` of step `step` of the catalytic graph, in the inactive conformation when `inactive` |
+| `RegulatorParameter(ligand, inactive)` | The constant of a regulator ligand, in the active or inactive conformation |
+| `AllostericParameter()` | The allosteric constant `L` |
+
+A value holds no other fact and means nothing without its mechanism. At slot 1 a
+`StepParameter` is a rapid-equilibrium step's equilibrium constant or a steady-state step's
+rate constant in its stored direction; at slot 2, a steady-state step's rate constant in the
+reverse direction. The step's flag says which, so the type cannot express a K on a
+steady-state step or a k on a rapid-equilibrium one. `name(p, m)` renders the name from the
+step's sides and the kept member of its kinetic class, and derives the conformation tag from
+`inactive` and the group's or ligand's allosteric tag. `parameters` returns these names as
+Symbols, and the rate law takes them at compile time.
+
 ### The joint thermodynamic solve
 
 `_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`) over the columns `constant_columns(m)` lists: a column per
-constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
+(`_joint_system`) over the columns `constant_columns(m)` lists, each a `StepParameter`: a
+column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
 `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
 member of a kinetic class to its first. The columns come ordered by `_priority_key`
 (`_ordered_columns`), and the solve reduces the system

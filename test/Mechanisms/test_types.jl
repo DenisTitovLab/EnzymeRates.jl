@@ -1068,10 +1068,12 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             cm, [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA], 2,
             ER.Mechanisms.RegulatorySite[])
 
-        # A ligand on two regulatory sites → error: both sites would render its Kreg name
+        # A ligand on two regulatory sites → error: both sites would render its regulator
+        # parameter name
         @test_throws(ErrorException(
             "AllostericMechanism: ligand A appears in two distinct regulatory sites; " *
-            "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
+            "rendered regulator parameter names would collide. " *
+            "Same-ligand-two-sites is not enumerated."),
             ER.AllostericMechanism(
                 cm, [:EqualAI, :EqualAI, :EqualAI], 2,
                 [ER.Mechanisms.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)]))
@@ -2391,7 +2393,7 @@ end
     m = _testhelper_written(:(E + A <--> E(A)), :(E + A <--> Estar(A)),
                             :(E(A) <--> E(P)), :(E + P <--> E(P)))
     names = [ER.Derivation.name(p, m) for members in m.groups
-             for p in ER.Derivation._edge_constants(m, first(members), :None)]
+             for p in _testhelper_step_parameters(m, first(members))]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
     # The same binding in two groups, once written as its release: both would be

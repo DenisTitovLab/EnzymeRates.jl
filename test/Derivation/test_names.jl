@@ -6,7 +6,7 @@ const ER = EnzymeRates
 @testset "constant_columns: the joint solve's columns and their names" begin
     M = ER.Mechanisms
     D = ER.Derivation
-    col(edge, slot, inactive) = (; edge, slot, inactive)
+    col = D.StepParameter
     # Uni-uni: E + P → E(P) and E + S → E(S) at rapid equilibrium, E(S) → E(P) steady
     # state, each its own group. The isomerization's columns come first (kind 3), its
     # reverse rate, which runs against the reaction, before its forward one; then the
@@ -82,23 +82,77 @@ end
           [nothing, :K_I_Rreg, :K_A_Xreg, :K_I_Xreg, :K_Yreg, :K_Yreg, :K_A_Zreg, nothing]
 end
 
-@testset "Parameter family: edge constants and Kreg" begin
-    # One RE constant and one forward/reverse rate pair serve every kind of edge, each
-    # an edge of a mechanism's catalytic graph in one state.
-    for T in (ER.Derivation.Krapid, ER.Derivation.Kfor, ER.Derivation.Krev)
-        p = T(1, :None)
-        @test p isa T
-        @test p isa ER.Derivation.Parameter
-        @test p == T(1, :None)
-        @test p != T(1, :I) && p != T(2, :None)
-    end
+@testset "Parameter family: step, regulator and allosteric parameters" begin
+    # A step parameter serves every kind of edge: a slot of an edge of a mechanism's
+    # catalytic graph in one conformation.
+    P = ER.Derivation.StepParameter
+    p = P(1, 1, false)
+    @test p isa ER.Derivation.Parameter
+    @test (p.step, p.slot, p.inactive) == (1, 1, false)
+    @test p == P(1, 1, false)
+    @test p != P(2, 1, false) && p != P(1, 2, false) && p != P(1, 1, true)
 
-    # A regulator constant is its ligand's in one state; it needs no site, since a
+    # A regulator constant is its ligand's in one conformation; it needs no site, since a
     # ligand sits at one site.
-    kr = ER.Derivation.Kreg(:A, :A)
+    R = ER.Derivation.RegulatorParameter
+    kr = R(:A, false)
     @test kr isa ER.Derivation.Parameter
-    @test kr == ER.Derivation.Kreg(:A, :A)
-    @test kr != ER.Derivation.Kreg(:A, :I) && kr != ER.Derivation.Kreg(:B, :A)
+    @test (kr.ligand, kr.inactive) == (:A, false)
+    @test kr == R(:A, false)
+    @test kr != R(:A, true) && kr != R(:B, false)
+
+    @test ER.Derivation.AllostericParameter() isa ER.Derivation.Parameter
+    @test ER.Derivation.AllostericParameter() == ER.Derivation.AllostericParameter()
+end
+
+@testset "parameter_info lists the fitted parameters in parameters() order" begin
+    for spec in MECHANISM_TEST_SPECS
+        m = _testhelper_lift(spec.mechanism)
+        info = ER.Derivation.parameter_info(m)
+        @test [ER.Derivation.name(p, m) for p in info] ==
+              collect(parameters(m, FittedParameters()))
+        @test all(p -> p isa ER.Derivation.Parameter, info)
+        empty!(info)
+        @test !isempty(ER.Derivation.parameter_info(m))
+    end
+end
+
+@testset "parameter_info points at the steps of Uni-Uni" begin
+    m = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E + P
+        end
+    end)
+    P = ER.Derivation.StepParameter
+    @test ER.Derivation.parameter_info(m) ==
+          [P(1, 2, false), P(2, 2, false), P(2, 1, false)]
+    @test parameters(m, FittedParameters()) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
+end
+
+@testset "parameter_info ends an allosteric mechanism with its regulators and L" begin
+    m = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: EqualAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end)
+    info = ER.Derivation.parameter_info(m)
+    @test info[(end - 2):end] == [ER.Derivation.RegulatorParameter(:R, false),
+                                  ER.Derivation.RegulatorParameter(:R, true),
+                                  ER.Derivation.AllostericParameter()]
+    @test [ER.Derivation.name(p, m) for p in info[(end - 2):end]] ==
+          [:K_A_Rreg, :K_I_Rreg, :L]
+    @test [ER.Derivation.name(p, m) for p in info] ==
+          collect(parameters(m, FittedParameters()))
 end
 
 @testset "name(p, ::AllostericMechanism) chokepoint" begin
@@ -117,24 +171,53 @@ end
     am = ER.AllostericMechanism(aem)
 
     # Edge parameters, edges of the catalytic graph picked by content.
+    P = ER.Derivation.StepParameter
     rep_bind = _testhelper_edge(am, "E + S ⇌ ES")
-    @test ER.Derivation.name(ER.Derivation.Krapid(rep_bind, :None), am) === :K_ES_to_E_S
-    @test ER.Derivation.name(ER.Derivation.Krapid(rep_bind, :I), am) === :K_I_ES_to_E_S
+    @test ER.Derivation.name(P(rep_bind, 1, false), am) === :K_ES_to_E_S
+    @test ER.Derivation.name(P(rep_bind, 1, true), am) === :K_I_ES_to_E_S
 
-    rep_iso = _testhelper_edge(am, "ES <--> EP")
-    @test ER.Derivation.name(ER.Derivation.Kfor(rep_iso, :None), am) === :k_ES_to_EP
-    @test ER.Derivation.name(ER.Derivation.Krapid(rep_iso, :None), am) === :K_ES_to_EP
-    @test ER.Derivation.name(ER.Derivation.Krev(rep_iso, :None), am) === :k_EP_to_ES
+    # An :EqualAI isomerization, steady-state and at rapid equilibrium, has no state tag.
+    ss_iso = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: EqualAI
+            E(P) ⇌ E + P      :: NonequalAI
+        end
+        regulatory_site(1): R::NonequalAI
+    end)
+    rep_iso = _testhelper_edge(ss_iso, "ES <--> EP")
+    @test ER.Derivation.name(P(rep_iso, 1, false), ss_iso) === :k_ES_to_EP
+    @test ER.Derivation.name(P(rep_iso, 2, false), ss_iso) === :k_EP_to_ES
+    re_iso = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S <--> E(S)   :: NonequalAI
+            E(S) ⇌ E(P)       :: EqualAI
+            E(P) <--> E + P   :: NonequalAI
+        end
+        regulatory_site(1): R::NonequalAI
+    end)
+    @test ER.Derivation.name(P(_testhelper_edge(re_iso, "ES ⇌ EP"), 1, false), re_iso) ===
+          :K_ES_to_EP
 
     lig = first(am.regulatory_sites[1].ligands)
-    @test ER.Derivation.name(ER.Derivation.Kreg(lig, :A), am) === :K_A_Rreg
-    @test ER.Derivation.name(ER.Derivation.Kreg(lig, :I), am) === :K_I_Rreg
+    @test ER.Derivation.name(ER.Derivation.RegulatorParameter(lig, false), am) === :K_A_Rreg
+    @test ER.Derivation.name(ER.Derivation.RegulatorParameter(lig, true), am) === :K_I_Rreg
+    @test ER.Derivation.name(ER.Derivation.AllostericParameter(), am) === :L
 
     # The chokepoint renders on the concrete mechanism only; a compiled type
     # is lifted first.
+    @test_throws MethodError ER.Derivation.name(P(rep_bind, 1, false), aem)
     @test_throws MethodError ER.Derivation.name(
-        ER.Derivation.Krapid(rep_bind, :None), aem)
-    @test_throws MethodError ER.Derivation.name(ER.Derivation.Kreg(lig, :A), aem)
+        ER.Derivation.RegulatorParameter(lig, false), aem)
+    @test_throws MethodError ER.Derivation.name(ER.Derivation.AllostericParameter(), aem)
 end
 
 @testset "name(p::Parameter, m) chokepoint" begin
@@ -151,34 +234,81 @@ end
     bind, iso, rel = (_testhelper_edge(m, text)
                       for text in ("E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"))
 
+    P = ER.Derivation.StepParameter
+
     # Structural naming: every step constant encodes its reaction's two sides;
     # a binding K reads in the release direction, iso params in the stored one.
-    @test ER.Derivation.name(ER.Derivation.Krapid(bind, :None), m) === :K_ES_to_E_S
-    @test ER.Derivation.name(ER.Derivation.Krapid(bind, :I),    m) === :K_I_ES_to_E_S
-    @test ER.Derivation.name(ER.Derivation.Kfor(iso, :None), m) === :k_ES_to_EP
-    @test ER.Derivation.name(ER.Derivation.Krev(iso, :None), m) === :k_EP_to_ES
-    @test ER.Derivation.name(ER.Derivation.Krapid(rel, :None), m) === :K_EP_to_E_P
+    @test ER.Derivation.name(P(bind, 1, false), m) === :K_ES_to_E_S
+    @test ER.Derivation.name(P(iso, 1, false), m) === :k_ES_to_EP
+    @test ER.Derivation.name(P(iso, 2, false), m) === :k_EP_to_ES
+    @test ER.Derivation.name(P(rel, 1, false), m) === :K_EP_to_E_P
 
     # A binding's rate pair: the forward rate binds, the reverse rate releases
-    @test ER.Derivation.name(ER.Derivation.Kfor(bind, :None), m) === :k_E_S_to_ES
-    @test ER.Derivation.name(ER.Derivation.Krev(bind, :None), m) === :k_ES_to_E_S
+    ss_bind = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end)
+    k = _testhelper_edge(ss_bind, "E + S <--> ES")
+    @test ER.Derivation.name(P(k, 1, false), ss_bind) === :k_E_S_to_ES
+    @test ER.Derivation.name(P(k, 2, false), ss_bind) === :k_ES_to_E_S
 
-    # I-state token on SS step
-    @test ER.Derivation.name(ER.Derivation.Kfor(iso, :I), m) === :k_I_ES_to_EP
-    @test ER.Derivation.name(ER.Derivation.Krev(iso, :I), m) === :k_I_EP_to_ES
+    # I-state token on RE and SS steps
+    am_ss = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: NonequalAI
+            E(S) <--> E(P)    :: NonequalAI
+            E(P) ⇌ E + P      :: EqualAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end)
+    k = _testhelper_edge(am_ss, "E + S ⇌ ES")
+    @test ER.Derivation.name(P(k, 1, true), am_ss) === :K_I_ES_to_E_S
+    k = _testhelper_edge(am_ss, "ES <--> EP")
+    @test ER.Derivation.name(P(k, 1, true), am_ss) === :k_I_ES_to_EP
+    @test ER.Derivation.name(P(k, 2, true), am_ss) === :k_I_EP_to_ES
 
     # The RE iso's equilibrium constant, named in the stored direction
-    @test ER.Derivation.name(ER.Derivation.Krapid(iso, :None), m) === :K_ES_to_EP
-    @test ER.Derivation.name(ER.Derivation.Krapid(iso, :I),    m) === :K_I_ES_to_EP
+    re_iso = ER.Mechanism(@enzyme_mechanism begin
+        substrates: S
+        products:   P
+        steps: begin
+            E + S <--> E(S)
+            E(S) ⇌ E(P)
+            E(P) <--> E + P
+        end
+    end)
+    @test ER.Derivation.name(P(_testhelper_edge(re_iso, "ES ⇌ EP"), 1, false), re_iso) ===
+          :K_ES_to_EP
+    am_re = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S <--> E(S)   :: EqualAI
+            E(S) ⇌ E(P)       :: NonequalAI
+            E(P) <--> E + P   :: EqualAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end)
+    @test ER.Derivation.name(P(_testhelper_edge(am_re, "ES ⇌ EP"), 1, true), am_re) ===
+          :K_I_ES_to_EP
 
     # Same names resolve on the mechanism lifted back from EnzymeMechanism(m);
     # the compiled type itself is not a chokepoint argument.
     em = EnzymeMechanism(m)
-    @test ER.Derivation.name(ER.Derivation.Krapid(bind, :None), ER.Mechanism(em)) ===
-          :K_ES_to_E_S
-    @test ER.Derivation.name(ER.Derivation.Kfor(iso, :None),
-                             ER.Mechanism(em)) === :k_ES_to_EP
-    @test_throws MethodError ER.Derivation.name(ER.Derivation.Krapid(bind, :None), em)
+    @test ER.Derivation.name(P(bind, 1, false), ER.Mechanism(em)) === :K_ES_to_E_S
+    @test ER.Derivation.name(P(iso, 1, false), ER.Mechanism(em)) === :k_ES_to_EP
+    @test_throws MethodError ER.Derivation.name(P(bind, 1, false), em)
 end
 
 @testset "name(p::Parameter, m) for the steps of a shared kinetic group" begin
@@ -194,10 +324,10 @@ end
 
     # Both steps bind S; rep = bind. Both yield the same name.
     @test ER.Derivation.name(
-        ER.Derivation.Krapid(_testhelper_edge(m, "E + S ⇌ ES"), :None), m) ===
+        ER.Derivation.StepParameter(_testhelper_edge(m, "E + S ⇌ ES"), 1, false), m) ===
           :K_ES_to_E_S
     @test ER.Derivation.name(
-        ER.Derivation.Krapid(_testhelper_edge(m, "EP + S ⇌ EPS"), :None), m) ===
+        ER.Derivation.StepParameter(_testhelper_edge(m, "EP + S ⇌ EPS"), 1, false), m) ===
           :K_ES_to_E_S
 end
 
@@ -219,8 +349,8 @@ end
     mech = ER.Mechanism(m)
     k = only(k for k in eachindex(mech.steps)
              if mech.step_kinds[k] !== :binding)
-    kon, koff = ER.Derivation._edge_constants(mech, k, :None)
-    @test kon isa ER.Derivation.Kfor && koff isa ER.Derivation.Krev
+    kon, koff = _testhelper_step_parameters(mech, k)
+    @test (kon.slot, koff.slot) == (1, 2)
     @test ER.Derivation.name(kon, mech) == :k_EQ_P_to_EAB &&
           ER.Derivation.name(koff, mech) == :k_EAB_to_EQ_P
     @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
@@ -427,7 +557,7 @@ end
     k = only(k for (k, e) in enumerate(m.steps) if ER.Mechanisms._is_iso(e))
     @test ER.Mechanisms._form_name(m, m.steps[k].from) == "F" &&
           ER.Mechanisms._form_name(m, m.steps[k].to) == "E"
-    kf, kr = ER.Derivation._edge_constants(m, k, :None)
+    kf, kr = _testhelper_step_parameters(m, k)
     @test ER.Derivation.name(kf, m) == :k_F_to_E && ER.Derivation.name(kr, m) == :k_E_to_F
 end
 
@@ -478,9 +608,7 @@ function _testhelper_is_chokepoint_def(expr)
     fn_name = _testhelper_sig_fn_name(sig)
     fn_name === :name || return false
     arg_str = _testhelper_sig_first_arg_str(sig)
-    return occursin(
-        r"Parameter|::(Krapid|Kfor|Krev|Kreg)\b",
-        arg_str)
+    return occursin("Parameter", arg_str)
 end
 
 # Reconstruct the string content of a `Symbol("...")` call. Supports

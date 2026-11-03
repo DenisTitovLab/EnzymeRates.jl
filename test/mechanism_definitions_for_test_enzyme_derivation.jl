@@ -99,6 +99,13 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
+"""One `StepParameter` per slot of step `k` of `m`'s catalytic graph, in the inactive
+conformation when `inactive`."""
+function _testhelper_step_parameters(m, k, inactive = false)
+    re = EnzymeRates.Mechanisms.catalytic(m).steps[k].rapid_equilibrium
+    [EnzymeRates.Derivation.StepParameter(k, slot, inactive) for slot in 1:(re ? 1 : 2)]
+end
+
 """The fields `==` and `hash` read of a value of type `T`: all of them, but only the first
 four of a mechanism, whose stored facts follow them."""
 _testhelper_identity_fields(T) =
@@ -167,9 +174,9 @@ function _testhelper_graph(m)
     tags = allo ? copy(mech.mwc_tags) : Symbol[]
     # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates.Derivation._flat_edges(cm)
-    _testhelper_names(k, state) =
+    _testhelper_names(k, inactive) =
         Symbol[EnzymeRates.Derivation.name(p, mech, kept)
-               for p in EnzymeRates.Derivation._edge_constants(cm, k, state)]
+               for p in _testhelper_step_parameters(cm, k, inactive)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
     in_law, in_active = allo ? (mech.inactive_steps, mech.active_steps) :
                         (falses(length(cm.steps)), trues(length(cm.steps)))
@@ -183,9 +190,8 @@ function _testhelper_graph(m)
          consumed_modifier = Bool[x.modifier for x in consumed],
          released_modifier = Bool[x.modifier for x in released],
          rapid_equilibrium = e.rapid_equilibrium, group = g,
-         names = _testhelper_names(k, !allo ? :None : shared ? :EqualAI : :A),
-         inactive_names = in_law[k] ? _testhelper_names(k, shared ? :EqualAI : :I) :
-                          Symbol[])
+         names = _testhelper_names(k, false),
+         inactive_names = in_law[k] ? _testhelper_names(k, !shared) : Symbol[])
     end
     sites = [(multiplicity = site.multiplicity,
               ligands = copy(site.ligands),

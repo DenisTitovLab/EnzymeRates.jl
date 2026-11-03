@@ -36,7 +36,7 @@ function _testhelper_solve_point(m, rng)
             inactive && !sys.law[k] && continue
             own = inactive &&
                 _testhelper_JS.Derivation._has_inactive_columns(sys.tags[s.group])
-            col(slot) = value[(edge = k, slot = slot, inactive = own)]
+            col(slot) = value[_testhelper_JS.Derivation.StepParameter(k, slot, own)]
             if s.rapid_equilibrium
                 K = col(1)
                 push!(out, (s, _testhelper_is_binding(s) ? 1 / K : K, nothing))
@@ -74,7 +74,7 @@ end
     @testset "the priority key orders the columns" begin
         mech = EnzymeRates.Mechanism(_testhelper_mm_ss)
         sys = EnzymeRates.Derivation._joint_system(mech)
-        describe(c) = (_testhelper_edge_text(mech, c.edge), c.slot)
+        describe(c) = (_testhelper_edge_text(mech, c.step), c.slot)
         # The isomerization goes first, its reverse rate (against the reaction) before
         # its forward one; then the two bindings' constants that run against the
         # reaction, the release of S and the uptake of P (a product binding's uptake runs
@@ -179,7 +179,7 @@ end
         iso = only(k for k in eachindex(m.steps)
                    if occursin("D", _testhelper_edge_text(m, k)))
         @test _testhelper_edge_text(m, iso) == "E <--> D"
-        kf, kr = EnzymeRates.Derivation._edge_constants(m, iso, :None)
+        kf, kr = _testhelper_step_parameters(m, iso)
         @test EnzymeRates.Derivation.name(kf, m) === :k_E_to_D
         @test EnzymeRates.Derivation.name(kr, m) === :k_D_to_E
         # Written E <--> D, the step is stored the same way.
@@ -333,8 +333,8 @@ end
         sys = EnzymeRates.Derivation._joint_system(am)
         for (key, edge) in kept
             last_col = findlast(c -> c.slot == key[2] && c.inactive == key[3] &&
-                                     group[c.edge] == key[1], sys.columns)
-            @test sys.columns[last_col].edge == edge
+                                     group[c.step] == key[1], sys.columns)
+            @test sys.columns[last_col].step == edge
         end
         _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(am))
     end
@@ -361,7 +361,7 @@ end
         @test size(sys.A) == (4, 13)
         # Row 1 is the active cycle, row 2 the inactive one. The :EqualAI binding of P has
         # no inactive constant, so the inactive row reads its active one.
-        reads = Set((_testhelper_edge_text(am, c.edge), c.slot, c.inactive)
+        reads = Set((_testhelper_edge_text(am, c.step), c.slot, c.inactive)
                     for c in sys.columns[findall(!iszero, sys.A[2, :])])
         @test reads == Set([("E + A <--> EA", 1, true), ("E + A <--> EA", 2, true),
                             ("EA <--> EP", 1, true), ("EA <--> EP", 2, true),
@@ -376,7 +376,7 @@ end
                 _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
                 class(c) = EnzymeRates.Derivation._class(mech, c)
                 last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
-                n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.edge]) &&
+                n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.step]) &&
                                                         last_of[class(c)] == i &&
                                                         i ∉ pivots), eachindex(sys.columns))
                 n_reg = mech isa EnzymeRates.AllostericMechanism ?
@@ -400,9 +400,9 @@ end
                 group = [e.group for e in EnzymeRates.Mechanisms.catalytic(mech).steps]
                 last_of_class = Dict{Tuple{Int, Int, Bool}, Int}()
                 for c in sys.columns
-                    g = group[c.edge]
+                    g = group[c.step]
                     c.inactive && sys.tags[g] === :OnlyA && continue
-                    last_of_class[(g, c.slot, c.inactive)] = c.edge
+                    last_of_class[(g, c.slot, c.inactive)] = c.step
                 end
                 @test EnzymeRates.Derivation._kept_members(mech) == last_of_class
             end
@@ -556,7 +556,7 @@ end
         end
     end)
     s = EnzymeRates.Derivation._solve(am)
-    C(edge, slot, inactive) = (; edge, slot, inactive)
+    C = EnzymeRates.Derivation.StepParameter
     binding = _testhelper_edge(am, "E + S ⇌ ES")
     release = _testhelper_edge(am, "E + P <--> ES")
     @test length(s.columns) == 5

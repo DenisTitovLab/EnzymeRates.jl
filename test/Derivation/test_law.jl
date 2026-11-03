@@ -334,7 +334,7 @@ end
         big_power = EnzymeRates.Derivation._Dependent(
             d.col, d.keq, [f => typemax(Int) // 1, f => typemax(Int) // 1], d.label)
         EnzymeRates.Derivation._Solve(s.columns, s.names, s.column, s.independents,
-                                      [big_power; s.dependents[2:end]], s.fitted)
+                                      [big_power; s.dependents[2:end]], s.info, s.fitted)
     end
     mm = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S

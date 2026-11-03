@@ -65,6 +65,19 @@ function parameters(m::_AnyMech, kind::_ParameterKind)
 end
 
 """
+    parameter_info(m) -> Vector{Parameter}
+
+One `Parameter` per fitted parameter of the concrete mechanism `m`, in
+`parameters(m, FittedParameters())` order: each independent column, then the regulator
+parameters, then `AllostericParameter()`. `name(p, m)` gives each one's name. Errors when
+the rate law of `m` is not defined (`check_valid_rate_equation`).
+"""
+function parameter_info(m::_AnyMech)
+    check_valid_rate_equation(m)
+    copy(_memo_solve(m).info)
+end
+
+"""
     dependent_parameter_values(m, params::NamedTuple) -> NamedTuple
 
 The values of the dependent constants of `m`'s rate law, in name order (the ones
@@ -129,8 +142,8 @@ function _edge_names(m::_AnyMech, state::Symbol, cols = constant_columns(m))
     cm = Mechanisms.catalytic(m)
     mask = _conformation_steps(m, state === :I ? 2 : 1)
     index = Dict(c => i for (i, c) in enumerate(cols.columns))
-    column(k, slot) = get(() -> index[_Column((k, slot, false))], index,
-                          _Column((k, slot, state === :I)))
+    column(k, slot) = get(() -> index[StepParameter(k, slot, false)], index,
+                          StepParameter(k, slot, state === :I))
     [mask[k] ? Symbol[cols.names[column(k, slot)]
                       for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)] :
                Symbol[]

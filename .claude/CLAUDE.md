@@ -216,7 +216,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
 ### Parameter naming chokepoint (guard)
 
-All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint in `src/Derivation/names.jl`; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/Derivation/test_names.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal in `src/` outside a parameter-name renderer, and on a renderer outside that file.
+A parameter is a `StepParameter(step, slot, inactive)` (which is also the joint solve's column label), a `RegulatorParameter(ligand, inactive)` or an `AllostericParameter()` (`L`), each holding no fact its mechanism holds; `parameter_info(m)` lists a mechanism's fitted ones. All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint in `src/Derivation/names.jl`, for concrete mechanisms only; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/Derivation/test_names.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal in `src/` outside a parameter-name renderer, and on a renderer outside that file.
 
 ### Module boundaries (guard)
 

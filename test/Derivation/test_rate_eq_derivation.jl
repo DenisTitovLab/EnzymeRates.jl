@@ -97,7 +97,7 @@ end
 """
 As-written index of canonical regulatory site `site` (at canonical position
 `pos`) among `written_sites`, the sites of a raw value in written order: it
-matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
+matches by ligand-name set so positional regulator names (`:K_<lig>_reg{site}`) keep
 the oracle's written site numbering after canonical site reordering.
 """
 function _testhelper_positional_site_idx(site, pos, written_sites)
