@@ -64,16 +64,20 @@ a syntax error on 1.10.
 - Rules 1 to 4, the docs tables, the diagram and "Mechanisms API is the data model" stay with
   the same meaning.
 - `docs/src/developer.md`: prose that names `const API` or an `API` list changes to match.
-- `test/test_compile_budget.jl`: the comment on the Julia 1.10 baseline loses that figure. The
-  budget does not change.
+- `test/test_compile_budget.jl`: the comment's Julia 1.10 baseline becomes the figure measured
+  on 1.11. The budget does not change.
+- `ROADMAP.md`: "On Julia 1.10 the full suite can peak above 4 GB" is rewritten with the 1.11
+  measurement or retired if 1.11 stays under 4 GB, and the compat-bounds entry quotes the new
+  `julia = "1.11"`.
 - `src/Mechanisms/names.jl` gains its missing `ABOUTME` header, since `CLAUDE.md` requires one.
 
 The change adds and removes no interface name: each module's public names equal its old `API`.
 
 ## Part 2: `CLAUDE.md`
 
-Denis decided the content of each rule. The wording is my proposal for him to edit. Sections
-not named here stay as they are.
+Denis decided the content of each rule. The wording is my proposal, and his approval of this
+document approves it, after which the builder copies it verbatim. These lists are closed: every
+other rule stays, and a builder who finds another conflict reports it to Denis instead of editing.
 
 ### Added
 
@@ -156,7 +160,8 @@ The bans on history in comments and the `ABOUTME` rule stay.
 |---|---|---|
 | "YOU MUST ALWAYS STOP and ask for clarification rather than making assumptions." | "Stop and ask when the decision is Denis's: design, a public name or exported function, or anything hard to undo. Otherwise choose, say what you chose, and report what it costs if wrong." | Conflicts with "just do it"; Denis asked for the rewrite |
 | Proactiveness: "The action would delete or significantly restructure existing code" | "The action would rewrite a whole implementation or module" | Otherwise the simplification rule stops at every refactor |
-| "document it in your journal rather than fixing it immediately" | "Fix a correctness bug when you find it. Anything else unrelated goes in `ROADMAP.md`." | Conflicts with "Fix broken things immediately" |
+| Proactiveness: "Multiple valid approaches exist and the choice matters" | "Multiple valid approaches exist and the choice is Denis's to make" | Matches the rewritten rule on stopping |
+| "Fix broken things immediately when you find them. Don't ask permission to fix bugs." | Add: "Anything else unrelated goes in `ROADMAP.md`." | Takes over from the journal rule on unrelated fixes |
 | "never park on a background monitor — poll a log in a bounded shell loop" | "run the full suite in the background under `timeout 1200`, so a hang also ends in an exit notice; wait for that notice and read the result before reporting" | The harness notifies on exit, but a hung process never exits |
 | `rate_equation` section: "Locally the 120-ns bound leaves about 4× headroom…" | Delete that clause, keep the bounds and the CI rerun advice | The timings go stale |
 | "Data tables use a `group` column (not `Article`+`Fig`)" | Drop the parenthesis | Neither name is in the tree |
@@ -166,8 +171,9 @@ The bans on history in comments and the `ABOUTME` rule stay.
 - The journal rules: "Our relationship" (two bullets), "Commit your journal entries", and
   "Learning and Memory Management". No journal tool exists; the memory system does this job.
 - "Issue tracking", which requires TodoWrite. That tool does not exist in current sessions.
-- "YOU MUST NEVER remove code comments unless you can PROVE they are actively false", which
-  the new comment rule replaces.
+- "YOU MUST NEVER remove code comments unless you can PROVE they are actively false" and
+  "Comments should explain WHAT the code does or WHY it exists", which the new comment rule
+  replaces.
 
 ### Elsewhere
 
@@ -181,6 +187,10 @@ The bans on history in comments and the `ABOUTME` rule stay.
 
 - `git diff` of the `API` tuples against the `public` statements shows the same names.
 - The full suite passes on Julia 1.13 under the stated command, with a pristine log.
+- The full suite runs once on Julia 1.11 (`juliaup add 1.11`), since CI and the installed
+  versions would otherwise never exercise the new minimum. Record its peak memory. A failure
+  there is fixed if it is a real bug and otherwise reported to Denis; no budget or timing bound
+  is loosened.
 - A deliberately private cross-module call fails rule 1, checked by the existing fixtures.
 - The docs build passes.
 - Each symbol and path `CLAUDE.md` names exists in the tree.
