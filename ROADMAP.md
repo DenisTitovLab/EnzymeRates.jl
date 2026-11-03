@@ -126,6 +126,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   reaction". The constructor or the guard should reject it with a message that names the
   step. Only hand-built mechanisms meet this: the macros and the enumerator write balanced
   steps.
+- **A regulator measured only at saturating levels gets an arbitrary K.**
+  With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
+  true K. The data do not constrain K there, so the fit returns any value in the box and
+  lists it in `at_bound` only when it lands at an edge.
 
 ## Planned
 
@@ -261,6 +265,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Decided against
 
+- **A global ±ln(1e9) box, physical ranges or a plausibility warning.** Either needs a
+  declared unit. `lb` and `ub` in `fit_rate_equation` stay, and the box follows the data.
+- **`lb` and `ub` in `identify_rate_equation`.** The search sets each fit's box from its
+  data.
 - **Move dead-end decorations out of `init_mechanisms` into an expansion move.** It is not
   clear this saves time, since the move would have to run again on every child.
 - **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).**

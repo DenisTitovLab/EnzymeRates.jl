@@ -45,9 +45,9 @@ flowchart TB
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>RateConstants"| der
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
   fit -->|"RateData"| data
-  fit -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,enum,fit,der,data,mech mod;
@@ -139,13 +139,13 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
 | `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level | |
-| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, top level | ✓ |
-| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, top level | ✓ |
+| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, Fitting, top level | ✓ |
+| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, Fitting, top level | ✓ |
 | `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, | |
 | | | top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, top level | |
-| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
+| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration, Fitting | |
 | `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
@@ -169,7 +169,11 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
 | `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
-| `RateConstants` | Kind: the steady-state rate constants | Fitting | |
+| `StepParameter` | A constant of a step: its step, slot and conformation | Fitting | |
+| `RegulatorParameter` | A regulator ligand's constant in one conformation | Fitting | |
+| `AllostericParameter` | The allosteric constant `L` | Fitting | |
+| `parameter_info` | The fitted parameters, in `parameters` order | Fitting | |
+| `name` | The name of a parameter in a concrete mechanism | Fitting | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
 | `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
 | `rate_equation_term_count` | The law's term count, V×τ, before derivation | top level | |
@@ -380,13 +384,35 @@ which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism g
 solver one problem type: `solve` and the solver compile once per optimizer, not once per
 mechanism.
 
+### Parameters
+
+One type family in `src/Derivation/names.jl` describes every constant a fit estimates, and
+`parameter_info(m)` lists them for a concrete mechanism in
+`parameters(m, FittedParameters())` order:
+
+| Type | What it points at |
+|:-----|:------------------|
+| `StepParameter(step, slot, inactive)` | Slot `slot` of step `step` of the catalytic graph, in the inactive conformation when `inactive` |
+| `RegulatorParameter(ligand, inactive)` | The constant of a regulator ligand, in the active or inactive conformation |
+| `AllostericParameter()` | The allosteric constant `L` |
+
+A value holds no other fact and means nothing without its mechanism. At slot 1 a
+`StepParameter` is a rapid-equilibrium step's equilibrium constant or a steady-state step's
+rate constant in its stored direction; at slot 2, a steady-state step's rate constant in the
+reverse direction. The step's flag says which. A K on a steady-state step or a k on a
+rapid-equilibrium one constructs but has no name: `name` errors on it. `name(p, m)` renders
+the name from the step's sides and the kept member of its kinetic class, and derives the
+conformation tag from `inactive` and the group's or ligand's allosteric tag. `parameters`
+returns these names as Symbols, and the rate law takes them at compile time.
+
 ### The joint thermodynamic solve
 
 `_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`) over the columns `constant_columns(m)` lists: a column per
-constant of every edge, with an inactive copy for each edge of a `:NonequalAI`, `:OnlyA` or
-`:OnlyI` group; a row per fundamental cycle and conformation, and a row tying each further
-member of a kinetic class to its first. The columns come ordered by `_priority_key`
+(`_joint_system`) over the columns `constant_columns(m)` lists, each a `StepParameter`: a
+column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`,
+`:OnlyA` or `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying
+each further member of a kinetic class to its first. The columns come ordered by
+`_priority_key`
 (`_ordered_columns`), and the solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`

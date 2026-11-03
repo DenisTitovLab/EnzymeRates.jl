@@ -334,7 +334,7 @@ end
         big_power = EnzymeRates.Derivation._Dependent(
             d.col, d.keq, [f => typemax(Int) // 1, f => typemax(Int) // 1], d.label)
         EnzymeRates.Derivation._Solve(s.columns, s.names, s.column, s.independents,
-                                      [big_power; s.dependents[2:end]], s.fitted)
+                                      [big_power; s.dependents[2:end]], s.info, s.fitted)
     end
     mm = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
@@ -479,7 +479,7 @@ end
             end
             cm = EnzymeRates.Mechanisms.catalytic(sub)
             onlyi =
-                Set(x for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(sub, :I))
+                Set(x for (k, ns) in enumerate(_testhelper_edge_names(sub, :I))
                     if sub.mwc_tags[cm.steps[k].group] === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)

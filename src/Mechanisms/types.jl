@@ -860,7 +860,7 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::Mechanism)
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
     dup === nothing ||
         error("AllostericMechanism: ligand $(ligs[dup]) appears in two " *
-              "distinct regulatory sites; rendered Kreg names would " *
+              "distinct regulatory sites; rendered regulator parameter names would " *
               "collide. Same-ligand-two-sites is not enumerated.")
     nothing
 end

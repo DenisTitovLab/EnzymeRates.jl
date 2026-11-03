@@ -59,6 +59,12 @@ at finite concentrations ≥ 0, with a finite, nonzero turnover.
 ```julia
 fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
+
+We strongly recommend concentrations in M, because `Keq` values usually assume a 1 M
+standard state. Other units work as long as all metabolites, `Keq` and any `reference`
+concentrations use the same one. K and k then carry that unit: a K in mM, a second-order
+k per mM per time. See "Units and the search box" in the Getting Started page for how the
+fit searches around the concentrations in your data.
 """
 function FittingProblem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
         table; Keq::Real, absolute::Bool=false, reference=nothing)
@@ -188,18 +194,25 @@ function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
                                      lb=lb, ub=ub)
 end
 
+# Distance in log units from a box edge within which a fitted parameter counts as at bound.
+const AT_BOUND_TOLERANCE = 0.01
+
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing,
-        lb=fill(-15.0, length(parameters(fp.mechanism, FittedParameters()))),
-        ub=fill(15.0, length(parameters(fp.mechanism, FittedParameters()))),
+        lb=centre .- 15.0, ub=centre .+ 15.0,
         solver_kwargs=(;))
 
 Fit rate constants by minimizing `loss!` using Optimization.jl.
 
 Runs `n_restarts` independent optimizations from random initial points and returns
-the best result.
+the best result. Each start draws every log-space parameter from a normal distribution
+around its `centre`, with a standard deviation of 2, and clamps it to the box. The centre
+comes from the geometric means of the table's nonzero concentrations and of its `|Rate|`:
+a binding's K centres on the concentrations it binds, any other rapid-equilibrium K on
+what the step gives off over what it takes up, a rate constant on the rate over the
+concentrations it takes up, a regulator's K on its ligand's concentrations and `L` on 1.
 
 `maxtime` and `maxiters` are Optimization.jl common solver options forwarded to
 every `Optimization.solve` call. `abstol`, `reltol`, and `callback` are common
@@ -208,7 +221,8 @@ options forwarded only when set (otherwise each solver uses its own default).
 to `solve` (e.g. `(; popsize=200)` for a CMA-ES solver that supports it). A key
 present in both a named common option and `solver_kwargs` takes the
 `solver_kwargs` value. `lb`/`ub` are the log-space bounds passed to the
-`OptimizationProblem`.
+`OptimizationProblem`. They hold absolute log values, and by default lie 15 log units
+either side of each centre, so the box follows the data.
 
 In relative mode (`fp.rate_data.absolute == false`) the returned steady-state rate
 constants are multiplied by one factor so the mechanism reproduces the reference turnovers
@@ -221,7 +235,7 @@ unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not throw
 In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
 `retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
 
-Returns a NamedTuple `(params, loss, retcode)` where:
+Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
 - `params`: fitted rate constants as a NamedTuple
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
@@ -229,6 +243,10 @@ Returns a NamedTuple `(params, loss, retcode)` where:
   value (e.g. `:MaxTime` — hit the time budget; `:Failure`; `:Default` — ran but
   did not flag success) means the fit should be treated as un-converged (check
   `retcode !== :Success`); `:ReferenceFailed` marks a failed reference scale.
+- `at_bound`: the names of the fitted parameters whose best point lies within 0.01 log
+  units of its `lb` or `ub`, read before the relative-mode scale, which can move a
+  reported rate constant outside the box. `()` when no restart reaches a finite loss. "At
+  bound" does not mean wrong: a parameter no data constrain wanders across the box.
 """
 function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     n_restarts::Int=20,
@@ -237,10 +255,8 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     abstol::Union{Real,Nothing}=nothing,
     reltol::Union{Real,Nothing}=nothing,
     callback=nothing,
-    lb=fill(-15.0,
-            length(Derivation.parameters(fp.mechanism, Derivation.FittedParameters()))),
-    ub=fill(15.0,
-            length(Derivation.parameters(fp.mechanism, Derivation.FittedParameters()))),
+    lb=_log_centres(fp) .- 15.0,
+    ub=_log_centres(fp) .+ 15.0,
     solver_kwargs=(;),
 )
     # `fp` is @nospecialize, so `parameters(fp.mechanism, FittedParameters())` infers as
@@ -268,8 +284,9 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     # (which only fires when a restart achieves a finite objective).
     best_retcode = :NoFiniteLoss
 
+    centre = _log_centres(fp)
     for _ in 1:n_restarts
-        x0 = clamp.(randn(np) .* 2.0, lb, ub)
+        x0 = clamp.(centre .+ randn(np) .* 2.0, lb, ub)
         prob = _optimization_problem(fp, x0, lb, ub)
         sol = Optimization.solve(prob, optimizer; solve_kwargs...)
         if sol.objective < best_loss
@@ -280,28 +297,100 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     end
 
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
+    at_bound = isfinite(best_loss) ?
+        Tuple(pnames[i] for i in 1:np
+              if min(best_x[i] - lb[i], ub[i] - best_x[i]) <= AT_BOUND_TOLERANCE) : ()
     (fp.rate_data.absolute || !isfinite(best_loss)) &&
-        return (params = result_params, loss = best_loss, retcode = best_retcode)
+        return (params = result_params, loss = best_loss, retcode = best_retcode, at_bound)
     scale = _reference_scale(fp, merge(result_params, (Keq = fp.rate_data.Keq,)))
     scale === nothing &&
-        return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
+        return (params = result_params, loss = Inf, retcode = :ReferenceFailed, at_bound)
     return (params = _scale_rate_constants(fp.mechanism, result_params, scale),
-            loss = best_loss, retcode = best_retcode)
+            loss = best_loss, retcode = best_retcode, at_bound)
+end
+
+"""
+    _concentration_scales(fp) -> Dict{Symbol, Float64}
+
+Each metabolite of `fp.mechanism` to the geometric mean of its nonzero concentrations in
+the table. A metabolite that is always zero takes the geometric mean of all positive
+concentrations of those metabolites in the table, or 1 when there are none.
+"""
+function _concentration_scales(@nospecialize(fp::FittingProblem))
+    data = fp.rate_data.data
+    mets = Mechanisms.metabolites(fp.mechanism)
+    # `getfield` reads a column by its runtime name without compiling for the table's type.
+    positive = Vector{Float64}[Float64[c for c in getfield(data, x) if c > 0] for x in mets]
+    pooled = reduce(vcat, positive)
+    fallback = isempty(pooled) ? 1.0 : _geometric_mean(pooled)
+    Dict{Symbol, Float64}(x => isempty(v) ? fallback : _geometric_mean(v)
+                          for (x, v) in zip(mets, positive))
+end
+
+_geometric_mean(v) = exp(mean(log, v))
+
+"""The geometric mean of the table's `|Rate|`, which `RateData` guarantees nonzero."""
+_rate_scale(@nospecialize(fp::FittingProblem)) = exp(mean(fp.log_abs_rates))
+
+"""
+    _log_centre(p, m, s, r) -> Float64
+
+The log value of parameter `p` of the concrete mechanism `m` at which it matches the
+concentration scales `s` (`_concentration_scales`) and the rate scale `r` (`_rate_scale`).
+A rate constant turns the scales of what it takes up into `r`. A binding's K, a dissociation
+constant, is the scale of what binds, and any other rapid-equilibrium K is the scales given
+off over those taken up. A regulator's K is the scale of its ligand, and `L` centres on 1.
+"""
+function _log_centre(p::Derivation.StepParameter, m, s::Dict{Symbol, Float64}, r::Real)
+    cm = Mechanisms.catalytic(m)
+    e = cm.steps[p.step]
+    e.rapid_equilibrium ||
+        return log(r) - _sum_log(s, p.slot == 1 ? e.taken_up : e.given_off)
+    cm.step_kinds[p.step] in (:binding, :fused_binding) ? _sum_log(s, e.taken_up) :
+        _sum_log(s, e.given_off) - _sum_log(s, e.taken_up)
+end
+_log_centre(p::Derivation.RegulatorParameter, m, s::Dict{Symbol, Float64}, r::Real) =
+    log(s[p.ligand])
+_log_centre(::Derivation.AllostericParameter, m, s::Dict{Symbol, Float64}, r::Real) = 0.0
+
+_sum_log(s, mets) = sum(log(s[x.name]) for x in mets; init = 0.0)
+
+"""
+    _log_centres(fp) -> Vector{Float64}
+
+The centre of `fit_rate_equation`'s search: `_log_centre` of each parameter of
+`Derivation.parameter_info`, in the order of `parameters(fp.mechanism, FittedParameters())`.
+"""
+function _log_centres(@nospecialize(fp::FittingProblem))
+    m = _concrete(fp.mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    s = _concentration_scales(fp)
+    r = _rate_scale(fp)
+    Float64[_log_centre(p, m, s, r) for p in Derivation.parameter_info(m)]
 end
 
 """
     _scale_rate_constants(mechanism, params, factor) -> NamedTuple
 
-`params` with every steady-state rate constant of `mechanism` (`RateConstants()`)
-multiplied by `factor`, every other entry unchanged. A common factor on those constants
-multiplies every rate by the same factor and leaves the binding constants, `Keq`,
-`E_total`, `L` and the regulatory constants alone.
+`params` with every fitted rate constant on a steady-state step of `mechanism` (a concrete
+or a compiled one) multiplied by `factor`, every other entry unchanged. A common factor on
+those constants multiplies every rate by the same factor and leaves the binding constants,
+`Keq`, `E_total`, `L` and the regulatory constants alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    rate_constants = Derivation.parameters(mechanism, Derivation.RateConstants())
-    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
+    m = _concrete(mechanism)
+    steady_state = Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
+                       if _on_steady_state_step(p, m))
+    NamedTuple{keys(params)}(map((k, v) -> k in steady_state ? v * factor : v,
                                  keys(params), values(params)))
 end
+
+_on_steady_state_step(p::Derivation.StepParameter, m) =
+    !Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium
+_on_steady_state_step(p, m) = false
+
+_concrete(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
+_concrete(m::Mechanisms.AllostericEnzymeMechanism) = Mechanisms.AllostericMechanism(m)
+_concrete(m) = m
 
 """
     _reference_scale(fp, params)

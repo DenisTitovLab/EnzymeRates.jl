@@ -1068,10 +1068,12 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             cm, [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA], 2,
             ER.Mechanisms.RegulatorySite[])
 
-        # A ligand on two regulatory sites → error: both sites would render its Kreg name
+        # A ligand on two regulatory sites → error: both sites would render its regulator
+        # parameter name
         @test_throws(ErrorException(
             "AllostericMechanism: ligand A appears in two distinct regulatory sites; " *
-            "rendered Kreg names would collide. Same-ligand-two-sites is not enumerated."),
+            "rendered regulator parameter names would collide. " *
+            "Same-ligand-two-sites is not enumerated."),
             ER.AllostericMechanism(
                 cm, [:EqualAI, :EqualAI, :EqualAI], 2,
                 [ER.Mechanisms.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)]))
@@ -2391,7 +2393,7 @@ end
     m = _testhelper_written(:(E + A <--> E(A)), :(E + A <--> Estar(A)),
                             :(E(A) <--> E(P)), :(E + P <--> E(P)))
     names = [ER.Derivation.name(p, m) for members in m.groups
-             for p in ER.Derivation._edge_constants(m, first(members), :None)]
+             for p in _testhelper_step_parameters(m, first(members))]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)
     # The same binding in two groups, once written as its release: both would be
@@ -2950,9 +2952,9 @@ end
     am2 = _testhelper_build(_testhelper_written(am1))
     # Every parameter's name, which reads the mechanism and stores nothing in it.
     _testhelper_param_names(m::EnzymeRates.Mechanism) =
-        EnzymeRates.Derivation._edge_names(m, :None)
+        _testhelper_edge_names(m, :None)
     _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
-        [[EnzymeRates.Derivation._edge_names(m, state) for state in (:A, :I)];
+        [[_testhelper_edge_names(m, state) for state in (:A, :I)];
          [[K] for state in (:A, :I) for K in _testhelper_regulator_constants(m, state)]]
     # `rebuilt` is `m` constructed again from the nodes and steps it writes back.
     function _testhelper_check_identity(m, rebuilt)
@@ -3040,7 +3042,7 @@ end
     @test_throws msg rate_equation_string(em)
     @test_throws msg dependent_parameter_values(em, (Keq = 1.0,))
     @test_throws msg dependent_parameter_values(m, (Keq = 1.0,))
-    @test_throws msg parameters(em, EnzymeRates.Derivation.RateConstants())
+    @test_throws msg EnzymeRates.Derivation.parameter_info(m)
 end
 
 """A value of each type a mechanism is built from: a metabolite, a node with a residual,

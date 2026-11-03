@@ -97,7 +97,7 @@ end
 """
 As-written index of canonical regulatory site `site` (at canonical position
 `pos`) among `written_sites`, the sites of a raw value in written order: it
-matches by ligand-name set so positional Kreg names (`:K_<lig>_reg{site}`) keep
+matches by ligand-name set so positional regulator names (`:K_<lig>_reg{site}`) keep
 the oracle's written site numbering after canonical site reordering.
 """
 function _testhelper_positional_site_idx(site, pos, written_sites)
@@ -684,7 +684,7 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         @test isfinite(v_orig) && v_orig != 0
 
         # Scaling every steady-state rate constant by α scales every rate by α.
-        ss_names = parameters(m, EnzymeRates.Derivation.RateConstants())
+        ss_names = _testhelper_steady_state_names(m)
         α = 0.1 + 9.9 * rand(rng)
         scaled_params = NamedTuple{keys(params)}(Tuple(
             k in ss_names ? v * α : v
@@ -1759,18 +1759,22 @@ end
     @test _testhelper_printed_law_error(spec.mechanism) <= big(10)^-20
 end
 
-@testset "RateConstants lists what Fitting scales" begin
-    # Every steady-state rate constant of both conformations takes the factor; scaling
-    # exactly these multiplies the rate by it, on concrete and compiled mechanisms alike.
-    RC = EnzymeRates.Derivation.RateConstants()
+function _testhelper_regulator_names(am)
+    Symbol[EnzymeRates.Derivation.name(p, am)
+           for p in EnzymeRates.Derivation._regulator_parameters(am)]
+end
+
+@testset "parameter_info gives what Fitting scales" begin
+    # Every fitted steady-state rate constant of both conformations takes the factor;
+    # scaling exactly these multiplies the rate by it, on concrete and compiled
+    # mechanisms alike.
     rng = Random.MersenneTwister(5)
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        names = parameters(m, RC)
+        names = _testhelper_steady_state_names(m)
         @test names isa Tuple{Vararg{Symbol}}
         @test allunique(names) && !isempty(names)
-        @test parameters(_testhelper_lift(m), RC) === names
-        @test issubset(names, parameters(m, AllParameters()))
+        @test issubset(names, parameters(m, FittedParameters()))
         @test isdisjoint(names, (:Keq, :E_total, :L))
         params = _testhelper_random_independent_params(m; rng)
         met_names = metabolites(m)
@@ -1778,23 +1782,24 @@ end
         v = rate_equation(m, concs, params)
         scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 3.0)
         @test rate_equation(m, concs, scaled) ≈ 3.0 * v rtol = 1e-9
+        scaled_lifted = EnzymeRates.Fitting._scale_rate_constants(
+            _testhelper_lift(m), params, 3.0)
+        @test scaled_lifted == scaled
     end
-    # The exact names, in the order `RateConstants()` returns them: the set is the
-    # steady-state constants of every conformation's law (the inactive one's `I_` names
-    # included for MWC Dimer), and rapid-equilibrium constants are absent (RE Uni-Uni).
+    # The exact fitted names: the set is the fitted steady-state constants of every
+    # conformation's law (the inactive one's `I_` names included for MWC Dimer), and
+    # rapid-equilibrium constants are absent (RE Uni-Uni).
     expected = Dict(
-        "Uni-Uni" => (:k_E_P_to_ES, :k_ES_to_E_P, :k_E_S_to_ES, :k_ES_to_E_S),
-        "RE Uni-Uni" => (:k_E_P_to_EA, :k_EA_to_E_P),
-        "MWC Dimer [AllostericEnzymeMechanism]" =>
-            (:k_A_ES_to_EP, :k_A_EP_to_ES, :k_I_ES_to_EP, :k_I_EP_to_ES),
-        "m_OnlyA_prod" => (:k_A_ES_to_EP, :k_A_EP_to_ES),
+        "Uni-Uni" => (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
+        "RE Uni-Uni" => (:k_EA_to_E_P,),
+        "MWC Dimer [AllostericEnzymeMechanism]" => (:k_A_ES_to_EP, :k_I_ES_to_EP),
+        "m_OnlyA_prod" => (:k_A_ES_to_EP,),
         "LDH i-state NonequalAI 5-group" =>
             (:k_A_E_NADH_to_ENADH, :k_A_ENADH_to_E_NADH,
-             :k_A_ENADHPyruvate_to_ELactateNAD, :k_A_ELactateNAD_to_ENADHPyruvate))
+             :k_A_ENADHPyruvate_to_ELactateNAD))
     for (name, names) in expected
         m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
-        @test parameters(m, RC) === names
-        @test Set(parameters(_testhelper_lift(m), RC)) == Set(names)
+        @test Set(_testhelper_steady_state_names(m)) == Set(names)
     end
 end
 
@@ -1804,7 +1809,7 @@ end
         ks = (parameters(m)...,)
         params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))
         scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 10.0)
-        ss = parameters(m, EnzymeRates.Derivation.RateConstants())
+        ss = _testhelper_steady_state_names(m)
         @test keys(scaled) == ks
         @test !isempty(ss) && any(k -> !(k in ss), ks)
         @test all(scaled[k] == (k in ss ? 10 * params[k] : params[k]) for k in ks)
@@ -2587,8 +2592,8 @@ v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / (D_A^2 *
 end
 
 @testset "Parameter-struct allosteric helpers" begin
-    @testset "_edge_names and the regulator constants" begin
-        flat_names(am, state) = reduce(vcat, EnzymeRates.Derivation._edge_names(am, state))
+    @testset "_testhelper_edge_names and the regulator constants" begin
+        flat_names(am, state) = reduce(vcat, _testhelper_edge_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
         aem = @allosteric_mechanism begin
             substrates: S
@@ -2611,7 +2616,7 @@ end
               Set([:K_A_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_A_EP_to_E_P])
         @test _testhelper_regulator_constants(am, :A) == [:K_A_Rreg]
         @test _testhelper_regulator_constants(am, :I) == [:K_I_Rreg]
-        @test EnzymeRates.Derivation._regulator_names(am) == [:K_A_Rreg, :K_I_Rreg]
+        @test _testhelper_regulator_names(am) == [:K_A_Rreg, :K_I_Rreg]
 
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid. The inactive conformation keeps no form but E, so its law has
@@ -2629,9 +2634,9 @@ end
             regulatory_site(1): R::OnlyA
         end
         am_skip = EnzymeRates.AllostericMechanism(aem_skip)
-        @test all(isempty, EnzymeRates.Derivation._edge_names(am_skip, :I))
+        @test all(isempty, _testhelper_edge_names(am_skip, :I))
         @test isempty(_testhelper_regulator_constants(am_skip, :I))
-        @test EnzymeRates.Derivation._regulator_names(am_skip) == [:K_A_Rreg]
+        @test _testhelper_regulator_names(am_skip) == [:K_A_Rreg]
         @test _testhelper_regulator_constants(am_skip, :A) ==
               [:K_A_Rreg]
 
@@ -2650,7 +2655,7 @@ end
             regulatory_site(1): R::OnlyI
         end)
         @test isempty(_testhelper_regulator_constants(am_onlyi, :A))
-        @test EnzymeRates.Derivation._regulator_names(am_onlyi) == [:K_I_Rreg]
+        @test _testhelper_regulator_names(am_onlyi) == [:K_I_Rreg]
         @test _testhelper_regulator_constants(am_onlyi, :I) ==
               [:K_I_Rreg]
         am_equal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
@@ -2668,7 +2673,7 @@ end
         @test _testhelper_regulator_constants(am_equal, :A) ==
               [:K_Rreg]
         @test isempty(_testhelper_regulator_constants(am_equal, :I))
-        @test EnzymeRates.Derivation._regulator_names(am_equal) == [:K_Rreg]
+        @test _testhelper_regulator_names(am_equal) == [:K_Rreg]
     end
 end
 

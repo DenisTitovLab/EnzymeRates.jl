@@ -278,6 +278,7 @@ end
             fit_source_id = "0123456789abcdef",
             L_phantom = false,
             fit_inherited = false,
+            at_bound = "a;b",
         )]
         df = EnzymeRates._rows_to_dataframe(
             rows)
@@ -286,7 +287,8 @@ end
         @test names(df) == ["n_params", "parent_n_params", "loss", "mechanism",
                             "mechanism_id", "parent_id", "rate_equation", "retcode",
                             "error", "key", "fit_inherited", "fit_source_id",
-                            "L_phantom", "a", "b"]
+                            "L_phantom", "at_bound", "a", "b"]
+        @test df.at_bound == ["a;b"]
         @test df.key == [repeat("0123456789abcdef", 4)]
         @test df.fit_source_id == ["0123456789abcdef"]
         @test df.L_phantom == [false]
@@ -311,11 +313,13 @@ end
             (n_params = 3, loss = 0.5, mechanism = "M", mechanism_id = "0000000000000001",
              rate_equation = "v = ...", retcode = "Success", error = missing,
              params = (a = 1.0,), key = "0123456789abcdef",
-             fit_source_id = "0000000000000001", fit_inherited = false, L_phantom = false),
+             fit_source_id = "0000000000000001", fit_inherited = false,
+             L_phantom = false, at_bound = ""),
             (n_params = missing, loss = missing, mechanism = "M",
              mechanism_id = "0000000000000001", rate_equation = missing, retcode = missing,
              error = "StackOverflowError: ", params = (;), key = missing,
-             fit_source_id = missing, fit_inherited = missing, L_phantom = missing),
+             fit_source_id = missing, fit_inherited = missing, L_phantom = missing,
+             at_bound = missing),
         ]
         df_with_failure = EnzymeRates._rows_to_dataframe(rows_with_failure)
         @test nrow(df_with_failure) == 2
@@ -325,6 +329,7 @@ end
         @test ismissing(df_with_failure.key[2])
         @test ismissing(df_with_failure.fit_source_id[2])
         @test ismissing(df_with_failure.L_phantom[2])
+        @test df_with_failure.at_bound[1] == "" && ismissing(df_with_failure.at_bound[2])
         @test df_with_failure.fit_inherited[1] == false
         @test ismissing(df_with_failure.fit_inherited[2])
         @test all(ismissing, df_with_failure.parent_id)
@@ -350,7 +355,8 @@ end
         @test ismissing(row.parent_id)
         @test row.error == "boom"
         @test ismissing(row.key) && ismissing(row.fit_inherited) &&
-              ismissing(row.fit_source_id) && ismissing(row.L_phantom)
+              ismissing(row.fit_source_id) && ismissing(row.L_phantom) &&
+              ismissing(row.at_bound)
     end
 
     @testset "the key of a law is the SHA-256 of its canonical text" begin
@@ -521,7 +527,7 @@ end
         for f in files
             df_file = _testhelper_read_csv(f)
             @test "key" in names(df_file) && "fit_source_id" in names(df_file) &&
-                  "L_phantom" in names(df_file)
+                  "L_phantom" in names(df_file) && "at_bound" in names(df_file)
             @test all(k -> occursin(r"^[0-9a-f]{64}$", k), skipmissing(df_file.key))
             # Each fitted row's key is its mechanism's, its fit's source is a 16-hex id,
             # and the row inherits its fit exactly when the source is another mechanism.
@@ -580,6 +586,7 @@ end
 
         cvf = CSV.read(joinpath(save_dir, "loocv_results.csv"), DataFrame)
         @test nrow(cvf) == nrow(results.cv_results)
+        @test "at_bound" in names(cvf)
         @test "cv_score" in names(cvf)
 
         bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
@@ -592,6 +599,11 @@ end
         # The key reads back as text, and it is the selected mechanism's key.
         @test bestf.key[1] isa AbstractString
         @test bestf.key[1] == _testhelper_key_of(best_row.mechanism)
+        # The fit on all rows: the same flags as the LOOCV table's row for that law.
+        @test "at_bound" in names(bestf)
+        @test ismissing(bestf.at_bound[1]) || bestf.at_bound[1] isa AbstractString
+        @test isequal(bestf.at_bound[1],
+                      cvf.at_bound[findfirst(==(bestf.key[1]), cvf.key)])
     end
 
     @testset "save_dir non-empty check" begin
@@ -1792,6 +1804,16 @@ end
         @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
     end
     @test entries[1].row.params == entries[2].row.params
+
+    # The fit's flags sit at canonical positions; each row names its own constants there.
+    memo[c1.key] = EnzymeRates._Fit(fit.values, fit.loss, fit.retcode, fit.source,
+        fit.source_id, [i in (1, 3) for i in eachindex(fit.values)])
+    flagged, _ = EnzymeRates._process_batch(pair, prob;
+        optimizer = opt, max_param_count = 20, eq_complexity_filter = 337, n_restarts = 1,
+        maxtime = 1.0, memo)
+    for (e, c) in zip(flagged, (c1, c2))
+        @test e.row.at_bound == join([[c.order; :L][i] for i in (1, 3)], ";")
+    end
     # The reference scale: the copied params are the rescaled fit, not the raw
     # 5.0 the stub optimizer returned, and both laws reproduce the reference turnover,
     # the first data row's rate.
@@ -2255,6 +2277,17 @@ end
         n_restarts = 1, maxtime = 1.0)
     p = only(filter(e -> e.mech == phantom, entries))
     f = only(filter(e -> e.mech == parent, entries))
+    # A phantom reads its source's flags, never one for its own L.
+    src = memo[f.key]
+    memo[f.key] = EnzymeRates._Fit(src.values, src.loss, src.retcode, src.source,
+        src.source_id, trues(length(src.values)))
+    flagged, _ = EnzymeRates._process_batch(
+        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[phantom], prob;
+        optimizer = _testhelper_SpreadStubOpt(), max_param_count = 20, memo,
+        n_restarts = 1, maxtime = 1.0)
+    pr = only(flagged).row
+    @test Set(split(pr.at_bound, ";")) ==
+          Set(string.(setdiff(keys(pr.params), (:L,))))
     mktempdir() do dir
         res = EnzymeRates._cv_model_selection([p], memo, prob;
             optimizer = _testhelper_CountingStubOpt(; uval = 0.0), se_threshold = 1.0,
@@ -2886,7 +2919,8 @@ end
         text = sprint(show, m)
         id = EnzymeRates._mechanism_id(sprint(show, m))
         key = EnzymeRates.Derivation.rate_equation_dedup_key(m).key
-        memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, m, id)
+        memo[key] = EnzymeRates._Fit(ones(length(fkeys)), loss, :Success, m, id,
+                                    falses(length(fkeys)))
         row = (n_params=length(fkeys), loss=loss, mechanism=text, mechanism_id=id,
                rate_equation="v", retcode="Success", error=missing,
                params=NamedTuple{fkeys}(ntuple(_ -> 1.0, length(fkeys))), key,

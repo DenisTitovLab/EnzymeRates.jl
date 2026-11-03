@@ -76,7 +76,7 @@ using OptimizationCMAEvolutionStrategy
         fp = FittingProblem(mm, mm_data; Keq = 2.0, reference = [(S = 10.0,) => 3.0])
         fit = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1,
                                 maxiters = 50)
-        @test keys(fit) == (:params, :loss, :retcode)
+        @test keys(fit) == (:params, :loss, :retcode, :at_bound)
         @test isfinite(fit.loss)
         @test rate_equation(mm, (S = 10.0, P = 0.0),
                             merge(fit.params, (Keq = 2.0, E_total = 1.0))) ≈ 3.0 rtol = 1e-8

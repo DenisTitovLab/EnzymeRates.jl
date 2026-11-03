@@ -138,6 +138,21 @@ turnover at stated concentrations (here the first data row), sets the scale of t
 returned rate constants (omit it and the largest predicted rate over the data rows, at
 `E_total = 1`, is scaled to 1); see [Normalized vs absolute rate](@ref).
 
+### Units and the search box
+
+We strongly recommend concentrations in M, because `Keq` values usually assume a 1 M
+standard state. Other units work as long as all metabolites, `Keq` and any `reference`
+concentrations use the same one. K and k then carry that unit: a K in mM, a second-order
+k per mM per time. The fit searches around the concentrations in your data, so the unit
+doesn't otherwise change the constants your data determine.
+
+Each constant's search box spans about 6.5 decades either side of a centre taken from the
+data's concentrations and rates. `fit_rate_equation` returns `at_bound`, the names of the
+constants whose best point lies within 0.01 log units of the box edge. A name in
+`at_bound` does not mean the value is wrong: a constant that no data constrain wanders
+across the box. It means the data do not pin that constant down. Pass the `fit_rate_equation`
+keywords `lb` and `ub` to widen or narrow the box.
+
 ---
 
 ## Identify the enzyme mechanism from data
@@ -188,3 +203,7 @@ entered CV) and `best_equation.csv` (the single selected equation with its
 fitted parameters). The last two persist the model-selection outcome, so a
 cluster run's result is available without re-deriving it from the iteration
 files.
+
+Each CSV has an `at_bound` column: the parameters at a box edge in the fit on all rows,
+separated by `;`. A parameter at a bound is not necessarily wrong; it means the data do
+not pin it down.

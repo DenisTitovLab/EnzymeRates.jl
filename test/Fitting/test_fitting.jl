@@ -408,7 +408,7 @@ end
             res = _testhelper_fit_capturing_convergence() do
                 fit_rate_equation(fp, opt; n_restarts, maxtime=0.5)
             end
-            @test keys(res) == (:params, :loss, :retcode)
+            @test keys(res) == (:params, :loss, :retcode, :at_bound)
             @test keys(res.params) == parameters(uni_uni, FittedParameters())
             @test isfinite(res.loss)
             @test res.retcode isa Symbol
@@ -430,7 +430,7 @@ end
         # 1/2 and v = (S − P/2)/(2 + S + P/2): 1/3 at S = 1 alone. A turnover of 2 there
         # scales every fitted constant, each a rate constant, by 6.
         rel = _testhelper_stub_fit(0.0; reference=[(S = 1.0,) => 2.0])
-        @test keys(rel) == (:params, :loss, :retcode)
+        @test keys(rel) == (:params, :loss, :retcode, :at_bound)
         @test all(v -> isapprox(v, 6.0; rtol=1e-12), values(rel.params))
         @test rel.retcode === :Success && isfinite(rel.loss)
         # The product alone runs the law backwards, against a forward reference turnover:
@@ -452,7 +452,7 @@ end
         @test no_finite.loss == Inf && no_finite.retcode === :NoFiniteLoss
         # Absolute mode returns the fitted constants as they are.
         absolute_fit = _testhelper_stub_fit(0.0; absolute=true)
-        @test keys(absolute_fit) == (:params, :loss, :retcode)
+        @test keys(absolute_fit) == (:params, :loss, :retcode, :at_bound)
         @test absolute_fit.params == NamedTuple{pn}((1.0, 1.0, 1.0))
     end
 

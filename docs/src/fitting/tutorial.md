@@ -124,6 +124,10 @@ settle in a local minimum — and because the optimizer is stochastic,
 until the fit returns the same loss on every run; empirically, 10–20 restarts is
 enough for many complex rate equations.
 
+`result.at_bound` names the fitted parameters whose best value lies at an edge of the
+search box; [Units and the search box](@ref) in Getting Started
+explains it.
+
 Check `result.retcode === :Success` to confirm the optimizer converged on its
 own criteria. Any other value — `:Default`, `:MaxTime`, `:Failure`,
 `:NoFiniteLoss` — means the fit is un-converged. `:ReferenceFailed` means the fitted law
