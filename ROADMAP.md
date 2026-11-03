@@ -262,6 +262,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   every per-member rate and every order of the two limits, its cheapest in-tree costs more
   than the law network's; each comparison is one linear-programming feasibility test, not
   yet prototyped.
+- **Review `identify_rate_equation`'s keyword arguments.**
+  It has at least 18, such as `eq_complexity_filter = 337`. Each becomes an internal constant
+  unless users have a real reason to change it, as they do for optimizer settings.
+- **Make `DSL.parse_mechanism` private if nothing needs it.**
+  It is a public name that no other module in `src/` uses.
 
 ## Decided against
 
