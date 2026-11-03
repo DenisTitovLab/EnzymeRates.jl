@@ -1,4 +1,5 @@
 # ABOUTME: Form names, the two sides of a step, and forms and steps as DSL text.
+# ABOUTME: Each mechanism stores its step sides, and parameters are named after them.
 
 # ─── Form names, step sides, and forms and steps as DSL text ───────────
 

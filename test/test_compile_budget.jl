@@ -9,9 +9,9 @@ using EnzymeRates
 # init_mechanisms trace-compile counts the method specializations that building the
 # init set compiles (EnzymeReaction is non-parametric, so there is no per-arity
 # reaction-type specialization).
-# The init_mechanisms baseline is 57 on Julia 1.13 (CI runners), 82 on Julia 1.12 and 87
-# on Julia 1.10.
-const INIT_TRACE_BUDGET                  = 200   # baseline 2026-10-09: 57-87; budget ≈ 2×
+# The init_mechanisms baseline is 19 on Julia 1.13 (CI runners and locally), 23 on Julia
+# 1.12 and 34 on Julia 1.11 (locally).
+const INIT_TRACE_BUDGET                  = 200   # baselines 2026-11-03: 19-34
 const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 1.5   # baseline 2026-10-23: 0.12 s locally,
                                                  # 0.19-0.37 s on CI
 # Per fresh mechanism, over PASS1, the fit and one LOOCV fold, with baselines measured on

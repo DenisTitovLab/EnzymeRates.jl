@@ -1,6 +1,6 @@
 name = "EnzymeRates"
 uuid = "e7a1c2d3-4b5f-6a7e-8c9d-0e1f2a3b4c5d"
-version = "0.10.0"
+version = "0.10.1"
 authors = ["Denis Titov <titov@berkeley.edu>  and contributors"]
 
 [deps]
@@ -39,7 +39,7 @@ Statistics = "1"
 Tables = "1"
 Test = "1"
 Unicode = "1"
-julia = "1.10"
+julia = "1.11"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"

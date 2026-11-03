@@ -1,7 +1,7 @@
 # Developer / Architecture
 
 This page is for maintainers and contributors. It documents the internal
-architecture of EnzymeRates.jl; the public API lives on the
+architecture of EnzymeRates.jl; the exported names live on the
 [API Reference](@ref) page.
 
 The package keeps two parallel mechanism representations, split along a
@@ -12,10 +12,11 @@ The two halves and the optimizer layer are described below.
 ## Modules
 
 EnzymeRates is six submodules and a top level. Each submodule lives in `src/<Module>/`:
-`<Module>.jl` declares the module, includes its files and lists its interface as
-`const API = (...)`. Its tests live in `test/<Module>/`. The diagram below shows every
-exported name and every name one module takes from another, and the tables list every
-module's whole `API`; `test/test_boundaries.jl` fails when they disagree with `src/`. The
+`<Module>.jl` declares the module, includes its files and lists its interface in a
+`public` statement. A module's public names are its interface to the other modules; only
+the exports are promised to users. Its tests live in `test/<Module>/`. The diagram below
+shows every exported name and every name one module takes from another, and the tables
+list every module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
 diagram is generated: each box's sentence is the first sentence of its module's docstring,
 and `julia test/update_module_map.jl` rewrites it.
 
@@ -113,7 +114,7 @@ EnzymeRates.DSL
 
 ### Interfaces
 
-Each table lists a module's whole `API`; the top level's lists the names it defines and
+Each table lists a module's public names; the top level's lists the names it defines and
 exports. "Used by" names the modules that call each name, and ✓ marks a name that
 `using EnzymeRates` brings in. The tests call more.
 
@@ -310,14 +311,14 @@ fit:
 `test/test_boundaries.jl` parses `src/` with `Meta.parseall`, without loading the
 package, and fails on:
 
-1. a name of another module, as `Mod.name` or imported by `using`, that the module's
-   `API` list lacks;
+1. a name of another module, as `Mod.name` or imported by `using`, that is not public in
+   that module;
 2. a module naming a module it may not depend on;
-3. an underscore name in an `API` list or used across modules;
+3. an underscore name in a `public` statement or used across modules;
 4. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
-To use another module's function, add it to that module's `API` list under a name
-without an underscore. The test also parses this page and fails when a table under
+To use another module's function, it must be public there, under a name without an
+underscore. The test also parses this page and fails when a table under
 "Modules" disagrees with `src/`, naming the module and the names to add or remove.
 
 ## Derivation architecture
