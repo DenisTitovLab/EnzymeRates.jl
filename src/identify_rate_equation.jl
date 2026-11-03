@@ -169,8 +169,8 @@ and data using beam search.
   candidate) and `best_equation.csv` (the selected equation and its
   fitted parameters). Each CSV has an `at_bound` column: the names, joined by `;`, of
   the constants whose best point lies at a bound of the fit's box (see
-  `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv` file or a
-  `progress.log` is refused, so the results of two runs never mix.
+  `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv`
+  file or a `progress.log` is refused, so the results of two runs never mix.
 
 # Beam selection
 

@@ -59,6 +59,12 @@ at finite concentrations ≥ 0, with a finite, nonzero turnover.
 ```julia
 fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
+
+We strongly recommend concentrations in M, because `Keq` values usually assume a 1 M
+standard state. Other units work as long as all metabolites, `Keq` and any `reference`
+concentrations use the same one. K and k then carry that unit: a K in mM, a second-order
+k per mM per time. See "Units and the search box" in the Getting Started page for how the
+fit searches around the concentrations in your data.
 """
 function FittingProblem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
         table; Keq::Real, absolute::Bool=false, reference=nothing)
@@ -204,9 +210,9 @@ Runs `n_restarts` independent optimizations from random initial points and retur
 the best result. Each start draws every log-space parameter from a normal distribution
 around its `centre`, with a standard deviation of 2, and clamps it to the box. The centre
 comes from the geometric means of the table's nonzero concentrations and of its `|Rate|`:
-a binding's K centres on the concentrations it binds, a rate constant on the rate over
-the concentrations it takes up, a regulator's K on its ligand's concentrations and `L`
-on 1.
+a binding's K centres on the concentrations it binds, any other rapid-equilibrium K on
+what the step gives off over what it takes up, a rate constant on the rate over the
+concentrations it takes up, a regulator's K on its ligand's concentrations and `L` on 1.
 
 `maxtime` and `maxiters` are Optimization.jl common solver options forwarded to
 every `Optimization.solve` call. `abstol`, `reltol`, and `callback` are common
