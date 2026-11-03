@@ -182,7 +182,7 @@ end
             @test _testhelper_api(root, :Fitting) == Set([:fit, :refit])
         end
         _testhelper_with_tree("Fitting/Fitting.jl" => "fit() = 1") do root
-            @test_throws ErrorException _testhelper_api(root, :Fitting)
+            @test_throws "no public statement" _testhelper_api(root, :Fitting)
         end
     end
     @testset "a clean tree passes every rule" begin

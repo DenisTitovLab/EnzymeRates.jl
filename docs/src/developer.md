@@ -1,7 +1,7 @@
 # Developer / Architecture
 
 This page is for maintainers and contributors. It documents the internal
-architecture of EnzymeRates.jl; the public API lives on the
+architecture of EnzymeRates.jl; the exported names live on the
 [API Reference](@ref) page.
 
 The package keeps two parallel mechanism representations, split along a
@@ -13,9 +13,10 @@ The two halves and the optimizer layer are described below.
 
 EnzymeRates is six submodules and a top level. Each submodule lives in `src/<Module>/`:
 `<Module>.jl` declares the module, includes its files and lists its interface in a
-`public` statement. Its tests live in `test/<Module>/`. The diagram below shows every
-exported name and every name one module takes from another, and the tables list every
-module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
+`public` statement. A module's public names are its interface to the other modules; only
+the exports are promised to users. Its tests live in `test/<Module>/`. The diagram below
+shows every exported name and every name one module takes from another, and the tables
+list every module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
 diagram is generated: each box's sentence is the first sentence of its module's docstring,
 and `julia test/update_module_map.jl` rewrites it.
 
