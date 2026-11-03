@@ -79,14 +79,15 @@ _testhelper_module_sources(root) = Dict(
     m => _testhelper_source_files(joinpath(root, string(m)))
     for m in _testhelper_MODULES if isdir(joinpath(root, string(m))))
 
-"""The names in the `public` statements of `root/<mod>/<mod>.jl`."""
+"""The names in the `public` statements of the files under `root/<mod>/`."""
 function _testhelper_api(root, mod::Symbol)
-    path = joinpath(root, string(mod), string(mod) * ".jl")
     statements = Expr[]
-    _testhelper_walk(Meta.parseall(read(path, String))) do ex, _
-        ex.head === :public && push!(statements, ex)
+    for file in _testhelper_source_files(joinpath(root, string(mod)))
+        _testhelper_walk(Meta.parseall(read(file, String))) do ex, _
+            ex.head === :public && push!(statements, ex)
+        end
     end
-    isempty(statements) && error("$path has no public statement")
+    isempty(statements) && error("module $mod has no public statement")
     Set{Symbol}(n for ex in statements for n in ex.args)
 end
 
