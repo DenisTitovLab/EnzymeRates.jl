@@ -22,9 +22,7 @@ Rule #1: If you want exception to ANY rule, YOU MUST STOP and get explicit permi
 - If you're having trouble, YOU MUST STOP and ask for help, especially for tasks where human input would be valuable.
 - When you disagree with my approach, YOU MUST push back. Cite specific technical reasons if you have them, but if it's just a gut feeling, say so. 
 - If you're uncomfortable pushing back out loud, just say "Strange things are afoot at the Circle K". I'll know what you mean
-- We discuss architectutral decisions (framework changes, major refactoring, system design)
-  together before implementation. Routine fixes and clear implementations don't need
-  discussion.
+- We discuss architectural decisions (framework changes, rewriting a whole implementation or module, system design) together before implementation. Routine fixes, simplifying the code a change touches and clear implementations don't need discussion.
 
 
 # Proactiveness
@@ -62,7 +60,7 @@ When asked to do something, just do it - including obvious follow-up actions nee
 - YOU MUST get Denis's explicit approval before implementing ANY backward compatibility.
 - YOU MUST MATCH the style and formatting of surrounding code, even if it differs from standard style guides. Consistency within a file trumps external standards.
 - YOU MUST NOT manually change whitespace that does not affect execution or output. Otherwise, use a formatting tool.
-- Fix broken things immediately when you find them. Don't ask permission to fix bugs. Anything else unrelated goes in `ROADMAP.md`.
+- Fix broken things immediately when you find them. Don't ask permission to fix bugs, unless the fix adds a public name, adds an argument to one or changes an exported function. Anything else unrelated goes in `ROADMAP.md`.
 
 
 
@@ -87,8 +85,8 @@ Choose names with care. A name says what a function does, so that a reader, huma
 Don't write a comment that restates the code: it adds nothing, and it misleads once the code changes. Write one when the code can't say it: why something exists, a chemical or numerical reason, a bug that would happen without this code, a trap for the next editor. Delete a restating comment when you touch it, keep one that explains why, and update a comment in the same change as the code it describes.
 
  - NEVER add comments explaining that something is "improved", "better", "new", "enhanced", or referencing what it used to be
- - NEVER add instructional comments telling developers what to do ("copy this pattern", "use this instead")
- - If you're refactoring, remove old comments - don't add new ones explaining the refactoring
+ - NEVER add instructional comments telling developers what to do ("copy this pattern"). A warning about a trap is fine.
+ - If you're refactoring, don't add comments explaining the refactoring.
  - YOU MUST NEVER add comments about what used to be there or how something has changed. 
  - YOU MUST NEVER refer to temporal context in comments (like "recently refactored" "moved") or code. Comments should be evergreen and describe the code as it is. If you name something "new" or "enhanced" or "improved", you've probably made a mistake and MUST STOP and ask me what to do.
  - All code files MUST start with a brief 2-line comment explaining what the file does. Each line MUST start with "ABOUTME: " to make them easily greppable.
@@ -97,7 +95,7 @@ Don't write a comment that restates the code: it adds nothing, and it misleads o
   // BAD: This uses Zod for validation instead of manual checking
   // BAD: Refactored from the old validation system
   // BAD: Wrapper around MCP tool protocol
-  // GOOD: Executes tools with validated arguments
+  // GOOD: Without a residue here, the enzyme returns to apo E mid-cycle
 
   If you catch yourself writing "new", "old", "legacy", "wrapper", "unified", or implementation details in names or comments, STOP and find a better name that describes the thing's
   actual purpose.
@@ -153,7 +151,7 @@ Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read
 
 ## API Design
 
-- `compile_mechanism` and `test_rate_equation` are NOT exported (internal but usable as `EnzymeRates.test_rate_equation`). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.Enumeration.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
+- `compile_mechanism` and `test_rate_equation` are NOT exported (public in their modules and usable as `EnzymeRates.test_rate_equation`, but not promised to users). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.Enumeration.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
 - The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and steps that `Mechanism(substrates, products, nodes, steps)` / `AllostericMechanism(...)` build from `EnzymeForm` and `Step` lists, and whose derived facts (`groups`, `step_kinds`, `toward_products`, `step_sides`, `modifiers`) are stored fields read with dots — there is no separate working representation.
 - Data tables use a `group` column to identify measurement groups sharing the same E_total
 - Keq is always user-provided, never estimated from data
@@ -163,7 +161,7 @@ Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read
 ```bash
 # Run full test suite (cold — pays precompilation + JIT cost every time). The heap hint
 # keeps the peak under the memory available next to a resident VS Code language server.
-julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
+timeout 1200 julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 ```
 
 ```bash
@@ -173,7 +171,7 @@ julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'
 julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<Module>/<file>.jl")'
 ```
 
-Use the focused run while iterating and the full suite once before committing. Four things to
+Use the focused run while iterating and before each commit, and the full suite once before pushing. Four things to
 know: the focused run skips Aqua and JET; it includes only the shared fixtures file and the file
 you name, so a helper defined in another test file is undefined under it (keep shared helpers,
 such as `_testhelper_random_independent_params`, in
@@ -183,7 +181,7 @@ in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
 ## Workflow
 
-- Always run tests before committing
+- Always run the tests a change touches before committing
 - Specs and plans under `docs/superpowers/` are working documents. Delete a change's spec and plan in the PR that implements it, before it merges: the code, tests, developer docs and `ROADMAP.md` are the lasting record, and git history keeps the rest.
 
 ## Code Style
