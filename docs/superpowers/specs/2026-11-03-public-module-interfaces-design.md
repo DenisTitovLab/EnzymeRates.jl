@@ -111,10 +111,11 @@ EXPLICIT permission":**
 
 **"Code Comments", replacing the bullets on when to remove comments:**
 
-> Avoid comments; let the code speak for itself. A comment adds information at a different
-> level of abstraction from the code, higher (why this exists, the idea behind it) or lower (a
-> subtle numerical or chemical detail). It never restates the code. Delete a comment that
-> restates the code when you touch it.
+> Don't write a comment that restates the code: it adds nothing, and it misleads once the code
+> changes. Write one when the code can't say it: why something exists, a chemical or numerical
+> reason, a bug that would happen without this code, a trap for the next editor. Delete a
+> restating comment when you touch it, keep one that explains why, and update a comment in the
+> same change as the code it describes.
 
 The bans on history in comments and the `ABOUTME` rule stay.
 
