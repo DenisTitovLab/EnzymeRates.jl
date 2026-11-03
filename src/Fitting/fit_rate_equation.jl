@@ -192,14 +192,18 @@ end
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0, maxiters=10_000_000,
         abstol=nothing, reltol=nothing, callback=nothing,
-        lb=fill(-15.0, length(parameters(fp.mechanism, FittedParameters()))),
-        ub=fill(15.0, length(parameters(fp.mechanism, FittedParameters()))),
+        lb=centre .- 15.0, ub=centre .+ 15.0,
         solver_kwargs=(;))
 
 Fit rate constants by minimizing `loss!` using Optimization.jl.
 
 Runs `n_restarts` independent optimizations from random initial points and returns
-the best result.
+the best result. Each start draws every log-space parameter from a normal distribution
+around its `centre`, with a standard deviation of 2, and clamps it to the box. The centre
+comes from the geometric means of the table's nonzero concentrations and of its `|Rate|`:
+a binding's K centres on the concentrations it binds, a rate constant on the rate over
+the concentrations it takes up, a regulator's K on its ligand's concentrations and `L`
+on 1.
 
 `maxtime` and `maxiters` are Optimization.jl common solver options forwarded to
 every `Optimization.solve` call. `abstol`, `reltol`, and `callback` are common
@@ -208,7 +212,8 @@ options forwarded only when set (otherwise each solver uses its own default).
 to `solve` (e.g. `(; popsize=200)` for a CMA-ES solver that supports it). A key
 present in both a named common option and `solver_kwargs` takes the
 `solver_kwargs` value. `lb`/`ub` are the log-space bounds passed to the
-`OptimizationProblem`.
+`OptimizationProblem`. They hold absolute log values, and by default lie 15 log units
+either side of each centre, so the box follows the data.
 
 In relative mode (`fp.rate_data.absolute == false`) the returned steady-state rate
 constants are multiplied by one factor so the mechanism reproduces the reference turnovers
@@ -237,10 +242,8 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     abstol::Union{Real,Nothing}=nothing,
     reltol::Union{Real,Nothing}=nothing,
     callback=nothing,
-    lb=fill(-15.0,
-            length(Derivation.parameters(fp.mechanism, Derivation.FittedParameters()))),
-    ub=fill(15.0,
-            length(Derivation.parameters(fp.mechanism, Derivation.FittedParameters()))),
+    lb=_log_centres(fp) .- 15.0,
+    ub=_log_centres(fp) .+ 15.0,
     solver_kwargs=(;),
 )
     # `fp` is @nospecialize, so `parameters(fp.mechanism, FittedParameters())` infers as
@@ -268,8 +271,9 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     # (which only fires when a restart achieves a finite objective).
     best_retcode = :NoFiniteLoss
 
+    centre = _log_centres(fp)
     for _ in 1:n_restarts
-        x0 = clamp.(randn(np) .* 2.0, lb, ub)
+        x0 = clamp.(centre .+ randn(np) .* 2.0, lb, ub)
         prob = _optimization_problem(fp, x0, lb, ub)
         sol = Optimization.solve(prob, optimizer; solve_kwargs...)
         if sol.objective < best_loss
@@ -287,6 +291,65 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
     return (params = _scale_rate_constants(fp.mechanism, result_params, scale),
             loss = best_loss, retcode = best_retcode)
+end
+
+"""
+    _concentration_scales(fp) -> Dict{Symbol, Float64}
+
+Each metabolite of `fp.mechanism` to the geometric mean of its nonzero concentrations in
+the table. A metabolite that is always zero takes the geometric mean of all positive
+concentrations of those metabolites in the table, or 1 when there are none.
+"""
+function _concentration_scales(@nospecialize(fp::FittingProblem))
+    data = fp.rate_data.data
+    mets = Mechanisms.metabolites(fp.mechanism)
+    # `getfield` reads a column by its runtime name without compiling for the table's type.
+    positive = Vector{Float64}[Float64[c for c in getfield(data, x) if c > 0] for x in mets]
+    pooled = reduce(vcat, positive)
+    fallback = isempty(pooled) ? 1.0 : _geometric_mean(pooled)
+    Dict{Symbol, Float64}(x => isempty(v) ? fallback : _geometric_mean(v)
+                          for (x, v) in zip(mets, positive))
+end
+
+_geometric_mean(v) = exp(mean(log, v))
+
+"""The geometric mean of the table's `|Rate|`, which `RateData` guarantees nonzero."""
+_rate_scale(@nospecialize(fp::FittingProblem)) = exp(mean(fp.log_abs_rates))
+
+"""
+    _log_centre(p, m, s, r) -> Float64
+
+The log value of parameter `p` of the concrete mechanism `m` at which it matches the
+concentration scales `s` (`_concentration_scales`) and the rate scale `r` (`_rate_scale`).
+A rate constant turns the scales of what it takes up into `r`. A binding's K, a dissociation
+constant, is the scale of what binds, and any other rapid-equilibrium K is the scales given
+off over those taken up. A regulator's K is the scale of its ligand, and `L` centres on 1.
+"""
+function _log_centre(p::Derivation.StepParameter, m, s::Dict{Symbol, Float64}, r::Real)
+    cm = Mechanisms.catalytic(m)
+    e = cm.steps[p.step]
+    e.rapid_equilibrium ||
+        return log(r) - _sum_log(s, p.slot == 1 ? e.taken_up : e.given_off)
+    cm.step_kinds[p.step] in (:binding, :fused_binding) ? _sum_log(s, e.taken_up) :
+        _sum_log(s, e.given_off) - _sum_log(s, e.taken_up)
+end
+_log_centre(p::Derivation.RegulatorParameter, m, s::Dict{Symbol, Float64}, r::Real) =
+    log(s[p.ligand])
+_log_centre(::Derivation.AllostericParameter, m, s::Dict{Symbol, Float64}, r::Real) = 0.0
+
+_sum_log(s, mets) = sum(log(s[x.name]) for x in mets; init = 0.0)
+
+"""
+    _log_centres(fp) -> Vector{Float64}
+
+The centre of `fit_rate_equation`'s search: `_log_centre` of each parameter of
+`Derivation.parameter_info`, in the order of `parameters(fp.mechanism, FittedParameters())`.
+"""
+function _log_centres(@nospecialize(fp::FittingProblem))
+    m = _concrete(fp.mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    s = _concentration_scales(fp)
+    r = _rate_scale(fp)
+    Float64[_log_centre(p, m, s, r) for p in Derivation.parameter_info(m)]
 end
 
 """

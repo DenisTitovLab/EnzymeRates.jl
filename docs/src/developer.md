@@ -45,7 +45,7 @@ flowchart TB
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>StepParameter<br/>name()<br/>parameter_info()"| der
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
@@ -170,8 +170,8 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
 | `StepParameter` | A constant of a step: its step, slot and conformation | Fitting | |
-| `RegulatorParameter` | A regulator ligand's constant in one conformation | | |
-| `AllostericParameter` | The allosteric constant `L` | | |
+| `RegulatorParameter` | A regulator ligand's constant in one conformation | Fitting | |
+| `AllostericParameter` | The allosteric constant `L` | Fitting | |
 | `parameter_info` | The fitted parameters, in `parameters` order | Fitting | |
 | `name` | The name of a parameter in a concrete mechanism | Fitting | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
