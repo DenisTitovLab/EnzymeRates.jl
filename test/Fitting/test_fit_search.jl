@@ -18,6 +18,18 @@ function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
                    prob.f(prob.u0, prob.p); retcode = ReturnCode.Success)
 end
 
+# An optimizer stub that returns the fixed point `u` at a fixed objective, which may be Inf.
+struct _testhelper_FixedPointStubOpt
+    u::Vector{Float64}
+    objective::Float64
+end
+Optimization.allowsbounds(::_testhelper_FixedPointStubOpt) = true
+function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
+        opt::_testhelper_FixedPointStubOpt; kwargs...)
+    build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, copy(opt.u),
+                   opt.objective; retcode = ReturnCode.Success)
+end
+
 # Tests that the centres of `mechanism` move with the law: scaling each metabolite by its
 # own factor, `Keq` by those factors to their stoichiometry and each fitted parameter by the
 # move of its centre multiplies the rate by exactly the factor on the rate reference.
@@ -401,6 +413,88 @@ end
             # The first constant's centre lies near 20, far above this box.
             @test seen.u0[findfirst(==(:k_E_S_to_ES), names)] == 1.0
             @test all(lb .<= seen.u0 .<= ub)
+        end
+    end
+
+    @testset "At-bound flag" begin
+        table = (group = ["G1", "G1", "G2", "G2"], Rate = [2.0, 8.0, -2.0, 8.0],
+                 S = [1e-9, 1e-7, 1e-9, 1e-7], P = [1e-5, 1e-5, 1e-5, 1e-5])
+        fp = FittingProblem(steady_state, table; Keq = 2.0)
+        names = parameters(steady_state, FittedParameters())
+        centre = log_centres(fp)
+        lb, ub = centre .- 15.0, centre .+ 15.0
+        fit_at(u; objective = 1.0, problem = fp, kwargs...) = fit_rate_equation(
+            problem, _testhelper_FixedPointStubOpt(u, objective); n_restarts = 1, kwargs...)
+
+        @testset "within 0.01 log units of a default edge" begin
+            for (edge, sign) in ((ub, -1), (lb, 1))
+                u = copy(centre)
+                u[2] = edge[2] + sign * 0.009
+                @test fit_at(u).at_bound == (names[2],)
+                u[2] = edge[2] + sign * 0.011
+                @test fit_at(u).at_bound == ()
+            end
+            u = copy(centre)
+            u[1], u[3] = ub[1], lb[3]
+            @test fit_at(u).at_bound == (names[1], names[3])
+        end
+
+        @testset "an explicit box" begin
+            lb_x, ub_x = fill(-1.0, 3), fill(1.0, 3)
+            u = [0.0, 0.0, -1.0 + 0.009]
+            @test fit_at(u; lb = lb_x, ub = ub_x).at_bound == (names[3],)
+            u[3] = -1.0 + 0.011
+            @test fit_at(u; lb = lb_x, ub = ub_x).at_bound == ()
+        end
+
+        @testset "a box that excludes the centre clamps the start to the edge" begin
+            stub = _testhelper_RecordingStubOpt()
+            lb_x, ub_x = fill(-1.0, 3), fill(1.0, 3)
+            Random.seed!(47)
+            fit_rate_equation(fp, stub; n_restarts = 1, lb = lb_x, ub = ub_x)
+            @test all(lb_x .<= only(stub.seen).u0 .<= ub_x)
+            start = only(stub.seen).u0
+            fit = fit_at(start; lb = lb_x, ub = ub_x)
+            # The start of k_E_S_to_ES, centred near 20, sits on `ub`.
+            @test :k_E_S_to_ES in fit.at_bound
+            @test fit.at_bound == Tuple(names[i] for i in 1:3 if start[i] == 1.0)
+        end
+
+        @testset "a point inside the box is not at a bound" begin
+            @test fit_at(centre).at_bound == ()
+        end
+
+        @testset "relative mode reads the point before the scale" begin
+            # The scale moves every fitted rate constant by a large factor, past the box.
+            tight_lb, tight_ub = centre .- 1.0, centre .+ 1.0
+            reference = [(S = 1e-6, P = 1e-9) => 1e6]
+            fit = fit_at(centre; problem = FittingProblem(steady_state, table; Keq = 2.0,
+                                                          reference),
+                         lb = tight_lb, ub = tight_ub)
+            @test fit.retcode === :Success
+            @test any(k -> log(fit.params[k]) > tight_ub[findfirst(==(k), names)], names)
+            @test fit.at_bound == ()
+        end
+
+        @testset "no finite restart gives ()" begin
+            fit = fit_at(ub; objective = Inf)
+            @test fit.retcode === :NoFiniteLoss
+            @test fit.at_bound == ()
+        end
+
+        @testset "a failed reference scale still reports the best point" begin
+            wrong_sign = FittingProblem(steady_state, table; Keq = 2.0,
+                                        reference = [(P = 1e-5,) => 1.0])
+            u = copy(centre)
+            u[2] = ub[2]
+            fit = fit_at(u; problem = wrong_sign)
+            @test fit.retcode === :ReferenceFailed
+            @test fit.at_bound == (names[2],)
+        end
+
+        @testset "destructures as params, loss, retcode" begin
+            fitted, loss, retcode = fit_at(centre)
+            @test fitted isa NamedTuple && loss == 1.0 && retcode === :Success
         end
     end
 end

@@ -188,6 +188,9 @@ function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
                                      lb=lb, ub=ub)
 end
 
+# Distance in log units from a box edge within which a fitted parameter counts as at bound.
+const AT_BOUND_TOLERANCE = 0.01
+
 """
     fit_rate_equation(fp::FittingProblem, optimizer;
         n_restarts=20, maxtime=60.0, maxiters=10_000_000,
@@ -226,7 +229,7 @@ unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not throw
 In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
 `retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
 
-Returns a NamedTuple `(params, loss, retcode)` where:
+Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
 - `params`: fitted rate constants as a NamedTuple
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
@@ -234,6 +237,10 @@ Returns a NamedTuple `(params, loss, retcode)` where:
   value (e.g. `:MaxTime` — hit the time budget; `:Failure`; `:Default` — ran but
   did not flag success) means the fit should be treated as un-converged (check
   `retcode !== :Success`); `:ReferenceFailed` marks a failed reference scale.
+- `at_bound`: the names of the fitted parameters whose best point lies within 0.01 log
+  units of its `lb` or `ub`, read before the relative-mode scale, which can move a
+  reported rate constant outside the box. `()` when no restart reaches a finite loss. "At
+  bound" does not mean wrong: a parameter no data constrain wanders across the box.
 """
 function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     n_restarts::Int=20,
@@ -284,13 +291,16 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     end
 
     result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
+    at_bound = isfinite(best_loss) ?
+        Tuple(pnames[i] for i in 1:np
+              if min(best_x[i] - lb[i], ub[i] - best_x[i]) <= AT_BOUND_TOLERANCE) : ()
     (fp.rate_data.absolute || !isfinite(best_loss)) &&
-        return (params = result_params, loss = best_loss, retcode = best_retcode)
+        return (params = result_params, loss = best_loss, retcode = best_retcode, at_bound)
     scale = _reference_scale(fp, merge(result_params, (Keq = fp.rate_data.Keq,)))
     scale === nothing &&
-        return (params = result_params, loss = Inf, retcode = :ReferenceFailed)
+        return (params = result_params, loss = Inf, retcode = :ReferenceFailed, at_bound)
     return (params = _scale_rate_constants(fp.mechanism, result_params, scale),
-            loss = best_loss, retcode = best_retcode)
+            loss = best_loss, retcode = best_retcode, at_bound)
 end
 
 """
