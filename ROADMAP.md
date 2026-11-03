@@ -69,19 +69,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   refuses a zero rate, and the loss scores a NaN prediction as a sign mismatch, the penalty
   a 0 prediction gets (`test/Derivation/test_admission.jl`). Adding these corners to the
   faces would drop at least these 369 mechanisms, 93 of whose laws have a limit there.
-- **On Julia 1.10 the full suite can peak above 4 GB.**
-  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.10.12 peaked at 3.30-4.36 GB
-  in seven runs, and an eighth was killed at 4.49 GB, most likely by the OOM killer of a
-  7.7 GB machine; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
+- **On Julia 1.11 the full suite can peak above 4 GB.**
+  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.03 GB in one
+  run; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
   of the ter-ter entry below grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
   `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
-  1 GB of garbage. On 1.10 the full suite still counts it after the enumeration file,
-  1.83-1.84 GiB live there against 0.55-0.65 GiB with one `GC.gc()` after the testset; with
-  the file run alone, the count drops at the ter-ter seed testset. No test value retains the
-  garbage: a full collection after the testset frees it (live bytes fall from 0.94 to 0.055
-  GiB), and that `GC.gc()` brings the suite to 2.93-3.05 GB. CI runs Julia 1 alone, so
-  nothing checks the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for
-  the suite.
+  1 GB of garbage. No test value retains the garbage: a full collection after the testset
+  frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1 alone, so nothing checks
+  the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
 - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
   The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
   is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
@@ -231,7 +226,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   while `Random.seed!` still reproduces a run; every saved fit would move once.
 - **Test the compat bounds in a scheduled CI job.**
   `.github/workflows/CI.yml` tests only the latest Julia release with the newest
-  dependencies, while `Project.toml` declares `julia = "1.10"` and a lower bound for every
+  dependencies, while `Project.toml` declares `julia = "1.11"` and a lower bound for every
   dependency, so a wrong Julia or dependency floor surfaces only in a user's environment,
   and a dependency release that breaks the package only at the next CI run. A scheduled
   workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
