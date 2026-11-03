@@ -197,10 +197,10 @@ The bans on history in comments and the `ABOUTME` rule stay.
 
 ## Delivery
 
-One PR, because the new text describes the new checks. The branch `public-module-interfaces`
-stacks on `data-based-fit-search`, since both change the `API` lists and the same part of
-`CLAUDE.md`; it rebases when that work merges. This spec is deleted in the PR that implements
-it.
+One PR against `main`, because the new text describes the new checks. The local branch
+`public-module-interfaces` stacks on `data-based-fit-search` (PR #99), since both change the `API`
+lists and the same part of `CLAUDE.md`. Decided by Denis: this PR opens after #99 merges, and the
+branch rebases onto `main` first. This spec is deleted in the PR that implements it.
 
 ## Left to the builder
 
