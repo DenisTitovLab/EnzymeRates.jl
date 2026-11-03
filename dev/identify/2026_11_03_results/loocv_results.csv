@@ -1,5 +1,5 @@
-n_params,parent_n_params,loss,mechanism,mechanism_id,parent_id,rate_equation,retcode,error,key,fit_inherited,fit_source_id,L_phantom,K_A_Areg,K_A_EP_to_E_P,K_A_ES_to_E_S,K_EP_to_E_P,K_ES_to_E_S,K_I_Areg,L,k_A_ES_to_EP,cv_score,cv_score_se,cv_fold_G1,cv_fold_G2
-5,,1.0734969093360995e-13,"@allosteric_mechanism begin
+n_params,parent_n_params,loss,mechanism,mechanism_id,parent_id,rate_equation,retcode,error,key,fit_inherited,fit_source_id,L_phantom,at_bound,K_A_Areg,K_A_EP_to_E_P,K_A_ES_to_E_S,K_EP_to_E_P,K_ES_to_E_S,K_I_Areg,L,k_A_ES_to_EP,cv_score,cv_score_se,cv_fold_G1,cv_fold_G2
+5,,8.408637313037926e-14,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -22,8 +22,8 @@ Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S + dI_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,1.0000003859566065,,,0.9999977099461616,0.999998253736399,,99.99993165152357,4.999990687244852,1.9527379436077969e-13,4.952089257051996e-14,2.4479468693129964e-13,1.457529017902597e-13
-5,,0.006467692463797926,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,,1.0000000339838493,,,0.999997981189376,1.0000015915008387,,100.0000125406394,5.000007603575924,4.234260181948775e-13,3.2505164889262383e-13,7.484776670875014e-13,9.837436930225368e-14
+5,,0.006467700696849243,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -45,8 +45,8 @@ Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,945d668d97831f76138298e437dba27b20a6583248a28fd79d864adfcd3f56f3,false,9bec69da846bf50e,false,1.0000002020915078,3.269016442223156e6,,,1.2840881044693326,,100.00001169705871,5.657458099331039,0.006468914735197931,0.005227880022273712,0.011696794757471644,0.0012410347129242182
-5,,0.13541758419405173,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,945d668d97831f76138298e437dba27b20a6583248a28fd79d864adfcd3f56f3,false,9bec69da846bf50e,false,K_A_EP_to_E_P,0.9999992310713147,730973.7045140875,,,1.2840871826624651,,99.99998004939572,5.65745224198492,0.006468923483300087,0.005227887278658821,0.01169681076195891,0.0012410362046412654
+5,,0.13541748813888546,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -68,8 +68,8 @@ Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,84561dd3b4fa1be0d9eb6b02b00763ec6368e7aa74919e5cd68cedfa5135eac5,false,c352c3a23a76325d,false,0.9999996935076944,,3.2690157185637676e6,2.591866609299747,,,100.00011000817028,1.2125517803371591e7,0.13955722975593235,0.0999980760511527,0.03955915370477965,0.23955530580708503
-5,,0.14021594629309753,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,84561dd3b4fa1be0d9eb6b02b00763ec6368e7aa74919e5cd68cedfa5135eac5,false,c352c3a23a76325d,false,K_A_ES_to_E_S,0.9999994508192278,,5.662104004922142e6,2.5918642687062263,,,100.0000427168213,2.1002010074434966e7,0.13955742450379457,0.09999824484952405,0.03955917965427052,0.23955566935331862
+5,,0.14021585444609358,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -89,8 +89,8 @@ dA_P = 1 / K_A_EP_to_E_P
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L)",Success,,07d603da14f70ca745e93d3f4c768ae82cdac1a83633c5fae84317b2f0f90b34,false,0761dcdfeea01dd0,false,1.0000002442933904,3.268990383533898e6,3.269017289163083e6,,,,100.00019229624144,1.167508272785334e7,0.14021594629432865,0.09485174443122052,0.045364201863108106,0.23506769072554917
-5,,3.1700639775549204,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L)",Success,,07d603da14f70ca745e93d3f4c768ae82cdac1a83633c5fae84317b2f0f90b34,false,0761dcdfeea01dd0,false,K_A_EP_to_E_P;K_A_ES_to_E_S,1.0000001861431387,730973.2534450591,5.662103142684527e6,,,,100.00011653823968,2.0221816716589317e7,0.14021615112688304,0.09485194318167606,0.04536420794520698,0.2350680943085591
+5,,3.1700639775554063,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -110,4 +110,4 @@ dA_P = 1 / K_A_EP_to_E_P
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,,0.9999994023334727,1.000000459458556,,,2.855788756677274e6,3.1116970596707175e-7,0.0524881827050441,3.1700639775600523,6.34359232198933e-12,3.1700639775663957,3.1700639775537085
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,,,1.0000015489805325,0.9999973658998945,,,2.302040018155606e6,3.1499785433174887e-7,0.052488047178943,3.170063977555057,1.2951861995611897e-12,3.170063977556352,3.170063977553762
