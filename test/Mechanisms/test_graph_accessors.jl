@@ -7,7 +7,7 @@ const ER = EnzymeRates
 _testhelper_names(list) = Symbol[x.name for x in list]
 
 """Bytes the call `f(args...)` allocates, after a first call compiles it."""
-function _testhelper_allocated(f, args...)
+function _testhelper_allocated(f::F, args...) where {F}
     f(args...)
     @allocated f(args...)
 end
@@ -15,6 +15,10 @@ end
 """Test that `catalytic` of `m` allocates nothing."""
 function _testhelper_test_graph_reads_allocate_nothing(m)
     @test _testhelper_allocated(ER.Mechanisms.catalytic, m) == 0
+end
+
+@testset "the allocation helper counts an allocating call" begin
+    @test _testhelper_allocated(string, 12345) > 0
 end
 
 @testset "graph accessors: random-order bi-bi" begin
