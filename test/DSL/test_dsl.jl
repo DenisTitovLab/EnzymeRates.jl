@@ -1,6 +1,9 @@
 # ABOUTME: Tests for the DSL module: the three macros, the walker's raw values and
 # ABOUTME: parse_mechanism, which reads a mechanism back from its text.
 
+using CSV
+using DataFrames
+
 @testset "DSL module entry points" begin
     @testset "the macros work when imported alone" begin
         importer = Module(:_testhelper_MacroOnly)
@@ -2365,6 +2368,12 @@ end
         # Blank lines around the block, as a text copied from a CSV cell may hold, are
         # whitespace, not text.
         @test EnzymeRates.DSL.parse_mechanism("\n  " * text * "\n\n") ==
+              EnzymeRates.DSL.parse_mechanism(text)
+        # The text as a user reads it back from a saved results file.
+        buf = IOBuffer()
+        CSV.write(buf, DataFrame(mechanism = [text]))
+        seekstart(buf)
+        @test EnzymeRates.DSL.parse_mechanism(only(CSV.read(buf, DataFrame).mechanism)) ==
               EnzymeRates.DSL.parse_mechanism(text)
         # Anything but one unqualified mechanism macro call is no mechanism text.
         for other in ("1 + 2", "EnzymeRates." * text,

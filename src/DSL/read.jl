@@ -656,8 +656,10 @@ fails with the macros' message and text with a syntax error with `Meta.parse`'s
 The text `show` prints for a mechanism the macros accept reads back as that mechanism.
 """
 function parse_mechanism(text::AbstractString)
-    ex = Meta.parse(strip(text))
-    macros = (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism"))
+    # The parser runs in a fixed world age, where a SubString of a string type from a
+    # package (CSV.jl's DataString) cannot be iterated.
+    ex = Meta.parse(strip(String(text)))
+    macros =(Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism"))
     ex isa Expr && ex.head === :macrocall && length(ex.args) == 3 && ex.args[1] in macros ||
         error("parse_mechanism: expected the text of one @enzyme_mechanism or " *
               "@allosteric_mechanism block; got $ex")
