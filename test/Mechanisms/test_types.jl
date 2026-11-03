@@ -2952,9 +2952,9 @@ end
     am2 = _testhelper_build(_testhelper_written(am1))
     # Every parameter's name, which reads the mechanism and stores nothing in it.
     _testhelper_param_names(m::EnzymeRates.Mechanism) =
-        EnzymeRates.Derivation._edge_names(m, :None)
+        _testhelper_edge_names(m, :None)
     _testhelper_param_names(m::EnzymeRates.AllostericMechanism) =
-        [[EnzymeRates.Derivation._edge_names(m, state) for state in (:A, :I)];
+        [[_testhelper_edge_names(m, state) for state in (:A, :I)];
          [[K] for state in (:A, :I) for K in _testhelper_regulator_constants(m, state)]]
     # `rebuilt` is `m` constructed again from the nodes and steps it writes back.
     function _testhelper_check_identity(m, rebuilt)
@@ -3042,7 +3042,7 @@ end
     @test_throws msg rate_equation_string(em)
     @test_throws msg dependent_parameter_values(em, (Keq = 1.0,))
     @test_throws msg dependent_parameter_values(m, (Keq = 1.0,))
-    @test_throws msg parameters(em, EnzymeRates.Derivation.RateConstants())
+    @test_throws msg EnzymeRates.Derivation.parameter_info(m)
 end
 
 """A value of each type a mechanism is built from: a metabolite, a node with a residual,

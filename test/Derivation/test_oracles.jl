@@ -475,7 +475,7 @@ const _testhelper_sample_regroupings =
             m isa EnzymeRates.AllostericMechanism || continue
             law_names =
                 Set(n for state in (:A, :I)
-                    for ns in EnzymeRates.Derivation._edge_names(m, state) for n in ns)
+                    for ns in _testhelper_edge_names(m, state) for n in ns)
             reg = Set(K for state in (:A, :I)
                       for K in _testhelper_regulator_constants(m, state))
             fitted = _testhelper_dependent_param_exprs(m)[2]

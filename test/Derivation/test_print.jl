@@ -639,7 +639,7 @@ end
         am = _testhelper_lift(m)
         cm = EnzymeRates.Mechanisms.catalytic(am)
         onlyi =
-            [String(x) for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(am, :I))
+            [String(x) for (k, ns) in enumerate(_testhelper_edge_names(am, :I))
              if am.mwc_tags[cm.steps[k].group] === :OnlyI
              for x in ns]
         d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))

@@ -45,9 +45,9 @@ flowchart TB
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>RateConstants"| der
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>StepParameter<br/>name()<br/>parameter_info()"| der
   fit -->|"RateData"| data
-  fit -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,enum,fit,der,data,mech mod;
@@ -139,13 +139,13 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
 | `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level | |
-| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, top level | ✓ |
-| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, top level | ✓ |
+| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, Fitting, top level | ✓ |
+| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, Fitting, top level | ✓ |
 | `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, | |
 | | | top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, top level | |
-| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
+| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration, Fitting | |
 | `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
@@ -169,12 +169,11 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
 | `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
-| `RateConstants` | Kind: the steady-state rate constants | Fitting | |
-| `StepParameter` | A constant of a step: its step, slot and conformation | | |
+| `StepParameter` | A constant of a step: its step, slot and conformation | Fitting | |
 | `RegulatorParameter` | A regulator ligand's constant in one conformation | | |
 | `AllostericParameter` | The allosteric constant `L` | | |
-| `parameter_info` | The fitted parameters, in `parameters` order | | |
-| `name` | The name of a parameter in a concrete mechanism | | |
+| `parameter_info` | The fitted parameters, in `parameters` order | Fitting | |
+| `name` | The name of a parameter in a concrete mechanism | Fitting | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
 | `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
 | `rate_equation_term_count` | The law's term count, V×τ, before derivation | top level | |

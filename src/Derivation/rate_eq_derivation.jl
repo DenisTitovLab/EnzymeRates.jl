@@ -1,5 +1,5 @@
 # ABOUTME: The parameter API (parameters and its kinds, dependent_parameter_values) and the
-# ABOUTME: constant names of each conformation's law: edge names, rate-constant names.
+# ABOUTME: constants of each mechanism: the fitted, all and independent parameter lists.
 
 # ─── Parameters API ─────────────────────────────────────────
 
@@ -15,9 +15,6 @@ struct FittedParameters end
 
 """Every constant of a rate law: the independent ones, then the dependent ones."""
 struct AllParameters end
-
-"""The steady-state rate constants of a rate law, those a common factor scales."""
-struct RateConstants end
 
 const _ParameterKind = Union{IndependentParameters, FittedParameters, AllParameters}
 
@@ -126,49 +123,3 @@ function dependent_parameter_values(
     deps = _dependents(s)
     NamedTuple{Tuple(s.names[d.col] for d in deps)}(Tuple(value(d) for d in deps))
 end
-
-# ─── Edge masks and constant names ──────────────────────────
-
-"""
-The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
-rapid equilibrium, `[kf, kr]` at steady state — as the joint solve names its columns
-(`constant_columns`): `names[k]` for edge `k` of the state's law (`active_steps`,
-`inactive_steps`; every edge for `:None`), empty for every other edge. `state` is
-`:None` for a plain mechanism and `:A` or `:I` for an allosteric one; an inactive
-constant reads its own column when its group has one, so an `:EqualAI` group's
-constants take their one shared name in both.
-"""
-function _edge_names(m::_AnyMech, state::Symbol, cols = constant_columns(m))
-    cm = Mechanisms.catalytic(m)
-    mask = _conformation_steps(m, state === :I ? 2 : 1)
-    index = Dict(c => i for (i, c) in enumerate(cols.columns))
-    column(k, slot) = get(() -> index[StepParameter(k, slot, false)], index,
-                          StepParameter(k, slot, state === :I))
-    [mask[k] ? Symbol[cols.names[column(k, slot)]
-                      for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)] :
-               Symbol[]
-     for k in eachindex(cm.steps)]
-end
-
-# ─── Steady-state rate-constant names ──────────────────────────
-
-"""
-The names of the steady-state rate constants of `m`'s law (`_edge_names`), as a tuple: for
-an `AllostericMechanism`, those of both conformations, the inactive one's `I_` names
-included. They are the constants a common factor scales, leaving the rapid-equilibrium
-constants, `Keq`, `E_total`, `L` and the regulator constants alone.
-"""
-function _rate_constant_names(m::_AnyMech)
-    cm = Mechanisms.catalytic(m)
-    states = m isa Mechanisms.Mechanism ? (:None,) : (:A, :I)
-    cols = constant_columns(m)
-    Tuple(unique(n for st in states for (k, ns) in enumerate(_edge_names(m, st, cols))
-                 if !cm.steps[k].rapid_equilibrium for n in ns))
-end
-
-@generated function parameters(::M, ::RateConstants) where {
-        M <: Mechanisms.AbstractEnzymeMechanism}
-    _rate_constant_names(_derivation_input(M))
-end
-
-parameters(m::_AnyMech, ::RateConstants) = _rate_constant_names(_well_posed(m))

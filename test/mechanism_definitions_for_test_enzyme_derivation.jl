@@ -106,6 +106,40 @@ function _testhelper_step_parameters(m, k, inactive = false)
     [EnzymeRates.Derivation.StepParameter(k, slot, inactive) for slot in 1:(re ? 1 : 2)]
 end
 
+"""The names of the `parameter_info` entries of `m` on steady-state steps: the fitted rate
+constants a common factor scales."""
+function _testhelper_steady_state_names(m)
+    mech = _testhelper_lift(m)
+    cm = EnzymeRates.Mechanisms.catalytic(mech)
+    Tuple(EnzymeRates.Derivation.name(p, mech)
+          for p in EnzymeRates.Derivation.parameter_info(mech)
+          if p isa EnzymeRates.Derivation.StepParameter &&
+             !cm.steps[p.step].rapid_equilibrium)
+end
+
+"""
+The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
+rapid equilibrium, `[kf, kr]` at steady state — as the joint solve names its columns
+(`constant_columns`): `names[k]` for edge `k` of the state's law (`active_steps`,
+`inactive_steps`; every edge for `:None`), empty for every other edge. `state` is
+`:None` for a plain mechanism and `:A` or `:I` for an allosteric one; an inactive
+constant reads its own column when its group has one, so an `:EqualAI` group's
+constants take their one shared name in both.
+"""
+function _testhelper_edge_names(m, state::Symbol,
+                                cols = EnzymeRates.Derivation.constant_columns(m))
+    cm = EnzymeRates.Mechanisms.catalytic(m)
+    mask = EnzymeRates.Derivation._conformation_steps(m, state === :I ? 2 : 1)
+    index = Dict(c => i for (i, c) in enumerate(cols.columns))
+    column(k, slot) = get(() -> index[EnzymeRates.Derivation.StepParameter(k, slot, false)],
+                          index,
+                          EnzymeRates.Derivation.StepParameter(k, slot, state === :I))
+    [mask[k] ? Symbol[cols.names[column(k, slot)]
+                      for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)] :
+               Symbol[]
+     for k in eachindex(cm.steps)]
+end
+
 """The fields `==` and `hash` read of a value of type `T`: all of them, but only the first
 four of a mechanism, whose stored facts follow them."""
 _testhelper_identity_fields(T) =

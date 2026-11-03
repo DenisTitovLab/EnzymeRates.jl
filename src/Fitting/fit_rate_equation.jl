@@ -292,16 +292,26 @@ end
 """
     _scale_rate_constants(mechanism, params, factor) -> NamedTuple
 
-`params` with every steady-state rate constant of `mechanism` (`RateConstants()`)
-multiplied by `factor`, every other entry unchanged. A common factor on those constants
-multiplies every rate by the same factor and leaves the binding constants, `Keq`,
-`E_total`, `L` and the regulatory constants alone.
+`params` with every fitted rate constant on a steady-state step of `mechanism` (a concrete
+or a compiled one) multiplied by `factor`, every other entry unchanged. A common factor on
+those constants multiplies every rate by the same factor and leaves the binding constants,
+`Keq`, `E_total`, `L` and the regulatory constants alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    rate_constants = Derivation.parameters(mechanism, Derivation.RateConstants())
-    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
+    m = _concrete(mechanism)
+    steady_state = Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
+                       if _on_steady_state_step(p, m))
+    NamedTuple{keys(params)}(map((k, v) -> k in steady_state ? v * factor : v,
                                  keys(params), values(params)))
 end
+
+_on_steady_state_step(p::Derivation.StepParameter, m) =
+    !Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium
+_on_steady_state_step(p, m) = false
+
+_concrete(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
+_concrete(m::Mechanisms.AllostericEnzymeMechanism) = Mechanisms.AllostericMechanism(m)
+_concrete(m) = m
 
 """
     _reference_scale(fp, params)

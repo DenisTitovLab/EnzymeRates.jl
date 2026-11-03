@@ -479,7 +479,7 @@ end
             end
             cm = EnzymeRates.Mechanisms.catalytic(sub)
             onlyi =
-                Set(x for (k, ns) in enumerate(EnzymeRates.Derivation._edge_names(sub, :I))
+                Set(x for (k, ns) in enumerate(_testhelper_edge_names(sub, :I))
                     if sub.mwc_tags[cm.steps[k].group] === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
