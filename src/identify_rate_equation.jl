@@ -167,7 +167,9 @@ and data using beam search.
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
   plus `loocv_results.csv` (the LOOCV table for every cross-validated
   candidate) and `best_equation.csv` (the selected equation and its
-  fitted parameters). A `save_dir` that already holds a `.csv` file or a
+  fitted parameters). Each CSV has an `at_bound` column: the names, joined by `;`, of
+  the constants whose best point lies at a bound of the fit's box (see
+  `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv` file or a
   `progress.log` is refused, so the results of two runs never mix.
 
 # Beam selection
@@ -315,6 +317,7 @@ function _rows_to_dataframe(rows)
         fit_inherited = Union{Missing,Bool}[r.fit_inherited for r in rows],
         fit_source_id = Union{Missing,String}[r.fit_source_id for r in rows],
         L_phantom = Union{Missing,Bool}[r.L_phantom for r in rows],
+        at_bound = Union{Missing,String}[get(r, :at_bound, missing) for r in rows],
     )
     for pn in sorted_pnames
         df[!, pn] = [get(r.params, pn, missing) for r in rows]
@@ -387,7 +390,8 @@ A fit as identify stores it, once per rate-law key (`rate_equation_dedup_key`): 
 holds the fitted constants at their canonical positions (its `parameters`), then `L` for an
 MWC law, so every mechanism with that key reads them through its own canonical order;
 `loss` and `retcode` are `fit_rate_equation`'s; `source` is the
-mechanism that was fitted and `source_id` its `mechanism_id`.
+mechanism that was fitted and `source_id` its `mechanism_id`; `at_bound` flags, at the
+same positions, the constants `fit_rate_equation` reports at a bound.
 """
 struct _Fit
     values::Vector{Float64}
@@ -395,6 +399,7 @@ struct _Fit
     retcode::Symbol
     source::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
     source_id::String
+    at_bound::Vector{Bool}
 end
 
 """A rate law's key and its fitted constants in canonical order
@@ -485,7 +490,8 @@ function _failure_row(f::FitFailure)
      key = missing,
      fit_inherited = missing,
      fit_source_id = missing,
-     L_phantom = missing)
+     L_phantom = missing,
+     at_bound = missing)
 end
 
 """
@@ -667,8 +673,9 @@ function _process_batch(
                 em = Mechanisms.compile_mechanism(r.mech)
                 fp = FittingProblem(em, prob.rate_data.data; _fit_keywords(em, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
-                _Fit(Float64[fit.params[x] for x in _fit_order(r)], fit.loss, fit.retcode,
-                     r.mech, r.mechanism_id)
+                order = _fit_order(r)
+                _Fit(Float64[fit.params[x] for x in order], fit.loss, fit.retcode,
+                     r.mech, r.mechanism_id, Bool[x in fit.at_bound for x in order])
             catch e
                 _exc_string(e)
             end
@@ -704,7 +711,9 @@ function _process_batch(
             continue
         end
         fit = memo[fit_key]
-        params = _row_params(c, _fit_order(c), c.phantom ? [fit.values; 0.0] : fit.values)
+        order = _fit_order(c)
+        params = _row_params(c, order, c.phantom ? [fit.values; 0.0] : fit.values)
+        flags = c.phantom ? [fit.at_bound; false] : fit.at_bound
         parent = get(parent_of, c.mech, nothing)
         row = (
             n_params = length(c.fitted),
@@ -721,6 +730,7 @@ function _process_batch(
             fit_inherited = fit.source_id != c.mechanism_id,
             fit_source_id = fit.source_id,
             L_phantom = c.phantom,
+            at_bound = join(order[flags], ";"),
         )
         push!(entries, BatchEntry(c.mech, length(c.fitted), fit.loss, fit.retcode,
                                   c.canon.key, fit_key, row))
