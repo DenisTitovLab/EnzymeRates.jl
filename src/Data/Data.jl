@@ -5,7 +5,7 @@ module Data
 
 using Tables: Tables
 
-const API = (:RateData,)
+public RateData
 
 include("rate_data.jl")
 

@@ -1,5 +1,5 @@
-# ABOUTME: Parses src/ for the module boundary tests (cross-module uses, API lists, exports)
-# ABOUTME: and generates the developer docs' Mermaid module map from them.
+# ABOUTME: Parses src/ for the module boundary tests (cross-module uses, public names,
+# ABOUTME: exports) and generates the developer docs' Mermaid module map from them.
 
 # The six submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
@@ -79,21 +79,15 @@ _testhelper_module_sources(root) = Dict(
     m => _testhelper_source_files(joinpath(root, string(m)))
     for m in _testhelper_MODULES if isdir(joinpath(root, string(m))))
 
-"""The name an `API` entry lists: `:name`, or `Symbol("@macro")` for a macro."""
-_testhelper_api_name(q) = q isa QuoteNode ? q.value : Symbol(q.args[2])
-
-"""The names in the `const API = (...)` tuple of `root/<mod>/<mod>.jl`."""
+"""The names in the `public` statements of `root/<mod>/<mod>.jl`."""
 function _testhelper_api(root, mod::Symbol)
     path = joinpath(root, string(mod), string(mod) * ".jl")
-    api = nothing
+    statements = Expr[]
     _testhelper_walk(Meta.parseall(read(path, String))) do ex, _
-        if ex.head === :const && ex.args[1] isa Expr && ex.args[1].head === :(=) &&
-           ex.args[1].args[1] === :API
-            api = Set{Symbol}(_testhelper_api_name(q) for q in ex.args[1].args[2].args)
-        end
+        ex.head === :public && push!(statements, ex)
     end
-    api === nothing && error("$path declares no `const API = (...)`")
-    api
+    isempty(statements) && error("$path has no public statement")
+    Set{Symbol}(n for ex in statements for n in ex.args)
 end
 
 """The path of `file` relative to `root`, with `/` as separator on every platform."""
@@ -120,7 +114,7 @@ function _testhelper_uses(root)
     uses
 end
 
-"""Uses naming a module's name that its API list lacks (or naming a module with no
+"""Uses naming a module's name that is not public there (or naming a module with no
 folder)."""
 function _testhelper_api_violations(root)
     apis = Dict(m => _testhelper_api(root, m)
@@ -132,7 +126,7 @@ end
 _testhelper_layer_violations(root) = [u for u in _testhelper_uses(root)
     if u.user !== :EnzymeRates && !(u.mod in _testhelper_LAYERS[u.user])]
 
-"""For each module with a folder, the underscore names in its API list or used from
+"""For each module with a folder, the underscore names in its public statement or used from
 outside it."""
 function _testhelper_underscore_violations(root)
     uses = _testhelper_uses(root)

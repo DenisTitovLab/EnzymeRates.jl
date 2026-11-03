@@ -1,5 +1,5 @@
-# ABOUTME: Checks the module boundaries of src/ by parsing it (API lists, layers, underscore
-# ABOUTME: names, exports), the developer docs' module map, and the public names' docs.
+# ABOUTME: Checks the module boundaries of src/ by parsing it (public names, layers,
+# ABOUTME: underscore names, exports), the developer docs' module map and the exports' docs.
 
 import REPL  # defines Base.Docs.doc(::Binding), read by the docstring testset
 
@@ -53,8 +53,8 @@ function _testhelper_name_diffs(what, doc::Dict, src::Dict)
 end
 
 """Where the module map of the Markdown text `doc` disagrees with the tree at `root`: the
-interface tables (names, "Used by" and ✓ marks) against each `API` list, the cross-module
-uses and the exports."""
+interface tables (names, "Used by" and ✓ marks) against each module's public names, the
+cross-module uses and the exports."""
 function _testhelper_module_map_problems(doc, root)
     apis = Dict(m => _testhelper_api(root, m)
         for m in keys(_testhelper_module_sources(root)))
@@ -91,7 +91,7 @@ end
 """Runs the four rules over the tree at `root`."""
 function _testhelper_check_boundaries(root)
     modules = sort!(collect(keys(_testhelper_module_sources(root))))
-    @testset "every cross-module name is in its API list" begin
+    @testset "every cross-module name is public in its module" begin
         @test isempty(_testhelper_api_violations(root))
     end
     @testset "modules respect the layers" begin
@@ -147,12 +147,12 @@ end
     end
 
     cleanly_layered = (
-        "Mechanisms/Mechanisms.jl" => "const API = (:Mechanism, :compile_mechanism)",
+        "Mechanisms/Mechanisms.jl" => "public Mechanism, compile_mechanism",
         "Mechanisms/types.jl" => "struct Mechanism\n    edges::Vector{Int}\nend",
-        "Derivation/Derivation.jl" => "const API = (:check_valid_rate_equation,)",
+        "Derivation/Derivation.jl" => "public check_valid_rate_equation",
         "Derivation/guard.jl" =>
             "f(m::Mechanisms.Mechanism) = Mechanisms.compile_mechanism(m)",
-        "Fitting/Fitting.jl" => "const API = (:fit,)",
+        "Fitting/Fitting.jl" => "public fit",
         "Fitting/fit.jl" => "g(m) = Derivation.check_valid_rate_equation(m)",
         "EnzymeRates.jl" => "h(m) = Fitting.fit(m)",
     )
@@ -170,8 +170,15 @@ end
             @test _testhelper_api(root, :Fitting) == Set([:fit])
         end
         _testhelper_with_tree(
-            "DSL/DSL.jl" => "const API = (:parse, Symbol(\"@enzyme_mechanism\"))") do root
+            "DSL/DSL.jl" => "public parse, @enzyme_mechanism") do root
             @test _testhelper_api(root, :DSL) == Set([:parse, Symbol("@enzyme_mechanism")])
+        end
+        _testhelper_with_tree(
+            "Fitting/Fitting.jl" => "public fit\npublic refit") do root
+            @test _testhelper_api(root, :Fitting) == Set([:fit, :refit])
+        end
+        _testhelper_with_tree("Fitting/Fitting.jl" => "fit() = 1") do root
+            @test_throws ErrorException _testhelper_api(root, :Fitting)
         end
     end
     @testset "a clean tree passes every rule" begin
@@ -182,7 +189,7 @@ end
             @test isempty(_testhelper_export_violations(root))
         end
     end
-    @testset "rule 1 finds a name outside the API list, in a module and at the top" begin
+    @testset "rule 1 finds a name that is not public, in a module and at the top" begin
         _testhelper_with_tree(cleanly_layered...,
             "Fitting/bad.jl" => "g(m) = Derivation.secret(m)",
             "identify.jl" => "h(m) = Mechanisms.hidden(m)\nMechanisms.Mechanism") do root
@@ -202,12 +209,12 @@ end
                   Set([(:Mechanisms, :Derivation), (:Derivation, :Fitting)])
         end
     end
-    @testset "rule 3 finds underscore names in an API list or used across modules" begin
+    @testset "rule 3 finds underscore names public or used across modules" begin
         _testhelper_with_tree(
-            "Mechanisms/Mechanisms.jl" => "const API = (:Mechanism, :_raw)",
-            "Derivation/Derivation.jl" => "const API = (:_guard, :ok, :_guard)",
+            "Mechanisms/Mechanisms.jl" => "public Mechanism, _raw",
+            "Derivation/Derivation.jl" => "public _guard, ok, _guard",
             "Fitting/f.jl" => "f() = Derivation._guard()",
-            "Fitting/Fitting.jl" => "const API = (:fit,)") do root
+            "Fitting/Fitting.jl" => "public fit") do root
             @test _testhelper_underscore_violations(root) == Dict(
                 :Mechanisms => [:_raw], :Derivation => [:_guard], :Fitting => [])
         end
@@ -225,10 +232,16 @@ end
     _testhelper_check_boundaries(_testhelper_SRC)
 end
 
+@testset "every public name is defined" begin
+    for m in _testhelper_MODULES, n in _testhelper_api(_testhelper_SRC, m)
+        @test isdefined(getfield(EnzymeRates, m), n)
+    end
+end
+
 @testset "module map checker" begin
     tree = (
-        "Mechanisms/Mechanisms.jl" => "const API = (:Mechanism, :compile_mechanism)",
-        "Fitting/Fitting.jl" => "const API = (:fit,)",
+        "Mechanisms/Mechanisms.jl" => "public Mechanism, compile_mechanism",
+        "Fitting/Fitting.jl" => "public fit",
         "Fitting/fit.jl" => "g(m) = Mechanisms.compile_mechanism(m)",
         "EnzymeRates.jl" => "export fit, identify\nh(m) = Fitting.fit(m)",
     )
@@ -273,11 +286,11 @@ end
     tree = (
         "Mechanisms/Mechanisms.jl" =>
             "\"\"\"Stores things. Hides more.\"\"\"\nmodule Mechanisms\n" *
-            "const API = (:Mechanism, :compile_mechanism, :metabolites)\nend",
+            "public Mechanism, compile_mechanism, metabolites\nend",
         "Mechanisms/types.jl" => "struct Mechanism\n    x::Int\nend",
         "Fitting/Fitting.jl" =>
             "\"\"\"Fits a law\nto data. Hides more.\"\"\"\nmodule Fitting\n" *
-            "const API = (:fit,)\nend",
+            "public fit\nend",
         "Fitting/fit.jl" => "g(m) = Mechanisms.compile_mechanism(m)\n" *
             "Mechanisms.Mechanism\nMechanisms.metabolites(m)",
         "EnzymeRates.jl" => "\"\"\"Does it all.\"\"\"\nmodule EnzymeRates\n" *

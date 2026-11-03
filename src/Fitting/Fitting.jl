@@ -10,7 +10,7 @@ using FunctionWrappers: FunctionWrapper
 using Optimization: Optimization
 using Statistics: mean
 
-const API = (:FittingProblem, :fit_rate_equation, :test_rate_equation)
+public FittingProblem, fit_rate_equation, test_rate_equation
 
 include("fit_rate_equation.jl")
 

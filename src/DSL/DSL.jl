@@ -7,8 +7,7 @@ module DSL
 using ..Mechanisms: Mechanisms
 using ..Derivation: Derivation
 
-const API = (:parse_mechanism, Symbol("@enzyme_reaction"), Symbol("@enzyme_mechanism"),
-    Symbol("@allosteric_mechanism"))
+public parse_mechanism, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 include("read.jl")
 include("macros.jl")

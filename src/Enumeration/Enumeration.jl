@@ -7,7 +7,7 @@ using ..Mechanisms: Mechanisms
 using ..Derivation: Derivation
 using Distributed: pmap
 
-const API = (:starting_mechanisms, :expand_mechanisms)
+public starting_mechanisms, expand_mechanisms
 
 """Whether the guard (`Derivation.check_valid_rate_equation`) accepts `m`: the test the
 enumerator's exits and its flip, split and tagging searches apply to a candidate."""
