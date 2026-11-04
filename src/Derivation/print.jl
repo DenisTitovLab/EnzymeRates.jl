@@ -183,7 +183,7 @@ _concs_line(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
 
 """The `params` and `concs` destructuring lines of `m`'s printed law over the solve `s`."""
 _header_lines(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, s::_Solve) =
-    String["(; $(join((s.fitted..., :Keq, :E_total), ", "))) = params", _concs_line(m)]
+    String["(; $(join([s.fitted; :Keq; :E_total], ", "))) = params", _concs_line(m)]
 
 # ─── Plain and MWC laws ──────────────────────────────────────────────────────
 

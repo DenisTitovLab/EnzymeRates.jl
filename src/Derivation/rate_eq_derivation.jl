@@ -109,7 +109,7 @@ function dependent_parameter_values(
                  Mechanisms.AllostericMechanism},
         params::NamedTuple)
     s = _solve(m isa Mechanisms.AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
-    absent = [k for k in (s.fitted..., :Keq) if !haskey(params, k)]
+    absent = Symbol[k for k in [s.fitted; :Keq] if !haskey(params, k)]
     isempty(absent) || error("dependent_parameter_values: params must hold every name " *
                              "of parameters(m) except E_total; it lacks " *
                              join(absent, ", "))
