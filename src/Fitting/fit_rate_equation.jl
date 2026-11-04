@@ -178,12 +178,6 @@ struct FitObjective
     x_buf::Vector{Float64}
 end
 
-# `Base.Fix2` takes the type of `fp` from its value. A closure over the `@nospecialize`
-# argument may store it untyped (Julia 1.13 does), and then each call dispatches `loss!` at
-# run time and boxes its result.
-FitObjective(@nospecialize(fp::FittingProblem), n_parameters::Int) =
-    FitObjective(Base.Fix2(loss!, fp), Vector{Float64}(undef, n_parameters))
-
 """The optimizer's objective: `obj.loss` at a copy of `x` (see `FitObjective`)."""
 _fit_loss(x, obj::FitObjective) = obj.loss(copyto!(obj.x_buf, x))
 
@@ -192,8 +186,12 @@ The `OptimizationProblem` minimizing `loss!` of `fp` from `x0` within `lb`/`ub`.
 type is the same for every mechanism and data table (see `FitObjective`).
 """
 function _optimization_problem(@nospecialize(fp::FittingProblem), x0, lb, ub)
-    Optimization.OptimizationProblem(Optimization.OptimizationFunction(_fit_loss), x0,
-                                     FitObjective(fp, length(x0)); lb=lb, ub=ub)
+    # `Base.Fix2` takes the type of `fp` from its value. A closure over the
+    # `@nospecialize` argument may store it untyped (Julia 1.13 does), and then each
+    # call dispatches `loss!` at run time and boxes its result.
+    obj = FitObjective(Base.Fix2(loss!, fp), Vector{Float64}(undef, length(x0)))
+    Optimization.OptimizationProblem(Optimization.OptimizationFunction(_fit_loss), x0, obj;
+                                     lb=lb, ub=ub)
 end
 
 # Distance in log units from a box edge within which a fitted parameter counts as at bound.
@@ -453,9 +451,5 @@ function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple),
     for name in names
         haskey(params, name) || error("params is missing the fitted parameter $name")
     end
-    x = Float64[log(params[name]) for name in names]
-    # Inference cannot see the table's type in `fp`, so a direct `loss!(x, fp)` has it walk
-    # `loss!` on abstract argument types, code that never runs. The objective hides that
-    # call as it does in a fit.
-    _fit_loss(x, FitObjective(fp, length(x)))
+    loss!(Float64[log(params[name]) for name in names], fp)
 end

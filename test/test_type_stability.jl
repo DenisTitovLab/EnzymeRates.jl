@@ -15,7 +15,6 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_assert_atom_conserving => "an error message",
         :_base_tier => "an error message: the text of a caught exception",
         :_seed_node_children => "a pmap boundary",
-        :FitObjective => "the solver barrier: a FunctionWrapper hides the problem's type",
         :_fit_loss => "the solver barrier: a FunctionWrapper's call falls back on its " *
                       "callable of unknown type",
         :_optimization_problem => "the solver barrier: OptimizationFunction's constructor",
@@ -363,6 +362,21 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                     rate_equation, _testhelper_rate_equation_argtypes(m);
                     exemptions = Pair{Symbol,String}[]))
             end
+        end
+
+        @testset "a report below a call that cannot compile counts for nothing" begin
+            # Inference walks `loss!` on the abstract problem `test_rate_equation` builds,
+            # code that never runs, and reaches a compileable `setindex!` below it.
+            f = _testhelper_Fit.test_rate_equation
+            call = _testhelper_keyword_call(
+                _testhelper_KeqKeyword, _testhelper_PlainS,
+                _testhelper_floats_type(parameters(_testhelper_plain_singleton)),
+                _testhelper_PlainTable)
+            through_loss = report -> any(
+                frame -> _testhelper_function_name(frame) === :loss!, report.vst)
+            @test any(through_loss, JET.get_reports(_testhelper_report_opt(f, call)))
+            @test !any(s -> s.function_name === :loss!, _testhelper_dispatch_sites(
+                f, call; exemptions = Pair{Symbol,String}[]))
         end
 
         # A site here would run on every row of every evaluation of every fit.
