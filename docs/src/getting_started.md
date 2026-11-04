@@ -202,11 +202,11 @@ results there:
 per beam iteration, and — once cross-validation finishes —
 `loocv_results.csv` (the full leave-one-group-out table for every candidate that
 entered CV) and `best_equation.csv` (the single selected equation with its
-fitted parameters). The `rate_equation` column of `loocv_results.csv` and of the search CSVs
-holds the law in named coefficients without their definitions, which take most of the
-bytes; `best_equation.csv` holds the full coefficient form. The last two persist the model-selection outcome, so a
-cluster run's result is available without re-deriving it from the iteration
-files.
+fitted parameters). `loocv_results.csv` and `best_equation.csv` persist the
+model-selection outcome, so a cluster run's result is available without re-deriving it
+from the iteration files. The `rate_equation` column of `loocv_results.csv` and of the
+search CSVs holds the law in named coefficients without their definitions, which take most
+of the bytes; `best_equation.csv` holds the full coefficient form.
 
 Each CSV has an `at_bound` column: the parameters at a box edge in the fit on all rows,
 separated by `;`. A parameter at a bound is not necessarily wrong; it means the data do

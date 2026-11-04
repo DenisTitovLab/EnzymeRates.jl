@@ -170,8 +170,8 @@ and data using beam search.
   candidate) and `best_equation.csv` (the selected equation and its
   fitted parameters). The `rate_equation` column of the search and LOOCV CSVs holds the
   law in named coefficients without their values (`rate_equation_string`);
-  `best_equation.csv` holds it with them. Each CSV has an `at_bound` column: the names, joined by `;`, of
-  the constants whose best point lies at a bound of the fit's box (see
+  `best_equation.csv` holds it with them. Each CSV has an `at_bound` column: the names,
+  joined by `;`, of the constants whose best point lies at a bound of the fit's box (see
   `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv`
   file or a `progress.log` is refused, so the results of two runs never mix.
 

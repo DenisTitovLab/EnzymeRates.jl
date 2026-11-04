@@ -716,6 +716,10 @@ end
     @test last(split(t2, '\n')) == "v = E_total * (F_I * Q_A) * (ATP * F6P - ADP * " *
                                     "F16BP / Keq) / (F_I * D_A + L * F_A * D_I)"
     ti = rate_equation_string(inert)
+    short_heads(m) = [l[1:3] for l in split(_testhelper_short_law(m), '\n')
+                      if occursin(r"^[QDFWN]_[AI] = ", l)]
+    @test short_heads(two_site) == ["Q_A", "D_A", "Q_I", "D_I", "W_A", "W_I"]
+    @test short_heads(half2) == ["Q_A", "D_A", "D_I", "F_A", "F_I"]
     @test heads(ti) == ["Q_A", "D_A"]
     @test last(split(ti, '\n')) == "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
     for m in (two_site, half2, inert)
@@ -765,6 +769,8 @@ end
     @test rate_equation_string(_testhelper_lift(m); coefficients = true,
                                coefficient_values = false) == _testhelper_short_law(m)
     @test_throws ArgumentError rate_equation_string(m; coefficient_values = false)
+    @test_throws ArgumentError rate_equation_string(_testhelper_lift(m);
+                                                    coefficient_values = false)
 
     # The MWC short law keeps the conformations' definitions in their coefficients.
     inert = @allosteric_mechanism begin
@@ -782,9 +788,34 @@ end
         "D_A = 1 + dA_S * S + dA_P * P\n" *
         "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
 
+    # Two conformations that differ, with a regulatory site: each prints its Q and D, and
+    # each site factor is the binding polynomial (1 + R / K)^2 of a two-site homodimer.
+    regulated = @allosteric_mechanism begin
+        substrates: S
+        products:   P
+        allosteric_regulators: R
+        catalytic_multiplicity: 2
+        steps: begin
+            E + P ⇌ E(P)     :: NonequalAI
+            E + S ⇌ E(S)     :: NonequalAI
+            E(S) <--> E(P)   :: NonequalAI
+        end
+        regulatory_site(2): R::NonequalAI
+    end
+    @test _testhelper_short_law(regulated) == "(; S, P, R) = concs\n" *
+        "Q_A = nA_0\n" *
+        "D_A = 1 + dA_S * S + dA_P * P\n" *
+        "Q_I = nI_0\n" *
+        "D_I = 1 + dI_S * S + dI_P * P\n" *
+        "W_A = (1 + R / K_A_Rreg)^2\n" *
+        "W_I = (1 + R / K_I_Rreg)^2\n" *
+        "v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / " *
+        "(D_A^2 * W_A + L * D_I^2 * W_I)"
+
     # An aggregate check over every spec and both large-law lists, concrete and compiled:
     # the short form is the coefficient form minus its `params` line, its comment and the
     # value lines (`n…`, `d…`, `f…`, `N…` on the left), in order.
+    # A coefficient's value line: `n_0 = `, `dA_S = `, `fI_B = `, `N = `, `N_A = `.
     value_line = r"^(?:[ndf][AI]?(?:_\S*)?|N(?:_[AI])?) = "
     for mech in [[s.mechanism for s in MECHANISM_TEST_SPECS];
                  _testhelper_largest_enumerated_mechanisms;
