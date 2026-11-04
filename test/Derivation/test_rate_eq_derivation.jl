@@ -574,10 +574,11 @@ function _testhelper_denominator_terms(m)
         EnzymeRates.Derivation._nterms(L.inactive.D)
 end
 
-# 25 ns plus 0.5 ns per denominator term leaves about 5-6x headroom locally on most laws.
-# CI logged timings only for the six large laws; the bound is about 2x over the worst of
-# their 168 timings. A job that misses the bound is rerun rather than the bound loosened.
-_testhelper_rate_equation_time_limit(n_terms) = 25e-9 + 0.5e-9 * n_terms
+# Small laws take 1-8 ns on an aarch64 development machine, and 5-38 ns on CI, varying by
+# runner, with single readings up to 56 ns. Their intercept is therefore wide and catches
+# only a large slowdown; the 0.5 ns per term binds on large laws. A job that misses the
+# bound is rerun rather than the bound loosened.
+_testhelper_rate_equation_time_limit(n_terms) = 50e-9 + 0.5e-9 * n_terms
 
 @noinline function _testhelper_rate_rows(m, rows, params)
     acc = 0.0
@@ -597,12 +598,13 @@ end
 
 """Seconds per data row of `Fitting.loss!` on a 64-row table of `m`, and the most it may
 take: 1.25 times the cost of `rate_equation` on each row, at the parameters `loss!` uses,
-plus six `log` calls. The bound holds if any of 20 batches meets it, each batch timing a fresh
+plus eight `log` calls. The bound holds if any of 20 batches meets it, each batch timing a fresh
 `FittingProblem`: time on one problem can sit up to about 40% above a fresh problem's, and the
 slow reading persists on that problem. A real slowdown fails every batch. The factor of 1.25
-covers a slowdown of unknown cause that hit three laws in one process, 15-25% over the bound
-without it; the batches cannot cure a slowdown of the whole process. Returns the batch with
-the smallest `per_row / allowed`."""
+covers a slowdown of unknown cause that hit three laws in one process, which the batches
+cannot cure. The eight `log` calls leave room on coverage-instrumented CI jobs: coverage
+counters on `loss!`'s own lines add a cost per row that neither `rate_equation` nor `log`
+measures. Returns the batch with the smallest `per_row / allowed`."""
 function _testhelper_loss_time_per_row(m)
     table = _testhelper_loss_table(metabolites(m))
     rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
@@ -625,7 +627,7 @@ function _testhelper_loss_time_per_row(m)
         per_row = best(() -> EnzymeRates.Fitting.loss!(x, fresh))
         t_rate = best(() -> _testhelper_rate_rows(m, rows, params))
         t_log = best(() -> _testhelper_log_rows(table.Rate))
-        allowed = 1.25 * t_rate + 6 * t_log
+        allowed = 1.25 * t_rate + 8 * t_log
         per_row / allowed < out.per_row / out.allowed && (out = (; per_row, allowed))
     end
     out

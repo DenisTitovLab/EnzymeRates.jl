@@ -134,11 +134,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   true K. The data do not constrain K there, so the fit returns any value in the box and
   lists it in `at_bound` only when it lands at an edge.
 - **`loss!` timing varies for a cause not yet found.**
-  One process ran three large laws 15-25% over `rate_equation` per call plus 6 `log` calls,
-  then passed on rerun and in four more runs. Time on one `FittingProblem` can also sit up to
+  One local process ran three large laws 15-25% over `rate_equation` per call plus 6 `log`
+  calls, then passed on rerun and in four more runs. Windows CI ran up to 5% over that budget
+  at 1.25 × `rate_equation` on six laws, a different six in each of two runs; coverage counters
+  are the likely cause there, since coverage doubles small laws' ratio locally, but it is
+  unproven on Windows. Time on one `FittingProblem` can also sit up to
   about 40% above a fresh problem's, which points to memory layout but is unproven. The gate
-  in `test/Derivation/test_rate_eq_derivation.jl` allows for both, with its factor of 1.25
-  and its best of 20 batches on fresh problems.
+  in `test/Derivation/test_rate_eq_derivation.jl` allows for these, with its factor of 1.25,
+  its 8 `log` calls and its best of 20 batches on fresh problems.
 
 ## Planned
 

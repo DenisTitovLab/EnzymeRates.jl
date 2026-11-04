@@ -337,7 +337,7 @@ This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as straight-line arithmetic, written in Horner
 form (`_horner`), that must be
-**allocation-free and fast**: under 25 ns + 0.5 ns × denominator terms per call for every
+**allocation-free and fast**: under 50 ns + 0.5 ns × denominator terms per call for every
 gated law, including the three largest enumerated bi-bi laws (396 denominator terms each)
 and three ter-bi laws (589, 799 and 858 terms).
 `_testhelper_test_rate_equation_performance` (`test/Derivation/test_rate_eq_derivation.jl`)
@@ -800,12 +800,14 @@ CPU-seconds per fit. Workers connected within 15 s, and the master's CPU account
 slow paths, since the result is a `Float64` either way. So the speed gate in
 `test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
 allocation in relative or absolute mode, and time per row at most 1.25 times `rate_equation`'s
-time per call plus 6 `log` calls, timed in one process so machine speed cancels out. The bound
+time per call plus 8 `log` calls, timed in one process so machine speed cancels out. The bound
 holds if any of 20 batches meets it, each on a new `FittingProblem`, because time on one problem
 can sit up to about 40% above a new problem's. The factor of 1.25 covers a slowdown of unknown
-cause that once hit three laws in one process, which the batches cannot cure. `rate_equation` itself must stay under 25 ns + 0.5 ns per
-denominator term. That bound tolerates the spread between machines, up to 3.5× across 28 CI
-jobs, so a moderate slowdown of a small law passes it.
+cause that once hit three laws in one process, which the batches cannot cure. Eight `log` calls
+leave room for the coverage counters on `loss!`'s own lines in CI jobs. `rate_equation` itself
+must stay under 50 ns + 0.5 ns per denominator term. That bound tolerates the spread between
+machines: small laws take 1-8 ns on an aarch64 development machine and 5-38 ns on CI, varying
+by runner. So a moderate slowdown of a small law passes it.
 
 `test/Fitting/test_fitting.jl` checks `loss!` on each column type a table can bring and on a
 cross-validation fold. `RateData` stores `Rate` and each metabolite as a `Vector{Float64}`,
