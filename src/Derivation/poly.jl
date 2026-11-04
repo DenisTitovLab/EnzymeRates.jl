@@ -196,9 +196,9 @@ brings each such variable's lowest exponent over all their terms to zero, a term
 the variable counting as exponent 0: the shift to lowest terms.
 """
 function _lowest_shift(ps, counted = _ -> true)
-    low, seen, n = Dict{Int, _Exp}(), Dict{Int, Int}(), 0
+    low, seen = Dict{Int, _Exp}(), Dict{Int, Int}()
+    n = sum(p -> length(p.terms), ps; init = 0)
     for p in ps, m in keys(p.terms)
-        n += 1
         for (v, e) in m
             counted(v) || continue
             low[v] = min(get(low, v, e), e)
