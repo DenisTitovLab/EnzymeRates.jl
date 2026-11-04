@@ -337,9 +337,9 @@ This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as straight-line arithmetic, written in Horner
 form (`_horner`), that must be
-**allocation-free and fast**: under 120 ns per call for every fixture mechanism, and
-under `max(120 ns, 0.8 ns × denominator terms)` for the three largest enumerated bi-bi
-laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms).
+**allocation-free and fast**: under 25 ns + 0.5 ns × denominator terms per call for every
+gated law, including the three largest enumerated bi-bi laws (396 denominator terms each)
+and three ter-bi laws (589, 799 and 858 terms).
 `_testhelper_test_rate_equation_performance` (`test/Derivation/test_rate_eq_derivation.jl`)
 measures each law's allocations and time per call, and the tests assert
 `allocs == 0` and the law's bound. `rate_equation_string` (`src/Derivation/print.jl`)
@@ -802,7 +802,7 @@ slow paths, since the result is a `Float64` either way. So the speed gate in
 allocation in relative or absolute mode, and time per row at most `rate_equation`'s time per
 call plus 6 `log` calls, timed in one process so machine speed cancels out. The bound holds if
 any of 20 batches meets it, each on a new `FittingProblem`, because time on one problem can sit
-about 20% above a new problem's. `rate_equation` itself must stay under 25 ns + 0.5 ns per
+up to about 40% above a new problem's. `rate_equation` itself must stay under 25 ns + 0.5 ns per
 denominator term. That bound tolerates the spread between machines, up to 3.5× across 28 CI
 jobs, so a moderate slowdown of a small law passes it.
 
@@ -813,7 +813,8 @@ because an abstract column type costs a run-time dispatch on each read.
 `test/test_type_stability.jl` requires JET's optimization analysis to report nothing on every
 exported and public function and on the workers' internal functions, on Julia 1.13 only, since
 inference changes between versions. One list in that file names each exempt function and why.
-A public function with no row fails the test. Four limits apply:
+A public function with no row fails the test; a public type does not, so deleting the
+row of `FittingProblem`, `RateData` or `Mechanism` would pass. Five limits apply:
 
 - JET does not look past a run-time dispatch or into a `pmap` closure, so the bodies the
   workers run have rows of their own.
@@ -821,5 +822,13 @@ A public function with no row fails the test. Four limits apply:
   first hides it from other functions.
 - The test drops a report below a call that cannot compile, which mostly describes code that
   never runs at those types, and a report through `Base.slowlock`, which is not package code.
+  A `@nospecialize` body is therefore checked only at the concrete types its rows name, and
+  at the abstract signature that actually compiles, which has rows of its own
+  (`fit_rate_equation` on an abstract `FittingProblem`, `_scale_rate_constants` on a mechanism
+  of type `Any`).
+- JET misses a dynamic call written directly in the body of a comprehension or generator
+  whose result is untyped, such as `[(r[] + x)::Float64 for x in v]` with `r::Ref{Any}`. It
+  does report the same call with a typed result (`Float64[...]`), in an explicit loop, or in
+  a callee the comprehension calls.
 - JET misses a single dynamic call in the body of a `@generated` function, so the allocation
   and time bounds above stay the hard guard on `rate_equation`.

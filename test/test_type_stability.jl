@@ -12,7 +12,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_guard_message => "an error message",
         :_face_message => "an error message",
         :rate_equation => "a concrete mechanism is lifted to its type",
-        :_assert_atom_conserving => "an error message",
+        :_atom_conserving_message => "an error message",
         :_exc_string => "an error message: the text of a caught exception",
         :_seed_node_children => "a pmap boundary",
         :_fit_loss => "the solver barrier: a FunctionWrapper's call falls back on its " *
@@ -20,6 +20,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_optimization_problem => "the solver barrier: OptimizationFunction's constructor",
         :fit_rate_equation => "the solver barrier: solve, and the fit's values on the " *
                               "@nospecialize problem",
+        :_concentration_scales => "the solver barrier: the @nospecialize problem's " *
+                                  "fields are of unknown type",
         :_reference_scale => "the solver barrier: rate_equation on the @nospecialize " *
                              "problem's mechanism",
         :FittingProblem => "compile_mechanism lifts a concrete mechanism and _rate_table " *
@@ -305,6 +307,11 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
           (Mechs, _testhelper_Reaction))
          for Mechs in (Vector{_testhelper_PlainC}, Vector{_testhelper_AlloC},
                        Vector{Union{_testhelper_PlainC, _testhelper_AlloC}}))...,
+        (("_is_seed_node on $kind", _testhelper_Enum._is_seed_node,
+          (M, _testhelper_Reaction, Set{Symbol}, Set{Symbol}))
+         for (kind, M) in (("a Mechanism", _testhelper_PlainC),
+                           ("an AllostericMechanism", _testhelper_AlloC),
+                           ("either", Union{_testhelper_PlainC, _testhelper_AlloC})))...,
         (("FittingProblem, $form", _testhelper_Fit.FittingProblem,
           _testhelper_keyword_call(_testhelper_KeqKeyword, typeof(m),
                                    typeof(_testhelper_rate_table(m))))
@@ -314,6 +321,13 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
          for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
         (("fit_rate_equation, $form", fit_rate_equation,
           (_testhelper_problem_type(m), _testhelper_Optimizer))
+         for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
+        # `fit_rate_equation` and `_scale_rate_constants` take `@nospecialize` arguments, so
+        # they compile for the abstract types of these rows, not for a concrete one.
+        ("fit_rate_equation, abstract problem", fit_rate_equation,
+         (_testhelper_Fit.FittingProblem, _testhelper_Optimizer)),
+        (("_scale_rate_constants, $form", _testhelper_Fit._scale_rate_constants,
+          (Any, _testhelper_floats_type(parameters(m)), Float64))
          for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
         (("test_rate_equation, $form", _testhelper_Fit.test_rate_equation,
           _testhelper_keyword_call(_testhelper_KeqKeyword, typeof(m),
@@ -465,6 +479,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
             end
         end
 
+        # Only functions are required to have a row. A public type (`FittingProblem`,
+        # `RateData`, `Mechanism`) is not a `Function`, so deleting its row would not fail.
         @testset "every public function has a row" begin
             checked = Set(f for (_, f, _) in _TESTHELPER_CHECKED_CALLS)
             for mod in (EnzymeRates, EnzymeRates.Mechanisms, EnzymeRates.Derivation,

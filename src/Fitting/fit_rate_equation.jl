@@ -379,12 +379,15 @@ those constants multiplies every rate by the same factor and leaves the binding 
 `Keq`, `E_total`, `L` and the regulatory constants alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    m = _concrete(mechanism)
-    steady_state = Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
-                       if _on_steady_state_step(p, m))
+    m = _concrete(mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    steady_state = _steady_state_constant_names(m)
     NamedTuple{keys(params)}(map((k, v) -> k in steady_state ? v * factor : v,
                                  keys(params), values(params)))
 end
+
+_steady_state_constant_names(m) =
+    Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
+        if _on_steady_state_step(p, m))
 
 _on_steady_state_step(p::Derivation.StepParameter, m) =
     !Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium
