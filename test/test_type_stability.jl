@@ -88,6 +88,15 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     _testhelper_report_opt(f, call::NamedTuple) = JET.report_opt(
         Core.kwcall, (call.kwtype, f isa Type ? Type{f} : typeof(f), call.argtypes...))
 
+    # `slowlock` is Base's path for a contended lock, not package code. Any package call that
+    # takes a lock reaches it, such as `pkgversion`.
+    function _testhelper_through_contended_lock(report)
+        any(report.vst) do frame
+            method = _testhelper_frame_method(frame.linfo)
+            method isa Method && method.module === Base && method.name === :slowlock
+        end
+    end
+
     # The unique package sites at which `report_opt` finds a report on the row's call. A
     # report with no package frame counts its entry function, so none is dropped.
     function _testhelper_dispatch_sites(f, argtypes;
@@ -100,6 +109,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
             # counts, and the dispatch into such a call is reported at its caller.
             all(frame -> _testhelper_frame_compileable(frame.linfo), report.vst[2:end]) ||
                 continue
+            _testhelper_through_contended_lock(report) && continue
             i = findlast(_testhelper_in_package, report.vst)
             site = if i === nothing
                 (; function_name = Symbol(nameof(f)), file = :none, line = 0)
@@ -306,6 +316,10 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         ("identify_rate_equation", identify_rate_equation,
          _testhelper_keyword_call(
              NamedTuple{(:optimizer,), Tuple{_testhelper_Optimizer}},
+             IdentifyRateEquationProblem{_testhelper_PlainTable})),
+        ("identify_rate_equation with save_dir", identify_rate_equation,
+         _testhelper_keyword_call(
+             NamedTuple{(:optimizer, :save_dir), Tuple{_testhelper_Optimizer, String}},
              IdentifyRateEquationProblem{_testhelper_PlainTable})),
         (("_pass1_record, $form", EnzymeRates._pass1_record, (typeof(m), Int, Int))
          for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
