@@ -133,6 +133,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
   true K. The data do not constrain K there, so the fit returns any value in the box and
   lists it in `at_bound` only when it lands at an edge.
+- **`loss!` timing varies for a cause not yet found.**
+  One process ran three large laws 15-25% over `rate_equation` per call plus 6 `log` calls,
+  then passed on rerun and in four more runs. Time on one `FittingProblem` can also sit up to
+  about 40% above a fresh problem's, which points to memory layout but is unproven. The gate
+  in `test/Derivation/test_rate_eq_derivation.jl` allows for both, with its factor of 1.25
+  and its best of 20 batches on fresh problems.
 
 ## Planned
 
