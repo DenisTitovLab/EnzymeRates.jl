@@ -156,10 +156,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   medium.
 - **Log the time of each search phase.**
   `progress.log` carries no timestamps, so a cluster run cannot say where its wall time goes.
-  The 0.10.0 PFKP and PGK runs spent an estimated 40% of it at most on fits (Developer page,
-  What a fit costs); startup across about 800 workers, enumeration, PASS 1, serial work on
-  the master and idle workers at the end of a batch share the rest. A timestamp on each line
-  would rank all the search-speed ideas below. Priority: high.
+  The 0.10.0 PFKP and PGK runs spent an estimated 41% and 13% of it at most on fits (Developer
+  page, What a fit costs). Workers connect within 15 s and the master's CPU takes 14–16%, so
+  package loading on the workers, PASS 1 and idle workers at the end of a batch are the
+  remaining candidates. A timestamp on each line would rank all the search-speed ideas below.
+  Priority: high.
 - **Profile the search on the HPC runs.**
   In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of another
   fit at the same parameter count. These may be laws the key misses, equal only after a

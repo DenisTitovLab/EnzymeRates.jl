@@ -773,17 +773,19 @@ These pairs match values, not verified mechanism identities.
 | Fits, 0.8.0 → 0.10.0 | 132,836 → 119,453 | 18,677 → 15,700 |
 | Seconds per fit on one core, 0.8.0 → 0.10.0 | 162 → 2.7 | 37.5 → 1.4 |
 | Speedup per fit on one core (95% interval) | 60× (49–73) | 27× (17–41) |
-| Cluster core-seconds per fit, 0.8.0 → 0.10.0 | ≥ 614 → 24 | 247 → 24 |
+| Cluster wall time, 0.8.0 → 0.10.0 | ≥ 24 h → 62 min | 112 → 13.3 min |
+| Cluster core-seconds per fit, 0.8.0 → 0.10.0 | ≥ 614 → 25 | 277 → 40 |
 
 Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 PGK at 0.8.0,
 120 of each at 0.10.0. Cluster core-seconds are wall time × workers ÷ fits, so they include
 startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached its 24 h
 limit during cross-validation, so its figure is a lower bound.
 
-The cluster gained less than a single core did: at least 25× and 10×. Assuming the 0.8.0
-runs spent all their time on the CPU sets the cluster's core speed, and puts fitting at no
-more than about 40% of the 0.10.0 wall time. The rest is not measured, because `progress.log`
-carries no timestamps.
+The cluster gained less than a single core did: at least 25× and 7× per fit. If the 0.8.0
+PFKP run spent all its time fitting, a cluster core is 3.8× slower than this machine, which
+limits fitting to about 41% of the 0.10.0 PFKP run and 13% of the PGK run. Workers connected
+within 15 s, and the master used 14–16% of the wall time as CPU. The rest is not measured:
+`progress.log` carries no timestamps, and `sacct` reports no CPU time for the worker step.
 
 `rate_equation`'s performance gate cannot see a slow `loss!`. The testset
 `Zero allocations: allosteric mechanism` in `test/Fitting/test_fitting.jl` guards this path
