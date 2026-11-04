@@ -934,7 +934,8 @@ function _beam_search(
         append!(failures, extra_failures)
         isempty(entries) && isempty(failures) && return nothing
         _write_rows_csv!(save_dir, csv,
-            vcat([e.row for e in entries], [_failure_row(f) for f in failures]), texts)
+            vcat(NamedTuple[e.row for e in entries],
+                 NamedTuple[_failure_row(f) for f in failures]), texts)
         improved = _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                             n_cv_candidates)
         progress(string("  ", _postfit_summary(entries, failures),
@@ -1099,7 +1100,7 @@ function _cv_model_selection(
     # each) per `n_params` bucket, so one law never takes two LOOCV slots at a count and
     # folds are never wasted on, or biased by, its duplicates.
     candidates = pool[sortperm([(e.n_params, e.loss) for e in pool])]
-    cv_df = _rows_to_dataframe([e.row for e in candidates])
+    cv_df = _rows_to_dataframe(NamedTuple[e.row for e in candidates])
 
     _progress(save_dir, show_progress,
         "Cross-validating $(length(candidates)) candidate equations (LOOCV)…")
