@@ -451,5 +451,5 @@ function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple),
     for name in names
         haskey(params, name) || error("params is missing the fitted parameter $name")
     end
-    loss!([log(params[name]) for name in names], fp)
+    loss!(Float64[log(params[name]) for name in names], fp)
 end
