@@ -39,8 +39,12 @@ level in the order of `items`. They come in the order of their first level in
 """
 function _weak_orderings(items::Vector{Symbol})
     isempty(items) && return [Vector{Symbol}[]]
-    Vector{Vector{Symbol}}[[[level]; rest] for level in _subsets(items)[2:end]
-                           for rest in _weak_orderings(setdiff(items, level))]
+    orderings = Vector{Vector{Symbol}}[]
+    # A comprehension here would hide the recursive call's type from inference.
+    for level in _subsets(items)[2:end], rest in _weak_orderings(setdiff(items, level))
+        push!(orderings, [[level]; rest])
+    end
+    orderings
 end
 
 """
