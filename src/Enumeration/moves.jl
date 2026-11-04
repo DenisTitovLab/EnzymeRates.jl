@@ -639,9 +639,8 @@ end
 function _dead_end_child(am::Mechanisms.AllostericMechanism,
                          nodes::Vector{Mechanisms.EnzymeForm},
                          steps::Vector{Mechanisms.Step}, reg::Symbol)
-    cm = am.catalytic
-    child = Mechanisms.AllostericMechanism(cm.substrates, cm.products, nodes, steps,
-                                           [am.mwc_tags; :EqualAI],
+    child = Mechanisms.AllostericMechanism(am.catalytic.substrates, am.catalytic.products,
+                                           nodes, steps, [am.mwc_tags; :EqualAI],
                                            am.catalytic_multiplicity, am.regulatory_sites)
     cm = Mechanisms.catalytic(child)
     # The copy's own bindings, the only edges that take it up.
