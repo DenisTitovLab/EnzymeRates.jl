@@ -12,7 +12,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   step sides. Across the 251,107 mechanisms the ter-ter `init_mechanisms` testset retains,
   the live heap grew 48% (1,272 to 1,883 MiB) and the peak resident set from 2.3 to 3.1 GB.
   The extra garbage collection makes the call about 20% slower (94 s to 117 s on Julia 1.13);
-  its time limit is 400 s, since CI runners take up to 313 s. The step sides cost most:
+  its time limit of 400 s excludes garbage collection, about 70% of the call, since macOS
+  runners reached 430 s with it. The step sides cost most:
   two strings per step, 668 of the 5,408 retained bytes per mechanism. Denis raised the
   limit instead of taking one of three measured options: (A) keep already-sorted input
   vectors instead of copying them, which lets a mechanism share the caller's vectors (72 s,
