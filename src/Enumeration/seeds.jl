@@ -603,16 +603,8 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
     frontier = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
         m for m in init_mechanisms(rxn) if consider!(m)]
     while !isempty(frontier)
-        # Per-node child generation is pure and independent — distribute it.
-        childsets = pmap(frontier) do m
-            children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-            isempty(required_allo) || append!(children, m isa Mechanisms.Mechanism ?
-                _expand_to_allosteric(m, rxn) : _expand_add_allosteric_regulator(m, rxn))
-            append!(children, _expand_add_dead_end_regulator(m, rxn))
-            filter!(c -> _is_seed_node(c, rxn, required_allo, required_comp), children)
-        end
         next = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-        for cs in childsets, c in cs
+        for cs in _seed_node_children(frontier, rxn, required_allo, required_comp), c in cs
             consider!(c) && push!(next, c)
         end
         frontier = next
@@ -629,6 +621,23 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
     end
     filter!(_guard_accepts, seeds)
     seeds
+end
+
+"""The children worth expanding (`_is_seed_node`) of each mechanism of `frontier`, in
+frontier order. Generating one mechanism's children is pure and independent of the others',
+so the mechanisms are distributed over the workers."""
+function _seed_node_children(
+    frontier::Vector{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}},
+    rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol}, required_comp::Set{Symbol}
+)::Vector{Vector{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}}}
+    # The return type states what inference cannot read through `pmap`.
+    pmap(frontier) do m
+        children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
+        isempty(required_allo) || append!(children, m isa Mechanisms.Mechanism ?
+            _expand_to_allosteric(m, rxn) : _expand_add_allosteric_regulator(m, rxn))
+        append!(children, _expand_add_dead_end_regulator(m, rxn))
+        filter!(c -> _is_seed_node(c, rxn, required_allo, required_comp), children)
+    end
 end
 
 """Names of the allosteric regulators bound at `m`'s regulatory sites (empty for
