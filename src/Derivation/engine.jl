@@ -34,25 +34,29 @@ no edge.
 function _spanning_trees(n::Int, pairs::Vector{Tuple{Int, Int}})
     n <= 1 && return [Int[]]
     trees = Vector{Int}[]
-    function grow(i, chosen, root)
-        if length(chosen) == n - 1
-            push!(trees, copy(chosen))
-            return
-        end
-        length(pairs) - i + 1 < n - 1 - length(chosen) && return
-        top(j) = (while root[j] != j; j = root[j]; end; j)
-        a, b = top(pairs[i][1]), top(pairs[i][2])
-        if a != b
-            r = copy(root)
-            r[a] = b
-            push!(chosen, i)
-            grow(i + 1, chosen, r)
-            pop!(chosen)
-        end
-        grow(i + 1, chosen, root)
-    end
-    grow(1, Int[], collect(1:n))
+    _grow_spanning_trees!(trees, n, pairs, 1, Int[], collect(1:n))
     trees
+end
+
+"""Add to `trees` each spanning tree that extends `chosen` with edges of `pairs` from
+position `i` on, `root` being the union-find parents under `chosen`."""
+function _grow_spanning_trees!(trees::Vector{Vector{Int}}, n::Int,
+                               pairs::Vector{Tuple{Int, Int}}, i::Int,
+                               chosen::Vector{Int}, root::Vector{Int})
+    if length(chosen) == n - 1
+        push!(trees, copy(chosen))
+        return
+    end
+    length(pairs) - i + 1 < n - 1 - length(chosen) && return
+    a, b = _union_find_root(root, pairs[i][1]), _union_find_root(root, pairs[i][2])
+    if a != b
+        r = copy(root)
+        r[a] = b
+        push!(chosen, i)
+        _grow_spanning_trees!(trees, n, pairs, i + 1, chosen, r)
+        pop!(chosen)
+    end
+    _grow_spanning_trees!(trees, n, pairs, i + 1, chosen, root)
 end
 
 """The product of the weights `W[(child, parent)]` of the tree `t` (positions in `pairs`)
