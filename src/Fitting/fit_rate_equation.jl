@@ -319,8 +319,10 @@ concentrations of those metabolites in the table, or 1 when there are none.
 function _concentration_scales(@nospecialize(fp::FittingProblem))
     data = fp.rate_data.data
     mets = Mechanisms.metabolites(fp.mechanism)
-    # `getfield` reads a column by its runtime name without compiling for the table's type.
-    positive = Vector{Float64}[Float64[c for c in getfield(data, x) if c > 0] for x in mets]
+    # `getfield` reads a column by its runtime name without compiling for the table's type;
+    # `RateData` stores each metabolite's column as a `Vector{Float64}`.
+    positive = Vector{Float64}[
+        Float64[c for c in getfield(data, x)::Vector{Float64} if c > 0] for x in mets]
     pooled = reduce(vcat, positive)
     fallback = isempty(pooled) ? 1.0 : _geometric_mean(pooled)
     Dict{Symbol, Float64}(x => isempty(v) ? fallback : _geometric_mean(v)

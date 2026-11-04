@@ -61,7 +61,7 @@ function _rate_table(table, mnames, Keq)
     # such as the Union{Missing, Float64} of a CSV column with a blank, dispatches at run
     # time on each read.
     numeric = (:Rate, Tuple(mnames)...)
-    merge(data, NamedTuple{numeric}(map(k -> Float64.(data[k]), numeric)))
+    merge(data, NamedTuple{numeric}(map(k -> Vector{Float64}(data[k]), numeric)))
 end
 
 # The reference anchors a problem stores; see `RateData`.
