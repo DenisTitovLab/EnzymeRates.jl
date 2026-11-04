@@ -749,3 +749,52 @@ end
         @test_throws "before it binds it" _testhelper_eval_rate_string(t, p, c)
     end
 end
+
+@testset "the short law names the coefficients and leaves their values out" begin
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test _testhelper_short_law(m) == "(; S, P) = concs\n" *
+        "v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)"
+    @test rate_equation_string(_testhelper_lift(m); coefficients = true,
+                               coefficient_values = false) == _testhelper_short_law(m)
+    @test_throws ArgumentError rate_equation_string(m; coefficient_values = false)
+
+    # The MWC short law keeps the conformations' definitions in their coefficients.
+    inert = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        catalytic_multiplicity: 2
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: OnlyA
+        end
+    end
+    @test _testhelper_short_law(inert) == "(; S, P) = concs\n" *
+        "Q_A = nA_0\n" *
+        "D_A = 1 + dA_S * S + dA_P * P\n" *
+        "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
+
+    # An aggregate check over every spec and both large-law lists, concrete and compiled:
+    # the short form is the coefficient form minus its `params` line, its comment and the
+    # value lines (`n…`, `d…`, `f…`, `N…` on the left), in order.
+    value_line = r"^(?:[ndf][AI]?(?:_\S*)?|N(?:_[AI])?) = "
+    for mech in [[s.mechanism for s in MECHANISM_TEST_SPECS];
+                 _testhelper_largest_enumerated_mechanisms;
+                 _testhelper_large_ter_bi_mechanisms], m in (mech, _testhelper_lift(mech))
+        full = split(rate_equation_string(m; coefficients = true), '\n')
+        expected = [l for l in full[2:end]
+                    if !startswith(l, "# ") && !occursin(value_line, l)]
+        short = split(_testhelper_short_law(m), '\n')
+        @test short == expected
+        @test startswith(short[1], "(; ") && endswith(short[1], ") = concs")
+        @test startswith(last(short), "v = ")
+    end
+end

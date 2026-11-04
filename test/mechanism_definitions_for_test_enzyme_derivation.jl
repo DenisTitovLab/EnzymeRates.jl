@@ -4872,3 +4872,7 @@ function _testhelper_loss_allocations(fp)
     _testhelper_loss_allocated(x, fp)  # warmup
     _testhelper_loss_allocated(x, fp)
 end
+
+# The printed law of `m` in named coefficients without their values.
+_testhelper_short_law(m) =
+    rate_equation_string(m; coefficients = true, coefficient_values = false)

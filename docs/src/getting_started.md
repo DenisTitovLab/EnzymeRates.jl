@@ -75,6 +75,8 @@ print(rate_equation_string(m; coefficients = true))
 dimensionless whenever the law has a normalizer (see [Normalization](@ref));
 `coefficients = true` prints it in named coefficients, each defined in the fitted constants
 before the `v` line. Both texts run as Julia code once `params` and `concs` are bound.
+`coefficient_values = false` (with `coefficients = true`) leaves the definitions out, which
+makes the text shorter and easier to read but unable to run.
 `parameters(m)` returns the independent parameter symbols. `metabolites(m)`
 returns the concentration symbols the rate equation expects. `Keq` is the
 **equilibrium constant** of the overall reaction — the ratio of product to
@@ -200,7 +202,9 @@ results there:
 per beam iteration, and — once cross-validation finishes —
 `loocv_results.csv` (the full leave-one-group-out table for every candidate that
 entered CV) and `best_equation.csv` (the single selected equation with its
-fitted parameters). The last two persist the model-selection outcome, so a
+fitted parameters). The `rate_equation` column of `loocv_results.csv` and of the search CSVs
+holds the law in named coefficients without their definitions, which take most of the
+bytes; `best_equation.csv` holds the full coefficient form. The last two persist the model-selection outcome, so a
 cluster run's result is available without re-deriving it from the iteration
 files.
 

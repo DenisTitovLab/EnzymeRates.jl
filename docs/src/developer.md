@@ -467,7 +467,9 @@ positional local, so a `NamedTuple` in any field order works, and reciprocals an
 denominator holds `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on
 the first affinely independent terms), so every denominator term is dimensionless; a law
 with no such normalizer prints as derived. With `coefficients = true` it prints the law in
-named coefficients.
+named coefficients, and with `coefficient_values = false` without the lines that define them.
+`identify_rate_equation` writes that short form to the search and LOOCV CSVs and the full
+coefficient form to `best_equation.csv`.
 
 `_canonical` (`src/Derivation/key.jl`) labels a law canonically: each part to lowest terms,
 the fitted constants coloured by refinement on the term–constant incidence and

@@ -169,10 +169,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   runs: fits whose parent fails the final parsimony cutoff, children and survivors per move,
   zero-gain `change_allo_state` children, and how many PGK rows identify flags `L_phantom`.
   Priority: medium.
-- **Drop `rate_equation` from the search CSVs.**
-  The printed law takes 56% of the bytes of PFKP's search CSVs and 95% of PGK's (684 of 717
-  MB at 31 KB per row), and `rate_equation_string` regenerates it from the `mechanism` column.
-  `best_equation.csv` and `loocv_results.csv` would keep it. Waits for Denis's decision.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   `@enzyme_reaction` rejects a regulator's multiplicity list such as `A(1, 2)`; the
   syntax returns with this feature. `_expand_to_allosteric` and

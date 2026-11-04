@@ -85,7 +85,8 @@ Results from `identify_rate_equation`.
 - `best`: the selected `AbstractEnzymeMechanism` (1-SE rule on the LOOCV
   scores; see Model selection in `identify_rate_equation`)
 - `cv_results`: `DataFrame` with LOOCV results for
-  top candidates per param count
+  top candidates per param count; the same table as `loocv_results.csv`, so its
+  `rate_equation` column holds the law without its coefficient values
 """
 struct IdentifyRateEquationResults
     best::Mechanisms.AbstractEnzymeMechanism
@@ -167,7 +168,9 @@ and data using beam search.
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
   plus `loocv_results.csv` (the LOOCV table for every cross-validated
   candidate) and `best_equation.csv` (the selected equation and its
-  fitted parameters). Each CSV has an `at_bound` column: the names, joined by `;`, of
+  fitted parameters). The `rate_equation` column of the search and LOOCV CSVs holds the
+  law in named coefficients without their values (`rate_equation_string`);
+  `best_equation.csv` holds it with them. Each CSV has an `at_bound` column: the names, joined by `;`, of
   the constants whose best point lies at a bound of the fit's box (see
   `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv`
   file or a `progress.log` is refused, so the results of two runs never mix.
@@ -558,10 +561,11 @@ PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
 `rate_equation_term_count`, checked before any derivation); check it with the guard
 (`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
-(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` with its
-coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
-and the key of the fit it reads (`rate_equation_dedup_key`; a law whose labelling reaches
-the leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
+(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` in named
+coefficients, without their values), take its text and the text's id (`mechanism_id`), and
+read its law's key and the key of the fit it reads (`rate_equation_dedup_key`; a law whose
+labelling reaches the leaf cap gets a key of its own, and an L phantom reads the fit of its
+law at `L = 0`).
 Returns the skip's symbol, a `FitFailure` when a step throws, else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
@@ -571,7 +575,8 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         Derivation.check_valid_rate_equation(m)
         fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
         length(fitted) > max_param_count && return :param_skip
-        eq_text = Derivation.rate_equation_string(m; coefficients = true)
+        eq_text = Derivation.rate_equation_string(m; coefficients = true,
+                                                    coefficient_values = false)
         k = Derivation.rate_equation_dedup_key(m)
         canon = (key = k.key, order = k.parameters)
         phantom = k.fit_key != k.key
@@ -1127,7 +1132,10 @@ function _cv_model_selection(
     # outcome (recoverable from the iteration CSVs, but wasteful to omit).
     mkpath(save_dir)
     CSV.write(joinpath(save_dir, "loocv_results.csv"), cv_df)
-    CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
+    best_df = cv_df[[best_row_idx], :]
+    best_df.rate_equation = [Derivation.rate_equation_string(
+        candidates[best_row_idx].mech; coefficients = true)]
+    CSV.write(joinpath(save_dir, "best_equation.csv"), best_df)
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
