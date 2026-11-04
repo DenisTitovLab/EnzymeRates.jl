@@ -78,6 +78,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the
   lower-bound job, on a runner with more memory, so nothing checks the compat floor against
   the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
+- **The full suite segfaulted once in Julia 1.13.3's garbage collector.**
+  On Ubuntu x64, CI run 41755239865 crashed in `gc_mark_obj8`, during an allocation in
+  `_check_representation`, while `test/Derivation/test_oracles.jl` built its population.
+  Rerunning the job passed, and a green run of the same 203 dependency versions came just
+  before it, so the crash does not follow from a dependency change. The cause is unknown: GC
+  marking is where corruption surfaces, not where it starts. `src/` calls no `unsafe_`
+  function or `ccall`. A second `signal 11` in CI would be the next evidence to read.
 - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
   The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
   is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
