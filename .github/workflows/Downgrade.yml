@@ -6,6 +6,9 @@ on:
     paths:
       - Project.toml
   workflow_dispatch:
+  # A dependency release can stop the lower bounds resolving with no change here.
+  schedule:
+    - cron: 0 6 1 * *
 jobs:
   test:
     name: Lowest compat bounds

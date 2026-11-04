@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
   # A dependency release within the compat bounds can break the package with no push here.
   schedule:
-    - cron: 0 6 * * 1
+    - cron: 0 6 1 * *
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
