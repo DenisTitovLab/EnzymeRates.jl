@@ -137,10 +137,13 @@ end
                              reference=_testhelper_row_reference(data2))
 
         np = length(parameters(uni_uni, FittedParameters()))
+        # A draw can fit these exact data closely: at a loss near 1e-8 the two losses differ
+        # by round-off alone, 1e-11 relative but never above 1e-15 absolute over 5 million
+        # draws, so a relative tolerance alone fails about one run in 900.
         @test all(1:10) do _
             x = randn(np) .* 2.0
             isapprox(EnzymeRates.Fitting.loss!(x, fp1), EnzymeRates.Fitting.loss!(x, fp2);
-                     rtol=1e-12)
+                     rtol=1e-12, atol=1e-14)
         end
     end
 
