@@ -659,7 +659,7 @@ function parse_mechanism(text::AbstractString)
     # The parser runs in a fixed world age, where a SubString of a string type from a
     # package (CSV.jl's DataString) cannot be iterated.
     ex = Meta.parse(strip(String(text)))
-    macros =(Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism"))
+    macros = (Symbol("@enzyme_mechanism"), Symbol("@allosteric_mechanism"))
     ex isa Expr && ex.head === :macrocall && length(ex.args) == 3 && ex.args[1] in macros ||
         error("parse_mechanism: expected the text of one @enzyme_mechanism or " *
               "@allosteric_mechanism block; got $ex")
