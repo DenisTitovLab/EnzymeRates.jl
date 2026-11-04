@@ -7,6 +7,8 @@ using CSV
 using Statistics
 using SHA: sha256
 
+const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+
 """
     IdentifyRateEquationProblem{D}
 
@@ -400,7 +402,7 @@ struct _Fit
     values::Vector{Float64}
     loss::Float64
     retcode::Symbol
-    source::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    source::_AnyMech
     source_id::String
     at_bound::Vector{Bool}
 end
@@ -418,7 +420,7 @@ law whose fit it reads (for a phantom its active law, its law at `L = 0`; `canon
 otherwise), and whether its law's labelling reached the leaf cap (`capped`).
 """
 struct _Candidate
-    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    mech::_AnyMech
     fitted::Vector{Symbol}
     mechanism::String
     mechanism_id::String
@@ -453,7 +455,7 @@ end
 (`rate_equation_dedup_key`), the key of the fit it reads (`fit_key`: its own, or for an L
 phantom the key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
-    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    mech::_AnyMech
     n_params::Int
     loss::Float64
     retcode::Symbol
@@ -465,7 +467,7 @@ end
 """A mechanism that failed at derivation, compilation, fit or expansion, with the
 exception message captured as a string. Kept for the CSV + summary."""
 struct FitFailure
-    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    mech::_AnyMech
     error::String
 end
 
@@ -828,17 +830,13 @@ function _expand_parents(to_expand::Vector{BatchEntry},
         # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
         # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
         try
-            (Enumeration.expand_mechanisms(
-                 Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[m], reaction),
-             nothing)
+            (Enumeration.expand_mechanisms(_AnyMech[m], reaction), nothing)
         catch e
-            (Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[],
-             FitFailure(m, _exc_string(e)))
+            (_AnyMech[], FitFailure(m, _exc_string(e)))
         end
     end
-    parent_of =
-        Dict{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, BatchEntry}()
-    children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
+    parent_of = Dict{_AnyMech, BatchEntry}()
+    children = _AnyMech[]
     expand_failures = FitFailure[]
     for (pe, (kids, failure)) in zip(to_expand, results)
         failure === nothing || push!(expand_failures, failure)
