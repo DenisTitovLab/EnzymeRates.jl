@@ -79,9 +79,10 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # consumed every substrate and released every product. `cur` is the index of the
     # current form, `consumed` and `released` are the route's history, and `on_subs` and
     # `on_prods` are what `cur` binds; the atoms on the enzyme are those of `consumed`
-    # minus those of `released`.
+    # minus those of `released`. It takes itself as an argument because a closure that
+    # names itself is boxed.
     paths = Vector{Mechanisms.Step}[]
-    function walk!(cur, consumed, released, on_subs, on_prods, path)
+    function walk!(self, cur, consumed, released, on_subs, on_prods, path)
         if isempty(forms[cur].bound) && length(consumed) == length(sub_names) &&
                 length(released) == length(prod_names)
             push!(paths, copy(path))
@@ -97,7 +98,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
                   release ?
                   Mechanisms.Step(to, cur, takes_up, Mechanisms.Metabolite[], true, 0) :
                   Mechanisms.Step(cur, to, takes_up, Mechanisms.Metabolite[], true, 0))
-            walk!(to, con, rel, on_s, on_p, path)
+            self(self, to, con, rel, on_s, on_p, path)
             pop!(path)
         end
         if !isempty(on_prods)
@@ -131,8 +132,8 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
         end
     end
     # Start from free enzyme (:E, no bound metabolites).
-    walk!(form(Symbol[], Symbol[], Symbol[], Symbol[]), Symbol[], Symbol[], Symbol[],
-          Symbol[], Mechanisms.Step[])
+    walk!(walk!, form(Symbol[], Symbol[], Symbol[], Symbol[]), Symbol[], Symbol[],
+          Symbol[], Symbol[], Mechanisms.Step[])
 
     # --- Group paths by isomerization pattern ---
     iso_groups = Dict{Set{Mechanisms.Step}, Vector{Vector{Mechanisms.Step}}}()
