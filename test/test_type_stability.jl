@@ -11,6 +11,9 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_guard_message => "an error message",
         :_face_message => "an error message",
         :rate_equation => "a concrete mechanism is lifted to its type",
+        :_assert_atom_conserving => "an error message",
+        :_base_tier => "an error message: the text of a caught exception",
+        :_seed_node_children => "a pmap boundary",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
@@ -73,6 +76,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
 
     const _testhelper_Mechs = EnzymeRates.Mechanisms
     const _testhelper_Deriv = EnzymeRates.Derivation
+    const _testhelper_Enum = EnzymeRates.Enumeration
     const _testhelper_Mechanism = EnzymeRates.Mechanism
     const _testhelper_AllostericMechanism = EnzymeRates.AllostericMechanism
 
@@ -105,6 +109,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     const _testhelper_AlloS = typeof(_testhelper_allosteric_singleton)
     const _testhelper_PlainC = typeof(_testhelper_plain_concrete)
     const _testhelper_AlloC = typeof(_testhelper_allosteric_concrete)
+    const _testhelper_Reaction = _testhelper_Mechs.EnzymeReaction
 
     # A NamedTuple type with the fields `names`, each a Float64.
     _testhelper_floats_type(names) =
@@ -149,7 +154,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
          (_testhelper_PlainC, BitVector)),
         ("rapid_equilibrium_segments", _testhelper_Mechs.rapid_equilibrium_segments,
          (_testhelper_PlainC, BitVector)),
-        ("rapid_equilibrium_segments, with re", _testhelper_Mechs.rapid_equilibrium_segments,
+        ("rapid_equilibrium_segments, with re",
+         _testhelper_Mechs.rapid_equilibrium_segments,
          (_testhelper_PlainC, BitVector, BitVector)),
         ("segment_walk", _testhelper_Mechs.segment_walk,
          (BitVector, Vector{Vector{Int}}, Vector{Int}, Matrix{Int})),
@@ -209,6 +215,15 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
          (_testhelper_PlainC, BitVector)),
         (("rate_equation_dedup_key, $form", _testhelper_Deriv.rate_equation_dedup_key,
           (typeof(m),)) for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        ("init_mechanisms", _testhelper_Enum.init_mechanisms, (_testhelper_Reaction,)),
+        ("seed_mechanisms", _testhelper_Enum.seed_mechanisms,
+         (_testhelper_Reaction, Set{Symbol}, Set{Symbol})),
+        ("starting_mechanisms", _testhelper_Enum.starting_mechanisms,
+         (_testhelper_Reaction, Set{Symbol}, Set{Symbol})),
+        (("expand_mechanisms on $(Mechs)", _testhelper_Enum.expand_mechanisms,
+          (Mechs, _testhelper_Reaction))
+         for Mechs in (Vector{_testhelper_PlainC}, Vector{_testhelper_AlloC},
+                       Vector{Union{_testhelper_PlainC, _testhelper_AlloC}}))...,
     ]
 
     @testset "type stability" begin
@@ -235,7 +250,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                     total
                 end
             end)
-            for (f, argtypes) in ((fixture.ref_any_call, ()), (fixture.boxed_capture, (Int,)))
+            for (f, argtypes) in ((fixture.ref_any_call, ()),
+                                  (fixture.boxed_capture, (Int,)))
                 @test !isempty(JET.get_reports(JET.report_opt(f, argtypes)))
                 # None of their frames is in the package, so each counts its entry function.
                 @test [s.function_name for s in _testhelper_dispatch_sites(f, argtypes)] ==
