@@ -732,9 +732,23 @@ solver-specific options pass through a `solver_kwargs` named tuple; see
 
 ### What a fit costs
 
-A fit costs `n_restarts` × evaluations per restart × table rows × time per row. A CMA-ES
-restart in the PFKP and PGK searches runs 5,000 to 55,000 evaluations, so time per row
-decides the speed of a search. Compilation does not: it takes 2–4% of a fit.
+A fit costs `n_restarts` × evaluations per restart × table rows × time per row, plus
+compiling the law once and the solver's own work. A CMA-ES restart in the PFKP and PGK searches
+runs about 1,400 to 30,000 evaluations. The split below comes from 118 laws sampled from the
+2026-11-02 searches, each fitted once, cold, with 20 restarts on one aarch64 core on Julia 1.13.3:
+
+| Search | Mean fit | `loss!` | Compiling the law | Solver and the rest |
+|:-------|---------:|--------:|------------------:|--------------------:|
+| PGK | 1.05 s | 75% | 11.5% | 13.5% |
+| PFKP | 1.41 s | 71% | 9% | 20% |
+
+`loss!` costs about the same inside a fit as alone, so a warm fit is close to evaluations
+× `loss!` time plus 1.5–1.8 µs per evaluation. A profile of warm fits puts the objective at
+77–92% of their time, CMA-ES's eigendecomposition (`MEigen`, in CMAEvolutionStrategy) at 5–14%
+and garbage collection at 1–5%. The objective's wrapper costs too little to measure, and the
+package's own work around the solver stays near 1%. Compiling takes 0.10–0.19 s per law
+whatever its size, so it reaches 30–50% of a fit on PGK's laws of 6–8 parameters and under 5%
+on the largest laws. `test/Fitting/test_fitting.jl` bounds a fit's time by its counted `loss!` calls.
 
 The table gives `loss!` in ns per row on the PFK table (486 rows) and the PGK table (386
 rows), for the same laws at each version. The PFKP columns are one allosteric law each. The

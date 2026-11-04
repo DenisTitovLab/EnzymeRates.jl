@@ -2,6 +2,7 @@
 # ABOUTME: fit_rate_equation, including loss evaluation and parameter recovery.
 using Tables
 using Optimization
+using OptimizationCMAEvolutionStrategy: CMAEvolutionStrategyOpt
 using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
 
 # An optimizer stub whose every solve returns `u` for each log-space coordinate, so a
@@ -19,6 +20,22 @@ function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
     u = fill(opt.u, length(prob.u0))
     build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u,
                    opt.infinite ? Inf : prob.f(u, prob.p); retcode = ReturnCode.Success)
+end
+
+# An optimizer that hands the problem to `inner` and counts the objective's evaluations.
+struct _testhelper_CountingOpt{O}
+    inner::O
+    evals::Base.RefValue{Int}
+end
+Optimization.allowsbounds(::_testhelper_CountingOpt) = true
+function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
+        opt::_testhelper_CountingOpt; kwargs...)
+    objective = Optimization.OptimizationFunction((x, p) -> begin
+        opt.evals[] += 1
+        prob.f(x, p)
+    end)
+    counted = Optimization.SciMLBase.remake(prob; f = objective)
+    Optimization.solve(counted, opt.inner; kwargs...)
 end
 
 @testset "Fitting" begin
@@ -460,6 +477,76 @@ end
         isfinite(acc) || error("loss! produced a non-finite result")
         # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
         @test best_us < 70
+    end
+
+    # ── fit_rate_equation's time beyond loss! ─────────────────────────────────
+    # A real fit is loss! times the solver's evaluations, plus the solver's own work and a
+    # fixed cost per restart. Counting the evaluations makes the bound independent of how
+    # long the solver searches, and timing both in one process cancels machine speed.
+    # Locally a fit takes 1.1-1.25x its loss! calls on these tables, so a cost per evaluation
+    # fails the bound only at about half of loss! itself. The allocation checks above
+    # catch a smaller cost that allocates.
+    @testset "a fit costs about its loss! calls" begin
+        ordered_bi_bi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        allosteric_bi_bi = @allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + A <--> E(A)            :: EqualAI
+                E(A) + B <--> E(A, B)      :: EqualAI
+                E(A, B) <--> E(P, Q)       :: OnlyA
+                E(P, Q) <--> E(Q) + P      :: EqualAI
+                E(Q) <--> E + Q            :: EqualAI
+            end
+            regulatory_site(2): R::OnlyI
+        end
+        n_restarts = 5
+        for m in (ordered_bi_bi, allosteric_bi_bi)
+            rng = Random.MersenneTwister(5)
+            law_params = merge(
+                NamedTuple{parameters(m, FittedParameters())}(
+                    Tuple(1.0 .+ 9.0 .* rand(rng, length(parameters(m, FittedParameters()))))),
+                (Keq = 1.5, E_total = 1.0))
+            mets = metabolites(m)
+            law_concs = [NamedTuple{mets}(Tuple(0.1 .+ 9.9 .* rand(rng, length(mets))))
+                         for _ in 1:500]
+            groups = [string("G", div(i - 1, 50) + 1) for i in 1:500]
+            data = _testhelper_make_synthetic_data(m, law_params, law_concs; groups)
+            fp = FittingProblem(m, data; Keq = 1.5,
+                                reference = _testhelper_row_reference(data))
+            counting = _testhelper_CountingOpt(CMAEvolutionStrategyOpt(), Ref(0))
+            fit_rate_equation(fp, counting; n_restarts = 1)  # warmup/compile
+            x = randn(rng, length(parameters(m, FittedParameters())))
+            EnzymeRates.Fitting.loss!(x, fp)  # warmup/compile
+            t_loss = minimum(1:10) do _
+                @elapsed(for _ in 1:200; EnzymeRates.Fitting.loss!(x, fp); end) / 200
+            end
+            attempts = map(1:5) do _
+                counting.evals[] = 0
+                Random.seed!(11)
+                t = @elapsed fit_rate_equation(fp, counting; n_restarts)
+                (; t, evals = counting.evals[])
+            end
+            (; t, evals) = argmin(a -> a.t / a.evals, attempts)
+            # 3 ms is about 2-7x a restart's fixed cost on an aarch64 development machine.
+            allowed = 1.5 * evals * t_loss + n_restarts * 3e-3
+            @info "fit of $(nameof(typeof(m))): $evals evaluations, " *
+                  "$(round(1e6 * t_loss; digits = 2)) µs per loss!, " *
+                  "$(round(t; digits = 3)) s, allowed $(round(allowed; digits = 3)) s"
+            @test t <= allowed
+        end
     end
 
     # ── fit_rate_equation: relative fits come back at the reference turnover ──

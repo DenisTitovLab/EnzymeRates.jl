@@ -211,6 +211,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Ideas
 
+- **Spend less time compiling each law.**
+  Compiling a fresh law takes 0.10-0.19 s, 9-12% of the PFKP and PGK searches' fit time and
+  30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the mechanism,
+  so moving it behind a function that compiles once may save part of this; the saving is not
+  measured.
+- **Reduce CMA-ES's own cost per evaluation.**
+  Its eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up to
+  20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
+  change upstream; neither is explored.
+
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
