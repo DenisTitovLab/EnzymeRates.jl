@@ -43,8 +43,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :FitObjective => "the solver barrier: the FunctionWrapper is built around loss! " *
                          "on a problem of unknown type",
         :_fit_keywords => "each anchor's kept metabolite names are lifted to its type",
-        :_check_anchors => "an error message: it reads the caller's anchors, NamedTuples " *
-                           "of unknown type, only to reject a bad one",
+        :_check_anchors => "validating a user-supplied anchor of unknown type",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
