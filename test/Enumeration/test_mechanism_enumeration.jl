@@ -1294,9 +1294,10 @@ end
 
 @testset "init_mechanisms on ter-ter within its time budget" begin
     # Aggregate pin over the whole ter-ter seed set: 35,665 seeds and their 215,442 merged
-    # and Theorell–Chance variants that the guard admits. Garbage collection takes about
-    # 70% of the call and varies with a runner's memory and load, so the budget excludes it.
-    # Without it the call takes about 36 s in a full local suite.
+    # and Theorell–Chance variants that the guard admits. Garbage collection varies with
+    # the heap, from about 23% of the call on CI to about 70% under a local heap-size hint,
+    # so the budget excludes it. Without it the call takes 38 s in a full local suite and
+    # 59-109 s on a CI runner; a macOS runner that took 430 s in all would be near 330 s.
     run = @timed EnzymeRates.Enumeration.init_mechanisms(ter_ter_rxn)
     @info "init_mechanisms on ter-ter: $(round(run.time; digits = 1)) s, " *
           "$(round(run.gctime; digits = 1)) s of it in garbage collection"
@@ -13241,11 +13242,11 @@ end
 @testset "expansion moves: ter-ter random-order seed within budget" begin
     # The seed of `init_mechanisms(terter)` with the most steps (55) is the enumeration's
     # worst case: random order, each substrate and product binding at nine forms in one
-    # rapid-equilibrium group. Outside garbage collection, which varies with a runner's
-    # memory and load, the split alone must take under 60 s and the four moves that apply to
-    # a plain Mechanism (split, flip, dead end, to-allosteric) under 120 s together; they
-    # return 81 children: 12 splits, 6 flips and 63 K-types (the reaction declares no
-    # regulator). The split takes about 4 s of that in a full local suite.
+    # rapid-equilibrium group. Outside garbage collection, the split alone must take under
+    # 90 s and the four moves that apply to a plain Mechanism (split, flip, dead end,
+    # to-allosteric) under 120 s together; they return 81 children: 12 splits, 6 flips and
+    # 63 K-types (the reaction declares no regulator). The split takes 4 s in a full local
+    # suite and 7-11 s on a CI runner, but a slow macOS runner reached 60 s.
     terter = @enzyme_reaction begin
         substrates: A[C], B[N], C[O]
         products: P[C], Q[N], R[O]
@@ -13289,7 +13290,7 @@ end
           "the other moves $(round(rest.time; digits = 1)) s, " *
           "$(round(rest.gctime; digits = 1)) s of it in garbage collection"
     @test length(split.value) == 12
-    @test t_split < 60
+    @test t_split < 90
     @test length(rest.value) == 69
     @test t_split + t_rest < 120
 end
