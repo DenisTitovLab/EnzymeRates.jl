@@ -541,6 +541,8 @@ excludes(tag::Symbol, c::Symbol) =
 then its ligands' tags."""
 _site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.mwc_tags)
 
+"""The supertype of the singleton mechanism types `EnzymeMechanism` and
+`AllostericEnzymeMechanism`."""
 abstract type AbstractEnzymeMechanism end
 
 """
@@ -1280,6 +1282,8 @@ _is_reactant(m::Mechanism, x::Symbol) = insorted(x, m.substrates) || insorted(x,
 allosteric_regulators(am::AllostericMechanism) =
     unique(Symbol[l for s in am.regulatory_sites for l in s.ligands])
 
+"""The catalytic graph of a mechanism, as a `Mechanism`: `m` itself, or the catalytic part of
+an `AllostericMechanism`."""
 catalytic(m::Mechanism) = m
 catalytic(am::AllostericMechanism) = am.catalytic
 _has_residual(n::EnzymeForm) = !isempty(n.added) || !isempty(n.subtracted)
