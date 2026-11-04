@@ -690,6 +690,9 @@ function starting_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{
     _base_tier(unique(seeds), rxn)
 end
 
+"""The first 200 characters of the message of the error `e`."""
+_exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
+
 """
 The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
 (`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
@@ -713,7 +716,7 @@ function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
                 _degenerate(child) || push!(base, child)
             end
         catch e
-            push!(failures, (m, first(sprint(showerror, e), 200)))
+            push!(failures, (m, _exc_string(e)))
         end
     end
     unique(base), failures

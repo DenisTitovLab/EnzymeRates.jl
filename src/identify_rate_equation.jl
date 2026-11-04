@@ -472,7 +472,7 @@ struct FitFailure
 end
 
 """Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
-_exc_string(e) = first(sprint(showerror, e), 200)
+_exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
 
 """`pmap(f, itr)` as a `Vector{T}`. The element type of `pmap`'s result depends on the values
 `f` returned, so inference cannot read it."""

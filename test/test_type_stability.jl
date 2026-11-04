@@ -13,7 +13,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_face_message => "an error message",
         :rate_equation => "a concrete mechanism is lifted to its type",
         :_assert_atom_conserving => "an error message",
-        :_base_tier => "an error message: the text of a caught exception",
+        :_exc_string => "an error message: the text of a caught exception",
         :_seed_node_children => "a pmap boundary",
         :_fit_loss => "the solver barrier: a FunctionWrapper's call falls back on its " *
                       "callable of unknown type",
