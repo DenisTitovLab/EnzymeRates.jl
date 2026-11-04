@@ -40,6 +40,11 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_single_row_dataframe => "a DataFrame boundary",
         :_select_best_row => "a DataFrame boundary: its columns' types are not known",
         :_progress => "the print to stdout, whose type is IO",
+        :FitObjective => "the solver barrier: the FunctionWrapper is built around loss! " *
+                         "on a problem of unknown type",
+        :_fit_keywords => "each anchor's kept metabolite names are lifted to its type",
+        :_check_anchors => "an error message: it reads the caller's anchors, NamedTuples " *
+                           "of unknown type, only to reject a bad one",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
@@ -194,6 +199,18 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     const _TESTHELPER_PROBLEM_FORMS = (("plain", _testhelper_plain_singleton),
                                        ("allosteric", _testhelper_allosteric_singleton))
 
+    # The keywords `_cv_model_selection`'s workers pass, with and without a reference.
+    const _testhelper_FoldKeywords = NamedTuple{
+        (:Keq, :absolute, :optimizer, :n_restarts, :maxtime, :maxiters, :abstol, :reltol,
+         :callback, :solver_kwargs),
+        Tuple{Float64, Bool, _testhelper_Optimizer, Int, Float64, Int, Nothing, Nothing,
+              Nothing, @NamedTuple{}}}
+    const _testhelper_FoldKeywordsWithReference = NamedTuple{
+        (:Keq, :absolute, :reference, :optimizer, :n_restarts, :maxtime, :maxiters, :abstol,
+         :reltol, :callback, :solver_kwargs),
+        Tuple{Float64, Bool, Vector{Pair{NamedTuple, Float64}}, _testhelper_Optimizer, Int,
+              Float64, Int, Nothing, Nothing, Nothing, @NamedTuple{}}}
+
     const _TESTHELPER_CHECKED_CALLS = Any[
         ("metabolites, concrete", metabolites, (_testhelper_PlainC,)),
         ("metabolites, concrete allosteric", metabolites, (_testhelper_AlloC,)),
@@ -316,6 +333,22 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         ("IdentifyRateEquationProblem", IdentifyRateEquationProblem,
          _testhelper_keyword_call(_testhelper_KeqKeyword, _testhelper_Reaction,
                                   _testhelper_PlainTable)),
+        (("_cross_validation_loss, $form, $with", EnzymeRates._cross_validation_loss,
+          _testhelper_keyword_call(Kw, typeof(m), typeof(_testhelper_rate_table(m)),
+                                   String))
+         for (form, m) in _TESTHELPER_PROBLEM_FORMS,
+             (with, Kw) in (("no reference", _testhelper_FoldKeywords),
+                            ("a reference", _testhelper_FoldKeywordsWithReference)))...,
+        (("_fit_keywords, $form", EnzymeRates._fit_keywords,
+          (typeof(m), IdentifyRateEquationProblem{typeof(_testhelper_rate_table(m))}))
+         for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
+        (("_fold_problem, $form", EnzymeRates._fold_problem,
+          _testhelper_keyword_call(
+              NamedTuple{(:Keq, :absolute, :reference),
+                         Tuple{Float64, Bool, Vector{Pair{NamedTuple, Float64}}}},
+              typeof(m), typeof(_testhelper_rate_table(m)), BitVector))
+         for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
+        ("_fit_order", EnzymeRates._fit_order, (EnzymeRates._Candidate,)),
         ("identify_rate_equation", identify_rate_equation,
          _testhelper_keyword_call(
              NamedTuple{(:optimizer,), Tuple{_testhelper_Optimizer}},
