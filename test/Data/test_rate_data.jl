@@ -6,6 +6,23 @@
     table = (group = ["G1", "G1"], Rate = [1.0, 2.0], S = [1.0, 2.0], P = [0.1, 0.1])
     ref = [(S = 1.0, P = 0.1) => 1.0]
 
+    # loss! reads these columns on every row of every evaluation, and an abstract element
+    # type there dispatches at run time. CSV.read returns Union{Missing, Float64} for a
+    # column with a blank, which stays that type after the blank rows are filtered out.
+    @testset "RateData stores Rate and each metabolite as a Vector{Float64}" begin
+        table = (group = ["a", "a"], Rate = Union{Missing, Float64}[1.0, 2.0],
+                 S = Any[1.0, 2.0], P = [1, 2], Note = ["x", "y"])
+        rd = RateData(table, (:S, :P); Keq = 2.0)
+        @test rd.data.Rate isa Vector{Float64}
+        @test rd.data.S isa Vector{Float64}
+        @test rd.data.P isa Vector{Float64}
+        @test rd.data.Rate == [1.0, 2.0]
+        @test rd.data.S == [1.0, 2.0]
+        @test rd.data.P == [1.0, 2.0]
+        @test rd.data.Note == ["x", "y"]
+        @test rd.data.group == ["a", "a"]
+    end
+
     @testset "RateData holds the validated table" begin
         rd = RateData(table, (:S, :P); Keq = 2.0, reference = [(S = 1.0,) => 3])
         @test rd.Keq === 2.0
