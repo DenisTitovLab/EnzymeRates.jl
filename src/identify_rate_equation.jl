@@ -421,7 +421,7 @@ otherwise), and whether its law's labelling reached the leaf cap (`capped`).
 """
 struct _Candidate
     mech::_AnyMech
-    fitted::Vector{Symbol}
+    fitted::Tuple{Vararg{Symbol}}
     mechanism::String
     mechanism_id::String
     eq_text::String
@@ -448,7 +448,7 @@ order for those positions.
 """
 function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float64})
     at = Dict(zip(order, values))
-    NamedTuple{Tuple(c.fitted)}(Tuple(at[x] for x in c.fitted))
+    NamedTuple{c.fitted}(Tuple(at[x] for x in c.fitted))
 end
 
 """One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
@@ -579,7 +579,7 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         Derivation.rate_equation_term_count(m) > eq_complexity_filter &&
             return :complexity_skip
         Derivation.check_valid_rate_equation(m)
-        fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
+        fitted = Derivation.parameters(m, Derivation.FittedParameters())
         length(fitted) > max_param_count && return :param_skip
         eq_text = Derivation.rate_equation_string(m; coefficients = true,
                                                     coefficient_values = false)
