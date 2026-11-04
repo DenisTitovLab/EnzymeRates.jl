@@ -2,6 +2,7 @@
 # ABOUTME: fit_rate_equation, including loss evaluation and parameter recovery.
 using Tables
 using Optimization
+using OptimizationCMAEvolutionStrategy: CMAEvolutionStrategyOpt
 using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
 
 # An optimizer stub whose every solve returns `u` for each log-space coordinate, so a
@@ -19,6 +20,22 @@ function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
     u = fill(opt.u, length(prob.u0))
     build_solution(DefaultOptimizationCache(prob.f, prob.p), opt, u,
                    opt.infinite ? Inf : prob.f(u, prob.p); retcode = ReturnCode.Success)
+end
+
+# An optimizer that hands the problem to `inner` and counts the objective's evaluations.
+struct _testhelper_CountingOpt{O}
+    inner::O
+    evals::Base.RefValue{Int}
+end
+Optimization.allowsbounds(::_testhelper_CountingOpt) = true
+function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
+        opt::_testhelper_CountingOpt; kwargs...)
+    objective = Optimization.OptimizationFunction((x, p) -> begin
+        opt.evals[] += 1
+        prob.f(x, p)
+    end)
+    counted = Optimization.SciMLBase.remake(prob; f = objective)
+    Optimization.solve(counted, opt.inner; kwargs...)
 end
 
 @testset "Fitting" begin
@@ -137,10 +154,13 @@ end
                              reference=_testhelper_row_reference(data2))
 
         np = length(parameters(uni_uni, FittedParameters()))
+        # A draw can fit these exact data closely: at a loss near 1e-8 the two losses differ
+        # by round-off alone, 1e-11 relative but never above 1e-15 absolute over 5 million
+        # draws, so a relative tolerance alone fails about one run in 900.
         @test all(1:10) do _
             x = randn(np) .* 2.0
             isapprox(EnzymeRates.Fitting.loss!(x, fp1), EnzymeRates.Fitting.loss!(x, fp2);
-                     rtol=1e-12)
+                     rtol=1e-12, atol=1e-14)
         end
     end
 
@@ -255,10 +275,6 @@ end
     end
 
     # ── Zero allocations ──────────────────────────────────────────────────────
-    # Measured inside a function so the count excludes boxing the Float64 return
-    # of a dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
-    loss_allocs(x, fp) = @allocated EnzymeRates.Fitting.loss!(x, fp)
-
     @testset "Zero allocations" begin
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
@@ -266,14 +282,14 @@ end
                             reference=_testhelper_row_reference(data))
 
         x = randn(length(parameters(uni_uni, FittedParameters())))
-        loss_allocs(x, fp)  # warmup
-        allocs = loss_allocs(x, fp)
+        _testhelper_loss_allocated(x, fp)  # warmup
+        allocs = _testhelper_loss_allocated(x, fp)
         @test allocs == 0
 
         # Absolute mode (uncentered branch) is equally allocation-free.
         fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
-        loss_allocs(x, fp_abs)  # warmup
-        allocs_abs = loss_allocs(x, fp_abs)
+        _testhelper_loss_allocated(x, fp_abs)  # warmup
+        allocs_abs = _testhelper_loss_allocated(x, fp_abs)
         @test allocs_abs == 0
     end
 
@@ -285,9 +301,84 @@ end
                             reference=_testhelper_row_reference(data))
 
         x = randn(length(allo_fitted))
-        loss_allocs(x, fp)  # warmup
-        allocs = loss_allocs(x, fp)
+        _testhelper_loss_allocated(x, fp)  # warmup
+        allocs = _testhelper_loss_allocated(x, fp)
         @test allocs == 0
+    end
+
+    # ── loss! over table column types ─────────────────────────────────────────
+    # The gate in test/Derivation/test_rate_eq_derivation.jl measures loss! on every law;
+    # these tests vary the table. A column of abstract element type makes every row
+    # dispatch at run time while rate_equation stays fast, and `@inferred loss!` passes
+    # since the result is a Float64 either way, so they measure allocations.
+    @testset "loss! allocates nothing whatever the table's column types" begin
+        two_regulators = @allosteric_mechanism begin
+            substrates: A, B
+            products: P
+            allosteric_regulators: R, Q
+            catalytic_multiplicity: 4
+            steps: begin
+                E + A ⇌ E(A) :: EqualAI
+                E(A) + B <--> E(A, B) :: OnlyA
+                E(A, B) <--> E(P) :: OnlyA
+                E(P) ⇌ E + P :: EqualAI
+            end
+            regulatory_site(4): R::OnlyI
+            regulatory_site(4): Q::NonequalAI
+        end
+        no_regulators = @allosteric_mechanism begin
+            substrates: A
+            products: P
+            catalytic_multiplicity: 1
+            steps: begin
+                E + A ⇌ E(A) :: EqualAI
+                E(A) <--> E(P) :: OnlyA
+                E(P) ⇌ E + P :: EqualAI
+            end
+        end
+        plain = @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                E + A ⇌ E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P)
+                E(P) ⇌ E + P
+            end
+        end
+        retype(table, T) = merge(table, (Rate = convert(Vector{T}, table.Rate),
+                                         A = convert(Vector{T}, table.A)))
+        mechanisms = (; two_regulators, no_regulators, plain)
+        @testset "$(name)" for (name, m) in pairs(mechanisms)
+            table = _testhelper_loss_table(metabolites(m))
+            n = length(table.Rate)
+            shapes = (
+                union_missing = retype(table, Union{Missing, Float64}),
+                any = retype(table, Any),
+                float32 = retype(table, Float32),
+                int_concentration = merge(table, (A = fill(2, n),)),
+                views = map(c -> view(c, 1:n), table),
+                extra_columns = merge(table, (Article = fill("a", n), Other = rand(n))),
+                integer_group = merge(table, (group = [i % 4 for i in 1:n],)),
+            )
+            @testset "$(shape)" for (shape, data) in pairs(shapes)
+                fp = FittingProblem(m, data; Keq = Keq_val)
+                @test _testhelper_loss_allocations(fp) == 0
+            end
+            # A column's element type changes the cost of a row, never its value.
+            x = 0.1 .* randn(length(parameters(m, FittedParameters())))
+            expected = EnzymeRates.Fitting.loss!(x, FittingProblem(m, table; Keq = Keq_val))
+            for shape in (:union_missing, :any, :views)
+                fp = FittingProblem(m, shapes[shape]; Keq = Keq_val)
+                @test EnzymeRates.Fitting.loss!(x, fp) == expected
+            end
+        end
+    end
+
+    @testset "loss! allocates nothing on a cross-validation fold" begin
+        table = _testhelper_loss_table(metabolites(allo))
+        fold = EnzymeRates._fold_problem(allo, table, table.group .!= "g0"; Keq = Keq_val)
+        @test _testhelper_loss_allocations(fold) == 0
     end
 
     # ── Optimizer boundary ────────────────────────────────────────────────────
@@ -386,6 +477,76 @@ end
         isfinite(acc) || error("loss! produced a non-finite result")
         # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
         @test best_us < 70
+    end
+
+    # ── fit_rate_equation's time beyond loss! ─────────────────────────────────
+    # A real fit is loss! times the solver's evaluations, plus the solver's own work and a
+    # fixed cost per restart. Counting the evaluations makes the bound independent of how
+    # long the solver searches, and timing both in one process cancels machine speed.
+    # Locally a fit takes 1.1-1.25x its loss! calls on these tables, so a cost per evaluation
+    # fails the bound only at about half of loss! itself. The allocation checks above
+    # catch a smaller cost that allocates.
+    @testset "a fit costs about its loss! calls" begin
+        ordered_bi_bi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> E(A)
+                E(A) + B <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
+            end
+        end
+        allosteric_bi_bi = @allosteric_mechanism begin
+            substrates: A, B
+            products: P, Q
+            allosteric_regulators: R
+            catalytic_multiplicity: 2
+            steps: begin
+                E + A <--> E(A)            :: EqualAI
+                E(A) + B <--> E(A, B)      :: EqualAI
+                E(A, B) <--> E(P, Q)       :: OnlyA
+                E(P, Q) <--> E(Q) + P      :: EqualAI
+                E(Q) <--> E + Q            :: EqualAI
+            end
+            regulatory_site(2): R::OnlyI
+        end
+        n_restarts = 5
+        for m in (ordered_bi_bi, allosteric_bi_bi)
+            rng = Random.MersenneTwister(5)
+            law_params = merge(
+                NamedTuple{parameters(m, FittedParameters())}(
+                    Tuple(1.0 .+ 9.0 .* rand(rng, length(parameters(m, FittedParameters()))))),
+                (Keq = 1.5, E_total = 1.0))
+            mets = metabolites(m)
+            law_concs = [NamedTuple{mets}(Tuple(0.1 .+ 9.9 .* rand(rng, length(mets))))
+                         for _ in 1:500]
+            groups = [string("G", div(i - 1, 50) + 1) for i in 1:500]
+            data = _testhelper_make_synthetic_data(m, law_params, law_concs; groups)
+            fp = FittingProblem(m, data; Keq = 1.5,
+                                reference = _testhelper_row_reference(data))
+            counting = _testhelper_CountingOpt(CMAEvolutionStrategyOpt(), Ref(0))
+            fit_rate_equation(fp, counting; n_restarts = 1)  # warmup/compile
+            x = randn(rng, length(parameters(m, FittedParameters())))
+            EnzymeRates.Fitting.loss!(x, fp)  # warmup/compile
+            t_loss = minimum(1:10) do _
+                @elapsed(for _ in 1:200; EnzymeRates.Fitting.loss!(x, fp); end) / 200
+            end
+            attempts = map(1:5) do _
+                counting.evals[] = 0
+                Random.seed!(11)
+                t = @elapsed fit_rate_equation(fp, counting; n_restarts)
+                (; t, evals = counting.evals[])
+            end
+            (; t, evals) = argmin(a -> a.t / a.evals, attempts)
+            # 3 ms is about 2-7x a restart's fixed cost on an aarch64 development machine.
+            allowed = 1.5 * evals * t_loss + n_restarts * 3e-3
+            @info "fit of $(nameof(typeof(m))): $evals evaluations, " *
+                  "$(round(1e6 * t_loss; digits = 2)) µs per loss!, " *
+                  "$(round(t; digits = 3)) s, allowed $(round(allowed; digits = 3)) s"
+            @test t <= allowed
+        end
     end
 
     # ── fit_rate_equation: relative fits come back at the reference turnover ──

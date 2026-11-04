@@ -499,12 +499,15 @@ function _assert_atom_conserving(m::Union{Mechanisms.Mechanism,
         taken, given = cm.steps[k].taken_up, cm.steps[k].given_off
         diff = _net_atoms(rxn, side(t, f, given), side(f, t, taken))
         isempty(diff) && continue
-        from, to = Mechanisms.form_text(cm, f), Mechanisms.form_text(cm, t)
-        error("atom-non-conserving step $from → $to (consumed $(names(taken)), " *
-              "released $(names(given))): " *
-              "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff")
+        error(_atom_conserving_message(cm, f, t, names(taken), names(given), diff))
     end
     nothing
+end
+
+function _atom_conserving_message(cm, f::Int, t::Int, taken, given, diff)
+    from, to = Mechanisms.form_text(cm, f), Mechanisms.form_text(cm, t)
+    "atom-non-conserving step $from → $to (consumed $taken, released $given): " *
+    "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff"
 end
 
 # ─── Regulator-Type Filter ────────────────────────────────────

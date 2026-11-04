@@ -39,8 +39,12 @@ level in the order of `items`. They come in the order of their first level in
 """
 function _weak_orderings(items::Vector{Symbol})
     isempty(items) && return [Vector{Symbol}[]]
-    Vector{Vector{Symbol}}[[[level]; rest] for level in _subsets(items)[2:end]
-                           for rest in _weak_orderings(setdiff(items, level))]
+    orderings = Vector{Vector{Symbol}}[]
+    # A comprehension here would hide the recursive call's type from inference.
+    for level in _subsets(items)[2:end], rest in _weak_orderings(setdiff(items, level))
+        push!(orderings, [[level]; rest])
+    end
+    orderings
 end
 
 """
@@ -79,9 +83,10 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # consumed every substrate and released every product. `cur` is the index of the
     # current form, `consumed` and `released` are the route's history, and `on_subs` and
     # `on_prods` are what `cur` binds; the atoms on the enzyme are those of `consumed`
-    # minus those of `released`.
+    # minus those of `released`. `walk!` takes itself as an argument because a closure that
+    # names itself is boxed.
     paths = Vector{Mechanisms.Step}[]
-    function walk!(cur, consumed, released, on_subs, on_prods, path)
+    function walk!(self, cur, consumed, released, on_subs, on_prods, path)
         if isempty(forms[cur].bound) && length(consumed) == length(sub_names) &&
                 length(released) == length(prod_names)
             push!(paths, copy(path))
@@ -97,7 +102,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
                   release ?
                   Mechanisms.Step(to, cur, takes_up, Mechanisms.Metabolite[], true, 0) :
                   Mechanisms.Step(cur, to, takes_up, Mechanisms.Metabolite[], true, 0))
-            walk!(to, con, rel, on_s, on_p, path)
+            self(self, to, con, rel, on_s, on_p, path)
             pop!(path)
         end
         if !isempty(on_prods)
@@ -131,8 +136,8 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
         end
     end
     # Start from free enzyme (:E, no bound metabolites).
-    walk!(form(Symbol[], Symbol[], Symbol[], Symbol[]), Symbol[], Symbol[], Symbol[],
-          Symbol[], Mechanisms.Step[])
+    walk!(walk!, form(Symbol[], Symbol[], Symbol[], Symbol[]), Symbol[], Symbol[],
+          Symbol[], Symbol[], Mechanisms.Step[])
 
     # --- Group paths by isomerization pattern ---
     iso_groups = Dict{Set{Mechanisms.Step}, Vector{Vector{Mechanisms.Step}}}()
@@ -598,16 +603,8 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
     frontier = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
         m for m in init_mechanisms(rxn) if consider!(m)]
     while !isempty(frontier)
-        # Per-node child generation is pure and independent — distribute it.
-        childsets = pmap(frontier) do m
-            children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-            isempty(required_allo) || append!(children, m isa Mechanisms.Mechanism ?
-                _expand_to_allosteric(m, rxn) : _expand_add_allosteric_regulator(m, rxn))
-            append!(children, _expand_add_dead_end_regulator(m, rxn))
-            filter!(c -> _is_seed_node(c, rxn, required_allo, required_comp), children)
-        end
         next = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-        for cs in childsets, c in cs
+        for cs in _seed_node_children(frontier, rxn, required_allo, required_comp), c in cs
             consider!(c) && push!(next, c)
         end
         frontier = next
@@ -624,6 +621,23 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
     end
     filter!(_guard_accepts, seeds)
     seeds
+end
+
+"""The children worth expanding (`_is_seed_node`) of each mechanism of `frontier`, in
+frontier order. Generating one mechanism's children is pure and independent of the others',
+so the mechanisms are distributed over the workers."""
+function _seed_node_children(
+    frontier::Vector{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}},
+    rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol}, required_comp::Set{Symbol}
+)::Vector{Vector{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}}}
+    # The return type states what inference cannot read through `pmap`.
+    pmap(frontier) do m
+        children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
+        isempty(required_allo) || append!(children, m isa Mechanisms.Mechanism ?
+            _expand_to_allosteric(m, rxn) : _expand_add_allosteric_regulator(m, rxn))
+        append!(children, _expand_add_dead_end_regulator(m, rxn))
+        filter!(c -> _is_seed_node(c, rxn, required_allo, required_comp), children)
+    end
 end
 
 """Names of the allosteric regulators bound at `m`'s regulatory sites (empty for
@@ -671,11 +685,13 @@ flip children that are not (`_base_tier`). Each failure is a `(seed, message)` p
 """
 function starting_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                              required_comp::Set{Symbol})
-    seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        unique!(collect(init_mechanisms(rxn))) :
-        unique!(collect(seed_mechanisms(rxn, required_allo, required_comp)))
-    _base_tier(seeds, rxn)
+    seeds = (isempty(required_allo) && isempty(required_comp)) ? init_mechanisms(rxn) :
+        seed_mechanisms(rxn, required_allo, required_comp)
+    _base_tier(unique(seeds), rxn)
 end
+
+"""The first 200 characters of the message of the error `e`."""
+_exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
 
 """
 The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
@@ -700,8 +716,8 @@ function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
                 _degenerate(child) || push!(base, child)
             end
         catch e
-            push!(failures, (m, first(sprint(showerror, e), 200)))
+            push!(failures, (m, _exc_string(e)))
         end
     end
-    unique!(base), failures
+    unique(base), failures
 end

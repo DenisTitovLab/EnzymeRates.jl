@@ -8,7 +8,8 @@
 A rate table that has passed its checks, with the constants that go with it.
 
 # Fields
-- `data`: `Tables.columntable(table)`
+- `data`: `Tables.columntable(table)`, with `Rate` and each named metabolite as a
+  `Vector{Float64}`
 - `Keq`: fixed equilibrium constant
 - `absolute`: `false` selects relative data, whose scale the `reference` sets; `true`
   selects absolute per-enzyme turnover
@@ -56,7 +57,11 @@ function _rate_table(table, mnames, Keq)
         error("Rate at row $i must be a finite number; got $(repr(data.Rate[i]))")
     i = findfirst(iszero, data.Rate)
     i === nothing || error("Zero rate at row $i: log(0) is undefined")
-    data
+    # loss! reads these columns on every row of every evaluation. An abstract element type,
+    # such as the Union{Missing, Float64} of a CSV column with a blank, dispatches at run
+    # time on each read.
+    numeric = (:Rate, Tuple(mnames)...)
+    merge(data, NamedTuple{numeric}(map(k -> Vector{Float64}(data[k]), numeric)))
 end
 
 # The reference anchors a problem stores; see `RateData`.
@@ -69,7 +74,7 @@ function _reference(reference, absolute::Bool, mets, owner::String)
     end
     reference === nothing && return Pair{NamedTuple, Float64}[]
     _check_anchors(reference, mets, owner)
-    Pair{NamedTuple, Float64}[concs => Float64(t) for (concs, t) in reference]
+    [Pair{NamedTuple, Float64}(concs, t) for (concs, t) in reference]
 end
 
 """

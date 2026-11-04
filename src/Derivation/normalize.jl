@@ -72,8 +72,8 @@ function _normalizer(D::_Poly, vars::_Vars, substrates::Vector{Int})
     column(mo) = _Exp[1; [_mexp(mo, v) for v in conc]]
     basis = _Mono[]
     for mo in monos
-        M = reduce(hcat, [column(b) for b in [basis; [mo]]])
-        length(_rref!(M, length(basis) + 1)) > length(basis) && push!(basis, mo)
+        candidate = reduce(hcat, [column(b) for b in [basis; [mo]]])
+        length(_rref!(candidate, length(basis) + 1)) > length(basis) && push!(basis, mo)
     end
     k = length(basis)
     M = [reduce(hcat, [column(b) for b in basis]) _Exp[1; zeros(Int, length(conc))]]

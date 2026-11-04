@@ -88,3 +88,21 @@ is NP-hard, so any single run can settle in a local minimum; restarting from
 independent points raises the chance of reaching the global optimum. In our
 tests on complex rate equations with datasets of 500–1000 points,
 `n_restarts = 10–20` returned the same loss on every run.
+
+## How long a fit takes
+
+A fit spends most of its time evaluating the loss, so its time is about `n_restarts` ×
+evaluations per restart × time per evaluation. Fits of 118 mechanisms sampled from two real
+searches, with `CMAEvolutionStrategyOpt()` and 20 restarts, took:
+
+| Median (range) | PGK, 386 data points, 6–13 parameters | PFK, 486 data points, 11–20 parameters |
+|:---------------|--------------------------------------:|---------------------------------------:|
+| Evaluations per restart | 2,800 (1,200–23,000) | 6,200 (2,800–30,000) |
+| Time per evaluation | 3.3 µs (2.8–18) | 6.3 µs (5.1–8.9) |
+| Fit with 20 restarts | 0.4 s (0.2–5.6) | 1.1 s (0.5–7.0) |
+
+These are single fits on one core of an aarch64 machine on Julia 1.13.3, so expect other times
+on other hardware. A fit takes longer with more data points, more parameters and a longer rate
+equation. The first fit in a Julia session also compiles the solver, about 3 s, and each new
+mechanism compiles in 0.1–0.2 s, which those fit times include. A restart here took at most
+about 0.35 s, so the default `maxtime` rarely limits a fit.

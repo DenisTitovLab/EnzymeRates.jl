@@ -589,11 +589,21 @@ end
         @test "at_bound" in names(cvf)
         @test "cv_score" in names(cvf)
 
+        # The search and LOOCV CSVs hold the law without its coefficient values.
+        searchf = CSV.read(joinpath(save_dir, "equation_search_iteration_1.csv"), DataFrame)
+        row = first(filter(r -> !ismissing(r.rate_equation), searchf))
+        @test row.rate_equation ==
+              _testhelper_short_law(EnzymeRates.DSL.parse_mechanism(row.mechanism))
+        @test cvf.rate_equation[1] ==
+              _testhelper_short_law(EnzymeRates.DSL.parse_mechanism(cvf.mechanism[1]))
+        @test !any(startswith("# The coefficients"), split(cvf.rate_equation[1], '\n'))
+        @test results.cv_results.rate_equation == cvf.rate_equation
+
         bestf = CSV.read(joinpath(save_dir, "best_equation.csv"), DataFrame)
         @test nrow(bestf) == 1
-        # The CSV's law is the selected mechanism's printed law in named coefficients:
-        # PASS1 prints it from the concrete mechanism, rate_equation_string from the
-        # compiled one.
+        # The CSV's law is the selected mechanism's printed law in named coefficients,
+        # with their values: _cv_model_selection prints it from the concrete mechanism,
+        # rate_equation_string from the compiled one.
         @test bestf.rate_equation[1] ==
               rate_equation_string(results.best; coefficients = true)
         # The key reads back as text, and it is the selected mechanism's key.
@@ -1086,6 +1096,9 @@ end
         cd(tmp) do
             d1 = EnzymeRates._default_save_dir()
             @test occursin(r"^\d{4}_\d{2}_\d{2}_results$", d1)
+            year, month, day = EnzymeRates.Dates.yearmonthday(EnzymeRates.Dates.today())
+            @test d1 == string(year, "_", lpad(month, 2, '0'), "_", lpad(day, 2, '0'),
+                               "_results")
             mkpath(d1)
             d2 = EnzymeRates._default_save_dir()
             @test d2 == d1 * "_2"

@@ -4851,3 +4851,28 @@ _testhelper_renamed_law(A::EnzymeRates.Derivation._AlloLaw, rename::Dict{Symbol,
                                     _testhelper_renamed_law(A.active, rename),
                                     _testhelper_renamed_law(A.inactive, rename), A.fA, A.fI,
                                     A.sites, A.n)
+
+# A table of `rows` data rows in four groups, one column per metabolite name in `mets`.
+function _testhelper_loss_table(mets; rows = 64)
+    rng = Random.MersenneTwister(11)
+    merge((group = [string("g", i % 4) for i in 1:rows], Rate = 0.5 .+ rand(rng, rows)),
+          NamedTuple{Tuple(mets)}(Tuple(0.1 .+ rand(rng, rows) for _ in mets)))
+end
+
+_testhelper_loss_problem(m; absolute = false) =
+    FittingProblem(m, _testhelper_loss_table(metabolites(m)); Keq = 2.0, absolute)
+
+# Measured inside a function so the count excludes boxing the Float64 return of a
+# dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
+_testhelper_loss_allocated(x, fp) = @allocated EnzymeRates.Fitting.loss!(x, fp)
+
+"""Allocations of one `loss!` call on `fp` at random parameters."""
+function _testhelper_loss_allocations(fp)
+    x = 0.1 .* randn(length(parameters(fp.mechanism, FittedParameters())))
+    _testhelper_loss_allocated(x, fp)  # warmup
+    _testhelper_loss_allocated(x, fp)
+end
+
+# The printed law of `m` in named coefficients without their values.
+_testhelper_short_law(m) =
+    rate_equation_string(m; coefficients = true, coefficient_values = false)

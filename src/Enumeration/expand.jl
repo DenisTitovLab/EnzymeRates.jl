@@ -21,8 +21,11 @@ function expand_mechanisms(
     result = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
     for m in mechs
         _assert_emission_rules(m)
-        append!(result, _expand_re_to_ss(m), _expand_split_kinetic_group(m),
-                _expand_add_dead_end_regulator(m, rxn))
+        # One call per move: on a `Union` parent, three moves' results in one call exceed
+        # what inference splits, and it dispatches at run time.
+        append!(result, _expand_re_to_ss(m))
+        append!(result, _expand_split_kinetic_group(m))
+        append!(result, _expand_add_dead_end_regulator(m, rxn))
         if m isa Mechanisms.Mechanism
             append!(result, _expand_to_allosteric(m, rxn))
         else

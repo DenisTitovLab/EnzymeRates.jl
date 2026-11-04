@@ -17,6 +17,24 @@ The same call scales from one core to a whole high-performance compute (HPC)
 cluster — you add worker processes and change nothing else. With no workers,
 `pmap` runs every fit on the main process, so the call already works on a laptop.
 
+## How long a search takes
+
+The number of fits sets a search's time, and that number depends on the reaction, its
+regulators and the beam settings. Two production searches with the default beam on real
+data, run on about 800 cores of a cluster:
+
+| | PGK | PFK |
+|:-|---:|---:|
+| Fits | 15,700 | 119,453 |
+| Wall time | 13 min | 62 min |
+| Worker CPU time per fit | 10 s | 17 s |
+
+CPU time per fit covers everything the workers do, including enumeration, compilation and
+cross-validation, so it runs well above a fit's own time (see
+[How long a fit takes](@ref)). At those rates a PGK-sized search would need roughly 5–6 hours
+on 8 cores and a PFK-sized one about 3 days. These are estimates from the cluster's CPU time,
+not runs on 8 cores, and your hardware and data will change them.
+
 ## Running on a local machine with several cores
 
 Add local workers with `addprocs`, load the package and your optimizer on every

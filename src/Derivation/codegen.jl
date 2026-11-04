@@ -60,7 +60,7 @@ end
 
 """The program of a plain law: `num = H·Q`, `den = D` (`_state!`)."""
 function _program(m::Mechanisms.Mechanism, s::_Solve, L::_Law)
-    vars, defs = deepcopy(L.vars), Pair{Int, _Poly}[]
+    vars, defs = copy(L.vars), Pair{Int, _Poly}[]
     Q, D = _state!(vars, defs, m, s, L, _conformation_steps(m, 1), false)
     _Program(vars, defs, _factor!(vars, defs, L.H) * Q, D)
 end
@@ -73,7 +73,7 @@ conformation terms `xA = fI·DA` and `xI = fA·DI` and each site's two binding p
 """
 function _program(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw)
     m, n = Mechanisms.catalytic(am), A.n
-    vars, defs = deepcopy(A.vars), Pair{Int, _Poly}[]
+    vars, defs = copy(A.vars), Pair{Int, _Poly}[]
     QA, DA = _state!(vars, defs, m, s, A.active, am.active_steps,
                      false)
     QI, DI = _flip_only(A.inactive) ? (zero(_Poly), one(_Poly)) :

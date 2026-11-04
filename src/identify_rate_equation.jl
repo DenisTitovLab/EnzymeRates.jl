@@ -7,6 +7,8 @@ using CSV
 using Statistics
 using SHA: sha256
 
+const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+
 """
     IdentifyRateEquationProblem{D}
 
@@ -85,7 +87,8 @@ Results from `identify_rate_equation`.
 - `best`: the selected `AbstractEnzymeMechanism` (1-SE rule on the LOOCV
   scores; see Model selection in `identify_rate_equation`)
 - `cv_results`: `DataFrame` with LOOCV results for
-  top candidates per param count
+  top candidates per param count; the same table as `loocv_results.csv`, so its
+  `rate_equation` column holds the law without its coefficient values
 """
 struct IdentifyRateEquationResults
     best::Mechanisms.AbstractEnzymeMechanism
@@ -167,8 +170,12 @@ and data using beam search.
   search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
   plus `loocv_results.csv` (the LOOCV table for every cross-validated
   candidate) and `best_equation.csv` (the selected equation and its
-  fitted parameters). Each CSV has an `at_bound` column: the names, joined by `;`, of
-  the constants whose best point lies at a bound of the fit's box (see
+  fitted parameters). The `rate_equation` column of the search and LOOCV CSVs holds the
+  law in named coefficients without their values (`rate_equation_string`); that text
+  does not run. `best_equation.csv` holds it with them. For the full form of any row, call
+  `rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients =
+  true)`. Each CSV has an `at_bound` column: the names,
+  joined by `;`, of the constants whose best point lies at a bound of the fit's box (see
   `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv`
   file or a `progress.log` is refused, so the results of two runs never mix.
 
@@ -273,6 +280,12 @@ function identify_rate_equation(
     return result
 end
 
+"""Write the table `df` to `<save_dir>/<filename>`, creating `save_dir` if absent."""
+function _write_csv(save_dir::String, filename::String, df::DataFrame)
+    mkpath(save_dir)
+    CSV.write(joinpath(save_dir, filename), df)
+end
+
 """
 Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent. `texts` maps
 each `mechanism_id` the run has written to its mechanism's text, and gains the rows' ids.
@@ -288,8 +301,7 @@ function _write_rows_csv!(save_dir::String, filename::String, rows,
                   "16 hex digits of the SHA-256 of their texts, so the run's CSVs cannot " *
                   "tell them apart:\n$other\n$(r.mechanism)")
     end
-    mkpath(save_dir)
-    CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
+    _write_csv(save_dir, filename, _rows_to_dataframe(rows))
 end
 
 """
@@ -397,7 +409,7 @@ struct _Fit
     values::Vector{Float64}
     loss::Float64
     retcode::Symbol
-    source::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    source::_AnyMech
     source_id::String
     at_bound::Vector{Bool}
 end
@@ -415,8 +427,8 @@ law whose fit it reads (for a phantom its active law, its law at `L = 0`; `canon
 otherwise), and whether its law's labelling reached the leaf cap (`capped`).
 """
 struct _Candidate
-    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-    fitted::Vector{Symbol}
+    mech::_AnyMech
+    fitted::Tuple{Vararg{Symbol}}
     mechanism::String
     mechanism_id::String
     eq_text::String
@@ -443,14 +455,14 @@ order for those positions.
 """
 function _row_params(c::_Candidate, order::Vector{Symbol}, values::Vector{Float64})
     at = Dict(zip(order, values))
-    NamedTuple{Tuple(c.fitted)}(Tuple(at[x] for x in c.fitted))
+    NamedTuple{c.fitted}(Tuple(at[x] for x in c.fitted))
 end
 
 """One fitted mechanism: its parameter count, its fit's loss and retcode, its rate-law key
 (`rate_equation_dedup_key`), the key of the fit it reads (`fit_key`: its own, or for an L
 phantom the key of its law at `L = 0`), and its CSV row."""
 struct BatchEntry
-    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    mech::_AnyMech
     n_params::Int
     loss::Float64
     retcode::Symbol
@@ -462,12 +474,16 @@ end
 """A mechanism that failed at derivation, compilation, fit or expansion, with the
 exception message captured as a string. Kept for the CSV + summary."""
 struct FitFailure
-    mech::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    mech::_AnyMech
     error::String
 end
 
 """Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
-_exc_string(e) = first(sprint(showerror, e), 200)
+_exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
+
+"""`pmap(f, itr)` as a `Vector{T}`. The element type of `pmap`'s result depends on the
+values `f` returned, so inference cannot read it."""
+_pmap_to_vector(f, ::Type{T}, itr) where {T} = convert(Vector{T}, pmap(f, itr))
 
 """
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row; it records
@@ -558,10 +574,11 @@ PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
 `rate_equation_term_count`, checked before any derivation); check it with the guard
 (`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
-(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` with its
-coefficients), take its text and the text's id (`mechanism_id`), and read its law's key
-and the key of the fit it reads (`rate_equation_dedup_key`; a law whose labelling reaches
-the leaf cap gets a key of its own, and an L phantom reads the fit of its law at `L = 0`).
+(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` in named
+coefficients, without their values), take its text and the text's id (`mechanism_id`), and
+read its law's key and the key of the fit it reads (`rate_equation_dedup_key`; a law whose
+labelling reaches the leaf cap gets a key of its own, and an L phantom reads the fit of its
+law at `L = 0`).
 Returns the skip's symbol, a `FitFailure` when a step throws, else a `_Candidate`.
 """
 function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
@@ -569,9 +586,10 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         Derivation.rate_equation_term_count(m) > eq_complexity_filter &&
             return :complexity_skip
         Derivation.check_valid_rate_equation(m)
-        fitted = collect(Derivation.parameters(m, Derivation.FittedParameters()))
+        fitted = Derivation.parameters(m, Derivation.FittedParameters())
         length(fitted) > max_param_count && return :param_skip
-        eq_text = Derivation.rate_equation_string(m; coefficients = true)
+        eq_text = Derivation.rate_equation_string(m; coefficients = true,
+                                                    coefficient_values = false)
         k = Derivation.rate_equation_dedup_key(m)
         canon = (key = k.key, order = k.parameters)
         phantom = k.fit_key != k.key
@@ -625,7 +643,8 @@ function _process_batch(
     optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
     memo::Dict{String,_Fit}=Dict{String,_Fit}(),
     seen::Set{UInt64}=Set{UInt64}(),
-    parent_of::AbstractDict = Dict(), log = msg -> nothing, kwargs...
+    parent_of::Dict{_AnyMech, BatchEntry} = Dict{_AnyMech, BatchEntry}(),
+    log = msg -> nothing, kwargs...
 )
     # Skip structures already produced — expand each once. Added to `seen` on first
     # sight regardless of outcome (fit / cap / error).
@@ -636,7 +655,9 @@ function _process_batch(
     end
 
     # PASS 1 (workers): `_pass1_record` on each fresh mechanism.
-    records = pmap(m -> _pass1_record(m, eq_complexity_filter, max_param_count), fresh)
+    records = _pmap_to_vector(Union{Symbol, FitFailure, _Candidate}, fresh) do m
+        _pass1_record(m, eq_complexity_filter, max_param_count)
+    end
 
     # Pick one representative per key not already fit; an L phantom is none.
     rep_idx = Dict{String,Int}()
@@ -668,7 +689,7 @@ function _process_batch(
     # the text of the error its fit threw.
     fit_error = Dict{String,String}()   # key → its representative's fit threw
     function fit!(reps::Vector{_Candidate})
-        rep_fits = pmap(reps) do r
+        rep_fits = _pmap_to_vector(Union{_Fit, String}, reps) do r
             try
                 em = Mechanisms.compile_mechanism(r.mech)
                 fp = FittingProblem(em, prob.rate_data.data; _fit_keywords(em, prob)...)
@@ -681,7 +702,7 @@ function _process_batch(
             end
         end
         for (r, f) in zip(reps, rep_fits)
-            f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f::String)
+            f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f)
         end
     end
     fit!(reps)
@@ -721,7 +742,7 @@ function _process_batch(
             loss = fit.loss,
             mechanism = c.mechanism,
             mechanism_id = c.mechanism_id,
-            parent_id = parent === nothing ? missing : parent.row.mechanism_id,
+            parent_id = parent === nothing ? missing : parent.row.mechanism_id::String,
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
@@ -819,21 +840,18 @@ expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
                          reaction::Mechanisms.EnzymeReaction)
-    results = pmap([pe.mech for pe in to_expand]) do m
+    results = _pmap_to_vector(Tuple{Vector{_AnyMech}, Union{Nothing, FitFailure}},
+                              [pe.mech for pe in to_expand]) do m
         # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
         # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
         try
-            (Enumeration.expand_mechanisms(
-                 Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[m], reaction),
-             nothing)
+            (Enumeration.expand_mechanisms(_AnyMech[m], reaction), nothing)
         catch e
-            (Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[],
-             FitFailure(m, _exc_string(e)))
+            (_AnyMech[], FitFailure(m, _exc_string(e)))
         end
     end
-    parent_of =
-        Dict{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, BatchEntry}()
-    children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
+    parent_of = Dict{_AnyMech, BatchEntry}()
+    children = _AnyMech[]
     expand_failures = FitFailure[]
     for (pe, (kids, failure)) in zip(to_expand, results)
         failure === nothing || push!(expand_failures, failure)
@@ -915,14 +933,16 @@ function _beam_search(
     # rows to `csv`, fold the entries into the search state, and log the post-fit
     # summary. Returns `(entries, failures)`, or `nothing`, writing no CSV, when the
     # batch has no rows.
-    function run_batch!(mechs, extra_failures, header, csv; parent_of = Dict())
+    function run_batch!(mechs, extra_failures, header, csv;
+                        parent_of = Dict{_AnyMech, BatchEntry}())
         entries, failures = _process_batch(mechs, prob; optimizer, max_param_count,
             eq_complexity_filter, memo, seen, parent_of,
             log = msg -> progress(header * "\n  " * msg), kwargs...)
         append!(failures, extra_failures)
         isempty(entries) && isempty(failures) && return nothing
         _write_rows_csv!(save_dir, csv,
-            vcat([e.row for e in entries], [_failure_row(f) for f in failures]), texts)
+            vcat(NamedTuple[e.row for e in entries],
+                 NamedTuple[_failure_row(f) for f in failures]), texts)
         improved = _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                             n_cv_candidates)
         progress(string("  ", _postfit_summary(entries, failures),
@@ -1003,7 +1023,7 @@ lowest-`cv_score` row at the smallest `n_params` that has a row at or below
 the cutoff. The best row always passes its own cutoff, so a row with more
 parameters than the best row is never returned.
 """
-function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)
+function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)::Int
     by_score = sortperm(collect(zip(cv_df.cv_score, cv_df.n_params)))
     i_min = by_score[1]
     cutoff = cv_df.cv_score[i_min] + se_threshold * cv_df.cv_score_se[i_min]
@@ -1024,6 +1044,8 @@ function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechani
                        data::NamedTuple, mask; keywords...)
     FittingProblem(mechanism, map(col -> col[mask], data); keywords...)
 end
+
+_single_row_dataframe(df::DataFrame, i::Int) = df[[i], :]
 
 """
     _cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference = nothing,
@@ -1087,7 +1109,7 @@ function _cv_model_selection(
     # each) per `n_params` bucket, so one law never takes two LOOCV slots at a count and
     # folds are never wasted on, or biased by, its duplicates.
     candidates = pool[sortperm([(e.n_params, e.loss) for e in pool])]
-    cv_df = _rows_to_dataframe([e.row for e in candidates])
+    cv_df = _rows_to_dataframe(NamedTuple[e.row for e in candidates])
 
     _progress(save_dir, show_progress,
         "Cross-validating $(length(candidates)) candidate equations (LOOCV)…")
@@ -1097,19 +1119,22 @@ function _cv_model_selection(
     # losses in `groups` order, and column ci of `scores` candidate ci's.
     groups = unique(prob.rate_data.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
-    fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
+    folds = Tuple{_AnyMech, eltype(groups)}[(memo[k].source, g)
+                                            for k in fit_keys for g in groups]
+    fold_losses = _pmap_to_vector(Float64, folds) do (m, g)
         mechanism = Mechanisms.compile_mechanism(m)
         _cross_validation_loss(mechanism, prob.rate_data.data, g;
             _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
     end
-    by_fit = reshape(Float64.(fold_losses), length(groups), :)
-    scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys) for e in candidates]]
+    by_fit = reshape(fold_losses, length(groups), :)
+    scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys)::Int for e in candidates]]
 
     cv_df.cv_score = [mean(c) for c in eachcol(scores)]
     cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
-    best_mechanism = Mechanisms.compile_mechanism(candidates[best_row_idx].mech)
+    best = candidates[best_row_idx]
+    best_mechanism = Mechanisms.compile_mechanism(best.mech)
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.rate_data.data.group)` iteration above.
@@ -1119,15 +1144,16 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Selected: $(nameof(typeof(best_mechanism))) " *
-        "(key=$(cv_df.key[best_row_idx])), " *
-        "n_params=$(cv_df.n_params[best_row_idx])")
+        "(key=$(best.key)), n_params=$(best.n_params)")
 
     # Save the LOOCV table and the selected best equation alongside the
     # per-iteration fit CSVs, so cluster runs persist the model-selection
     # outcome (recoverable from the iteration CSVs, but wasteful to omit).
-    mkpath(save_dir)
-    CSV.write(joinpath(save_dir, "loocv_results.csv"), cv_df)
-    CSV.write(joinpath(save_dir, "best_equation.csv"), cv_df[[best_row_idx], :])
+    _write_csv(save_dir, "loocv_results.csv", cv_df)
+    best_df = _single_row_dataframe(cv_df, best_row_idx)
+    best_df.rate_equation = [Derivation.rate_equation_string(
+        best.mech; coefficients = true)]
+    _write_csv(save_dir, "best_equation.csv", best_df)
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
@@ -1137,7 +1163,7 @@ Default results directory: the first non-existent `<date>_results[_N]`
 directory in the cwd (e.g. `YYYY_MM_DD_results`, then `…_results_2`, `_3`).
 """
 function _default_save_dir()
-    base = string(Dates.format(Dates.today(), "yyyy_mm_dd"), "_results")
+    base = string(Dates.format(Dates.today(), dateformat"yyyy_mm_dd"), "_results")
     isdir(base) || return base
     n = 2
     while isdir(string(base, "_", n)); n += 1; end

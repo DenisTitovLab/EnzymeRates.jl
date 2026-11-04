@@ -337,9 +337,9 @@ This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
 `rate_equation(m, conc, params)` as straight-line arithmetic, written in Horner
 form (`_horner`), that must be
-**allocation-free and fast**: under 120 ns per call for every fixture mechanism, and
-under `max(120 ns, 0.8 ns × denominator terms)` for the three largest enumerated bi-bi
-laws (396 denominator terms each) and three ter-bi laws (589, 799 and 858 terms).
+**allocation-free and fast**: under 50 ns + 0.5 ns × denominator terms per call for every
+gated law, including the three largest enumerated bi-bi laws (396 denominator terms each)
+and three ter-bi laws (589, 799 and 858 terms).
 `_testhelper_test_rate_equation_performance` (`test/Derivation/test_rate_eq_derivation.jl`)
 measures each law's allocations and time per call, and the tests assert
 `allocs == 0` and the law's bound. `rate_equation_string` (`src/Derivation/print.jl`)
@@ -467,7 +467,9 @@ positional local, so a `NamedTuple` in any field order works, and reciprocals an
 denominator holds `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on
 the first affinely independent terms), so every denominator term is dimensionless; a law
 with no such normalizer prints as derived. With `coefficients = true` it prints the law in
-named coefficients.
+named coefficients, and with `coefficient_values = false` without the lines that define them.
+`identify_rate_equation` writes that short form to the search and LOOCV CSVs and the full
+coefficient form to `best_equation.csv`.
 
 `_canonical` (`src/Derivation/key.jl`) labels a law canonically: each part to lowest terms,
 the fitted constants coloured by refinement on the term–constant incidence and
@@ -727,3 +729,145 @@ taking on a solver dependency or locking users into one algorithm. Optimization.
 common options (`maxtime`, `maxiters`, …) are named keyword arguments, and
 solver-specific options pass through a `solver_kwargs` named tuple; see
 [Loss & optimizers](@ref) for the user-facing view.
+
+### What a fit costs
+
+A fit costs `n_restarts` × evaluations per restart × table rows × time per row, plus
+compiling the law once and the solver's own work. The tables below come from 118 laws sampled
+from the 2026-11-02 searches, 59 from each, each fitted once, cold, with 20 restarts on one
+aarch64 core on Julia 1.13.3. A benchmark copy of `_fit_loss` counted the evaluations, and
+`loss!` was timed alone on parameter sets from that fit:
+
+| Median (range) | PGK, 386 rows | PFKP, 486 rows |
+|:---------------|--------------:|---------------:|
+| Evaluations per restart | 2,830 (1,160–22,900) | 6,230 (2,820–30,100) |
+| Evaluations per fit | 56,700 (23,300–458,000) | 125,000 (56,500–601,000) |
+| `loss!` per call | 3.3 µs (2.8–18.3) | 6.3 µs (5.1–8.9) |
+| `loss!` per row | 8.5 ns (7.2–47) | 13 ns (10–18) |
+| Warm time per restart | 0.014 s (0.004–0.27) | 0.050 s (0.020–0.34) |
+| Whole fit | 0.38 s (0.18–5.6) | 1.12 s (0.51–7.0) |
+| Warm fit ÷ (evaluations × `loss!`) | 1.28 (1.08–1.54) | 1.25 (1.12–1.43) |
+| Compiling the law | 0.11 s (0.07–0.22) | 0.12 s (0.12–0.19) |
+| Compile share of a fit | 28% (3–54) | 11% (3–23) |
+
+Over all the sampled time, which large laws dominate, a fit divides as follows:
+
+| Search | Mean fit | `loss!` | Compiling the law | Solver and the rest |
+|:-------|---------:|--------:|------------------:|--------------------:|
+| PGK | 1.05 s | 75% | 11.5% | 13.5% |
+| PFKP | 1.41 s | 71% | 9% | 20% |
+
+`loss!` costs about the same inside a fit as alone, so a warm fit is close to evaluations
+× `loss!` time plus 1.5–1.8 µs per evaluation. A profile of warm fits puts the objective at
+77–92% of their time, CMA-ES's eigendecomposition (`MEigen`, in CMAEvolutionStrategy) at 5–14%
+and garbage collection at 1–5%. The objective's wrapper costs too little to measure, and the
+package's own work around the solver stays near 1%. Compiling takes 0.10–0.19 s per law
+whatever its size, so it reaches 30–50% of a fit on PGK's laws of 6–8 parameters and under 5%
+on the largest laws. `test/Fitting/test_fitting.jl` bounds a fit's time by its counted `loss!` calls.
+
+The table gives `loss!` in ns per row on the PFK table (486 rows) and the PGK table (386
+rows), for the same laws at each version. The PFKP columns are one allosteric law each. The
+PGK columns are means over 60 laws drawn from those whose loss no other fit shares; 6 are
+allosteric and 54 plain, although allosteric laws made up 55% of the search's fits, because
+an allosteric law often repeats the loss of a plain one. Dependencies match the 0.10.0
+cluster run; the machine is one aarch64 core on Julia 1.13.3.
+
+| Version | PFKP, 13 params | PFKP, 20 params | PGK, allosteric | PGK, plain |
+|:--------|----------------:|----------------:|----------------:|-----------:|
+| 0.8.0 | 1,065 | 1,107 | 738 | 87 |
+| 0.9.0 (#83) | 39 | 77 | 88 | 90 |
+| #85 (Horner form) | 39 | 76 | 37 | 29 |
+| 0.10.0 at `663501af` | 11 | 21 | 17 | 17 |
+
+Three changes account for the gain:
+
+- **Run-time dispatch in `loss!`.** At 0.8.0, `rate_equation` took about 41 ns on the
+  13-parameter PFKP law and allocated nothing, while `loss!` took about 1,000 ns per row and
+  allocated 778 KB per call. `metabolites` of an allosteric mechanism splatted a `Vector`
+  into its result, so the compiler inferred `Tuple{Symbol, Symbol, Symbol, Symbol,
+  Vararg{Symbol}}` with or without regulators. Each row then dispatched `ntuple`,
+  `rate_equation`, `sign` and `log` at run time. Plain mechanisms never paid this cost. Every
+  PFKP fit was allosteric, as were 55% of PGK's fits, which took 97% of the fit time in a
+  random sample. 0.9.0 gave `metabolites` a fixed length.
+- **Horner form.** PGK's laws run 2–3× faster, because the form removes multiplications.
+  PFKP's smaller laws gain nothing. The generated code emits no `muladd`, and Julia does not
+  contract `x * y + z` by itself, so it executes no fused multiply-adds.
+- **The one law engine (#95).** Nearly all of the further 1.7–3.6× arrives in this commit;
+  #91 and #92 change nothing, and #93 helps only the 13-parameter PFKP law, from 36 to 27 ns.
+  Before #95, an MWC law called Julia's general integer power (`pow_body`) for each `x^n`, at
+  about 2 ns a call: 7 calls per evaluation on the 13-parameter PFKP law and 20 on the
+  20-parameter law. #95 writes these powers as multiplications, which takes those laws from
+  27 to 11 and from 64 to 20 ns per row. Laws also lose operations: from #92 to 0.10.0, the
+  13-parameter plain PGK law falls from 460 to 312 multiplications and from 317 to 150
+  additions.
+
+The fit counts changed far less, and the losses agree: 89% of PFKP's and 87% of PGK's fits
+at 0.10.0 pair with a fit at 0.8.0 of equal parameter count within a relative loss of 10⁻⁸.
+These pairs match values, not verified mechanism identities.
+
+|  | PFKP | PGK |
+|:-|-----:|----:|
+| Fits, 0.8.0 → 0.10.0 | 132,836 → 119,453 | 18,677 → 15,700 |
+| Seconds per fit on one core, 0.8.0 → 0.10.0 | 162 → 2.7 | 37.5 → 1.4 |
+| Speedup per fit on one core (95% interval) | 60× (49–73) | 27× (17–41) |
+| Cluster wall time, 0.8.0 → 0.10.0 | ≥ 24 h → 62 min | 112 → 13.3 min |
+| Cluster core-seconds per fit, 0.8.0 → 0.10.0 | ≥ 614 → 25 | 277 → 40 |
+
+Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 PGK at 0.8.0,
+120 of each at 0.10.0. Cluster core-seconds are wall time × workers ÷ fits, so they include
+startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached its 24 h
+limit during cross-validation, so its figure is a lower bound.
+
+These one-core means predate #99, which changes each fit's search box; the sample above, with
+#99, gives 1.41 and 1.05 s. How much of that gap #99 causes is not separated.
+
+The cluster gained less than a single core did: at least 25× and 7× per fit, because workers
+now wait for much of a run. In `sacct`, the average worker of the 0.10.0 runs used the CPU for
+42:47 of 61:18 on PFKP (70%) and 3:16 of 13:01 on PGK (25%), which comes to 17 and 10
+CPU-seconds per fit. Workers connected within 15 s, and the master's CPU accounts for at most
+8.5 of PFKP's 18.5 idle minutes and 2.1 of PGK's 9.8. The rest is not measured, because
+`progress.log` carries no timestamps. How those 17 and 10 CPU-seconds divide between the fit
+itself, slower or contended cores, enumeration, cross-validation and message passing is also
+not measured; a fit alone takes 1–3 s on the one-core benchmark machine.
+
+`rate_equation`'s own time cannot show a slow `loss!`, and `@inferred loss!` passes on these
+slow paths, since the result is a `Float64` either way. So the speed gate in
+`test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
+allocation in relative or absolute mode, and time per row at most 1.25 times `rate_equation`'s
+time per call plus 8 `log` calls, timed in one process so machine speed cancels out. The bound
+holds if any of 20 batches meets it, each on a new `FittingProblem`, because time on one problem
+can sit up to about 40% above a new problem's. The factor of 1.25 covers a slowdown of unknown
+cause that once hit three laws in one process, which the batches cannot cure. Eight `log` calls
+leave room for the coverage counters on `loss!`'s own lines in CI jobs. `rate_equation` itself
+must stay under 50 ns + 0.5 ns per denominator term. That bound tolerates the spread between
+machines: small laws take 1-8 ns on an aarch64 development machine and 5-38 ns on CI, varying
+by runner. So a moderate slowdown of a small law passes it.
+
+`test/Fitting/test_fitting.jl` checks `loss!` on each column type a table can bring and on a
+cross-validation fold. `RateData` stores `Rate` and each metabolite as a `Vector{Float64}`,
+because an abstract column type costs a run-time dispatch on each read.
+
+`test/test_type_stability.jl` requires JET's optimization analysis to report nothing on every
+exported and public function and on the workers' internal functions, on Julia 1.13 only, since
+inference changes between versions. Each row reads as a call and says whether it must be free
+of dispatch (`@_testhelper_no_dispatch`) or may dispatch only for named reasons
+(`@_testhelper_dispatches_in`), and a row that stops needing a reason fails. A public function
+with no row fails the test; a public type does not, so deleting the
+row of `FittingProblem`, `RateData` or `Mechanism` would pass. Five limits apply:
+
+- JET does not look past a run-time dispatch or into a `pmap` closure, so the bodies the
+  workers run have rows of their own.
+- JET gives a report in a shared callee once per row, so an exempt function that reaches it
+  first hides it from other functions.
+- The test drops a report below a call that cannot compile, which mostly describes code that
+  never runs at those types, and a report through `Base.slowlock`, which is not package code.
+  A `@nospecialize` body is therefore checked only at the concrete types its rows name, and
+  at the abstract signature that actually compiles, which has rows of its own
+  (`fit_rate_equation` on an abstract `FittingProblem`, `_scale_rate_constants` on a mechanism
+  of type `Any`).
+- JET misses a dynamic call written directly in the body of a comprehension or generator
+  whose result is untyped, such as `[(r[] + x)::Float64 for x in v]` with `r::Ref{Any}`. It
+  does report the same call with a typed result (`Float64[...]`), in an explicit loop, or in
+  a callee the comprehension calls.
+- JET misses a single dynamic call in the body of a `@generated` function, so the allocation
+  and time bounds above stay the hard guard on `rate_equation`.

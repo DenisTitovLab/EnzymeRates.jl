@@ -75,6 +75,8 @@ print(rate_equation_string(m; coefficients = true))
 dimensionless whenever the law has a normalizer (see [Normalization](@ref));
 `coefficients = true` prints it in named coefficients, each defined in the fitted constants
 before the `v` line. Both texts run as Julia code once `params` and `concs` are bound.
+`coefficient_values = false` (with `coefficients = true`) leaves the definitions out, which
+makes the text shorter and easier to read but unable to run.
 `parameters(m)` returns the independent parameter symbols. `metabolites(m)`
 returns the concentration symbols the rate equation expects. `Keq` is the
 **equilibrium constant** of the overall reaction — the ratio of product to
@@ -191,8 +193,8 @@ the lowest that count has seen, and every mechanism of an admitted key expands. 
 production search uses the wider defaults
 (`min_beam_width=50`, `loss_rel_threshold=1.3`, `loss_abs_threshold=0.001`,
 `loss_parsimony_threshold=0.99`, `max_param_count=20`, `eq_complexity_filter=337`)
-and would often run for many hours and require a High
-Performance Compute cluster (see [Running in parallel](identify/parallel.md)).
+and can run over 100,000 fits, so it usually calls for many cores (see
+[How long a search takes](@ref) and [Running in parallel](identify/parallel.md)).
 `save_dir` (by default a new `yyyy_mm_dd_results` directory under the working
 directory) must not already hold results; the search writes its progress and
 results there:
@@ -200,9 +202,13 @@ results there:
 per beam iteration, and — once cross-validation finishes —
 `loocv_results.csv` (the full leave-one-group-out table for every candidate that
 entered CV) and `best_equation.csv` (the single selected equation with its
-fitted parameters). The last two persist the model-selection outcome, so a
-cluster run's result is available without re-deriving it from the iteration
-files.
+fitted parameters). `loocv_results.csv` and `best_equation.csv` persist the
+model-selection outcome, so a cluster run's result is available without re-deriving it
+from the iteration files. The `rate_equation` column of `loocv_results.csv` and of the
+search CSVs holds the law in named coefficients without their definitions, which take most
+of the bytes, so the text does not run; `best_equation.csv` holds the full coefficient form.
+For the full form of any row, call
+`rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients = true)`.
 
 Each CSV has an `at_bound` column: the parameters at a box edge in the fit on all rows,
 separated by `;`. A parameter at a bound is not necessarily wrong; it means the data do

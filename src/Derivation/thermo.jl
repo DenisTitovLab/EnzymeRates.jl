@@ -270,9 +270,7 @@ function _solve(m::_AnyMech)
     dependents = _Dependent[]
     for (r, p) in enumerate(pivots)
         cols.in_law[p] || continue
-        keq = Rational{Int}(M[r, n + 1])
-        factors = Pair{Int, Rational{Int}}[f => Rational{Int}(-M[r, f])
-                                           for f in free if !iszero(M[r, f])]
+        keq, factors = _pivot_row_exponents(M, r, n + 1, free)
         label = !kept_in_law(p) ? :kinetic_group : iszero(keq) ? :wegscheider : :haldane
         push!(dependents, _Dependent(p, keq, factors, label))
     end
@@ -292,6 +290,14 @@ function _solve(m::_AnyMech)
     end
     _Solve(sys.columns, names, column, independents, dependents, info, fitted)
 end
+
+"""The exponents row `r` of the reduced system `M` gives its pivot column (`_Dependent`):
+`Keq`'s, from the column `keq_column`, and those of the columns `free` it reads, narrowed
+to `Rational{Int}`."""
+_pivot_row_exponents(M::Matrix{<:Rational}, r::Int, keq_column::Int, free::Vector{Int}) =
+    (Rational{Int}(M[r, keq_column]),
+     Pair{Int, Rational{Int}}[f => Rational{Int}(-M[r, f])
+                              for f in free if !iszero(M[r, f])])
 
 """The regulator parameters of `m` in `FittedParameters` order: those of the active
 conformation, then the inactive conformation's own, site by site; an `:EqualAI` ligand's

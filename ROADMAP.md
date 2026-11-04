@@ -12,7 +12,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   step sides. Across the 251,107 mechanisms the ter-ter `init_mechanisms` testset retains,
   the live heap grew 48% (1,272 to 1,883 MiB) and the peak resident set from 2.3 to 3.1 GB.
   The extra garbage collection makes the call about 20% slower (94 s to 117 s on Julia 1.13);
-  its time limit is 400 s, since CI runners take up to 313 s. The step sides cost most:
+  its time limit of 400 s excludes garbage collection, about 23% of the call on CI, since a
+  slow macOS runner reached 430 s with it and a fast one took 77 s. The step sides cost most:
   two strings per step, 668 of the 5,408 retained bytes per mechanism. Denis raised the
   limit instead of taking one of three measured options: (A) keep already-sorted input
   vectors instead of copying them, which lets a mechanism share the caller's vectors (72 s,
@@ -133,6 +134,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
   true K. The data do not constrain K there, so the fit returns any value in the box and
   lists it in `at_bound` only when it lands at an edge.
+- **`loss!` timing varies for a cause not yet found.**
+  One local process ran three large laws 15-25% over `rate_equation` per call plus 6 `log`
+  calls, then passed on rerun and in four more runs. Windows CI ran up to 5% over that budget
+  at 1.25 × `rate_equation` on six laws, a different six in each of two runs; coverage counters
+  are the likely cause there, since coverage doubles small laws' ratio locally, but it is
+  unproven on Windows. Time on one `FittingProblem` can also sit up to
+  about 40% above a fresh problem's, which points to memory layout but is unproven. The gate
+  in `test/Derivation/test_rate_eq_derivation.jl` allows for these, with its factor of 1.25,
+  its 8 `log` calls and its best of 20 batches on fresh problems.
 
 ## Planned
 
@@ -154,15 +164,21 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
   forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
   medium.
-- **Profile the first v0.9.0 HPC runs.**
-  Every search-cost number on hand comes from runs made before 0.8.0: 66% of equations
-  duplicated under renaming, `to_allosteric` producing 47% of LDH children, 94% of fits
-  non-parsimonious. On the next LDH, PGK and PFKP runs, measure fits whose parent fails
-  the final parsimony cutoff, children and survivors per move, same-function laws that
-  the key misses, equal only after a reparametrization (`_canonical`,
-  `src/Derivation/key.jl`), zero-gain `change_allo_state` children, and how many PGK rows
-  identify flags `L_phantom`. These numbers rank the open search-speed and deduplication
-  ideas. Priority: medium.
+- **Log the time of each search phase.**
+  `progress.log` carries no timestamps, so a cluster run cannot say where its wall time goes.
+  In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of PGK's
+  (Developer page, What a fit costs). Workers connect within 15 s and the master's CPU covers
+  under half of that idle time, so workers waiting for the slowest fit of a batch are the
+  leading suspect. A timestamp on each line, and each batch's slowest fit, would rank all the
+  search-speed ideas below. Priority: high.
+- **Profile the search on the HPC runs.**
+  In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of another
+  fit at the same parameter count. These may be laws the key misses, equal only after a
+  reparametrization (`_canonical`, `src/Derivation/key.jl`), or laws that differ only outside
+  the data. Separating the two would size a saving of up to 3–4×. Still unmeasured on these
+  runs: fits whose parent fails the final parsimony cutoff, children and survivors per move,
+  zero-gain `change_allo_state` children, and how many PGK rows identify flags `L_phantom`.
+  Priority: medium.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   `@enzyme_reaction` rejects a regulator's multiplicity list such as `A(1, 2)`; the
   syntax returns with this feature. `_expand_to_allosteric` and
@@ -196,6 +212,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Ideas
 
+- **Spend less time compiling each law.**
+  Compiling a fresh law takes 0.10-0.19 s, 9-12% of the PFKP and PGK searches' fit time and
+  30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the mechanism,
+  so moving it behind a function that compiles once may save part of this; the saving is not
+  measured.
+- **Reduce CMA-ES's own cost per evaluation.**
+  Its eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up to
+  20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
+  change upstream; neither is explored.
+
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
@@ -222,6 +248,30 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   62 such bi-bi variants on 16 keys in a sampled round 2). Applying the exclusion to
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
+- **Spend fewer restarts per fit.**
+  Over 120 sampled fits per enzyme, the best of 10 restarts took half the time of 20 and came
+  within 1% of the best of 20 in 98% of PFKP's fits (worst 10.7% above it) and in all of PGK's.
+  Stopping once the best loss recurs 4 times gives 1.7× and 2.4×, and 2% of PFKP's fits end
+  more than 5% high. A loss above the beam's cutoff drops a mechanism for good, so test a rule
+  by comparing whole search results, not single fits.
+- **Start a child's restarts from its parent's fit.**
+  A child usually holds its parent as a limit, so one restart could begin at the parent's
+  parameters. Not measured.
+- **Measure what CMA-ES itself costs per evaluation.**
+  At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
+  10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
+  PGK laws. Any faster `rate_equation` gains only on the `loss!` part.
+- **Pin each law's operation counts.**
+  The `rate_equation` time bound tolerates the spread between machines, so undoing a 3× gain
+  on a small law passes it: the MWC tetramer's former 20.3 ns sits under its 34 ns bound. A
+  count of multiplications, additions and power calls per law does not depend on the machine
+  and would catch this, at the cost of re-pinning when a law changes on purpose.
+- **Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`.**
+  A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row loop:
+  `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call compile
+  time. `muladd` gives 2–18%, and the generated code then breaks the binary `+` and `*` shape
+  that the tests assert. Both leave the loss unchanged to 12 digits. They were measured
+  separately on aarch64, and neither has been measured on the cluster's x86 cores.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/Fitting/fit_rate_equation.jl`) draws each restart's starting
   point with `randn` from the running task's random stream, and `_process_batch`

@@ -148,8 +148,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             Int[1],
         )
         GC.gc()
-        t_uni = @elapsed EnzymeRates.Enumeration.init_mechanisms(r_uni)
-        println("UNI_WARM:", t_uni)
+        warm = @timed EnzymeRates.Enumeration.init_mechanisms(r_uni)
+        println("UNI_WARM:", warm.time)
+        println("UNI_WARM_COMPILE:", warm.compile_time)
         """
     cold_script = """
         using EnzymeRates
@@ -303,7 +304,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         println("FIT_NAMES:", length(unique(fitted_names, ems)))
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
-    t_uni_warm = _testhelper_parse_labeled(trace_out, ["UNI_WARM"])[1]
+    t_uni_warm, t_uni_warm_compile =
+        _testhelper_parse_labeled(trace_out, ["UNI_WARM", "UNI_WARM_COMPILE"])
     t_uni_cold, t_first, n_image = _testhelper_measure_labeled_subprocess(
         cold_script, ["UNI_COLD", "ELAPSED", "IMAGE_RATE_BODIES"])
 
@@ -338,27 +340,20 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                          (EnzymeRates.AllostericMechanism,))
     end
 
-    # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's
-    # machinery, so running uni-uni AFTER bi-bi in the same process is essentially
-    # free:
-    #   - cold:  uni-uni alone           → t_uni_cold ≈ 1.6-2.3 s on CI runners
-    #   - warm:  bi-bi, then uni-uni      → t_uni_warm ≈ 0.2-0.5 ms
-    # The warm/cold ratio (≈ 1e-4 to 2.5e-4 on CI runners; macOS is the noisy high
-    # end) is robust to machine speed, unlike an absolute wall-clock ceiling on
-    # the cold time. The in-process ter-ter ceiling lives in
-    # test_mechanism_enumeration.jl.
+    # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's machinery, so
+    # uni-uni after bi-bi in the same process compiles nothing. The package image holds
+    # nearly all of it, so uni-uni alone takes only milliseconds, and a warm/cold ratio of
+    # times would compare the warm run's own work with a few milliseconds of compiling.
+    # The compile time itself does not depend on machine speed. The in-process ter-ter
+    # ceiling lives in test_mechanism_enumeration.jl.
     @testset "compile reuse: bi-bi warms all of uni-uni" begin
         @info "compile reuse: " *
-              "uni_cold=$(round(t_uni_cold; digits=2))s  " *
+              "uni_cold=$(round(t_uni_cold * 1e3; digits=1))ms  " *
               "uni_warm=$(round(t_uni_warm * 1e6; digits=1))µs  " *
-              "warm/cold=$(round(t_uni_warm / t_uni_cold; sigdigits=2))"
-        # Warm uni-uni must be near-instant relative to cold: bi-bi already
-        # compiled the superset. A lost reuse recompiles a sizeable fraction of
-        # cold (warm/cold ≳ 0.1); the < 1e-2 gate sits ~40× above the noisiest
-        # observed CI ratio and ~10× below a real failure.
+              "uni_warm_compile=$(t_uni_warm_compile)s"
         @test isfinite(t_uni_cold) && t_uni_cold > 0
         @test isfinite(t_uni_warm)
-        @test t_uni_warm / t_uni_cold < 0.01
+        @test t_uni_warm_compile == 0
     end
 
     # Dispatch identity: EnzymeReaction is non-parametric, so uni-uni and

@@ -14,6 +14,7 @@ end
 _Vars() = _Vars(Symbol[], falses(0), Dict{Symbol, Int}())
 Base.:(==)(a::_Vars, b::_Vars) = a.names == b.names && a.conc == b.conc
 Base.hash(t::_Vars, h::UInt) = hash(t.conc, hash(t.names, hash(:_Vars, h)))
+Base.copy(t::_Vars) = _Vars(copy(t.names), copy(t.conc), copy(t.index))
 
 """The index of variable `s` in `t`, added when new; `conc` marks a concentration. Errors
 when `s` is already a variable of the other kind."""
@@ -196,9 +197,9 @@ brings each such variable's lowest exponent over all their terms to zero, a term
 the variable counting as exponent 0: the shift to lowest terms.
 """
 function _lowest_shift(ps, counted = _ -> true)
-    low, seen, n = Dict{Int, _Exp}(), Dict{Int, Int}(), 0
+    low, seen = Dict{Int, _Exp}(), Dict{Int, Int}()
+    n = sum(p -> length(p.terms), ps; init = 0)
     for p in ps, m in keys(p.terms)
-        n += 1
         for (v, e) in m
             counted(v) || continue
             low[v] = min(get(low, v, e), e)

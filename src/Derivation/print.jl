@@ -177,24 +177,29 @@ function _reference_lines(s::_Solve, vars::_Vars)
     lines
 end
 
+"""The `concs` destructuring line of `m`'s printed law."""
+_concs_line(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
+    "(; $(join(Mechanisms.metabolites(m), ", "))) = concs"
+
 """The `params` and `concs` destructuring lines of `m`'s printed law over the solve `s`."""
 _header_lines(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, s::_Solve) =
-    String["(; $(join((s.fitted..., :Keq, :E_total), ", "))) = params",
-           "(; $(join(Mechanisms.metabolites(m), ", "))) = concs"]
+    String["(; $(join([s.fitted; :Keq; :E_total], ", "))) = params", _concs_line(m)]
 
 # ─── Plain and MWC laws ──────────────────────────────────────────────────────
 
 """
-    _law_text(m, s, L; coefficients = false) -> String
+    _law_text(m, s, L; coefficients = false, coefficient_values = true) -> String
 
 The printed law `L` of `m` over the solve `s` (`rate_equation_string`), in the order it
 evaluates. In full: the header (`_header_lines`), the reference lines (`_reference_lines`),
 `N = …` when the normalizer has a factor that is not a single term, or an integer to a
 fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the normalizer. With
 `coefficients`: the header, the coefficient comment, `N` when it prints, one line per
-coefficient giving its value, and the `v` line in the named coefficients.
+coefficient giving its value, and the `v` line in the named coefficients. Without
+`coefficient_values`, only the `concs` line and the `v` line.
 """
-function _law_text(m::Mechanisms.Mechanism, s::_Solve, L::_Law; coefficients::Bool = false)
+function _law_text(m::Mechanisms.Mechanism, s::_Solve, L::_Law; coefficients::Bool = false,
+                   coefficient_values::Bool = true)
     subs = _substrate_vars(m, L.vars)
     P = _printed(L, _normalizer(L.D, L.vars, subs), [L.Q, L.D], subs)
     names, (q, d) = L.vars.names, P.terms
@@ -203,6 +208,7 @@ function _law_text(m::Mechanisms.Mechanism, s::_Solve, L::_Law; coefficients::Bo
     if coefficients
         (qs, lq) = _coefficient_sum("n", q, names)
         (ds, ld) = _coefficient_sum("d", d, names)
+        coefficient_values || return join([_concs_line(m), _v_line(qs, h, ds)], "\n")
         return join([_header_lines(m, s); _COEFFICIENTS_COMMENT; norms; lq; ld;
                      _v_line(qs, h, ds)], "\n")
     end
@@ -250,10 +256,11 @@ header and end with `v`, in the order they evaluate. In full, the reference line
 definitions come between; with `coefficients`, the coefficient comment, the normalizers,
 one line per coefficient, named by conformation (`nA_0`, `dA_S`, `fI_B`), and the
 definitions: `Q_c`, `D_c` and `F_c` read in those coefficients, `W_A` and `W_I` in the
-fitted constants.
+fitted constants. Without `coefficient_values`, the `concs` line, the definitions and `v`:
+the lines that name coefficients without defining them.
 """
 function _law_text(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw;
-                   coefficients::Bool = false)
+                   coefficients::Bool = false, coefficient_values::Bool = true)
     subs = _substrate_vars(am, A.vars)
     confs = [_conformation(A.active, "A", subs)]
     _flip_only(A.inactive) || push!(confs, _conformation(A.inactive, "I", subs))
@@ -293,6 +300,7 @@ function _law_text(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw;
     rest = branch("I", "A", 0)
     den = branch("A", "I", 0) * " + L" * (rest == "1" ? "" : " * " * rest)
     v = _v_line(join(num, " + "), _sum_text(A.H, A.vars.names), den)
+    coefficient_values || return join([_concs_line(am); defs; v], "\n")
     head = _header_lines(am, s)
     coefficients ? join([head; _COEFFICIENTS_COMMENT; norms; coefs; defs; v], "\n") :
                    join([head; _reference_lines(s, A.vars); defs; v], "\n")
@@ -300,8 +308,12 @@ end
 
 # ─── rate_equation_string ────────────────────────────────────────────────────
 
+_check_coefficient_values(coefficients::Bool, coefficient_values::Bool) =
+    coefficient_values || coefficients ||
+        throw(ArgumentError("coefficient_values = false needs coefficients = true"))
+
 """
-    rate_equation_string(m; coefficients = false) -> String
+    rate_equation_string(m; coefficients = false, coefficient_values = true) -> String
 
 Return the rate law of mechanism `m` as a multi-line `String` (it returns the text; it does
 not print). Pass a concrete `Mechanism` / `AllostericMechanism` or its compiled
@@ -337,6 +349,12 @@ normalizer prints, each coefficient's value in the fitted constants, one line ea
 allosteric law `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`,
 and ends with the `v` line; the reference lines print only in the full law.
 
+`coefficient_values = false` (with `coefficients = true`; `ArgumentError` otherwise) leaves
+out everything that defines a coefficient: the `params` line, the comment, `N` and each
+coefficient's value. What remains is the `concs` line, for an allosteric law the `Q_c`,
+`D_c`, `F_c` and `W_c` lines, and the `v` line. This text names coefficients it does not
+define, so it does not run; it is the readable form the search CSVs hold.
+
 ```jldoctest
 julia> using EnzymeRates
 
@@ -365,16 +383,22 @@ n_0 = k_ES_to_EP / K_ES_to_E_S
 d_S = 1 / K_ES_to_E_S
 d_P = 1 / K_EP_to_E_P
 v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+
+julia> print(rate_equation_string(m; coefficients = true, coefficient_values = false))
+(; S, P) = concs
+v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 """
 function rate_equation_string(m::Union{Mechanisms.Mechanism,
                                         Mechanisms.AllostericMechanism};
-                              coefficients::Bool = false)
+                              coefficients::Bool = false, coefficient_values::Bool = true)
+    _check_coefficient_values(coefficients, coefficient_values)
     check_valid_rate_equation(m)
-    _with_memo_law((m, s, L) -> _law_text(m, s, L; coefficients), m)
+    _with_memo_law((m, s, L) -> _law_text(m, s, L; coefficients, coefficient_values), m)
 end
 
 rate_equation_string(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism);
-                     coefficients::Bool = false) =
-    _with_law((m, s, L) -> _law_text(m, s, L; coefficients),
-              _derivation_input(typeof(m)))
+                     coefficients::Bool = false, coefficient_values::Bool = true) =
+    (_check_coefficient_values(coefficients, coefficient_values);
+     _with_law((m, s, L) -> _law_text(m, s, L; coefficients, coefficient_values),
+               _derivation_input(typeof(m))))

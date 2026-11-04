@@ -298,7 +298,8 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
     disc = zeros(Int, nv); low = zeros(Int, nv); phi = zeros(Int, nv)
     block = zeros(Int, length(edges))
     stack = Int[]; clock = Ref(0); nblocks = Ref(0)
-    function visit(u, parent_edge)
+    # It takes itself as an argument because a closure that names itself is boxed.
+    function visit(self, u, parent_edge)
         clock[] += 1; disc[u] = low[u] = clock[]
         for e in adj[u]
             e == parent_edge && continue
@@ -306,7 +307,7 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
             if disc[w] == 0
                 phi[w] = phi[u] + (edges[e][1] == u ? weights[e] : -weights[e])
                 push!(stack, e)
-                visit(w, e)
+                self(self, w, e)
                 low[u] = min(low[u], low[w])
                 if low[w] >= disc[u]
                     nblocks[] += 1
@@ -322,7 +323,7 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
         end
     end
     for v in 1:nv
-        disc[v] == 0 && visit(v, 0)
+        disc[v] == 0 && visit(visit, v, 0)
     end
     block, Set{Int}(block[e] for (e, (u, v)) in enumerate(edges)
                     if weights[e] != phi[v] - phi[u])
@@ -638,9 +639,8 @@ end
 function _dead_end_child(am::Mechanisms.AllostericMechanism,
                          nodes::Vector{Mechanisms.EnzymeForm},
                          steps::Vector{Mechanisms.Step}, reg::Symbol)
-    cm = am.catalytic
-    child = Mechanisms.AllostericMechanism(cm.substrates, cm.products, nodes, steps,
-                                           [am.mwc_tags; :EqualAI],
+    child = Mechanisms.AllostericMechanism(am.catalytic.substrates, am.catalytic.products,
+                                           nodes, steps, [am.mwc_tags; :EqualAI],
                                            am.catalytic_multiplicity, am.regulatory_sites)
     cm = Mechanisms.catalytic(child)
     # The copy's own bindings, the only edges that take it up.

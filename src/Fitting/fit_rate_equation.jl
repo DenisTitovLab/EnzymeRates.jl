@@ -319,8 +319,10 @@ concentrations of those metabolites in the table, or 1 when there are none.
 function _concentration_scales(@nospecialize(fp::FittingProblem))
     data = fp.rate_data.data
     mets = Mechanisms.metabolites(fp.mechanism)
-    # `getfield` reads a column by its runtime name without compiling for the table's type.
-    positive = Vector{Float64}[Float64[c for c in getfield(data, x) if c > 0] for x in mets]
+    # `getfield` reads a column by its runtime name without compiling for the table's type;
+    # `RateData` stores each metabolite's column as a `Vector{Float64}`.
+    positive = Vector{Float64}[
+        Float64[c for c in getfield(data, x)::Vector{Float64} if c > 0] for x in mets]
     pooled = reduce(vcat, positive)
     fallback = isempty(pooled) ? 1.0 : _geometric_mean(pooled)
     Dict{Symbol, Float64}(x => isempty(v) ? fallback : _geometric_mean(v)
@@ -377,12 +379,15 @@ those constants multiplies every rate by the same factor and leaves the binding 
 `Keq`, `E_total`, `L` and the regulatory constants alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    m = _concrete(mechanism)
-    steady_state = Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
-                       if _on_steady_state_step(p, m))
+    m = _concrete(mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    steady_state = _steady_state_constant_names(m)
     NamedTuple{keys(params)}(map((k, v) -> k in steady_state ? v * factor : v,
                                  keys(params), values(params)))
 end
+
+_steady_state_constant_names(m) =
+    Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
+        if _on_steady_state_step(p, m))
 
 _on_steady_state_step(p::Derivation.StepParameter, m) =
     !Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium
@@ -451,5 +456,5 @@ function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple),
     for name in names
         haskey(params, name) || error("params is missing the fitted parameter $name")
     end
-    loss!([log(params[name]) for name in names], fp)
+    loss!(Float64[log(params[name]) for name in names], fp)
 end

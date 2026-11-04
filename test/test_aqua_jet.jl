@@ -6,7 +6,7 @@ using JET
 @testset "Aqua" begin
     # The Downgrade workflow's action moves the test dependencies into [deps], where they
     # would read as stale.
-    Aqua.test_all(EnzymeRates; ambiguities=false, stale_deps=(ignore=[:Aqua, :JET,
+    Aqua.test_all(EnzymeRates; undocumented_names=true, stale_deps=(ignore=[:Aqua, :JET,
         :OptimizationBBO, :OptimizationCMAEvolutionStrategy, :OrdinaryDiffEqFIRK],))
 end
 
@@ -20,8 +20,9 @@ end
 end
 
 @testset "JET" begin
-    # JET 0.9 matches a module in `target_modules` exactly, not its submodules, so each
+    # JET matches a module in `target_modules` exactly, not its submodules, so each
     # submodule is listed beside the package.
     JET.test_package(EnzymeRates; target_modules=(EnzymeRates, EnzymeRates.Mechanisms,
-        EnzymeRates.Derivation, EnzymeRates.Enumeration, EnzymeRates.Fitting))
+        EnzymeRates.Derivation, EnzymeRates.Enumeration, EnzymeRates.Fitting,
+        EnzymeRates.DSL, EnzymeRates.Data))
 end
