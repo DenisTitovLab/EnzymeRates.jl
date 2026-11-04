@@ -676,10 +676,9 @@ flip children that are not (`_base_tier`). Each failure is a `(seed, message)` p
 """
 function starting_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                              required_comp::Set{Symbol})
-    seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        unique!(collect(init_mechanisms(rxn))) :
-        unique!(collect(seed_mechanisms(rxn, required_allo, required_comp)))
-    _base_tier(seeds, rxn)
+    seeds = (isempty(required_allo) && isempty(required_comp)) ? init_mechanisms(rxn) :
+        seed_mechanisms(rxn, required_allo, required_comp)
+    _base_tier(unique(seeds), rxn)
 end
 
 """
@@ -708,5 +707,5 @@ function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
             push!(failures, (m, first(sprint(showerror, e), 200)))
         end
     end
-    unique!(base), failures
+    unique(base), failures
 end
