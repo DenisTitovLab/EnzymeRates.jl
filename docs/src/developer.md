@@ -735,30 +735,34 @@ restart in the PFKP and PGK searches runs 5,000 to 55,000 evaluations, so time p
 decides the speed of a search. Compilation does not: it takes 2–4% of a fit.
 
 The table gives `loss!` in ns per row on the PFK table (486 rows) and the PGK table (386
-rows), for the same laws at each version. Dependencies match the 0.10.0 cluster run; the
-machine is one aarch64 core on Julia 1.13.3.
+rows), for the same laws at each version. The PFKP columns are one allosteric law each. The
+PGK columns are means over 60 laws drawn from those whose loss no other fit shares; 6 are
+allosteric and 54 plain, although allosteric laws made up 55% of the search's fits, because
+an allosteric law often repeats the loss of a plain one. Dependencies match the 0.10.0
+cluster run; the machine is one aarch64 core on Julia 1.13.3.
 
-| Version | PFKP, 13 params | PFKP, 20 params | PGK, 9 params | PGK, 13 params |
-|:--------|----------------:|----------------:|--------------:|---------------:|
-| 0.8.0 | 1,065 | 1,107 | 130 | 436 |
-| 0.9.0 (#83) | 39 | 77 | 129 | 529 |
-| 0.9.1 (#84, fitter compiled once) | 40 | 78 | 131 | 283 |
-| #85 (Horner form) | 39 | 76 | 33 | 70 |
-| 0.10.0 at `663501af` | 11 | 21 | 21 | 39 |
+| Version | PFKP, 13 params | PFKP, 20 params | PGK, allosteric | PGK, plain |
+|:--------|----------------:|----------------:|----------------:|-----------:|
+| 0.8.0 | 1,065 | 1,107 | 738 | 87 |
+| 0.9.0 (#83) | 39 | 77 | 88 | 90 |
+| #85 (Horner form) | 39 | 76 | 37 | 29 |
+| 0.10.0 at `663501af` | 11 | 21 | 17 | 17 |
 
 Three changes account for the gain:
 
-- **Run-time dispatch in `loss!`.** `rate_equation` took 41 ns and allocated nothing at
-  0.8.0, while `loss!` took about 1,000 ns per row and allocated 778 KB per call. Reading
-  the metabolite names looped over the regulatory sites, so a mechanism with regulators
-  gave `loss!` a `Tuple` of unknown length, and every row dispatched `ntuple`,
-  `rate_equation`, `sign` and `log` at run time. PGK's mechanisms have no regulators and
-  allocated nothing. 0.9.0 made the names a compile-time constant.
-- **Horner form.** Large laws run 4× faster, because the form removes multiplications. The
-  generated code emits no `muladd`, and Julia does not contract `x * y + z` by itself, so it
-  executes no fused multiply-adds. Small laws gain nothing.
-- **The commits from #85 to 0.10.0.** These add a further 1.6–3.6×. They include the joint
-  solve and the one law engine; this range has not been bisected further.
+- **Run-time dispatch in `loss!`.** At 0.8.0, `rate_equation` took about 41 ns on the
+  13-parameter PFKP law and allocated nothing, while `loss!` took about 1,000 ns per row and
+  allocated 778 KB per call. `metabolites` of an allosteric mechanism splatted a `Vector`
+  into its result, so the compiler inferred `Tuple{Symbol, Symbol, Symbol, Symbol,
+  Vararg{Symbol}}` with or without regulators. Each row then dispatched `ntuple`,
+  `rate_equation`, `sign` and `log` at run time. Plain mechanisms never paid this cost. Every
+  PFKP fit was allosteric, as were 55% of PGK's fits, which took 97% of the fit time in a
+  random sample. 0.9.0 gave `metabolites` a fixed length.
+- **Horner form.** PGK's laws run 2–3× faster, because the form removes multiplications.
+  PFKP's smaller laws gain nothing. The generated code emits no `muladd`, and Julia does not
+  contract `x * y + z` by itself, so it executes no fused multiply-adds.
+- **The commits from #85 to 0.10.0.** These add a further 1.7–3.6× per row. They include the
+  joint solve and the one law engine; this range has not been bisected further.
 
 The fit counts changed far less, and the losses agree: 89% of PFKP's and 87% of PGK's fits
 at 0.10.0 pair with a fit at 0.8.0 of equal parameter count within a relative loss of 10⁻⁸.

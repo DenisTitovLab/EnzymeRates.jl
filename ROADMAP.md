@@ -240,6 +240,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Start a child's restarts from its parent's fit.**
   A child usually holds its parent as a limit, so one restart could begin at the parent's
   parameters. Not measured.
+- **Measure what CMA-ES itself costs per evaluation.**
+  At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
+  10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
+  PGK laws. Any faster `rate_equation` gains only on the `loss!` part.
 - **Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`.**
   A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row loop:
   `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call compile
