@@ -39,6 +39,7 @@ in this PR.
   CSVs' and `loocv_results.csv`'s `rate_equation` column is the one deliberate change, through
   a new option.
 - A slower `rate_equation`, or a higher count in `test/test_compile_budget.jl`.
+- Relaxing the `rate_equation` bound below when a job misses it. The job is rerun.
 - A new public name, or a new argument to one, other than the option below.
 - A gate that fails because a machine is slow or busy, or because a Julia release changed
   inference with no change to the package.
@@ -107,6 +108,26 @@ Decided with Denis:
 Kept from `b79f9eb3`: `RateData` stores `Rate` and each named metabolite as a
 `Vector{Float64}`, and `test/Fitting/test_fitting.jl` tests column types and a
 cross-validation fold.
+
+## The `rate_equation` bound
+
+Decided with Denis: every law of the speed gate must meet one bound, replacing `t < 120 ns` and
+`t < max(120 ns, 0.8 ns × terms)`:
+
+`t < 25 ns + 0.5 ns × denominator terms`
+
+It is tighter on every gated law but one: the 284-term LDH law goes from 120 to 167 ns, keeping
+the same headroom as its neighbours.
+
+Across 168 timings from 28 recent CI jobs, the worst job ran at 3.5× this machine, and the six
+large laws stayed about 2× under this bound. The gate logs every law's time, because CI logged
+only those six before, so the PR's own CI run shows the smaller laws. A law that needs more than
+this bound is a discussion with Denis. `.claude/CLAUDE.md`'s section on `rate_equation`
+performance is rewritten to match, including its 4–7× figure.
+
+This bound still passes a 3× slowdown of a small law, such as the MWC tetramer's former 20.3 ns
+against 34 ns. `ROADMAP.md` gains an idea to pin operation counts per law, which do not depend on
+the machine.
 
 ## The type-stability test
 
@@ -192,7 +213,8 @@ Decided with Denis:
   between the rebased base and the final commit. **Claude's call:** it reuses
   `claude-scratchpad/fsn/census` with all its reactions, adds a key column and stays out of the
   repository. It samples parents, and the PR states that limit.
-- `rate_equation`'s gate and `test/test_compile_budget.jl` pass unchanged.
+- `test/test_compile_budget.jl` passes unchanged, and `rate_equation`'s gate passes under the new
+  bound on all three CI platforms.
 - Tests pin the short form for plain and allosteric laws against written-out text, and a search
   CSV row and a `loocv_results.csv` row hold it while the `best_equation.csv` row holds the full
   form.
