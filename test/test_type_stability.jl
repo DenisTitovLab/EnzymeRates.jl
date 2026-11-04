@@ -16,25 +16,20 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_base_tier => "an error message: the text of a caught exception",
         :_seed_node_children => "a pmap boundary",
         :FitObjective => "the solver barrier: a FunctionWrapper hides the problem's type",
-        :_fit_loss => "the solver barrier: a FunctionWrapper hides the problem's type",
-        :_optimization_problem => "the solver barrier: the problem handed to the solver",
-        :fit_rate_equation => "the solver barrier: solve, on a @nospecialize problem",
-        :_reference_scale => "the solver barrier: on a @nospecialize problem",
-        :_scale_rate_constants => "the solver barrier: on a @nospecialize fit's values",
-        :FittingProblem => "the solver barrier: builds the @nospecialize problem",
-        :test_rate_equation => "a concrete mechanism and the table's column names are " *
-                               "lifted to the problem's type",
+        :_fit_loss => "the solver barrier: a FunctionWrapper's call falls back on its " *
+                      "callable of unknown type",
+        :_optimization_problem => "the solver barrier: OptimizationFunction's constructor",
+        :fit_rate_equation => "the solver barrier: solve, and the fit's values on the " *
+                              "@nospecialize problem",
+        :_reference_scale => "the solver barrier: rate_equation on the @nospecialize " *
+                             "problem's mechanism",
+        :FittingProblem => "compile_mechanism lifts a concrete mechanism and _rate_table " *
+                           "the table's column names to the problem's type",
+        :test_rate_equation => "compile_mechanism lifts a concrete mechanism and " *
+                               "_rate_table the table's column names to the problem's type",
         :RateData => "the table's column names are lifted to its type",
         :_rate_table => "the table's column names are lifted to its type",
         :parse_mechanism => "Expr walking: it starts the walk on Meta.parse's result",
-        :_parse_labeled_line => "Expr walking",
-        :_bare_symbols_from_values => "Expr walking",
-        :_bare_name => "Expr walking",
-        :_raw_site => "Expr walking",
-        :_step_parts => "Expr walking",
-        :_peel_tag! => "Expr walking",
-        :_raw_step! => "Expr walking",
-        :_raw_form => "Expr walking",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
@@ -43,6 +38,12 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     _testhelper_frame_method(linfo::Core.CodeInstance) =
         _testhelper_frame_method(linfo.def)
     _testhelper_frame_method(_) = nothing
+
+    _testhelper_frame_compileable(linfo::Core.MethodInstance) =
+        JET.is_compileable_mi(linfo)
+    _testhelper_frame_compileable(linfo::Core.CodeInstance) =
+        _testhelper_frame_compileable(linfo.def)
+    _testhelper_frame_compileable(_) = true
 
     function _testhelper_in_package(frame)
         method = _testhelper_frame_method(frame.linfo)
@@ -82,6 +83,12 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                                         exemptions = _TESTHELPER_DISPATCH_EXEMPTIONS)
         sites = NamedTuple[]
         for report in JET.get_reports(_testhelper_report_opt(f, argtypes))
+            # A report below a call that cannot compile describes code that never runs at
+            # those types: at run time the call dispatches on its arguments' concrete types.
+            # JET skips such a frame but not a compileable callee of it. The entry always
+            # counts, and the dispatch into such a call is reported at its caller.
+            all(frame -> _testhelper_frame_compileable(frame.linfo), report.vst[2:end]) ||
+                continue
             i = findlast(_testhelper_in_package, report.vst)
             site = if i === nothing
                 (; function_name = Symbol(nameof(f)), file = :none, line = 0)
