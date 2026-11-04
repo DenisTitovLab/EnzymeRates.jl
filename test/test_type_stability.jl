@@ -7,7 +7,11 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     using JET
 
     # A function name => why its site is allowed to dispatch at run time.
-    const _TESTHELPER_DISPATCH_EXEMPTIONS = Pair{Symbol,String}[]
+    const _TESTHELPER_DISPATCH_EXEMPTIONS = Pair{Symbol,String}[
+        :_guard_message => "an error message",
+        :_face_message => "an error message",
+        :rate_equation => "a concrete mechanism is lifted to its type",
+    ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
     # code. A frame's linfo is a MethodInstance, or a CodeInstance holding one.
@@ -40,17 +44,20 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         _testhelper_undecorated_name(method isa Method ? method.name : frame.linfo)
     end
 
-    # The call `f(argtypes...; kw...)` with keywords of type `kwtype`, as `report_opt`
-    # takes it: the call of `Core.kwcall`.
-    _testhelper_keyword_call(f, kwtype, argtypes...) =
-        (Core.kwcall, (kwtype, f isa Type ? Type{f} : typeof(f), argtypes...))
+    # A row's `argtypes` for the call `f(argtypes...; kw...)` with keywords of type
+    # `kwtype`. The row keeps `f` itself, so a check over the rows' functions finds it.
+    _testhelper_keyword_call(kwtype, argtypes...) = (; kwtype, argtypes)
 
-    # The unique package sites at which `report_opt(f, argtypes)` finds a report. A report
-    # with no package frame counts its entry function, so none is dropped.
+    _testhelper_report_opt(f, argtypes::Tuple) = JET.report_opt(f, argtypes)
+    _testhelper_report_opt(f, call::NamedTuple) = JET.report_opt(
+        Core.kwcall, (call.kwtype, f isa Type ? Type{f} : typeof(f), call.argtypes...))
+
+    # The unique package sites at which `report_opt` finds a report on the row's call. A
+    # report with no package frame counts its entry function, so none is dropped.
     function _testhelper_dispatch_sites(f, argtypes;
                                         exemptions = _TESTHELPER_DISPATCH_EXEMPTIONS)
         sites = NamedTuple[]
-        for report in JET.get_reports(JET.report_opt(f, argtypes))
+        for report in JET.get_reports(_testhelper_report_opt(f, argtypes))
             i = findlast(_testhelper_in_package, report.vst)
             site = if i === nothing
                 (; function_name = Symbol(nameof(f)), file = :none, line = 0)
@@ -65,6 +72,7 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     end
 
     const _testhelper_Mechs = EnzymeRates.Mechanisms
+    const _testhelper_Deriv = EnzymeRates.Derivation
     const _testhelper_Mechanism = EnzymeRates.Mechanism
     const _testhelper_AllostericMechanism = EnzymeRates.AllostericMechanism
 
@@ -98,7 +106,25 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     const _testhelper_PlainC = typeof(_testhelper_plain_concrete)
     const _testhelper_AlloC = typeof(_testhelper_allosteric_concrete)
 
-    const _TESTHELPER_CHECKED_CALLS = [
+    # A NamedTuple type with the fields `names`, each a Float64.
+    _testhelper_floats_type(names) =
+        NamedTuple{Tuple(names), NTuple{length(names), Float64}}
+
+    const _TESTHELPER_CONCRETE_FORMS = (("concrete", _testhelper_plain_concrete),
+                                        ("concrete allosteric",
+                                         _testhelper_allosteric_concrete))
+    const _TESTHELPER_FORMS = (_TESTHELPER_CONCRETE_FORMS...,
+                               ("singleton", _testhelper_plain_singleton),
+                               ("singleton allosteric", _testhelper_allosteric_singleton))
+    _testhelper_rate_equation_argtypes(m) = (typeof(m),
+                                             _testhelper_floats_type(metabolites(m)),
+                                             _testhelper_floats_type(parameters(m)))
+    const _testhelper_Coefficients = NamedTuple{(:coefficients,), Tuple{Bool}}
+    const _testhelper_CoefficientValues = NamedTuple{(:coefficient_values,), Tuple{Bool}}
+    const _testhelper_BothCoefficientKeywords =
+        NamedTuple{(:coefficients, :coefficient_values), Tuple{Bool, Bool}}
+
+    const _TESTHELPER_CHECKED_CALLS = Any[
         ("metabolites, concrete", metabolites, (_testhelper_PlainC,)),
         ("metabolites, concrete allosteric", metabolites, (_testhelper_AlloC,)),
         ("metabolites, singleton", metabolites, (_testhelper_PlainS,)),
@@ -143,6 +169,46 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         ("EnzymeMechanism from a Mechanism", EnzymeMechanism, (_testhelper_PlainC,)),
         ("AllostericEnzymeMechanism from an AllostericMechanism",
          AllostericEnzymeMechanism, (_testhelper_AlloC,)),
+        (("rate_equation, $form", rate_equation, _testhelper_rate_equation_argtypes(m))
+         for (form, m) in _TESTHELPER_FORMS)...,
+        (("rate_equation_string, $form", rate_equation_string, (typeof(m),))
+         for (form, m) in _TESTHELPER_FORMS)...,
+        (("rate_equation_string with $kw, $form", rate_equation_string,
+          _testhelper_keyword_call(Kw, typeof(m)))
+         for (form, m) in _TESTHELPER_FORMS,
+             (kw, Kw) in (("coefficients", _testhelper_Coefficients),
+                          ("coefficient_values", _testhelper_CoefficientValues),
+                          ("both", _testhelper_BothCoefficientKeywords)))...,
+        (("parameters, $form", parameters, (typeof(m),))
+         for (form, m) in _TESTHELPER_FORMS)...,
+        (("parameters, $form, $(nameof(Kind))", parameters, (typeof(m), Kind))
+         for (form, m) in _TESTHELPER_FORMS,
+             Kind in (FittedParameters, IndependentParameters, AllParameters))...,
+        (("dependent_parameter_values, $form", dependent_parameter_values,
+          (typeof(m), _testhelper_floats_type(parameters(m))))
+         for (form, m) in _TESTHELPER_FORMS)...,
+        (("check_valid_rate_equation, $form", _testhelper_Deriv.check_valid_rate_equation,
+          (typeof(m),)) for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        (("check_valid_rate_equation to Bool, $form",
+          _testhelper_Deriv.check_valid_rate_equation, (Type{Bool}, typeof(m)))
+         for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        (("fitted_parameter_count, $form", _testhelper_Deriv.fitted_parameter_count,
+          (typeof(m),)) for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        (("name of a StepParameter, $form", _testhelper_Deriv.name,
+          (_testhelper_Deriv.StepParameter, typeof(m)))
+         for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        ("name of a RegulatorParameter", _testhelper_Deriv.name,
+         (_testhelper_Deriv.RegulatorParameter, _testhelper_AlloC)),
+        ("name of the AllostericParameter", _testhelper_Deriv.name,
+         (_testhelper_Deriv.AllostericParameter, _testhelper_AlloC)),
+        (("parameter_info, $form", _testhelper_Deriv.parameter_info, (typeof(m),))
+         for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        (("rate_equation_term_count, $form", _testhelper_Deriv.rate_equation_term_count,
+          (typeof(m),)) for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
+        ("rate_equation_term_count over a mask", _testhelper_Deriv.rate_equation_term_count,
+         (_testhelper_PlainC, BitVector)),
+        (("rate_equation_dedup_key, $form", _testhelper_Deriv.rate_equation_dedup_key,
+          (typeof(m),)) for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
     ]
 
     @testset "type stability" begin
@@ -198,6 +264,24 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
             @test isempty(filter(s -> s.function_name == :_guard_message,
                                  _testhelper_dispatch_sites(check, (_testhelper_PlainC,);
                                      exemptions = [:_guard_message => "test"])))
+        end
+
+        @testset "a keyword row reaches the body of its function" begin
+            # `rate_equation_string` runs the guard, whose message dispatches for good.
+            sites = _testhelper_dispatch_sites(
+                rate_equation_string,
+                _testhelper_keyword_call(_testhelper_Coefficients, _testhelper_PlainC);
+                exemptions = Pair{Symbol,String}[])
+            @test any(s -> s.function_name == :_guard_message, sites)
+        end
+
+        # The exemption names `rate_equation`, whose singleton method is the hot path.
+        @testset "rate_equation on a singleton needs no exemption" begin
+            for m in (_testhelper_plain_singleton, _testhelper_allosteric_singleton)
+                @test isempty(_testhelper_dispatch_sites(
+                    rate_equation, _testhelper_rate_equation_argtypes(m);
+                    exemptions = Pair{Symbol,String}[]))
+            end
         end
 
         @testset "every exemption is reported by some row" begin
