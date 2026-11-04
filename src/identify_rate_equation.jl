@@ -474,6 +474,10 @@ end
 """Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
 _exc_string(e) = first(sprint(showerror, e), 200)
 
+"""`pmap(f, itr)` as a `Vector{T}`. The element type of `pmap`'s result depends on the values
+`f` returned, so inference cannot read it."""
+_pmap_to_vector(f, ::Type{T}, itr) where {T} = convert(Vector{T}, pmap(f, itr))
+
 """
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row; it records
 only the mechanism's text and id and the error (`missing` elsewhere, empty `params`).
@@ -643,7 +647,9 @@ function _process_batch(
     end
 
     # PASS 1 (workers): `_pass1_record` on each fresh mechanism.
-    records = pmap(m -> _pass1_record(m, eq_complexity_filter, max_param_count), fresh)
+    records = _pmap_to_vector(Union{Symbol, FitFailure, _Candidate}, fresh) do m
+        _pass1_record(m, eq_complexity_filter, max_param_count)
+    end
 
     # Pick one representative per key not already fit; an L phantom is none.
     rep_idx = Dict{String,Int}()
@@ -675,7 +681,7 @@ function _process_batch(
     # the text of the error its fit threw.
     fit_error = Dict{String,String}()   # key → its representative's fit threw
     function fit!(reps::Vector{_Candidate})
-        rep_fits = pmap(reps) do r
+        rep_fits = _pmap_to_vector(Union{_Fit, String}, reps) do r
             try
                 em = Mechanisms.compile_mechanism(r.mech)
                 fp = FittingProblem(em, prob.rate_data.data; _fit_keywords(em, prob)...)
@@ -688,7 +694,7 @@ function _process_batch(
             end
         end
         for (r, f) in zip(reps, rep_fits)
-            f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f::String)
+            f isa _Fit ? (memo[r.canon.key] = f) : (fit_error[r.canon.key] = f)
         end
     end
     fit!(reps)
@@ -826,7 +832,8 @@ expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
                          reaction::Mechanisms.EnzymeReaction)
-    results = pmap([pe.mech for pe in to_expand]) do m
+    results = _pmap_to_vector(Tuple{Vector{_AnyMech}, Union{Nothing, FitFailure}},
+                              [pe.mech for pe in to_expand]) do m
         # Record a per-parent expansion error (e.g. `expand_mechanisms`' atom-conservation
         # assertion, `_assert_atom_conserving`) as a failure; never abort the search.
         try
@@ -1100,13 +1107,15 @@ function _cv_model_selection(
     # losses in `groups` order, and column ci of `scores` candidate ci's.
     groups = unique(prob.rate_data.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
-    fold_losses = pmap([(memo[k].source, g) for k in fit_keys for g in groups]) do (m, g)
+    folds = Tuple{_AnyMech, eltype(groups)}[(memo[k].source, g)
+                                            for k in fit_keys for g in groups]
+    fold_losses = _pmap_to_vector(Float64, folds) do (m, g)
         mechanism = Mechanisms.compile_mechanism(m)
         _cross_validation_loss(mechanism, prob.rate_data.data, g;
             _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
     end
-    by_fit = reshape(Float64.(fold_losses), length(groups), :)
-    scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys) for e in candidates]]
+    by_fit = reshape(fold_losses, length(groups), :)
+    scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys)::Int for e in candidates]]
 
     cv_df.cv_score = [mean(c) for c in eachcol(scores)]
     cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
