@@ -241,6 +241,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
   10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
   PGK laws. Any faster `rate_equation` gains only on the `loss!` part.
+- **Pin each law's operation counts.**
+  The `rate_equation` time bound tolerates the spread between machines, so undoing a 3× gain
+  on a small law passes it: the MWC tetramer's former 20.3 ns sits under its 34 ns bound. A
+  count of multiplications, additions and power calls per law does not depend on the machine
+  and would catch this, at the cost of re-pinning when a law changes on purpose.
 - **Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`.**
   A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row loop:
   `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call compile

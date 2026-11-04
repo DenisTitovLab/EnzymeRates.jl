@@ -796,9 +796,30 @@ CPU-seconds per fit. Workers connected within 15 s, and the master's CPU account
 8.5 of PFKP's 18.5 idle minutes and 2.1 of PGK's 9.8. The rest is not measured, because
 `progress.log` carries no timestamps.
 
-`rate_equation`'s performance gate cannot see a slow `loss!`, and `@inferred loss!` passes on
-these slow paths, since the result is a `Float64` either way. `test/Fitting/test_fitting.jl`
-therefore measures `loss!` itself: no allocation and under 300 ns per row on every spec
-mechanism, and no allocation on the largest laws, on each column type a table can bring, and
-on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a
-`Vector{Float64}`, because an abstract column type costs a run-time dispatch on each read.
+`rate_equation`'s own time cannot show a slow `loss!`, and `@inferred loss!` passes on these
+slow paths, since the result is a `Float64` either way. So the speed gate in
+`test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
+allocation in relative or absolute mode, and time per row at most `rate_equation`'s time per
+call plus 6 `log` calls, timed in one process so machine speed cancels out. The bound holds if
+any of 20 batches meets it, each on a new `FittingProblem`, because time on one problem can sit
+about 20% above a new problem's. `rate_equation` itself must stay under 25 ns + 0.5 ns per
+denominator term. That bound tolerates the spread between machines, up to 3.5× across 28 CI
+jobs, so a moderate slowdown of a small law passes it.
+
+`test/Fitting/test_fitting.jl` checks `loss!` on each column type a table can bring and on a
+cross-validation fold. `RateData` stores `Rate` and each metabolite as a `Vector{Float64}`,
+because an abstract column type costs a run-time dispatch on each read.
+
+`test/test_type_stability.jl` requires JET's optimization analysis to report nothing on every
+exported and public function and on the workers' internal functions, on Julia 1.13 only, since
+inference changes between versions. One list in that file names each exempt function and why.
+A public function with no row fails the test. Four limits apply:
+
+- JET does not look past a run-time dispatch or into a `pmap` closure, so the bodies the
+  workers run have rows of their own.
+- JET gives a report in a shared callee once per row, so an exempt function that reaches it
+  first hides it from other functions.
+- The test drops a report below a call that cannot compile, which mostly describes code that
+  never runs at those types, and a report through `Base.slowlock`, which is not package code.
+- JET misses a single dynamic call in the body of a `@generated` function, so the allocation
+  and time bounds above stay the hard guard on `rate_equation`.

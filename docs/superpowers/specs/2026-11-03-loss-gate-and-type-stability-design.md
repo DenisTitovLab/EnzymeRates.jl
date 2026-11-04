@@ -161,8 +161,9 @@ Each runs on every form its methods accept: plain and allosteric, concrete and s
 
 This triage is a starting point from reading each line. The builder confirms each site and
 moves it if the code says otherwise. Exemptions name a function, and only these reasons qualify:
-an error message, the solver barrier, `Expr` walking, a `DataFrame`, CSV or `pmap` boundary, and
-lifting a value to a type.
+an error message, the solver barrier, `Expr` walking, a `DataFrame`, CSV or `pmap` boundary,
+lifting a value to a type, printing to stdout, and validating a user-supplied value of unknown
+type.
 
 | Sites | What they are | Action |
 |:------|:--------------|:-------|
