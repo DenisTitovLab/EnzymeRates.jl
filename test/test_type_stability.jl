@@ -5,6 +5,7 @@ using EnzymeRates
 
 if v"1.13.0-" <= VERSION < v"1.14.0-"
     using JET
+    using OptimizationCMAEvolutionStrategy: CMAEvolutionStrategyOpt
 
     # A function name => why its site is allowed to dispatch at run time.
     const _TESTHELPER_DISPATCH_EXEMPTIONS = Pair{Symbol,String}[
@@ -14,6 +15,26 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_assert_atom_conserving => "an error message",
         :_base_tier => "an error message: the text of a caught exception",
         :_seed_node_children => "a pmap boundary",
+        :FitObjective => "the solver barrier: a FunctionWrapper hides the problem's type",
+        :_fit_loss => "the solver barrier: a FunctionWrapper hides the problem's type",
+        :_optimization_problem => "the solver barrier: the problem handed to the solver",
+        :fit_rate_equation => "the solver barrier: solve, on a @nospecialize problem",
+        :_reference_scale => "the solver barrier: on a @nospecialize problem",
+        :_scale_rate_constants => "the solver barrier: on a @nospecialize fit's values",
+        :FittingProblem => "the solver barrier: builds the @nospecialize problem",
+        :test_rate_equation => "a concrete mechanism and the table's column names are " *
+                               "lifted to the problem's type",
+        :RateData => "the table's column names are lifted to its type",
+        :_rate_table => "the table's column names are lifted to its type",
+        :parse_mechanism => "Expr walking: it starts the walk on Meta.parse's result",
+        :_parse_labeled_line => "Expr walking",
+        :_bare_symbols_from_values => "Expr walking",
+        :_bare_name => "Expr walking",
+        :_raw_site => "Expr walking",
+        :_step_parts => "Expr walking",
+        :_peel_tag! => "Expr walking",
+        :_raw_step! => "Expr walking",
+        :_raw_form => "Expr walking",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
@@ -129,6 +150,19 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     const _testhelper_BothCoefficientKeywords =
         NamedTuple{(:coefficients, :coefficient_values), Tuple{Bool, Bool}}
 
+    const _testhelper_Fit = EnzymeRates.Fitting
+    const _testhelper_KeqKeyword = NamedTuple{(:Keq,), Tuple{Float64}}
+    _testhelper_rate_table(m) = (; group = ["g"], Rate = [1.0],
+                                 (x => [1.0] for x in metabolites(m))...)
+    _testhelper_problem_type(m) =
+        typeof(_testhelper_Fit.FittingProblem(m, _testhelper_rate_table(m); Keq = 2.0))
+    const _testhelper_PlainTable =
+        typeof(_testhelper_rate_table(_testhelper_plain_singleton))
+    const _testhelper_Optimizer = typeof(CMAEvolutionStrategyOpt())
+    # A problem compiles a concrete mechanism, so it only ever holds a singleton.
+    const _TESTHELPER_PROBLEM_FORMS = (("plain", _testhelper_plain_singleton),
+                                       ("allosteric", _testhelper_allosteric_singleton))
+
     const _TESTHELPER_CHECKED_CALLS = Any[
         ("metabolites, concrete", metabolites, (_testhelper_PlainC,)),
         ("metabolites, concrete allosteric", metabolites, (_testhelper_AlloC,)),
@@ -224,6 +258,30 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
           (Mechs, _testhelper_Reaction))
          for Mechs in (Vector{_testhelper_PlainC}, Vector{_testhelper_AlloC},
                        Vector{Union{_testhelper_PlainC, _testhelper_AlloC}}))...,
+        (("FittingProblem, $form", _testhelper_Fit.FittingProblem,
+          _testhelper_keyword_call(_testhelper_KeqKeyword, typeof(m),
+                                   typeof(_testhelper_rate_table(m))))
+         for (form, m) in _TESTHELPER_FORMS)...,
+        (("loss!, $form", _testhelper_Fit.loss!,
+          (Vector{Float64}, _testhelper_problem_type(m)))
+         for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
+        (("fit_rate_equation, $form", fit_rate_equation,
+          (_testhelper_problem_type(m), _testhelper_Optimizer))
+         for (form, m) in _TESTHELPER_PROBLEM_FORMS)...,
+        (("test_rate_equation, $form", _testhelper_Fit.test_rate_equation,
+          _testhelper_keyword_call(_testhelper_KeqKeyword, typeof(m),
+                                   _testhelper_floats_type(parameters(m)),
+                                   typeof(_testhelper_rate_table(m))))
+         for (form, m) in _TESTHELPER_FORMS)...,
+        ("RateData", EnzymeRates.Data.RateData,
+         _testhelper_keyword_call(_testhelper_KeqKeyword, _testhelper_PlainTable,
+                                  Vector{Symbol})),
+        ("RateData with a reference", EnzymeRates.Data.RateData,
+         _testhelper_keyword_call(
+             NamedTuple{(:Keq, :reference),
+                        Tuple{Float64, Vector{Pair{@NamedTuple{S::Float64}, Float64}}}},
+             _testhelper_PlainTable, Vector{Symbol})),
+        ("parse_mechanism", EnzymeRates.DSL.parse_mechanism, (String,)),
     ]
 
     @testset "type stability" begin
@@ -296,6 +354,16 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
             for m in (_testhelper_plain_singleton, _testhelper_allosteric_singleton)
                 @test isempty(_testhelper_dispatch_sites(
                     rate_equation, _testhelper_rate_equation_argtypes(m);
+                    exemptions = Pair{Symbol,String}[]))
+            end
+        end
+
+        # A site here would run on every row of every evaluation of every fit.
+        @testset "loss! needs no exemption" begin
+            @test :loss! ∉ first.(_TESTHELPER_DISPATCH_EXEMPTIONS)
+            for (_, m) in _TESTHELPER_PROBLEM_FORMS
+                @test isempty(_testhelper_dispatch_sites(
+                    _testhelper_Fit.loss!, (Vector{Float64}, _testhelper_problem_type(m));
                     exemptions = Pair{Symbol,String}[]))
             end
         end
