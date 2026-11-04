@@ -22,7 +22,7 @@ Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S + dI_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,,1.0000001666858893,,,0.9999986273301342,0.999997198013115,,99.99999095826021,4.999989083132237
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,"",1.0000001666858893,,,0.9999986273301342,0.999997198013115,,99.99999095826021,4.999989083132237
 5,,3.170063977561521,"@allosteric_mechanism begin
     substrates: S
     products: P
@@ -138,7 +138,7 @@ Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_P * P
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,f70d86415d5b81f66e6b0c0998fd8859b5428fb2c76aab918bc5a1255a54e159,false,33d173b3822b49c5,false,,,,0.9999988554687567,0.999994834230888,,2.891353798342893e6,3.362073830162618e-7,0.05248813624321716
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,f70d86415d5b81f66e6b0c0998fd8859b5428fb2c76aab918bc5a1255a54e159,false,33d173b3822b49c5,false,"",,,0.9999988554687567,0.999994834230888,,2.891353798342893e6,3.362073830162618e-7,0.05248813624321716
 5,,0.14021585444604576,"@allosteric_mechanism begin
     substrates: S
     products: P
@@ -180,4 +180,4 @@ dA_P = 1 / K_A_EP_to_E_P
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,,,1.0000005569761412,1.0000046921400745,,,2.897577829345608e6,3.3859663802079806e-7,0.05248835366934601
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,"",,1.0000005569761412,1.0000046921400745,,,2.897577829345608e6,3.3859663802079806e-7,0.05248835366934601
