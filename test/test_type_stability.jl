@@ -33,8 +33,9 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                                         "RateData's type",
         :_row_params => "a row's parameter names are lifted to its type",
         :_pmap_to_vector => "a pmap boundary",
-        :_write_rows_csv! => "a CSV boundary: the rows differ in type, and CSV.write " *
-                             "takes a DataFrame",
+        :_write_rows_csv! => "a CSV boundary: the rows differ in type, so reading their " *
+                             "fields dispatches",
+        :_write_csv => "a CSV boundary",
         :_rows_to_dataframe => "a DataFrame boundary",
         :_single_row_dataframe => "a DataFrame boundary",
         :_select_best_row => "a DataFrame boundary: its columns' types are not known",

@@ -278,6 +278,12 @@ function identify_rate_equation(
     return result
 end
 
+"""Write the table `df` to `<save_dir>/<filename>`, creating `save_dir` if absent."""
+function _write_csv(save_dir::String, filename::String, df::DataFrame)
+    mkpath(save_dir)
+    CSV.write(joinpath(save_dir, filename), df)
+end
+
 """
 Write result rows to `<save_dir>/<filename>`, creating `save_dir` if absent. `texts` maps
 each `mechanism_id` the run has written to its mechanism's text, and gains the rows' ids.
@@ -293,8 +299,7 @@ function _write_rows_csv!(save_dir::String, filename::String, rows,
                   "16 hex digits of the SHA-256 of their texts, so the run's CSVs cannot " *
                   "tell them apart:\n$other\n$(r.mechanism)")
     end
-    mkpath(save_dir)
-    CSV.write(joinpath(save_dir, filename), _rows_to_dataframe(rows))
+    _write_csv(save_dir, filename, _rows_to_dataframe(rows))
 end
 
 """
@@ -1142,12 +1147,11 @@ function _cv_model_selection(
     # Save the LOOCV table and the selected best equation alongside the
     # per-iteration fit CSVs, so cluster runs persist the model-selection
     # outcome (recoverable from the iteration CSVs, but wasteful to omit).
-    mkpath(save_dir)
-    CSV.write(joinpath(save_dir, "loocv_results.csv"), cv_df)
+    _write_csv(save_dir, "loocv_results.csv", cv_df)
     best_df = _single_row_dataframe(cv_df, best_row_idx)
     best_df.rate_equation = [Derivation.rate_equation_string(
         best.mech; coefficients = true)]
-    CSV.write(joinpath(save_dir, "best_equation.csv"), best_df)
+    _write_csv(save_dir, "best_equation.csv", best_df)
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
 end
