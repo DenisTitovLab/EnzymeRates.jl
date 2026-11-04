@@ -122,7 +122,8 @@ minimum of an enzyme rate-equation fit is NP-hard — any single optimization ca
 settle in a local minimum — and because the optimizer is stochastic,
 `result.params` and `result.loss` vary from run to run. Increase `n_restarts`
 until the fit returns the same loss on every run; empirically, 10–20 restarts is
-enough for many complex rate equations.
+enough for many complex rate equations. A fit of 20 restarts usually takes about a
+second on real data (see [How long a fit takes](@ref)).
 
 `result.at_bound` names the fitted parameters whose best value lies at an edge of the
 search box; [Units and the search box](@ref) in Getting Started

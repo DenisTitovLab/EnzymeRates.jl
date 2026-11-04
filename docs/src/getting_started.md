@@ -193,8 +193,8 @@ the lowest that count has seen, and every mechanism of an admitted key expands. 
 production search uses the wider defaults
 (`min_beam_width=50`, `loss_rel_threshold=1.3`, `loss_abs_threshold=0.001`,
 `loss_parsimony_threshold=0.99`, `max_param_count=20`, `eq_complexity_filter=337`)
-and would often run for many hours and require a High
-Performance Compute cluster (see [Running in parallel](identify/parallel.md)).
+and can run over 100,000 fits, so it usually calls for many cores (see
+[How long a search takes](@ref) and [Running in parallel](identify/parallel.md)).
 `save_dir` (by default a new `yyyy_mm_dd_results` directory under the working
 directory) must not already hold results; the search writes its progress and
 results there:

@@ -88,9 +88,9 @@ at separate sites.
 The choices multiply. Binding order times dead ends gives the 55 bi-bi seeds,
 and their variants bring the starting set to 239; sharing structure,
 steady-state detail, inhibitors, and allosteric states each multiply that by tens
-to thousands. Fitting one equation takes
-seconds to minutes, so an exhaustive search of a bi-bi with one regulator would
-take years on one core. The search therefore keeps only the promising
+to thousands. Fitting one equation takes about a second (see
+[How long a fit takes](@ref)), but at those counts an exhaustive search of a bi-bi with one
+regulator would still take far too long. The search therefore keeps only the promising
 candidates at each parameter count, drops equations too dense to fit, starts
 from fully regulated mechanisms when the regulators are known, and honors
 `shared_catalytic_site`. See [Best mechanism selection](@ref) for those filters

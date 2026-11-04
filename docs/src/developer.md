@@ -733,9 +733,24 @@ solver-specific options pass through a `solver_kwargs` named tuple; see
 ### What a fit costs
 
 A fit costs `n_restarts` × evaluations per restart × table rows × time per row, plus
-compiling the law once and the solver's own work. A CMA-ES restart in the PFKP and PGK searches
-runs about 1,400 to 30,000 evaluations. The split below comes from 118 laws sampled from the
-2026-11-02 searches, each fitted once, cold, with 20 restarts on one aarch64 core on Julia 1.13.3:
+compiling the law once and the solver's own work. The tables below come from 118 laws sampled
+from the 2026-11-02 searches, 59 from each, each fitted once, cold, with 20 restarts on one
+aarch64 core on Julia 1.13.3. A benchmark copy of `_fit_loss` counted the evaluations, and
+`loss!` was timed alone on parameter sets from that fit:
+
+| Median (range) | PGK, 386 rows | PFKP, 486 rows |
+|:---------------|--------------:|---------------:|
+| Evaluations per restart | 2,830 (1,160–22,900) | 6,230 (2,820–30,100) |
+| Evaluations per fit | 56,700 (23,300–458,000) | 125,000 (56,500–601,000) |
+| `loss!` per call | 3.3 µs (2.8–18.3) | 6.3 µs (5.1–8.9) |
+| `loss!` per row | 8.5 ns (7.2–47) | 13 ns (10–18) |
+| Warm time per restart | 0.014 s (0.004–0.27) | 0.050 s (0.020–0.34) |
+| Whole fit | 0.38 s (0.18–5.6) | 1.12 s (0.51–7.0) |
+| Warm fit ÷ (evaluations × `loss!`) | 1.28 (1.08–1.54) | 1.25 (1.12–1.43) |
+| Compiling the law | 0.11 s (0.07–0.22) | 0.12 s (0.12–0.19) |
+| Compile share of a fit | 28% (3–54) | 11% (3–23) |
+
+Over all the sampled time, which large laws dominate, a fit divides as follows:
 
 | Search | Mean fit | `loss!` | Compiling the law | Solver and the rest |
 |:-------|---------:|--------:|------------------:|--------------------:|
@@ -803,12 +818,17 @@ Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 
 startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached its 24 h
 limit during cross-validation, so its figure is a lower bound.
 
+These one-core means predate #99, which changes each fit's search box; the sample above, with
+#99, gives 1.41 and 1.05 s. How much of that gap #99 causes is not separated.
+
 The cluster gained less than a single core did: at least 25× and 7× per fit, because workers
 now wait for much of a run. In `sacct`, the average worker of the 0.10.0 runs used the CPU for
 42:47 of 61:18 on PFKP (70%) and 3:16 of 13:01 on PGK (25%), which comes to 17 and 10
 CPU-seconds per fit. Workers connected within 15 s, and the master's CPU accounts for at most
 8.5 of PFKP's 18.5 idle minutes and 2.1 of PGK's 9.8. The rest is not measured, because
-`progress.log` carries no timestamps.
+`progress.log` carries no timestamps. How those 17 and 10 CPU-seconds divide between the fit
+itself, slower or contended cores, enumeration, cross-validation and message passing is also
+not measured; a fit alone takes 1–3 s on the one-core benchmark machine.
 
 `rate_equation`'s own time cannot show a slow `loss!`, and `@inferred loss!` passes on these
 slow paths, since the result is a `Float64` either way. So the speed gate in
