@@ -22,7 +22,8 @@ in this PR.
    justified exemptions.
 3. Every site JET reports on them is fixed or exempted, in one PR.
 4. A public function added later fails the test until it has a row in it.
-5. The `rate_equation` column of the search CSVs shows concentration dependence only.
+5. The `rate_equation` column of the search CSVs and `loocv_results.csv` shows concentration
+   dependence only.
 
 ## Non-goals
 
@@ -35,7 +36,8 @@ in this PR.
 
 - Any change to a derived law, a parameter name, an enumeration child set, a key or the text
   `rate_equation_string` prints today. A fix that changes one of these is wrong. The search
-  CSVs' `rate_equation` column is the one deliberate change, through a new option.
+  CSVs' and `loocv_results.csv`'s `rate_equation` column is the one deliberate change, through
+  a new option.
 - A slower `rate_equation`, or a higher count in `test/test_compile_budget.jl`.
 - A new public name, or a new argument to one, other than the option below.
 - A gate that fails because a machine is slow or busy, or because a Julia release changed
@@ -99,7 +101,8 @@ Decided with Denis:
   `b79f9eb3`. A strict ratio cannot hold, since each row also takes a `log` and is centered.
 - It has no absolute time bound. The `rate_equation` gate holds each law's call under its
   ceiling, so the two together cap `loss!` at that ceiling plus 6 `log` calls on the same
-  machine, without the 4–7× spread that makes an absolute bound on CI noisy.
+  machine, without the spread between machines that makes an absolute bound noisy: up to 3.5×
+  between this machine and CI across 28 recent jobs.
 
 Kept from `b79f9eb3`: `RateData` stores `Rate` and each named metabolite as a
 `Vector{Float64}`, and `test/Fitting/test_fitting.jl` tests column types and a
@@ -164,18 +167,18 @@ Measured on the 2026-11-02 runs, counting `initial_mechanisms.csv` and the itera
 
 Decided with Denis:
 
-- The search CSVs and `initial_mechanisms.csv` keep the `concs` line, the lines that depend on a
-  concentration and the `v` line. `Q_c`, `D_c`, `F_c` and `W_c` stay, since `v` reads them. The
+- The search CSVs, `initial_mechanisms.csv` and `loocv_results.csv` keep the `concs` line, the
+  lines that depend on a concentration and the `v` line. `Q_c`, `D_c`, `F_c` and `W_c` stay, since `v` reads them. The
   coefficient comment, the coefficient values, `N` and the `params` line go.
-- `best_equation.csv` and `loocv_results.csv` keep the full coefficient form. The test at
+- `best_equation.csv` alone keeps the full coefficient form, for the winning law. The test at
   `test/test_identify_rate_equation.jl:597` already pins that, and stays unchanged.
 - The short form comes from an option on `rate_equation_string`, not from cutting lines out of
-  its text in `identify_rate_equation.jl`.
+  its text in `identify_rate_equation.jl`: `coefficient_values::Bool = true`, so
+  `rate_equation_string(m; coefficients = true, coefficient_values = false)` reads as the law in
+  named coefficients without their values.
 
-**Claude's proposal for the name, for Denis to confirm:** `coefficient_values::Bool = true`, so
-`rate_equation_string(m; coefficients = true, coefficient_values = false)` reads as the law in
-named coefficients without their values. `coefficient_values = false` without `coefficients`
-throws an `ArgumentError`. Text in this form does not run, and the docstring says so.
+**Claude's calls:** `coefficient_values = false` without `coefficients` throws an
+`ArgumentError`. Text in this form does not run, and the docstring says so.
 
 `rate_equation_string` already prints every other form from the `mechanism` column through
 `parse_mechanism`, so the coefficients stay recoverable for any row.
@@ -191,7 +194,8 @@ throws an `ArgumentError`. Text in this form does not run, and the docstring say
   repository. It samples parents, and the PR states that limit.
 - `rate_equation`'s gate and `test/test_compile_budget.jl` pass unchanged.
 - Tests pin the short form for plain and allosteric laws against written-out text, and a search
-  CSV row holds it while the `best_equation.csv` and `loocv_results.csv` rows hold the full form.
+  CSV row and a `loocv_results.csv` row hold it while the `best_equation.csv` row holds the full
+  form.
 - `ROADMAP.md`'s "Drop `rate_equation` from the search CSVs" entry is removed, the docs describe
   the option, and the PR reports the CSV sizes from a real search. Denis decides any version bump.
 - The full suite passes on Julia 1.13, and the PR reports the time and memory the new tests add,
