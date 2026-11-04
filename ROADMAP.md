@@ -75,8 +75,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   of the ter-ter entry below grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
   `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
   1 GB of garbage. No test value retains the garbage: a full collection after the testset
-  frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1 alone, so nothing checks
-  the compat floor against the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
+  frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the
+  lower-bound job, on a runner with more memory, so nothing checks the compat floor against
+  the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
 - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
   The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
   is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
@@ -224,13 +225,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   fit from a process-stable content key, mixed with one master seed drawn per
   `identify_rate_equation` call, would make each fit independent of the processing order
   while `Random.seed!` still reproduces a run; every saved fit would move once.
-- **Test the compat bounds in a scheduled CI job.**
-  `.github/workflows/CI.yml` tests only the latest Julia release with the newest
-  dependencies, while `Project.toml` declares `julia = "1.11"` and a lower bound for every
-  dependency, so a wrong Julia or dependency floor surfaces only in a user's environment,
-  and a dependency release that breaks the package only at the next CI run. A scheduled
-  workflow that runs the suite at the lower and upper bounds of Julia and the dependencies
-  would catch both without adding its run time to every push or pull request.
 - **Give the thermodynamics one row reduction.**
   `src/Derivation/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
   `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
