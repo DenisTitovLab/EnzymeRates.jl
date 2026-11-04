@@ -4,7 +4,10 @@ using Aqua
 using JET
 
 @testset "Aqua" begin
-    Aqua.test_all(EnzymeRates; ambiguities=false)
+    # The Downgrade workflow's action moves the test dependencies into [deps], where they
+    # would read as stale.
+    Aqua.test_all(EnzymeRates; ambiguities=false, stale_deps=(ignore=[:Aqua, :JET,
+        :OptimizationBBO, :OptimizationCMAEvolutionStrategy, :OrdinaryDiffEqFIRK],))
 end
 
 @testset "no two files differ only in case" begin
