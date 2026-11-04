@@ -1,5 +1,5 @@
 n_params,parent_n_params,loss,mechanism,mechanism_id,parent_id,rate_equation,retcode,error,key,fit_inherited,fit_source_id,L_phantom,at_bound,K_A_Areg,K_A_EP_to_E_P,K_A_ES_to_E_S,K_EP_to_E_P,K_ES_to_E_S,K_I_Areg,L,k_A_ES_to_EP
-5,,8.360995506284607e-14,"@allosteric_mechanism begin
+5,,8.408637313037926e-14,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -10,20 +10,13 @@ n_params,parent_n_params,loss,mechanism,mechanism_id,parent_id,rate_equation,ret
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyA
-end",a29357efffadf9b1,,"(; K_EP_to_E_P, K_ES_to_E_S, k_A_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_ES_to_E_S
-dA_S = 1 / K_ES_to_E_S
-dA_P = 1 / K_EP_to_E_P
-dI_S = 1 / K_ES_to_E_S
-dI_P = 1 / K_EP_to_E_P
+end",a29357efffadf9b1,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S + dI_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,"",1.0000001666858893,,,0.9999986273301342,0.999997198013115,,99.99999095826021,4.999989083132237
-5,,3.170063977561521,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,"",1.0000000339838493,,,0.999997981189376,1.0000015915008387,,100.0000125406394,5.000007603575924
+5,,3.1700639775613775,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -34,20 +27,13 @@ v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Suc
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyI
-end",68d5488372c5c41b,,"(; K_EP_to_E_P, K_ES_to_E_S, k_A_ES_to_EP, K_I_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_ES_to_E_S
-dA_S = 1 / K_ES_to_E_S
-dA_P = 1 / K_EP_to_E_P
-dI_S = 1 / K_ES_to_E_S
-dI_P = 1 / K_EP_to_E_P
+end",68d5488372c5c41b,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S + dI_P * P
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,e0fa88b9f1ab89576c8982884972858b11a835b82bf87bebe73e55a3219b5464,false,68d5488372c5c41b,false,K_I_Areg,,,,0.9999959365060679,0.9999998306398562,3.082707282986159e6,3.101385784567249e-7,0.052488177711680455
-5,,0.006467700696796885,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,e0fa88b9f1ab89576c8982884972858b11a835b82bf87bebe73e55a3219b5464,false,68d5488372c5c41b,false,K_I_Areg;L,,,,0.9999982480153863,0.9999987712638786,3.0947903410618934e6,3.081496305729389e-7,0.052488125251610056
+5,,0.006467700696849243,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -58,19 +44,13 @@ v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyA
-end",9bec69da846bf50e,,"(; K_A_EP_to_E_P, K_ES_to_E_S, k_A_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_ES_to_E_S
-dA_S = 1 / K_ES_to_E_S
-dA_P = 1 / K_A_EP_to_E_P
-dI_S = 1 / K_ES_to_E_S
+end",9bec69da846bf50e,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,945d668d97831f76138298e437dba27b20a6583248a28fd79d864adfcd3f56f3,false,9bec69da846bf50e,false,K_A_EP_to_E_P,1.000000122054374,730964.3560121402,,,1.2840871545866428,,100.00007315948014,5.65745764461853
-5,,3.170063977560025,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,945d668d97831f76138298e437dba27b20a6583248a28fd79d864adfcd3f56f3,false,9bec69da846bf50e,false,K_A_EP_to_E_P,0.9999992310713147,730973.7045140875,,,1.2840871826624651,,99.99998004939572,5.65745224198492
+5,,3.1700639775604724,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -81,19 +61,13 @@ v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Suc
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyI
-end",ca85b42371bb638f,,"(; K_A_EP_to_E_P, K_ES_to_E_S, k_A_ES_to_EP, K_I_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_ES_to_E_S
-dA_S = 1 / K_ES_to_E_S
-dA_P = 1 / K_A_EP_to_E_P
-dI_S = 1 / K_ES_to_E_S
+end",ca85b42371bb638f,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_S * S
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,590f1b03669202f53d5de89a6c1d4c189934a84a0d158c81464322fc4ef949a7,false,ca85b42371bb638f,false,L,,1.0000011143787113,,,1.0000012667234361,3.045118016489987e6,3.05939895086241e-7,0.052488215091588734
-5,,0.1354174881389625,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,590f1b03669202f53d5de89a6c1d4c189934a84a0d158c81464322fc4ef949a7,false,ca85b42371bb638f,false,L,,1.0000071737632448,,,1.000004453765074,2.963789112256474e6,3.067008340040859e-7,0.0524883238443775
+5,,0.13541748813888546,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -104,19 +78,13 @@ v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyA
-end",c352c3a23a76325d,,"(; K_A_ES_to_E_S, K_EP_to_E_P, k_A_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
-dA_S = 1 / K_A_ES_to_E_S
-dA_P = 1 / K_EP_to_E_P
-dI_P = 1 / K_EP_to_E_P
+end",c352c3a23a76325d,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,84561dd3b4fa1be0d9eb6b02b00763ec6368e7aa74919e5cd68cedfa5135eac5,false,c352c3a23a76325d,false,K_A_ES_to_E_S,0.9999999182428372,,5.662103222977995e6,2.5918496606919645,,,100.00016109024517,2.1002036737021588e7
-5,,3.1700639775560706,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,84561dd3b4fa1be0d9eb6b02b00763ec6368e7aa74919e5cd68cedfa5135eac5,false,c352c3a23a76325d,false,K_A_ES_to_E_S,0.9999994508192278,,5.662104004922142e6,2.5918642687062263,,,100.0000427168213,2.1002010074434966e7
+5,,3.170063977555671,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -127,19 +95,13 @@ v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Suc
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyI
-end",33d173b3822b49c5,,"(; K_A_ES_to_E_S, K_EP_to_E_P, k_A_ES_to_EP, K_I_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
-dA_S = 1 / K_A_ES_to_E_S
-dA_P = 1 / K_EP_to_E_P
-dI_P = 1 / K_EP_to_E_P
+end",33d173b3822b49c5,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 D_I = 1 + dI_P * P
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,f70d86415d5b81f66e6b0c0998fd8859b5428fb2c76aab918bc5a1255a54e159,false,33d173b3822b49c5,false,"",,,0.9999988554687567,0.999994834230888,,2.891353798342893e6,3.362073830162618e-7,0.05248813624321716
-5,,0.14021585444604576,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,f70d86415d5b81f66e6b0c0998fd8859b5428fb2c76aab918bc5a1255a54e159,false,33d173b3822b49c5,false,L,,,1.0000018438519567,1.0000001366344553,,3.0572909917933177e6,3.0600970723203146e-7,0.05248823862812594
+5,,0.14021585444609358,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -150,17 +112,12 @@ v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * D_I^2 * W_I)",Success,,
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyA
-end",0761dcdfeea01dd0,,"(; K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_A_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
-dA_S = 1 / K_A_ES_to_E_S
-dA_P = 1 / K_A_EP_to_E_P
+end",0761dcdfeea01dd0,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 W_A = (1 + A / K_A_Areg)^2
-v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L)",Success,,07d603da14f70ca745e93d3f4c768ae82cdac1a83633c5fae84317b2f0f90b34,false,0761dcdfeea01dd0,false,K_A_EP_to_E_P;K_A_ES_to_E_S,0.9999995209514615,730973.6087409749,5.662103302488213e6,,,,100.00025144481108,2.022184350611522e7
-5,,3.1700639775552997,"@allosteric_mechanism begin
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L)",Success,,07d603da14f70ca745e93d3f4c768ae82cdac1a83633c5fae84317b2f0f90b34,false,0761dcdfeea01dd0,false,K_A_EP_to_E_P;K_A_ES_to_E_S,1.0000001861431387,730973.2534450591,5.662103142684527e6,,,,100.00011653823968,2.0221816716589317e7
+5,,3.1700639775554063,"@allosteric_mechanism begin
     substrates: S
     products: P
     allosteric_regulators: A
@@ -171,13 +128,8 @@ v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L)",Success,,07
         E(S) <--> E(P) :: OnlyA
     end
     regulatory_site(2): A::OnlyI
-end",1d5df94b5d796a43,,"(; K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_Areg, L, Keq, E_total) = params
-(; S, P, A) = concs
-# The coefficients are functions of the fitted constants, not parameters:
-nA_0 = k_A_ES_to_EP / K_A_ES_to_E_S
-dA_S = 1 / K_A_ES_to_E_S
-dA_P = 1 / K_A_EP_to_E_P
+end",1d5df94b5d796a43,,"(; S, P, A) = concs
 Q_A = nA_0
 D_A = 1 + dA_S * S + dA_P * P
 W_I = (1 + A / K_I_Areg)^2
-v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,"",,1.0000005569761412,1.0000046921400745,,,2.897577829345608e6,3.3859663802079806e-7,0.05248835366934601
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,"",,1.0000015489805325,0.9999973658998945,,,2.302040018155606e6,3.1499785433174887e-7,0.052488047178943
