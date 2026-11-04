@@ -33,8 +33,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                                         "RateData's type",
         :_row_params => "a row's parameter names are lifted to its type",
         :_pmap_to_vector => "a pmap boundary",
-        :_write_rows_csv! => "a CSV boundary: the rows differ in type, so reading their " *
-                             "fields dispatches",
+        :_write_rows_csv! => "the rows bound for the CSV differ in type, so reading " *
+                             "their fields dispatches",
         :_write_csv => "a CSV boundary",
         :_rows_to_dataframe => "a DataFrame boundary",
         :_single_row_dataframe => "a DataFrame boundary",
@@ -43,7 +43,9 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
-    # code. A frame's linfo is a MethodInstance, or a CodeInstance holding one.
+    # code. A frame's linfo is a MethodInstance, or a CodeInstance holding one. JET gives a
+    # report in a shared callee once per row, so an exempt function that reaches it first
+    # hides it from the other functions that reach it.
     _testhelper_frame_method(linfo::Core.MethodInstance) = linfo.def
     _testhelper_frame_method(linfo::Core.CodeInstance) =
         _testhelper_frame_method(linfo.def)
@@ -87,8 +89,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
     _testhelper_report_opt(f, call::NamedTuple) = JET.report_opt(
         Core.kwcall, (call.kwtype, f isa Type ? Type{f} : typeof(f), call.argtypes...))
 
-    # `slowlock` is Base's path for a contended lock, not package code. Any package call that
-    # takes a lock reaches it, such as `pkgversion`.
+    # `slowlock` is Base's path for a contended lock, not package code. Any package call
+    # that takes a lock reaches it, such as `pkgversion`.
     function _testhelper_through_contended_lock(report)
         any(report.vst) do frame
             method = _testhelper_frame_method(frame.linfo)
@@ -102,10 +104,12 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                                         exemptions = _TESTHELPER_DISPATCH_EXEMPTIONS)
         sites = NamedTuple[]
         for report in JET.get_reports(_testhelper_report_opt(f, argtypes))
-            # A report below a call that cannot compile describes code that never runs at
-            # those types: at run time the call dispatches on its arguments' concrete types.
-            # JET skips such a frame but not a compileable callee of it. The entry always
-            # counts, and the dispatch into such a call is reported at its caller.
+            # A report below a call that cannot compile mostly describes code that never
+            # runs at those types: at run time the call dispatches on its arguments'
+            # concrete types. JET skips such a frame but not a compileable callee of it. The
+            # exception is a frame the compiler inlines: its compileable callee does run and
+            # dispatch, and its report is dropped too. The entry always counts, and the
+            # dispatch into a call that is not inlined is reported at its caller.
             all(frame -> _testhelper_frame_compileable(frame.linfo), report.vst[2:end]) ||
                 continue
             _testhelper_through_contended_lock(report) && continue
@@ -336,11 +340,11 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         @testset "the harness finds a boxed variable and a call on a Ref{Any}" begin
             fixture = Module(:_testhelper_StabilityFixture)
             Core.eval(fixture, quote
-                function ref_any_call()
+                function _testhelper_ref_any_call()
                     r = Ref{Any}(1)
                     r[] + 1
                 end
-                function boxed_capture(n)
+                function _testhelper_boxed_capture(n)
                     total = 0
                     add = k -> (total += k)
                     foreach(add, 1:n)
@@ -348,8 +352,8 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                     total
                 end
             end)
-            for (f, argtypes) in ((fixture.ref_any_call, ()),
-                                  (fixture.boxed_capture, (Int,)))
+            for (f, argtypes) in ((fixture._testhelper_ref_any_call, ()),
+                                  (fixture._testhelper_boxed_capture, (Int,)))
                 @test !isempty(JET.get_reports(JET.report_opt(f, argtypes)))
                 # None of their frames is in the package, so each counts its entry function.
                 @test [s.function_name for s in _testhelper_dispatch_sites(f, argtypes)] ==
@@ -398,14 +402,15 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
             end
         end
 
-        @testset "a report below a call that cannot compile counts for nothing" begin
+        @testset "a report below a call that cannot compile is dropped, even inlined" begin
             fixture = Module(:_testhelper_UncompileableFixture)
             Core.eval(fixture, quote
                 struct _testhelper_Box{T}
                     x::T
                 end
                 _testhelper_dispatching_callee(r::Base.RefValue{Any}) = r[] + 1
-                # Inlined, so the entry holds no dispatch into this frame of its own.
+                # Inlined, so the entry holds no dispatch into this frame of its own and the
+                # callee's dispatch does run; the filter drops its report all the same.
                 @inline _testhelper_abstract_intermediate(b::_testhelper_Box) =
                     _testhelper_dispatching_callee(Ref{Any}(b.x))
                 _testhelper_entry(boxes::Vector{_testhelper_Box}) =
