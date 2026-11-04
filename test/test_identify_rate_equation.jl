@@ -1096,6 +1096,9 @@ end
         cd(tmp) do
             d1 = EnzymeRates._default_save_dir()
             @test occursin(r"^\d{4}_\d{2}_\d{2}_results$", d1)
+            year, month, day = EnzymeRates.Dates.yearmonthday(EnzymeRates.Dates.today())
+            @test d1 == string(year, "_", lpad(month, 2, '0'), "_", lpad(day, 2, '0'),
+                               "_results")
             mkpath(d1)
             d2 = EnzymeRates._default_save_dir()
             @test d2 == d1 * "_2"

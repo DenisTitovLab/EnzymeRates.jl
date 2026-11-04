@@ -40,7 +40,6 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :_single_row_dataframe => "a DataFrame boundary",
         :_select_best_row => "a DataFrame boundary: its columns' types are not known",
         :_progress => "the print to stdout, whose type is IO",
-        :_default_save_dir => "Base's lock below Dates.format fails to optimize",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package

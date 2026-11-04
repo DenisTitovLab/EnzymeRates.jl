@@ -1161,7 +1161,7 @@ Default results directory: the first non-existent `<date>_results[_N]`
 directory in the cwd (e.g. `YYYY_MM_DD_results`, then `…_results_2`, `_3`).
 """
 function _default_save_dir()
-    base = string(Dates.format(Dates.today(), "yyyy_mm_dd"), "_results")
+    base = string(Dates.format(Dates.today(), dateformat"yyyy_mm_dd"), "_results")
     isdir(base) || return base
     n = 2
     while isdir(string(base, "_", n)); n += 1; end
