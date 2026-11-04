@@ -1,4 +1,4 @@
-# Guard the fitting hot path and make the core machinery type-stable
+# Guard the fitting hot path, make the core machinery type-stable, shorten the search CSVs
 
 ## Intent
 
@@ -9,6 +9,10 @@ errors, not for dispatch. `loss!` is the package's hot path, so a slowdown there
 test on the PR that causes it. Denis also wants type stability checked on every exported
 function and every public function the modules share, to catch other bugs of this kind.
 
+The search CSVs are also too large, and most of their bytes are coefficient definitions that
+are hard to read while scrolling through results. Denis wants those gone from the search CSVs,
+in this PR.
+
 ## Goals
 
 1. A failing test catches any allocation or slowdown in `loss!`, on every mechanism the
@@ -18,20 +22,22 @@ function and every public function the modules share, to catch other bugs of thi
    justified exemptions.
 3. Every site JET reports on them is fixed or exempted, in one PR.
 4. A public function added later fails the test until it has a row in it.
+5. The `rate_equation` column of the search CSVs shows concentration dependence only.
 
 ## Non-goals
 
-- Timestamps in `progress.log`, dropping `rate_equation` from the CSVs, fewer restarts, and
-  the idle-worker question. Each is a separate change.
+- Timestamps in `progress.log`, fewer restarts, and the idle-worker question. Each is a
+  separate change.
 - A rewrite of `identify_rate_equation`'s orchestration to avoid `DataFrame`, `pmap` or CSV.
 - A comparison of whole search runs between versions.
 
 ## Anti-goals
 
-- Any change to a derived law, a parameter name, an enumeration child set, a key or printed
-  text. A fix that changes one of these is wrong.
+- Any change to a derived law, a parameter name, an enumeration child set, a key or the text
+  `rate_equation_string` prints today. A fix that changes one of these is wrong. The search
+  CSVs' `rate_equation` column is the one deliberate change, through a new option.
 - A slower `rate_equation`, or a higher count in `test/test_compile_budget.jl`.
-- A new public name, or a new argument to one.
+- A new public name, or a new argument to one, other than the option below.
 - A gate that fails because a machine is slow or busy, or because a Julia release changed
   inference with no change to the package.
 
@@ -91,6 +97,9 @@ Decided with Denis:
 - It asserts time per row `≤ rate_equation per call + 6 × log per call`. All three are timed
   in one process, so machine speed cancels out. This replaces the 300 ns bound in commit
   `b79f9eb3`. A strict ratio cannot hold, since each row also takes a `log` and is centered.
+- It has no absolute time bound. The `rate_equation` gate holds each law's call under its
+  ceiling, so the two together cap `loss!` at that ceiling plus 6 `log` calls on the same
+  machine, without the 4–7× spread that makes an absolute bound on CI noisy.
 
 Kept from `b79f9eb3`: `RateData` stores `Rate` and each named metabolite as a
 `Vector{Float64}`, and `test/Fitting/test_fitting.jl` tests column types and a
@@ -144,6 +153,33 @@ lifting a value to a type.
 | `seeds.jl:602–612, 674, 703` | `pmap` results and a failure message | Fix what a type assertion fixes; else exempt |
 | `engine.jl:338`, `expand.jl:24`, `print.jl:181`, `rate_data.jl:36, 64`, `rate_eq_derivation.jl:112, 113` | Mixed | Fix if a small change does it; else exempt with a reason |
 
+## The search CSVs' `rate_equation` column
+
+Measured on the 2026-11-02 runs, counting `initial_mechanisms.csv` and the iteration files:
+
+| | PFKP | PGK |
+|:--|--:|--:|
+| Today | 413 MB | 717 MB |
+| Without coefficient lines, their comment and the `params` line | 269 MB | 65 MB |
+
+Decided with Denis:
+
+- The search CSVs and `initial_mechanisms.csv` keep the `concs` line, the lines that depend on a
+  concentration and the `v` line. `Q_c`, `D_c`, `F_c` and `W_c` stay, since `v` reads them. The
+  coefficient comment, the coefficient values, `N` and the `params` line go.
+- `best_equation.csv` and `loocv_results.csv` keep the full coefficient form. The test at
+  `test/test_identify_rate_equation.jl:597` already pins that, and stays unchanged.
+- The short form comes from an option on `rate_equation_string`, not from cutting lines out of
+  its text in `identify_rate_equation.jl`.
+
+**Claude's proposal for the name, for Denis to confirm:** `coefficient_values::Bool = true`, so
+`rate_equation_string(m; coefficients = true, coefficient_values = false)` reads as the law in
+named coefficients without their values. `coefficient_values = false` without `coefficients`
+throws an `ArgumentError`. Text in this form does not run, and the docstring says so.
+
+`rate_equation_string` already prints every other form from the `mechanism` column through
+`parse_mechanism`, so the coefficients stay recoverable for any row.
+
 ## Done means
 
 - Each gate fails when the bug it guards against is put back. At the least: the uninferable
@@ -154,6 +190,10 @@ lifting a value to a type.
   `claude-scratchpad/fsn/census` with all its reactions, adds a key column and stays out of the
   repository. It samples parents, and the PR states that limit.
 - `rate_equation`'s gate and `test/test_compile_budget.jl` pass unchanged.
+- Tests pin the short form for plain and allosteric laws against written-out text, and a search
+  CSV row holds it while the `best_equation.csv` and `loocv_results.csv` rows hold the full form.
+- `ROADMAP.md`'s "Drop `rate_equation` from the search CSVs" entry is removed, the docs describe
+  the option, and the PR reports the CSV sizes from a real search. Denis decides any version bump.
 - The full suite passes on Julia 1.13, and the PR reports the time and memory the new tests add,
   with the suite's peak staying below the 4 GB the machine allows. **Claude's call:** the peak is
   held and reported on 1.13, since 1.11 and 1.12 already sit at about 4 GB without these tests.
