@@ -474,8 +474,8 @@ end
 """Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
 _exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
 
-"""`pmap(f, itr)` as a `Vector{T}`. The element type of `pmap`'s result depends on the values
-`f` returned, so inference cannot read it."""
+"""`pmap(f, itr)` as a `Vector{T}`. The element type of `pmap`'s result depends on the
+values `f` returned, so inference cannot read it."""
 _pmap_to_vector(f, ::Type{T}, itr) where {T} = convert(Vector{T}, pmap(f, itr))
 
 """
