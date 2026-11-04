@@ -74,7 +74,7 @@ function _reference(reference, absolute::Bool, mets, owner::String)
     end
     reference === nothing && return Pair{NamedTuple, Float64}[]
     _check_anchors(reference, mets, owner)
-    Pair{NamedTuple, Float64}[concs => Float64(t) for (concs, t) in reference]
+    [Pair{NamedTuple, Float64}(concs, t) for (concs, t) in reference]
 end
 
 """
