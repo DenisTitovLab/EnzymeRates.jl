@@ -849,8 +849,10 @@ because an abstract column type costs a run-time dispatch on each read.
 
 `test/test_type_stability.jl` requires JET's optimization analysis to report nothing on every
 exported and public function and on the workers' internal functions, on Julia 1.13 only, since
-inference changes between versions. One list in that file names each exempt function and why.
-A public function with no row fails the test; a public type does not, so deleting the
+inference changes between versions. Each row reads as a call and says whether it must be free
+of dispatch (`@_testhelper_no_dispatch`) or may dispatch only for named reasons
+(`@_testhelper_dispatches_in`), and a row that stops needing a reason fails. A public function
+with no row fails the test; a public type does not, so deleting the
 row of `FittingProblem`, `RateData` or `Mechanism` would pass. Five limits apply:
 
 - JET does not look past a run-time dispatch or into a `pmap` closure, so the bodies the
