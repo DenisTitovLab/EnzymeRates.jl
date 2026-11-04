@@ -564,6 +564,59 @@ function _testhelper_test_haldane_equilibrium(spec::_testhelper_MechanismTestSpe
     end
 end
 
+"""The number of terms in the denominator of `m`'s derived rate law after the solve is
+substituted: an MWC law counts both conformations, an inactive conformation that is free E
+alone counting 1."""
+function _testhelper_denominator_terms(m)
+    L = EnzymeRates.Derivation._law(_testhelper_lift(m))
+    L isa EnzymeRates.Derivation._Law && return EnzymeRates.Derivation._nterms(L.D)
+    EnzymeRates.Derivation._nterms(L.active.D) +
+        EnzymeRates.Derivation._nterms(L.inactive.D)
+end
+
+# 25 ns plus 0.5 ns per denominator term leaves about 5-6x headroom locally on most laws
+# and about 2x over the worst of 168 CI timings. A job that misses the bound is rerun
+# rather than the bound loosened.
+_testhelper_rate_equation_time_limit(n_terms) = 25e-9 + 0.5e-9 * n_terms
+
+@noinline function _testhelper_rate_rows(m, rows, params)
+    acc = 0.0
+    for concs in rows
+        acc += rate_equation(m, concs, params)
+    end
+    acc
+end
+
+@noinline function _testhelper_log_rows(rates)
+    acc = 0.0
+    for r in rates
+        acc += log(abs(r))
+    end
+    acc
+end
+
+"""Seconds per data row of `Fitting.loss!` on a 64-row table of `m`, and the most it may
+take: the cost of `rate_equation` on each row plus six `log` calls. The three times are
+measured in one process, each as the minimum over 100 repeats."""
+function _testhelper_loss_time_per_row(m)
+    fp = _testhelper_loss_problem(m)
+    table = _testhelper_loss_table(metabolites(m))
+    rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
+            for i in eachindex(table.Rate)]
+    params, _, _ = _testhelper_random_independent_params_concs(
+        m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
+    x = 0.1 .* randn(length(parameters(m, FittedParameters())))
+    nrows = length(rows)
+    EnzymeRates.Fitting.loss!(x, fp)
+    _testhelper_rate_rows(m, rows, params)
+    _testhelper_log_rows(table.Rate)
+    best(f) = minimum(@elapsed(f()) for _ in 1:100) / nrows
+    per_row = best(() -> EnzymeRates.Fitting.loss!(x, fp))
+    t_rate = best(() -> _testhelper_rate_rows(m, rows, params))
+    t_log = best(() -> _testhelper_log_rows(table.Rate))
+    (; per_row, allowed = t_rate + 6 * t_log)
+end
+
 function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=42)
     m = spec.mechanism
     met_names = spec.metabolite_names
@@ -573,12 +626,18 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
             m, met_names; rng=rng)
         allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
         @test allocs == 0
-        # Locally 120 ns leaves about 4× headroom over the slowest fixture law, "LDH
-        # i-state NonequalAI 6-group, steady-state NAD group" at about 26 ns, and about 9×
-        # over the next, "Random-order Bi-Bi" at about 13 ns. Shared CI runners can run a
-        # law 4-7× slower, so a job that misses the bound is rerun rather than the bound
-        # loosened. The 0-alloc bound above is the strict part.
-        @test t < 120e-9
+        n = _testhelper_denominator_terms(m)
+        @test t < _testhelper_rate_equation_time_limit(n)
+        @test _testhelper_loss_allocations(_testhelper_loss_problem(m)) == 0
+        @test _testhelper_loss_allocations(
+            _testhelper_loss_problem(m; absolute = true)) == 0
+        (; per_row, allowed) = _testhelper_loss_time_per_row(m)
+        @info "$(spec.name): rate_equation $(round(1e9t; digits = 1)) ns, $n terms, " *
+              "loss! $(round(1e9per_row; digits = 1)) ns per row, " *
+              "allowed $(round(1e9allowed; digits = 1))"
+        @test per_row <= allowed
+        @inferred metabolites(m)
+        @inferred parameters(m, FittedParameters())
     end
 end
 
@@ -1352,38 +1411,27 @@ _testhelper_generated_rate_return(m) =
     @test isempty(bad)
 end
 
-# Seconds per call allowed per denominator term: each of the six gate laws (the fixtures
-# file) must run in under the larger of 120 ns and this constant times its denominator
-# terms. It is twice the worst CI reading over two runs, rounded up to one significant
-# figure; the worst readings on each runner, in ns per term, ter-bi / bi-bi: ubuntu x64
-# 0.223 / 0.299, windows x64 0.352 / 0.297, macOS aarch64 0.143 / 0.198.
-const _testhelper_seconds_per_denominator_term = 0.8e-9
-
-"""The number of terms in the denominator of `m`'s derived rate law after the solve is
-substituted: an MWC law counts both conformations, an inactive conformation that is free E
-alone counting 1."""
-function _testhelper_denominator_terms(m)
-    L = EnzymeRates.Derivation._law(_testhelper_lift(m))
-    L isa EnzymeRates.Derivation._Law && return EnzymeRates.Derivation._nterms(L.D)
-    EnzymeRates.Derivation._nterms(L.active.D) +
-        EnzymeRates.Derivation._nterms(L.inactive.D)
-end
-
 @testset "rate_equation time per call grows at most in proportion to the law's size" begin
     @test _testhelper_denominator_terms.(_testhelper_largest_enumerated_mechanisms) ==
           [396, 396, 396]
     @test _testhelper_denominator_terms.(_testhelper_large_ter_bi_mechanisms) ==
           [589, 799, 858]
-    for m in vcat(_testhelper_largest_enumerated_mechanisms,
-                  _testhelper_large_ter_bi_mechanisms)
+    for (i, m) in enumerate(vcat(_testhelper_largest_enumerated_mechanisms,
+                                 _testhelper_large_ter_bi_mechanisms))
         params, concs, _ = _testhelper_random_independent_params_concs(
             m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
         allocs, t = _testhelper_test_rate_equation_performance(m, params, concs)
         n = _testhelper_denominator_terms(m)
-        @info "rate_equation: $(round(1e9 * t; digits = 1)) ns per call, $n denominator " *
-              "terms, $(round(1e9 * t / n; digits = 3)) ns per term"
         @test allocs == 0
-        @test t < max(120e-9, _testhelper_seconds_per_denominator_term * n)
+        @test t < _testhelper_rate_equation_time_limit(n)
+        @test _testhelper_loss_allocations(_testhelper_loss_problem(m)) == 0
+        @test _testhelper_loss_allocations(
+            _testhelper_loss_problem(m; absolute = true)) == 0
+        (; per_row, allowed) = _testhelper_loss_time_per_row(m)
+        @info "large law $i: rate_equation $(round(1e9t; digits = 1)) ns, $n terms, " *
+              "loss! $(round(1e9per_row; digits = 1)) ns per row, " *
+              "allowed $(round(1e9allowed; digits = 1))"
+        @test per_row <= allowed
     end
 end
 

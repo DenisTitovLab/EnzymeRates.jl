@@ -255,10 +255,6 @@ end
     end
 
     # ── Zero allocations ──────────────────────────────────────────────────────
-    # Measured inside a function so the count excludes boxing the Float64 return
-    # of a dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
-    loss_allocs(x, fp) = @allocated EnzymeRates.Fitting.loss!(x, fp)
-
     @testset "Zero allocations" begin
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs_list)
@@ -266,14 +262,14 @@ end
                             reference=_testhelper_row_reference(data))
 
         x = randn(length(parameters(uni_uni, FittedParameters())))
-        loss_allocs(x, fp)  # warmup
-        allocs = loss_allocs(x, fp)
+        _testhelper_loss_allocated(x, fp)  # warmup
+        allocs = _testhelper_loss_allocated(x, fp)
         @test allocs == 0
 
         # Absolute mode (uncentered branch) is equally allocation-free.
         fp_abs = FittingProblem(uni_uni, data; Keq=Keq_val, absolute=true)
-        loss_allocs(x, fp_abs)  # warmup
-        allocs_abs = loss_allocs(x, fp_abs)
+        _testhelper_loss_allocated(x, fp_abs)  # warmup
+        allocs_abs = _testhelper_loss_allocated(x, fp_abs)
         @test allocs_abs == 0
     end
 
@@ -285,58 +281,16 @@ end
                             reference=_testhelper_row_reference(data))
 
         x = randn(length(allo_fitted))
-        loss_allocs(x, fp)  # warmup
-        allocs = loss_allocs(x, fp)
+        _testhelper_loss_allocated(x, fp)  # warmup
+        allocs = _testhelper_loss_allocated(x, fp)
         @test allocs == 0
     end
 
-    # ── Cost of loss! on every mechanism and table ────────────────────────────
-    # rate_equation's performance gate calls the law directly, so it cannot see what loss!
-    # does around it. Reading a row through metabolite names of unknown length, or through a
-    # column of abstract element type, makes every row dispatch at run time while
-    # rate_equation stays fast. `@inferred loss!` passes on both, since the result is a
-    # Float64 either way, so these tests measure allocations and time.
-    function _testhelper_loss_table(mets; rows = 64)
-        rng = Random.MersenneTwister(11)
-        merge((group = [string("g", i % 4) for i in 1:rows], Rate = 0.5 .+ rand(rng, rows)),
-              NamedTuple{Tuple(mets)}(Tuple(0.1 .+ rand(rng, rows) for _ in mets)))
-    end
-
-    # Allocations of one `loss!` call on `fp`, and its fastest time per data row.
-    function _testhelper_loss_cost(fp)
-        x = 0.1 .* randn(length(parameters(fp.mechanism, FittedParameters())))
-        EnzymeRates.Fitting.loss!(x, fp)  # warmup
-        loss_allocs(x, fp)  # warmup
-        allocs = loss_allocs(x, fp)
-        best = minimum(@elapsed(EnzymeRates.Fitting.loss!(x, fp)) for _ in 1:50)
-        allocs, best / length(fp.log_abs_rates)
-    end
-
-    _testhelper_loss_problem(m; kwargs...) =
-        FittingProblem(m, _testhelper_loss_table(metabolites(m)); Keq = Keq_val, kwargs...)
-
-    # The worst spec law takes about 30 ns per row on a workstation, and shared CI runners
-    # run up to 7× slower. Allocations catch run-time dispatch; this bound catches a
-    # slowdown that does not allocate.
-    @testset "loss! on every spec mechanism: no allocation, under 300 ns per row" begin
-        @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS, absolute in (false, true)
-            fp = _testhelper_loss_problem(spec.mechanism; absolute)
-            @inferred metabolites(fp.mechanism)
-            @inferred parameters(fp.mechanism, FittedParameters())
-            allocs, per_row = _testhelper_loss_cost(fp)
-            @test allocs == 0
-            @test per_row < 300e-9
-        end
-    end
-
-    @testset "loss! on the largest laws: no allocation" begin
-        for m in [_testhelper_largest_enumerated_mechanisms;
-                  _testhelper_large_ter_bi_mechanisms]
-            allocs, _ = _testhelper_loss_cost(_testhelper_loss_problem(m))
-            @test allocs == 0
-        end
-    end
-
+    # ── loss! over table column types ─────────────────────────────────────────
+    # The gate in test/Derivation/test_rate_eq_derivation.jl measures loss! on every law;
+    # these tests vary the table. A column of abstract element type makes every row
+    # dispatch at run time while rate_equation stays fast, and `@inferred loss!` passes
+    # since the result is a Float64 either way, so they measure allocations.
     @testset "loss! allocates nothing whatever the table's column types" begin
         two_regulators = @allosteric_mechanism begin
             substrates: A, B
@@ -388,8 +342,8 @@ end
                 integer_group = merge(table, (group = [i % 4 for i in 1:n],)),
             )
             @testset "$(shape)" for (shape, data) in pairs(shapes)
-                allocs, _ = _testhelper_loss_cost(FittingProblem(m, data; Keq = Keq_val))
-                @test allocs == 0
+                fp = FittingProblem(m, data; Keq = Keq_val)
+                @test _testhelper_loss_allocations(fp) == 0
             end
             # A column's element type changes the cost of a row, never its value.
             x = 0.1 .* randn(length(parameters(m, FittedParameters())))
@@ -404,8 +358,7 @@ end
     @testset "loss! allocates nothing on a cross-validation fold" begin
         table = _testhelper_loss_table(metabolites(allo))
         fold = EnzymeRates._fold_problem(allo, table, table.group .!= "g0"; Keq = Keq_val)
-        allocs, _ = _testhelper_loss_cost(fold)
-        @test allocs == 0
+        @test _testhelper_loss_allocations(fold) == 0
     end
 
     # ── Optimizer boundary ────────────────────────────────────────────────────
