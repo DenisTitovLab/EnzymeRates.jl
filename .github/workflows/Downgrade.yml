@@ -5,7 +5,6 @@ on:
   pull_request:
     paths:
       - Project.toml
-  workflow_dispatch:
 jobs:
   test:
     name: Lowest compat bounds

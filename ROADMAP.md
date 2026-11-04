@@ -266,6 +266,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Decided against
 
+- **Scheduled CI and Downgrade runs.**
+  A weekly or monthly run would catch a dependency release that breaks the package or stops
+  the lower bounds resolving, with no push here. CI runs on pull requests and pushes to `main`,
+  and `.github/workflows/Downgrade.yml` on pull requests that change `Project.toml`; the next
+  such run surfaces either break.
 - **A global ±ln(1e9) box, physical ranges or a plausibility warning.** Either needs a
   declared unit. `lb` and `ub` in `fit_rate_equation` stay, and the box follows the data.
 - **`lb` and `ub` in `identify_rate_equation`.** The search sets each fit's box from its
