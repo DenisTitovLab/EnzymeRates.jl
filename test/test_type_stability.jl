@@ -29,6 +29,17 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         :RateData => "the table's column names are lifted to its type",
         :_rate_table => "the table's column names are lifted to its type",
         :parse_mechanism => "Expr walking: it starts the walk on Meta.parse's result",
+        :IdentifyRateEquationProblem => "the table's column names are lifted to its " *
+                                        "RateData's type",
+        :_row_params => "a row's parameter names are lifted to its type",
+        :_pmap_to_vector => "a pmap boundary",
+        :_write_rows_csv! => "a CSV boundary: the rows differ in type, and CSV.write " *
+                             "takes a DataFrame",
+        :_rows_to_dataframe => "a DataFrame boundary",
+        :_single_row_dataframe => "a DataFrame boundary",
+        :_select_best_row => "a DataFrame boundary: its columns' types are not known",
+        :_progress => "the print to stdout, whose type is IO",
+        :_default_save_dir => "Base's lock below Dates.format fails to optimize",
     ]
 
     # JET reports a function once per frame; the site is the innermost frame in package
@@ -288,6 +299,15 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                         Tuple{Float64, Vector{Pair{@NamedTuple{S::Float64}, Float64}}}},
              _testhelper_PlainTable, Vector{Symbol})),
         ("parse_mechanism", EnzymeRates.DSL.parse_mechanism, (String,)),
+        ("IdentifyRateEquationProblem", IdentifyRateEquationProblem,
+         _testhelper_keyword_call(_testhelper_KeqKeyword, _testhelper_Reaction,
+                                  _testhelper_PlainTable)),
+        ("identify_rate_equation", identify_rate_equation,
+         _testhelper_keyword_call(
+             NamedTuple{(:optimizer,), Tuple{_testhelper_Optimizer}},
+             IdentifyRateEquationProblem{_testhelper_PlainTable})),
+        (("_pass1_record, $form", EnzymeRates._pass1_record, (typeof(m), Int, Int))
+         for (form, m) in _TESTHELPER_CONCRETE_FORMS)...,
     ]
 
     @testset "type stability" begin
@@ -391,6 +411,17 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
                 @test isempty(_testhelper_dispatch_sites(
                     _testhelper_Fit.loss!, (Vector{Float64}, _testhelper_problem_type(m));
                     exemptions = Pair{Symbol,String}[]))
+            end
+        end
+
+        @testset "every public function has a row" begin
+            checked = Set(f for (_, f, _) in _TESTHELPER_CHECKED_CALLS)
+            for mod in (EnzymeRates, EnzymeRates.Mechanisms, EnzymeRates.Derivation,
+                        EnzymeRates.Enumeration, EnzymeRates.Fitting, EnzymeRates.DSL,
+                        EnzymeRates.Data), n in names(mod)
+                startswith(string(n), "@") && continue  # macros run at parse time
+                x = getfield(mod, n)
+                x isa Function && x ∉ checked && @test "$mod.$n" == "has a row"
             end
         end
 
