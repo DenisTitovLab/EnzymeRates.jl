@@ -206,7 +206,9 @@ fitted parameters). `loocv_results.csv` and `best_equation.csv` persist the
 model-selection outcome, so a cluster run's result is available without re-deriving it
 from the iteration files. The `rate_equation` column of `loocv_results.csv` and of the
 search CSVs holds the law in named coefficients without their definitions, which take most
-of the bytes; `best_equation.csv` holds the full coefficient form.
+of the bytes, so the text does not run; `best_equation.csv` holds the full coefficient form.
+For the full form of any row, call
+`rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients = true)`.
 
 Each CSV has an `at_bound` column: the parameters at a box edge in the fit on all rows,
 separated by `;`. A parameter at a bound is not necessarily wrong; it means the data do

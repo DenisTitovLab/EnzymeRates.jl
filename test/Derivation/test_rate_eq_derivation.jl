@@ -574,9 +574,9 @@ function _testhelper_denominator_terms(m)
         EnzymeRates.Derivation._nterms(L.inactive.D)
 end
 
-# 25 ns plus 0.5 ns per denominator term leaves about 5-6x headroom locally on most laws
-# and about 2x over the worst of 168 CI timings. A job that misses the bound is rerun
-# rather than the bound loosened.
+# 25 ns plus 0.5 ns per denominator term leaves about 5-6x headroom locally on most laws.
+# CI logged timings only for the six large laws; the bound is about 2x over the worst of
+# their 168 timings. A job that misses the bound is rerun rather than the bound loosened.
 _testhelper_rate_equation_time_limit(n_terms) = 25e-9 + 0.5e-9 * n_terms
 
 @noinline function _testhelper_rate_rows(m, rows, params)
@@ -598,7 +598,7 @@ end
 """Seconds per data row of `Fitting.loss!` on a 64-row table of `m`, and the most it may
 take: the cost of `rate_equation` on each row, at the parameters `loss!` uses, plus six
 `log` calls. The bound holds if any of 20 batches meets it, each batch timing a fresh
-`FittingProblem`: time on one problem can sit about 20% above a fresh problem's, and the
+`FittingProblem`: time on one problem can sit up to about 40% above a fresh problem's, and the
 slow reading persists on that problem. A real slowdown fails every batch. Returns the
 batch with the smallest `per_row / allowed`."""
 function _testhelper_loss_time_per_row(m)
@@ -609,13 +609,15 @@ function _testhelper_loss_time_per_row(m)
     x = 0.1 .* randn(Random.MersenneTwister(42), length(names))
     params = merge(NamedTuple{names}(Tuple(exp.(x))), (Keq = 2.0, E_total = 1.0))
     nrows = length(rows)
-    problems = [_testhelper_loss_problem(m)]
-    EnzymeRates.Fitting.loss!(x, only(problems))
+    first_problem = _testhelper_loss_problem(m)
+    problems = [first_problem]
+    EnzymeRates.Fitting.loss!(x, first_problem)
     _testhelper_rate_rows(m, rows, params)
     _testhelper_log_rows(table.Rate)
     best(f) = minimum(@elapsed(f()) for _ in 1:10) / nrows
     out = (; per_row = Inf, allowed = 1.0)
     for _ in 1:20
+        # Each problem stays alive, so the next one gets new addresses.
         fresh = _testhelper_loss_problem(m)
         push!(problems, fresh)
         per_row = best(() -> EnzymeRates.Fitting.loss!(x, fresh))

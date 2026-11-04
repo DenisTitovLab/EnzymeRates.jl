@@ -83,7 +83,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # consumed every substrate and released every product. `cur` is the index of the
     # current form, `consumed` and `released` are the route's history, and `on_subs` and
     # `on_prods` are what `cur` binds; the atoms on the enzyme are those of `consumed`
-    # minus those of `released`. It takes itself as an argument because a closure that
+    # minus those of `released`. `walk!` takes itself as an argument because a closure that
     # names itself is boxed.
     paths = Vector{Mechanisms.Step}[]
     function walk!(self, cur, consumed, released, on_subs, on_prods, path)

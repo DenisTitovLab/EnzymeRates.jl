@@ -716,10 +716,10 @@ end
     @test last(split(t2, '\n')) == "v = E_total * (F_I * Q_A) * (ATP * F6P - ADP * " *
                                     "F16BP / Keq) / (F_I * D_A + L * F_A * D_I)"
     ti = rate_equation_string(inert)
-    short_heads(m) = [l[1:3] for l in split(_testhelper_short_law(m), '\n')
-                      if occursin(r"^[QDFWN]_[AI] = ", l)]
-    @test short_heads(two_site) == ["Q_A", "D_A", "Q_I", "D_I", "W_A", "W_I"]
-    @test short_heads(half2) == ["Q_A", "D_A", "D_I", "F_A", "F_I"]
+    _testhelper_short_heads(m) = [l[1:3] for l in split(_testhelper_short_law(m), '\n')
+                                  if occursin(r"^[QDFWN]_[AI] = ", l)]
+    @test _testhelper_short_heads(two_site) == ["Q_A", "D_A", "Q_I", "D_I", "W_A", "W_I"]
+    @test _testhelper_short_heads(half2) == ["Q_A", "D_A", "D_I", "F_A", "F_I"]
     @test heads(ti) == ["Q_A", "D_A"]
     @test last(split(ti, '\n')) == "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
     for m in (two_site, half2, inert)
