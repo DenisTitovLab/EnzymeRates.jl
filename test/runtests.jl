@@ -34,6 +34,7 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
     include("Fitting/test_fit_search.jl")
     include("Enumeration/test_mechanism_enumeration.jl")
     include("test_identify_rate_equation.jl")
+    include("test_type_stability.jl")
     include("test_aqua_jet.jl")
     include("test_boundaries.jl")
 end
