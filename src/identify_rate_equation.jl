@@ -636,7 +636,8 @@ function _process_batch(
     optimizer, max_param_count, eq_complexity_filter::Int = typemax(Int),
     memo::Dict{String,_Fit}=Dict{String,_Fit}(),
     seen::Set{UInt64}=Set{UInt64}(),
-    parent_of::AbstractDict = Dict(), log = msg -> nothing, kwargs...
+    parent_of::Dict{_AnyMech, BatchEntry} = Dict{_AnyMech, BatchEntry}(),
+    log = msg -> nothing, kwargs...
 )
     # Skip structures already produced — expand each once. Added to `seen` on first
     # sight regardless of outcome (fit / cap / error).
@@ -734,7 +735,7 @@ function _process_batch(
             loss = fit.loss,
             mechanism = c.mechanism,
             mechanism_id = c.mechanism_id,
-            parent_id = parent === nothing ? missing : parent.row.mechanism_id,
+            parent_id = parent === nothing ? missing : parent.row.mechanism_id::String,
             rate_equation = c.eq_text,
             retcode = string(fit.retcode),
             error = missing,
@@ -925,7 +926,8 @@ function _beam_search(
     # rows to `csv`, fold the entries into the search state, and log the post-fit
     # summary. Returns `(entries, failures)`, or `nothing`, writing no CSV, when the
     # batch has no rows.
-    function run_batch!(mechs, extra_failures, header, csv; parent_of = Dict())
+    function run_batch!(mechs, extra_failures, header, csv;
+                        parent_of = Dict{_AnyMech, BatchEntry}())
         entries, failures = _process_batch(mechs, prob; optimizer, max_param_count,
             eq_complexity_filter, memo, seen, parent_of,
             log = msg -> progress(header * "\n  " * msg), kwargs...)
