@@ -761,8 +761,14 @@ Three changes account for the gain:
 - **Horner form.** PGK's laws run 2–3× faster, because the form removes multiplications.
   PFKP's smaller laws gain nothing. The generated code emits no `muladd`, and Julia does not
   contract `x * y + z` by itself, so it executes no fused multiply-adds.
-- **The commits from #85 to 0.10.0.** These add a further 1.7–3.6× per row. They include the
-  joint solve and the one law engine; this range has not been bisected further.
+- **The one law engine (#95).** Nearly all of the further 1.7–3.6× arrives in this commit;
+  #91 and #92 change nothing, and #93 helps only the 13-parameter PFKP law, from 36 to 27 ns.
+  Before #95, an MWC law called Julia's general integer power (`pow_body`) for each `x^n`, at
+  about 2 ns a call: 7 calls per evaluation on the 13-parameter PFKP law and 20 on the
+  20-parameter law. #95 writes these powers as multiplications, which takes those laws from
+  27 to 11 and from 64 to 20 ns per row. Laws also lose operations: from #92 to 0.10.0, the
+  13-parameter plain PGK law falls from 460 to 312 multiplications and from 317 to 150
+  additions.
 
 The fit counts changed far less, and the losses agree: 89% of PFKP's and 87% of PGK's fits
 at 0.10.0 pair with a fit at 0.8.0 of equal parameter count within a relative loss of 10⁻⁸.
@@ -781,12 +787,16 @@ Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 
 startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached its 24 h
 limit during cross-validation, so its figure is a lower bound.
 
-The cluster gained less than a single core did: at least 25× and 7× per fit. If the 0.8.0
-PFKP run spent all its time fitting, a cluster core is 3.8× slower than this machine, which
-limits fitting to about 41% of the 0.10.0 PFKP run and 13% of the PGK run. Workers connected
-within 15 s, and the master used 14–16% of the wall time as CPU. The rest is not measured:
-`progress.log` carries no timestamps, and `sacct` reports no CPU time for the worker step.
+The cluster gained less than a single core did: at least 25× and 7× per fit, because workers
+now wait for much of a run. In `sacct`, the average worker of the 0.10.0 runs used the CPU for
+42:47 of 61:18 on PFKP (70%) and 3:16 of 13:01 on PGK (25%), which comes to 17 and 10
+CPU-seconds per fit. Workers connected within 15 s, and the master's CPU accounts for at most
+8.5 of PFKP's 18.5 idle minutes and 2.1 of PGK's 9.8. The rest is not measured, because
+`progress.log` carries no timestamps.
 
-`rate_equation`'s performance gate cannot see a slow `loss!`. The testset
-`Zero allocations: allosteric mechanism` in `test/Fitting/test_fitting.jl` guards this path
-with a mechanism that has a regulator.
+`rate_equation`'s performance gate cannot see a slow `loss!`, and `@inferred loss!` passes on
+these slow paths, since the result is a `Float64` either way. `test/Fitting/test_fitting.jl`
+therefore measures `loss!` itself: no allocation and under 300 ns per row on every spec
+mechanism, and no allocation on the largest laws, on each column type a table can bring, and
+on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a
+`Vector{Float64}`, because an abstract column type costs a run-time dispatch on each read.
