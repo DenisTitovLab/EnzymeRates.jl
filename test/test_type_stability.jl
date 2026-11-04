@@ -365,18 +365,23 @@ if v"1.13.0-" <= VERSION < v"1.14.0-"
         end
 
         @testset "a report below a call that cannot compile counts for nothing" begin
-            # Inference walks `loss!` on the abstract problem `test_rate_equation` builds,
-            # code that never runs, and reaches a compileable `setindex!` below it.
-            f = _testhelper_Fit.test_rate_equation
-            call = _testhelper_keyword_call(
-                _testhelper_KeqKeyword, _testhelper_PlainS,
-                _testhelper_floats_type(parameters(_testhelper_plain_singleton)),
-                _testhelper_PlainTable)
-            through_loss = report -> any(
-                frame -> _testhelper_function_name(frame) === :loss!, report.vst)
-            @test any(through_loss, JET.get_reports(_testhelper_report_opt(f, call)))
-            @test !any(s -> s.function_name === :loss!, _testhelper_dispatch_sites(
-                f, call; exemptions = Pair{Symbol,String}[]))
+            fixture = Module(:_testhelper_UncompileableFixture)
+            Core.eval(fixture, quote
+                struct _testhelper_Box{T}
+                    x::T
+                end
+                _testhelper_dispatching_callee(r::Base.RefValue{Any}) = r[] + 1
+                # Inlined, so the entry holds no dispatch into this frame of its own.
+                @inline _testhelper_abstract_intermediate(b::_testhelper_Box) =
+                    _testhelper_dispatching_callee(Ref{Any}(b.x))
+                _testhelper_entry(boxes::Vector{_testhelper_Box}) =
+                    _testhelper_abstract_intermediate(boxes[1])
+            end)
+            entry, argtypes = fixture._testhelper_entry, (Vector{fixture._testhelper_Box},)
+            @test !isempty(JET.get_reports(JET.report_opt(entry, argtypes)))
+            @test isempty(_testhelper_dispatch_sites(entry, argtypes))
+            callee = fixture._testhelper_dispatching_callee
+            @test !isempty(_testhelper_dispatch_sites(callee, (Base.RefValue{Any},)))
         end
 
         # A site here would run on every row of every evaluation of every fit.
