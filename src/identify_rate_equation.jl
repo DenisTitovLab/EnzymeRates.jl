@@ -1016,7 +1016,7 @@ lowest-`cv_score` row at the smallest `n_params` that has a row at or below
 the cutoff. The best row always passes its own cutoff, so a row with more
 parameters than the best row is never returned.
 """
-function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)
+function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)::Int
     by_score = sortperm(collect(zip(cv_df.cv_score, cv_df.n_params)))
     i_min = by_score[1]
     cutoff = cv_df.cv_score[i_min] + se_threshold * cv_df.cv_score_se[i_min]
@@ -1037,6 +1037,8 @@ function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechani
                        data::NamedTuple, mask; keywords...)
     FittingProblem(mechanism, map(col -> col[mask], data); keywords...)
 end
+
+_single_row_dataframe(df::DataFrame, i::Int) = df[[i], :]
 
 """
     _cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference = nothing,
@@ -1124,7 +1126,8 @@ function _cv_model_selection(
     cv_df.cv_score_se = [std(c) / sqrt(length(groups)) for c in eachcol(scores)]
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
-    best_mechanism = Mechanisms.compile_mechanism(candidates[best_row_idx].mech)
+    best = candidates[best_row_idx]
+    best_mechanism = Mechanisms.compile_mechanism(best.mech)
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.rate_data.data.group)` iteration above.
@@ -1134,17 +1137,16 @@ function _cv_model_selection(
 
     _progress(save_dir, show_progress,
         "Selected: $(nameof(typeof(best_mechanism))) " *
-        "(key=$(cv_df.key[best_row_idx])), " *
-        "n_params=$(cv_df.n_params[best_row_idx])")
+        "(key=$(best.key)), n_params=$(best.n_params)")
 
     # Save the LOOCV table and the selected best equation alongside the
     # per-iteration fit CSVs, so cluster runs persist the model-selection
     # outcome (recoverable from the iteration CSVs, but wasteful to omit).
     mkpath(save_dir)
     CSV.write(joinpath(save_dir, "loocv_results.csv"), cv_df)
-    best_df = cv_df[[best_row_idx], :]
+    best_df = _single_row_dataframe(cv_df, best_row_idx)
     best_df.rate_equation = [Derivation.rate_equation_string(
-        candidates[best_row_idx].mech; coefficients = true)]
+        best.mech; coefficients = true)]
     CSV.write(joinpath(save_dir, "best_equation.csv"), best_df)
 
     return IdentifyRateEquationResults(best_mechanism, cv_df)
