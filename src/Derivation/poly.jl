@@ -14,6 +14,7 @@ end
 _Vars() = _Vars(Symbol[], falses(0), Dict{Symbol, Int}())
 Base.:(==)(a::_Vars, b::_Vars) = a.names == b.names && a.conc == b.conc
 Base.hash(t::_Vars, h::UInt) = hash(t.conc, hash(t.names, hash(:_Vars, h)))
+Base.copy(t::_Vars) = _Vars(copy(t.names), copy(t.conc), copy(t.index))
 
 """The index of variable `s` in `t`, added when new; `conc` marks a concentration. Errors
 when `s` is already a variable of the other kind."""

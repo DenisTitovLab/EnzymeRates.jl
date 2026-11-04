@@ -339,7 +339,7 @@ function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
     LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations, shown = am) :
          _flip_only_law(LA)
-    vars = deepcopy(LA.vars)
+    vars = copy(LA.vars)
     for x in view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1))
         _var!(vars, x)
     end
