@@ -3,7 +3,7 @@
 using Test
 using EnzymeRates
 
-if v"1.13" <= VERSION < v"1.14"
+if v"1.13.0-" <= VERSION < v"1.14.0-"
     using JET
 
     # A function name => why its site is allowed to dispatch at run time.
@@ -29,11 +29,15 @@ if v"1.13" <= VERSION < v"1.14"
 
     # `#_cv_model_selection#97` and `#_raw_step!##3` name `_cv_model_selection` and
     # `_raw_step!`.
-    function _testhelper_function_name(frame)
-        method = _testhelper_frame_method(frame.linfo)
-        raw = string(method isa Method ? method.name : frame.linfo)
+    function _testhelper_undecorated_name(raw)
+        raw = string(raw)
         stripped = replace(replace(raw, r"^#+" => ""), r"#+\d+$" => "")
         Symbol(isempty(stripped) ? raw : stripped)
+    end
+
+    function _testhelper_function_name(frame)
+        method = _testhelper_frame_method(frame.linfo)
+        _testhelper_undecorated_name(method isa Method ? method.name : frame.linfo)
     end
 
     # The call `f(argtypes...; kw...)` with keywords of type `kwtype`, as `report_opt`
@@ -43,7 +47,8 @@ if v"1.13" <= VERSION < v"1.14"
 
     # The unique package sites at which `report_opt(f, argtypes)` finds a report. A report
     # with no package frame counts its entry function, so none is dropped.
-    function _testhelper_dispatch_sites(f, argtypes; apply_exemptions = true)
+    function _testhelper_dispatch_sites(f, argtypes;
+                                        exemptions = _TESTHELPER_DISPATCH_EXEMPTIONS)
         sites = NamedTuple[]
         for report in JET.get_reports(JET.report_opt(f, argtypes))
             i = findlast(_testhelper_in_package, report.vst)
@@ -56,8 +61,7 @@ if v"1.13" <= VERSION < v"1.14"
             end
             site in sites || push!(sites, site)
         end
-        exempt = apply_exemptions ? first.(_TESTHELPER_DISPATCH_EXEMPTIONS) : Symbol[]
-        filter(s -> s.function_name ∉ exempt, sites)
+        filter(s -> s.function_name ∉ first.(exemptions), sites)
     end
 
     const _testhelper_Mechs = EnzymeRates.Mechanisms
@@ -102,7 +106,8 @@ if v"1.13" <= VERSION < v"1.14"
         ("compile_mechanism", _testhelper_Mechs.compile_mechanism, (_testhelper_PlainC,)),
         ("compile_mechanism, allosteric", _testhelper_Mechs.compile_mechanism,
          (_testhelper_AlloC,)),
-        ("catalytic", _testhelper_Mechs.catalytic, (_testhelper_AlloC,)),
+        ("catalytic", _testhelper_Mechs.catalytic, (_testhelper_PlainC,)),
+        ("catalytic, allosteric", _testhelper_Mechs.catalytic, (_testhelper_AlloC,)),
         ("check_conformation_label", _testhelper_Mechs.check_conformation_label,
          (Symbol, String)),
         ("check_decodable_names", _testhelper_Mechs.check_decodable_names,
@@ -118,11 +123,20 @@ if v"1.13" <= VERSION < v"1.14"
          (_testhelper_PlainC, BitVector)),
         ("rapid_equilibrium_segments", _testhelper_Mechs.rapid_equilibrium_segments,
          (_testhelper_PlainC, BitVector)),
+        ("rapid_equilibrium_segments, with re", _testhelper_Mechs.rapid_equilibrium_segments,
+         (_testhelper_PlainC, BitVector, BitVector)),
         ("segment_walk", _testhelper_Mechs.segment_walk,
          (BitVector, Vector{Vector{Int}}, Vector{Int}, Matrix{Int})),
         ("Mechanism constructor", _testhelper_Mechanism,
          (Vector{Symbol}, Vector{Symbol}, Vector{_testhelper_Mechs.EnzymeForm},
           Vector{_testhelper_Mechs.Step})),
+        ("Mechanism from an EnzymeMechanism", _testhelper_Mechanism, (_testhelper_PlainS,)),
+        ("AllostericMechanism from an AllostericEnzymeMechanism",
+         _testhelper_AllostericMechanism, (_testhelper_AlloS,)),
+        ("AllostericMechanism constructor from parts", _testhelper_AllostericMechanism,
+         (Vector{Symbol}, Vector{Symbol}, Vector{_testhelper_Mechs.EnzymeForm},
+          Vector{_testhelper_Mechs.Step}, Vector{Symbol}, Int,
+          Vector{_testhelper_Mechs.RegulatorySite})),
         ("AllostericMechanism constructor", _testhelper_AllostericMechanism,
          (_testhelper_PlainC, Vector{Symbol}, Int,
           Vector{_testhelper_Mechs.RegulatorySite})),
@@ -163,11 +177,35 @@ if v"1.13" <= VERSION < v"1.14"
             end
         end
 
+        @testset "decorated names lose their decoration" begin
+            for (raw, name) in (("#_cv_model_selection#97", :_cv_model_selection),
+                                ("#_raw_step!##3", :_raw_step!),
+                                ("#fit_rate_equation#8", :fit_rate_equation),
+                                (:metabolites, :metabolites))
+                @test _testhelper_undecorated_name(raw) == name
+            end
+        end
+
+        @testset "a site in a package function is found, and exemptions remove it" begin
+            # `_guard_message` builds an error message, so it dispatches for good.
+            check = EnzymeRates.Derivation.check_valid_rate_equation
+            none = Pair{Symbol,String}[]
+            sites = _testhelper_dispatch_sites(check, (_testhelper_PlainC,);
+                                               exemptions = none)
+            guard = filter(s -> s.function_name == :_guard_message, sites)
+            @test !isempty(guard)
+            @test all(s -> endswith(string(s.file), "messages.jl"), guard)
+            @test isempty(filter(s -> s.function_name == :_guard_message,
+                                 _testhelper_dispatch_sites(check, (_testhelper_PlainC,);
+                                     exemptions = [:_guard_message => "test"])))
+        end
+
         @testset "every exemption is reported by some row" begin
             for (name, _) in _TESTHELPER_DISPATCH_EXEMPTIONS
                 @test any(_TESTHELPER_CHECKED_CALLS) do (_, f, argtypes)
                     any(s -> s.function_name == name,
-                        _testhelper_dispatch_sites(f, argtypes; apply_exemptions = false))
+                        _testhelper_dispatch_sites(f, argtypes;
+                                                   exemptions = Pair{Symbol,String}[]))
                 end
             end
         end
