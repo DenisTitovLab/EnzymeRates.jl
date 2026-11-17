@@ -85,21 +85,71 @@ _testhelper_plot_exp1(; factor = 3.0) =
 
     @testset "rate limits" begin
         hi_of(p) = maximum(maximum(s.rate) for s in p.series)
-        p = only(_testhelper_plot_panels(_testhelper_plot_exp1(; factor = 3.0);
+        lo_of(p) = minimum(minimum(s.rate) for s in p.series)
+        curve_hi_of(p) = maximum(maximum(s.curve_rate) for s in p.series)
+        curve_lo_of(p) = minimum(minimum(s.curve_rate) for s in p.series)
+        # In absolute mode each curve is 1 / factor times the rates it passes through: at
+        # factor 3 the data set the limit, at 0.1 the curves stop at 1.6 times the data,
+        # and at 0.8 the limit is 5% past the curves.
+        forward(factor) = only(_testhelper_plot_panels(_testhelper_plot_exp1(; factor);
             absolute = true))
+        p = forward(3.0)
         @test p.rate_limits == (-0.05 * 1.12hi_of(p), 1.12hi_of(p))
-
-        p = only(_testhelper_plot_panels(_testhelper_plot_exp1(; factor = 0.1);
-            absolute = true))
+        p = forward(0.1)
         @test p.rate_limits == (-0.05 * 1.6hi_of(p), 1.6hi_of(p))
+        p = forward(0.8)
+        @test p.rate_limits == (-0.05 * 1.05curve_hi_of(p), 1.05curve_hi_of(p))
 
-        rows = [(0.0, 0.0, p_, 5e-4) for p_ in (1e-4, 2e-4, 5e-4)]
+        # Only reverse rates: A = B = 0.
+        reverse_rows = [(0.0, 0.0, p_, 5e-4) for p_ in (1e-4, 2e-4, 5e-4)]
+        backward(factor) = only(_testhelper_plot_panels(
+            _testhelper_plot_table(fill("rev", 3), reverse_rows; factor); absolute = true))
+        p = backward(3.0)
+        @test hi_of(p) < 0
+        @test p.rate_limits == (1.12lo_of(p), -0.05 * 1.12lo_of(p))
+        p = backward(0.1)
+        @test p.rate_limits == (1.6lo_of(p), -0.05 * 1.6lo_of(p))
+        p = backward(0.8)
+        @test p.rate_limits == (1.05curve_lo_of(p), -0.05 * 1.05curve_lo_of(p))
+
+        # P Q / (A B) is 1, 2, 10 and 20 against Keq = 4: two rows run forward, two back,
+        # and each side follows the rule.
+        mixed_rows = [(1e-4, 1e-4, p_, 1e-3) for p_ in (1e-5, 2e-5, 1e-4, 2e-4)]
+        for (factor, margin) in ((3.0, 1.12), (0.1, 1.6))
+            p = only(_testhelper_plot_panels(_testhelper_plot_table(fill("mixed", 4),
+                mixed_rows; factor); absolute = true))
+            @test lo_of(p) < 0 < hi_of(p)
+            @test p.rate_limits == (margin * lo_of(p), margin * hi_of(p))
+        end
+    end
+
+    @testset "two varying metabolites" begin
+        # Series (B, P) in table order (2 µM, 0), (1 µM, 10 µM), (1 µM, 0); rows alternate.
+        b_and_p = [(2e-6, 0.0), (1e-6, 1e-5), (1e-6, 0.0)]
+        rows = [(a, b, p_, 0.0) for a in (1e-4, 2e-4, 5e-4, 1e-3) for (b, p_) in b_and_p]
+        table = _testhelper_plot_table(fill("g", 12), rows; rates = collect(1.0:12.0))
+        p = only(_testhelper_plot_panels(table))
+        @test p.x_label == "A (mM)"
+        @test p.legend_title == "B, P"
+        @test isempty(p.fixed_concentrations)
+        @test [s.label for s in p.series] == ["1 µM, 0", "1 µM, 10 µM", "2 µM, 0"]
+        @test [s.rate for s in p.series] ==
+              [[3.0, 6.0, 9.0, 12.0], [2.0, 5.0, 8.0, 11.0], [1.0, 4.0, 7.0, 10.0]]
+        @test all(s.x ≈ [0.1, 0.2, 0.5, 1.0] for s in p.series)
+        # Each curve is drawn at its own series' B and P, all with one group scale.
+        scales = [s.curve_rate[end] / _testhelper_plot_rate((A = 1e-3, B = b, P = p_,
+                      Q = 0.0)) for (s, (b, p_)) in zip(p.series, b_and_p[[3, 2, 1]])]
+        @test all(≈(first(scales)), scales)
+    end
+
+    @testset "a one-row group draws a curve through its point" begin
         p = only(_testhelper_plot_panels(
-            _testhelper_plot_table(fill("rev", 3), rows); absolute = true))
-        lo = minimum(minimum(s.rate) for s in p.series)
-        @test lo < 0
-        @test p.rate_limits[1] ≤ 1.12lo
-        @test p.rate_limits[2] == -0.05 * p.rate_limits[1]
+            _testhelper_plot_table(["g"], [(1e-4, 1e-3, 0.0, 0.0)]; rates = [2.0])))
+        s = only(p.series)
+        @test p.x_label == "A (µM)"
+        @test length(s.curve_x) == 200
+        @test s.curve_x[end] ≈ 100
+        @test s.curve_rate[end] ≈ 2.0
     end
 
     @testset "concentration units" begin
