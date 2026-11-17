@@ -1,6 +1,8 @@
 # ABOUTME: plot_rate_equation_on_data and the plain description of each measurement group's
 # ABOUTME: panel it prepares; ext/EnzymeRatesMakieExt.jl draws the panels with Makie.
 
+using Statistics: mean
+
 struct RateEquationSeries
     label::String
     x::Vector{Float64}
