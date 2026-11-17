@@ -70,38 +70,37 @@ function rate_equation_panels(@nospecialize(m), @nospecialize(params::NamedTuple
                               Keq::Real, absolute::Bool,
                               concentration_unit::AbstractString, xscale)
     fp = Fitting.FittingProblem(m, table; Keq, absolute)
-    mech, data = fp.mechanism, fp.rate_data.data
-    for name in Derivation.parameters(mech, Derivation.FittedParameters())
+    for name in Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
         haskey(params, name) || error("params is missing the fitted parameter $name")
     end
     turnover_params = merge(params, (Keq = fp.rate_data.Keq, E_total = 1.0))
-    mets = Mechanisms.metabolites(mech)
-    [_rate_equation_panel(mech, turnover_params, mets, data,
-         findall(isequal(g), data.group), absolute, concentration_unit, xscale)
-     for g in unique(data.group)]
+    groups = fp.rate_data.data.group
+    [_rate_equation_panel(fp, turnover_params, findall(isequal(g), groups),
+         concentration_unit, xscale) for g in unique(groups)]
 end
 
-function _rate_equation_panel(mech, params, mets, data, rows, absolute, unit, xscale)
-    group_name = string(data.group[first(rows)])
-    concentration(k) = data[k][rows]
-    predict(concs) = Derivation.rate_equation(mech, NamedTuple{mets}(concs), params)
+function _rate_equation_panel(fp, params, rows, unit, xscale)
+    mech, data = fp.mechanism, fp.rate_data.data
+    mets = Mechanisms.metabolites(mech)
+    columns = NamedTuple{mets}(map(k -> data[k][rows], mets))
+    row_concentrations = [map(column -> column[i], columns) for i in eachindex(rows)]
+    predict(concs) = Derivation.rate_equation(mech, concs, params)
 
-    distinct = [length(unique(concentration(k))) for k in mets]
-    x_metabolite = mets[argmax(distinct)]
+    x_metabolite = argmax(k -> length(unique(columns[k])), mets)
     others = filter(!=(x_metabolite), mets)
-    varying = filter(k -> length(unique(concentration(k))) > 1, others)
-    fixed = filter(k -> k ∉ varying && first(concentration(k)) != 0, others)
+    varying = filter(k -> !allequal(columns[k]), others)
+    fixed = filter(k -> k ∉ varying && first(columns[k]) != 0, others)
 
-    x = concentration(x_metabolite)
+    group_name = string(data.group[first(rows)])
+    x = columns[x_metabolite]
     xscale === identity || any(iszero, x) && throw(ArgumentError(
         "Group $group_name has $x_metabolite = 0, and a log x axis cannot show zero"))
     largest_x = maximum(x)
     divisor, x_unit = _display_unit(largest_x, unit)
 
     measured = data.Rate[rows]
-    scale = absolute ? 1.0 :
-        _group_scale(measured, [predict(Tuple(Float64(data[k][i]) for k in mets))
-                                for i in rows])
+    scale = fp.rate_data.absolute ? 1.0 :
+        _group_scale(measured, predict.(row_concentrations))
     drawn = scale !== nothing && largest_x > 0
     largest_rate = maximum(abs, measured)
     rate_power = largest_rate < 0.01 ? floor(Int, log10(largest_rate)) : 0
@@ -110,14 +109,11 @@ function _rate_equation_panel(mech, params, mets, data, rows, absolute, unit, xs
     curve_x = !drawn ? Float64[] :
         xscale === identity ? collect(range(0, largest_x, 200)) :
         exp.(range(log(minimum(x)), log(largest_x), 200))
-    series_keys = sort!(unique([Tuple(Float64(concentration(k)[i]) for k in varying)
-                                for i in eachindex(rows)]))
-    series = map(series_keys) do key
-        in_series = [i for i in eachindex(rows)
-                     if Tuple(Float64(concentration(k)[i]) for k in varying) == key]
-        base = Dict(k => Float64(concentration(k)[first(in_series)]) for k in others)
-        curve_rate = [scale / unit_of_rate *
-                      predict(Tuple(k == x_metabolite ? cx : base[k] for k in mets))
+    series_of_row = [Tuple(concs[k] for k in varying) for concs in row_concentrations]
+    series = map(sort!(unique(series_of_row))) do key
+        in_series = findall(isequal(key), series_of_row)
+        concs = row_concentrations[first(in_series)]
+        curve_rate = [scale / unit_of_rate * predict(merge(concs, (; x_metabolite => cx)))
                       for cx in curve_x]
         RateEquationSeries(join((_concentration_text(v, unit) for v in key), ", "),
             x[in_series] / divisor, measured[in_series] / unit_of_rate,
@@ -125,10 +121,8 @@ function _rate_equation_panel(mech, params, mets, data, rows, absolute, unit, xs
     end
     all_curves = reduce(vcat, (s.curve_rate for s in series))
     RateEquationPanel(replace(group_name, "_" => " "), "$x_metabolite ($x_unit)",
-        rate_power,
-        ["$k $(_concentration_text(first(concentration(k)), unit))" for k in fixed],
-        join(varying, ", "), series,
-        _rate_limits(measured / unit_of_rate, all_curves))
+        rate_power, ["$k $(_concentration_text(first(columns[k]), unit))" for k in fixed],
+        join(varying, ", "), series, _rate_limits(measured / unit_of_rate, all_curves))
 end
 
 """
