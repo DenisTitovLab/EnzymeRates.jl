@@ -201,7 +201,7 @@ A parameter is a `StepParameter(step, slot, inactive)` (which is also the joint 
 
 ### Module boundaries (guard)
 
-`src/` is six submodules layered `Mechanisms ← Derivation ← {Fitting, Enumeration, DSL}` and `Data ← Fitting` (`DSL` holds the macros and `parse_mechanism`; `Data` holds `RateData`), each in `src/<Module>/` with its interface declared by the `public` statement in `src/<Module>/<Module>.jl`; the top level (identify, the exports) uses all of them.
+`src/` is seven submodules layered `Mechanisms ← Derivation ← {Fitting, Enumeration, DSL, Plotting}` and `Data ← {Fitting, Plotting}` (`DSL` holds the macros and `parse_mechanism`; `Data` holds `RateData`; `Plotting` holds `plot_rate_equation_on_data`), each in `src/<Module>/` with its interface declared by the `public` statement in `src/<Module>/<Module>.jl`; the top level (identify, the exports) uses all of them.
 
 We want deep modules: the fewest public names and the complexity inside the module, so you can work on a module knowing only the others' interfaces. Complexity counts public names and the number and complexity of their arguments, with the cleanest, simplest arguments as the goal. A value is an internal constant unless users have a real reason to change it, as they do for optimizer settings.
 

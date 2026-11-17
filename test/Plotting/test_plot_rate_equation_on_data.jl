@@ -3,7 +3,7 @@
 
 using Test
 using EnzymeRates
-using EnzymeRates: rate_equation_panels
+using EnzymeRates.Plotting: rate_equation_panels
 
 function _testhelper_plot_panels(table; absolute = false, unit = "M", xscale = identity,
                                  metabolites_not_in_mechanism = ())

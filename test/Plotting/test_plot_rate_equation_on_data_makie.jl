@@ -3,7 +3,7 @@
 
 using Test
 using EnzymeRates
-using EnzymeRates: rate_equation_panels
+using EnzymeRates.Plotting: rate_equation_panels
 using CairoMakie
 
 # "exp_1": A at four values for each B, Q fixed. "exp_2": A varies, B fixed. "exp_3": B

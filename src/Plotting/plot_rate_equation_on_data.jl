@@ -1,8 +1,6 @@
 # ABOUTME: plot_rate_equation_on_data and the plain description of each measurement group's
 # ABOUTME: panel it prepares; ext/EnzymeRatesMakieExt.jl draws the panels with Makie.
 
-using Statistics: mean
-
 struct RateEquationSeries
     label::String
     x::Vector{Float64}
@@ -72,20 +70,24 @@ function rate_equation_panels(@nospecialize(m), @nospecialize(params::NamedTuple
                               Keq::Real, absolute::Bool,
                               concentration_unit::AbstractString, xscale,
                               metabolites_not_in_mechanism)
-    fp = Fitting.FittingProblem(m, table; Keq, absolute)
-    for name in Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
+    mech = _compiled(m)
+    for name in Derivation.parameters(mech, Derivation.FittedParameters())
         haskey(params, name) || error("params is missing the fitted parameter $name")
     end
-    shown = (Mechanisms.metabolites(fp.mechanism)..., metabolites_not_in_mechanism...)
+    shown = (Mechanisms.metabolites(mech)..., metabolites_not_in_mechanism...)
     allunique(shown) || throw(ArgumentError(
         "metabolites_not_in_mechanism must name distinct columns that are not " *
         "metabolites of the mechanism; got $(repr(metabolites_not_in_mechanism))"))
-    data = Data.RateData(table, shown; Keq, absolute).data
-    turnover_params = merge(params, (Keq = fp.rate_data.Keq, E_total = 1.0))
-    [_rate_equation_panel(fp.mechanism, turnover_params, data, shown,
+    rate_data = Data.RateData(table, shown; Keq, absolute)
+    data = rate_data.data
+    turnover_params = merge(params, (Keq = rate_data.Keq, E_total = 1.0))
+    [_rate_equation_panel(mech, turnover_params, data, shown,
          findall(isequal(g), data.group), absolute, concentration_unit, xscale)
      for g in unique(data.group)]
 end
+
+_compiled(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism)) = m
+_compiled(@nospecialize(m)) = Mechanisms.compile_mechanism(m)
 
 function _rate_equation_panel(mech, params, data, mets, rows, absolute, unit, xscale)
     columns = NamedTuple{mets}(map(k -> data[k][rows], mets))
@@ -205,7 +207,7 @@ function plot_rate_equation_on_data(@nospecialize(m), @nospecialize(params::Name
                                     metabolites_not_in_mechanism = (),
                                     columns::Integer = 5, figure::NamedTuple = (;),
                                     axis::NamedTuple = (;))
-    makie_extension = Base.get_extension(EnzymeRates, :EnzymeRatesMakieExt)
+    makie_extension = Base.get_extension(parentmodule(Plotting), :EnzymeRatesMakieExt)
     makie_extension === nothing && error(
         "plot_rate_equation_on_data needs a Makie backend: run `using CairoMakie` " *
         "(or another Makie backend) first")

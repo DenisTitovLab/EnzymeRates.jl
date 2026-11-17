@@ -2,7 +2,6 @@
 # ABOUTME: Julia loads it with Makie; every number arrives in display units, ready to draw.
 module EnzymeRatesMakieExt
 
-using EnzymeRates: RateEquationPanel
 using Makie
 
 const _MARKERS = [:circle, :rect, :diamond, :utriangle, :dtriangle, :pentagon, :hexagon,
@@ -11,7 +10,7 @@ const _LINE_WIDTH = 1.6
 const _MARKER_STYLE = (; markersize = 7, strokecolor = :white, strokewidth = 0.5)
 
 # plot_rate_equation_on_data calls this by name through `Base.get_extension`.
-function draw_rate_equation_panels(panels::Vector{RateEquationPanel}; columns::Integer,
+function draw_rate_equation_panels(panels; columns::Integer,
                                    figure::NamedTuple, axis::NamedTuple)
     fs = get(figure, :fontsize, 10)
     used = min(columns, length(panels))
@@ -50,7 +49,7 @@ _tick_labels(values) =
     [_with_minus_signs(chopsuffix(string(round(v; sigdigits = 4) + 0.0), ".0"))
      for v in values]
 
-function _draw_panel!(layout, panel::RateEquationPanel, fs; ylabel, axis)
+function _draw_panel!(layout, panel, fs; ylabel, axis)
     ax = Axis(layout[1, 1]; title = panel.title, xlabel = panel.x_label, ylabel,
         limits = (nothing, panel.rate_limits), axis...)
     colors = Makie.wong_colors()
