@@ -1,5 +1,5 @@
 # ABOUTME: Top-level module; defines the exported names and include order.
-# ABOUTME: Exports the 19 names promised to users and wires together src/ source files.
+# ABOUTME: Exports the 20 names promised to users and wires together src/ source files.
 """Finds the best mechanism for a reaction from measured rates."""
 module EnzymeRates
 
@@ -18,6 +18,9 @@ export rate_equation, rate_equation_string, parameters, dependent_parameter_valu
 
 # Fitting & model selection
 export fit_rate_equation, identify_rate_equation
+
+# Plotting
+export plot_rate_equation_on_data
 
 
 using Dates

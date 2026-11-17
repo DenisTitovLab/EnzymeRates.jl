@@ -29,7 +29,7 @@ and `julia test/update_module_map.jl` rewrites it.
   "lineColor": "#777777", "edgeLabelBackground": "#ffffff", "clusterBkg": "#eaf2ee",
   "clusterBorder": "#666666", "titleColor": "#1f4f42"}}}%%
 flowchart TB
-  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★#nbsp;identify_rate_equation()</b><br/><b>★#nbsp;IdentifyRateEquationProblem</b><br/><b>★#nbsp;IdentifyRateEquationResults</b>"]
+  top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★#nbsp;identify_rate_equation()</b><br/><b>★#nbsp;plot_rate_equation_on_data()</b><br/><b>★#nbsp;IdentifyRateEquationProblem</b><br/><b>★#nbsp;IdentifyRateEquationResults</b>"]
   dsl["<b><big>DSL</big></b><br/>Turns macro-written reactions and mechanisms<br/>into checked objects."]
   enum["<b><big>Enumeration</big></b><br/>Generates candidate mechanisms for a reaction."]
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
@@ -94,9 +94,12 @@ expansion moves and the structural filters that prune the search.
 `@allosteric_mechanism`, and `parse_mechanism`, which reads a mechanism's printed text
 back. It hides the parser. The macros run the guard, so they cannot live in `Mechanisms`.
 
-**The top level** (`src/EnzymeRates.jl`, `src/identify_rate_equation.jl`) holds
-`identify_rate_equation` and the exports. It hides the beam search, the one fit per rate
-law, cross-validation and the CSV output.
+**The top level** (`src/EnzymeRates.jl`, `src/identify_rate_equation.jl`,
+`src/plot_rate_equation_on_data.jl`) holds `identify_rate_equation`,
+`plot_rate_equation_on_data` and the exports. It hides the beam search, the one fit per
+rate law, cross-validation, the CSV output and the preparation of each plot panel. The
+package extension `ext/EnzymeRatesMakieExt.jl`, which Julia loads with Makie, draws the
+panels, so loading EnzymeRates alone never loads Makie.
 
 ### Module docstrings
 
@@ -211,6 +214,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `IdentifyRateEquationProblem` | A reaction with its checked `RateData` | | ✓ |
 | `IdentifyRateEquationResults` | The selected mechanism and the CV table | | ✓ |
 | `identify_rate_equation` | Searches mechanisms, selects one by CV | | ✓ |
+| `plot_rate_equation_on_data` | Draws a rate equation over its data, a panel per group | | ✓ |
 
 ### The mechanism data model
 

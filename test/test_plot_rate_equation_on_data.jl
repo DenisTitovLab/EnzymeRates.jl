@@ -183,3 +183,15 @@ _testhelper_plot_exp1(; factor = 3.0) =
         @test err isa ErrorException && occursin("params is missing", err.msg)
     end
 end
+
+# runtests.jl includes this file before the drawing tests load CairoMakie.
+@testset "needs a Makie backend" begin
+    @test Base.get_extension(EnzymeRates, :EnzymeRatesMakieExt) === nothing
+    message = "plot_rate_equation_on_data needs a Makie backend: run `using CairoMakie` " *
+              "(or another Makie backend) first"
+    @test_throws ErrorException(message) plot_rate_equation_on_data(_testhelper_plot_m,
+        _testhelper_plot_params, _testhelper_plot_exp1(); Keq = _testhelper_plot_keq)
+    # A table the preparation would reject gets the same error, so the check comes first.
+    @test_throws ErrorException(message) plot_rate_equation_on_data(_testhelper_plot_m,
+        _testhelper_plot_params, (; Rate = [1.0]); Keq = _testhelper_plot_keq)
+end

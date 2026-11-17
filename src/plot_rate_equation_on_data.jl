@@ -1,5 +1,5 @@
-# ABOUTME: Turns a mechanism, parameters and a rate table into one plain description per
-# ABOUTME: measurement group, for plotting; it holds no plotting code.
+# ABOUTME: plot_rate_equation_on_data and the plain description of each measurement group's
+# ABOUTME: panel it prepares; ext/EnzymeRatesMakieExt.jl draws the panels with Makie.
 
 struct RateEquationSeries
     label::String
@@ -123,4 +123,78 @@ function _rate_equation_panel(mech, params, mets, data, rows, absolute, unit, xs
         ["$k $(_concentration_text(first(concentration(k)), unit))" for k in fixed],
         join(varying, ", "), series,
         _rate_limits(measured / unit_of_rate, all_curves))
+end
+
+"""
+    plot_rate_equation_on_data(m, params, table; Keq, absolute = false,
+        concentration_unit = "M", columns = 5, figure = (;), axis = (;)) -> Makie.Figure
+
+Draws the rate equation of mechanism `m` at `params` over the measured rates of `table`, one
+panel per `group` in order of first appearance, `columns` panels per row, and returns the
+`Makie.Figure`. It fits nothing. It needs a Makie backend: run `using CairoMakie` (or
+another backend) first.
+
+```julia
+using EnzymeRates, CairoMakie
+fig = plot_rate_equation_on_data(m, fit.params, data; Keq = 20_000.0)
+save("fit.pdf", fig)
+```
+
+# Arguments
+- `m`: a mechanism, in any form `FittingProblem` accepts.
+- `params`: must hold every name of `parameters(m, FittedParameters())`; other names are
+  ignored.
+- `table`: a `group` column, a `Rate` column and one column per metabolite of `m`, passing
+  the checks of `FittingProblem`; other columns are ignored.
+- `Keq`: the reaction's equilibrium constant.
+- `absolute`: `false` for rates relative within each group, `true` for absolute
+  per-enzyme turnover rates.
+- `concentration_unit`: the unit of the table's concentrations. With `"M"`, each x axis
+  shows mM, µM or nM to fit its largest value, and each legend value picks its own prefix.
+  Any other unit is shown as given, and the numbers are not converted.
+- `columns`: panels per row.
+- `figure`: keywords for `Makie.Figure`, such as `(; size = (510, 330), fontsize = 7.5)`.
+  Every text size follows `fontsize` (10 by default); the default size is 320 × 200 per
+  panel.
+- `axis`: keywords for every panel's `Makie.Axis`, such as `(; xgridvisible = true)`.
+
+Values in `figure` and `axis` override the built-in defaults.
+
+# A panel
+The x axis is the metabolite with the most distinct concentrations in the group; a tie goes
+to the earlier one in `metabolites(m)`. Each distinct combination of the other metabolites'
+concentrations is a series with its own colour and marker: the measured `Rate` as points
+and the rate equation at `E_total = 1` as a curve. With `absolute = false`, each group's
+curves are multiplied by one factor, the geometric mean of `|Rate / predicted|` over the
+group's rows; no parameter changes. Beside the panel stand the metabolites held at one
+nonzero concentration, then a legend headed by those that vary between series.
+
+The y axis, in the table's units of `Rate`, includes zero and shows curves up to 1.6 times
+the largest rate. When a group's largest absolute rate is below 0.01, the axis counts in a
+power of ten, noted in the panel's corner. The x axis is linear from zero unless `axis`
+sets `xscale`, such as `log10`; then each curve runs from the group's smallest x to its
+largest.
+
+# Errors
+- `ErrorException` when no Makie backend is loaded, or when `params` lacks a fitted
+  parameter.
+- `ArgumentError` when `axis` sets an `xscale` other than `identity` and a group has an x
+  of zero, which a log axis cannot show.
+- The errors `FittingProblem` raises for a table it rejects.
+"""
+function plot_rate_equation_on_data(@nospecialize(m), @nospecialize(params::NamedTuple),
+                                    table; Keq::Real, absolute::Bool = false,
+                                    concentration_unit::AbstractString = "M",
+                                    columns::Integer = 5, figure::NamedTuple = (;),
+                                    axis::NamedTuple = (;))
+    makie_extension = Base.get_extension(EnzymeRates, :EnzymeRatesMakieExt)
+    makie_extension === nothing && error(
+        "plot_rate_equation_on_data needs a Makie backend: run `using CairoMakie` " *
+        "(or another Makie backend) first")
+    panels = rate_equation_panels(m, params, table; Keq, absolute, concentration_unit,
+        xscale = get(axis, :xscale, identity))
+    # Not a function declared here with its method in the extension: without Makie that
+    # call has no method, which JET's package test reports, and with Makie JET would follow
+    # it into the drawing, so test_type_stability.jl would depend on what is loaded.
+    makie_extension.draw_rate_equation_panels(panels; columns, figure, axis)
 end
