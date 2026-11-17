@@ -88,6 +88,21 @@ _testhelper_plot_exp1(; factor = 3.0) =
         end
     end
 
+    @testset "group scale is the geometric mean of absolute ratios" begin
+        rows = [(1e-4, 1e-3, 0.0, 5e-5), (1e-3, 1e-3, 0.0, 5e-5)]
+        predicted = [_testhelper_plot_rate((A = r[1], B = r[2], P = r[3], Q = r[4]))
+                     for r in rows]
+        # Ratios 2 and 8 give 4 (the arithmetic mean and the median are 5); ratios 2 and
+        # -8 give 4 as well, because the ratios enter as absolute values.
+        for ratios in ([2.0, 8.0], [2.0, -8.0])
+            table = _testhelper_plot_table(fill("g", 2), rows; rates = ratios .* predicted)
+            s = only(only(_testhelper_plot_panels(table)).series)
+            expected = [4 * _testhelper_plot_rate(
+                (A = x * 1e-3, B = 1e-3, P = 0.0, Q = 5e-5)) for x in s.curve_x]
+            @test s.curve_rate ≈ expected rtol = 1e-10
+        end
+    end
+
     @testset "panels follow first appearance" begin
         rows = [(1e-4, 1e-3, 0.0, 0.0), (2e-4, 1e-3, 0.0, 0.0),
             (3e-4, 1e-3, 0.0, 0.0)]
