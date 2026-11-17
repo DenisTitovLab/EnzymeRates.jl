@@ -41,6 +41,11 @@ jobs:
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
+      # The macOS runner has 7 GiB. Without a hint Julia lets the heap outgrow it, and the
+      # tests spend their time in garbage collection over swapped memory.
+      - name: Limit Julia's heap on macOS
+        if: runner.os == 'macOS'
+        run: echo "JULIA_HEAP_SIZE_HINT=2500M" >> "$GITHUB_ENV"
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v6
