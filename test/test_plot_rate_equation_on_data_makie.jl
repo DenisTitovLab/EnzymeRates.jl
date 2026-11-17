@@ -91,6 +91,10 @@ end
     @testset "rejected arguments" begin
         no_rows = map(column -> column[1:0], _testhelper_makie_table)
         @test_throws ErrorException("Table has no rows") _testhelper_makie_plot(no_rows)
+        for columns in (0, -1)
+            @test_throws(ArgumentError("columns must be at least 1; got $columns"),
+                _testhelper_makie_plot(; columns))
+        end
     end
 
     @testset "global theme unchanged" begin

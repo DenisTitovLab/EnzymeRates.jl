@@ -182,6 +182,7 @@ largest.
 # Errors
 - `ErrorException` when no Makie backend is loaded, or when `params` lacks a fitted
   parameter.
+- `ArgumentError` when `columns` is less than 1.
 - `ArgumentError` when `axis` sets an `xscale` other than `identity` and a group has an x
   of zero, which a log axis cannot show.
 - The errors `FittingProblem` raises for a table it rejects.
@@ -195,6 +196,7 @@ function plot_rate_equation_on_data(@nospecialize(m), @nospecialize(params::Name
     makie_extension === nothing && error(
         "plot_rate_equation_on_data needs a Makie backend: run `using CairoMakie` " *
         "(or another Makie backend) first")
+    columns >= 1 || throw(ArgumentError("columns must be at least 1; got $columns"))
     panels = rate_equation_panels(m, params, table; Keq, absolute, concentration_unit,
         xscale = get(axis, :xscale, identity))
     # Not a function declared here with its method in the extension: without Makie that
