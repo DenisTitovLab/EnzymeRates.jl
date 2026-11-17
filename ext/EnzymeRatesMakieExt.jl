@@ -56,8 +56,9 @@ function _draw_panel!(layout, panel::RateEquationPanel, fs; ylabel, axis)
         isempty(s.curve_x) || lines!(ax, s.curve_x, s.curve_rate; color,
             linewidth = _LINE_WIDTH)
         scatter!(ax, s.x, s.rate; color, marker, _MARKER_STYLE...)
-        [LineElement(; color, linewidth = _LINE_WIDTH),
-         MarkerElement(; color, marker, _MARKER_STYLE...)]
+        point = MarkerElement(; color, marker, _MARKER_STYLE...)
+        isempty(s.curve_x) ? [point] :
+            [LineElement(; color, linewidth = _LINE_WIDTH), point]
     end
     panel.rate_power == 0 || _power_of_ten_note!(ax, panel, fs)
 

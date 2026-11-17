@@ -123,9 +123,24 @@ end
         @test [e.label[] for e in entries] == ["1 mM", "2 mM"]
         @test [l.text[] for l in _testhelper_blocks(Makie.Label, fig)] == ["Q 50 µM"]
 
+        @test all(typeof.(e.elements) == [LineElement, MarkerElement] for e in entries)
+
         fig = _testhelper_makie_group("exp_2")
         @test isempty(_testhelper_blocks(Makie.Legend, fig))
         @test [l.text[] for l in _testhelper_blocks(Makie.Label, fig)] == ["B 1 mM"]
+    end
+
+    @testset "series without a curve" begin
+        # P Q / (A B) = Keq on every row, so every prediction is zero and no curve is drawn.
+        rows = [(1.0, 1.0, 2.0, 2.0), (2.0, 1.0, 2.0, 4.0), (4.0, 1.0, 2.0, 8.0)]
+        fig = _testhelper_makie_plot(
+            _testhelper_plot_table(fill("eq", 3), rows; rates = [1.0, 2.0, 3.0]))
+        ax = only(_testhelper_blocks(Makie.Axis, fig))
+        @test isempty(_testhelper_plots(Lines, ax))
+        @test length(_testhelper_plots(Scatter, ax)) == 3
+        title, entries = only(only(_testhelper_blocks(Makie.Legend, fig)).entrygroups[])
+        @test title == "Q"
+        @test [typeof.(e.elements) for e in entries] == fill([MarkerElement], 3)
     end
 
     @testset "series styles cycle by index" begin
