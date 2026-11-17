@@ -49,12 +49,6 @@ point value. An accompanying identifiability analysis would flag parameters,
 individually or in combination, that the data cannot constrain, giving a clear
 picture of what the experiment actually resolves.
 
-## Plotting
-
-There is no built-in visualization. A planned plotting module would overlay
-fitted rate equations on data, making it straightforward to inspect fit quality
-and compare the best and runner-up mechanisms visually.
-
 ## Outlier dataset identification
 
 The cross-validation framework already computes per-fold losses. A planned

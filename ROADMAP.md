@@ -212,6 +212,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Ideas
 
+- **Extend `plot_rate_equation_on_data`.**
+  Considered and left out: overlaying the fits of two mechanisms, a fit summary (measured
+  against predicted, error per group), a tick rule for log axes, and a keyword to override
+  the inferred x metabolite.
 - **Spend less time compiling each law.**
   Compiling a fresh law takes 0.10-0.19 s, 9-12% of the PFKP and PGK searches' fit time and
   30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the mechanism,

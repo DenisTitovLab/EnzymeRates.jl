@@ -141,3 +141,22 @@ In relative mode (the default), the returned `params` are scaled so the mechanis
 reproduces the `reference` turnovers. [Normalized vs absolute rate](@ref) explains the
 scale without a `reference`, absolute mode, and how to score a fit on other data;
 [Loss & optimizers](@ref) covers the loss function and how to supply your own optimizer.
+
+## Plotting the fit on the data
+
+`plot_rate_equation_on_data` draws the fitted rate equation over the measured rates, one
+panel per `group`. In a panel the x axis is the metabolite with the most distinct
+concentrations in that group, and each combination of the other metabolites'
+concentrations is a series with its own colour and marker. It never fits: it draws the
+rate equation at the parameters you pass. It needs a Makie backend, loaded here with
+`using CairoMakie`.
+
+```@example fitting
+using CairoMakie
+
+plot_rate_equation_on_data(uni_uni, result.params, data; Keq = 2.0)
+```
+
+The keywords `figure` and `axis` pass options to the `Makie.Figure` and to every panel's
+axis, for example `axis = (; xscale = log10)`. `concentration_unit` names the unit of the
+concentration columns for the axis labels; it is `"M"` by default.

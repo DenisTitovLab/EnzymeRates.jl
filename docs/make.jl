@@ -15,6 +15,7 @@ makedocs(;
     format = Documenter.HTML(;
         canonical = "https://DenisTitovLab.github.io/EnzymeRates.jl",
         edit_link = "main",
+        example_size_threshold = 2^20,
     ),
     pages = [
         "Home" => "index.md",
