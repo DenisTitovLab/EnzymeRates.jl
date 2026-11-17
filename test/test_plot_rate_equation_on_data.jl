@@ -2,43 +2,8 @@
 # ABOUTME: Expected values come from rate_equation called directly on written-out tables.
 
 using Test
-using Random
 using EnzymeRates
 using EnzymeRates: rate_equation_panels
-
-const _testhelper_plot_m = @enzyme_mechanism begin
-    substrates: A, B
-    products: P, Q
-    steps: begin
-        E + A <--> E(A)
-        E + B <--> E(B)
-        E(A) + B <--> E(A, B)
-        E(B) + A <--> E(A, B)
-        E(A, B) <--> E(P, Q)
-        E(P, Q) <--> E(Q) + P
-        E(Q) <--> E + Q
-    end
-end
-
-const _testhelper_plot_keq = 4.0
-const _testhelper_plot_params = let
-    fitted = parameters(_testhelper_plot_m, FittedParameters())
-    rng = MersenneTwister(7)
-    NamedTuple{fitted}(Tuple(1e5 * (0.1 + 9.9 * rand(rng)) for _ in fitted))
-end
-
-# The rate equation at E_total = 1, the quantity the plot's curves show.
-_testhelper_plot_rate(concs) = rate_equation(_testhelper_plot_m, concs,
-    merge(_testhelper_plot_params, (Keq = _testhelper_plot_keq, E_total = 1.0)))
-
-# A table of rows (A, B, P, Q) per group whose Rate is `factor` times the rate equation.
-function _testhelper_plot_table(groups, rows; factor = 1.0, rates = nothing)
-    concs = [(A = r[1], B = r[2], P = r[3], Q = r[4]) for r in rows]
-    rates === nothing && (rates = [factor * _testhelper_plot_rate(c) for c in concs])
-    (group = collect(groups), A = [r[1] for r in rows], B = [r[2] for r in rows],
-     P = [r[3] for r in rows], Q = [r[4] for r in rows],
-     Rate = rates)
-end
 
 function _testhelper_plot_panels(table; absolute = false, unit = "M", xscale = identity)
     rate_equation_panels(_testhelper_plot_m, _testhelper_plot_params, table;
