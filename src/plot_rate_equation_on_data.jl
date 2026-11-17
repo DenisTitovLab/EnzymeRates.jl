@@ -71,8 +71,9 @@ function rate_equation_panels(@nospecialize(m), @nospecialize(params::NamedTuple
     end
     turnover_params = merge(params, (Keq = fp.rate_data.Keq, E_total = 1.0))
     mets = Mechanisms.metabolites(mech)
-    [_rate_equation_panel(mech, turnover_params, mets, data, findall(==(g), data.group),
-         absolute, concentration_unit, xscale) for g in unique(data.group)]
+    [_rate_equation_panel(mech, turnover_params, mets, data,
+         findall(isequal(g), data.group), absolute, concentration_unit, xscale)
+     for g in unique(data.group)]
 end
 
 function _rate_equation_panel(mech, params, mets, data, rows, absolute, unit, xscale)

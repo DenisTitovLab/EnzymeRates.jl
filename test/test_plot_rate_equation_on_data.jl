@@ -146,6 +146,16 @@ _testhelper_plot_exp1(; factor = 3.0) =
         @test [p.title for p in panels] == ["1", "2"]
     end
 
+    @testset "missing and NaN groups" begin
+        rows = [(a, 1e-3, 0.0, 0.0) for a in (1e-4, 3e-4, 2e-4, 4e-4)]
+        for (groups, titles) in (([missing, "a", missing, "a"], ["missing", "a"]),
+                                 ([NaN, 1.0, NaN, 1.0], ["NaN", "1.0"]))
+            panels = _testhelper_plot_panels(_testhelper_plot_table(groups, rows))
+            @test [p.title for p in panels] == titles
+            @test [only(p.series).x for p in panels] ≈ [[100, 200], [300, 400]]
+        end
+    end
+
     @testset "log x" begin
         p = only(_testhelper_plot_panels(_testhelper_plot_exp1(); xscale = log10))
         s = p.series[1]
