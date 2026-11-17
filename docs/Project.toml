@@ -7,9 +7,6 @@ EnzymeRates = "e7a1c2d3-4b5f-6a7e-8c9d-0e1f2a3b4c5d"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 OptimizationCMAEvolutionStrategy = "bd407f91-200f-4536-9381-e4ba712f53f8"
 
-[sources]
-EnzymeRates = {path = "/home/denis.linux/claude-scratchpad/enzymerates-plot"}
-
 [compat]
 CairoMakie = "0.15"
 Documenter = "1"
