@@ -42,9 +42,13 @@ function _panel_theme(fs, linear_x)
             ytickformat = _tick_labels))
 end
 
+# "−" (U+2212), the minus sign of Makie's own tick labels, in place of the hyphen.
+_with_minus_signs(text) = replace(text, "-" => "−")
+
 # "0.5" and "1" where Makie writes "0.50" and "1.0". Adding 0.0 turns -0.0 into 0.0.
-_tick_labels(values) = [replace(chopsuffix(string(round(v; sigdigits = 4) + 0.0), ".0"),
-                                "-" => "−") for v in values]
+_tick_labels(values) =
+    [_with_minus_signs(chopsuffix(string(round(v; sigdigits = 4) + 0.0), ".0"))
+     for v in values]
 
 function _draw_panel!(layout, panel::RateEquationPanel, fs; ylabel, axis)
     ax = Axis(layout[1, 1]; title = panel.title, xlabel = panel.x_label, ylabel,
@@ -81,8 +85,8 @@ function _power_of_ten_note!(ax, panel, fs)
     top = high > -low
     text!(ax, 0.02, top ? 0.98 : 0.02; space = :relative,
         align = (:left, top ? :top : :bottom),
-        text = rich("×10", superscript(string(panel.rate_power))), fontsize = fs - 1,
-        color = :gray35)
+        text = rich("×10", superscript(_with_minus_signs(string(panel.rate_power)))),
+        fontsize = fs - 1, color = :gray35)
 end
 
 end

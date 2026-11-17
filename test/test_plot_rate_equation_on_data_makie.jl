@@ -168,6 +168,10 @@ end
             ax = only(_testhelper_blocks(Makie.Axis, _testhelper_makie_plot(table)))
             note = only(_testhelper_plots(Makie.Text, ax))
             @test note.align[] == align
+            # The exponent's minus sign is the one the tick labels use.
+            base, exponent = only(note.text[]).children
+            @test base == "×10"
+            @test exponent.type == :sup && exponent.children == ["−5"]
         end
     end
 end
