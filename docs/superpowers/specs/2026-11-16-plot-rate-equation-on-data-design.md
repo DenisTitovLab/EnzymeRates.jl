@@ -20,7 +20,9 @@ given parameters, over a rate table: one panel per `group`.
 
 ## Non-goals
 
-- Log x axes. Linear is the common case. Denis dropped log support on purpose.
+- Special handling for log x axes: no tick rule of our own, and no way to show x = 0
+  points. Linear is the common case. A log axis works through `axis` when the data
+  allow it (see "Log x through `axis`").
 - Fit summaries (measured against predicted, error per group), error numbers on
   panels, and overlaying two mechanisms. These were mocked up and declined.
 - Choosing groups, ordering panels or overriding the x metabolite by argument. The
@@ -150,6 +152,20 @@ These rules were settled on mockups drawn from the PKM2 table (591 rows, 28 grou
   confirmed that the global theme is unchanged afterwards and that the returned figure
   keeps its look outside the block.
 
+## Log x through `axis`
+
+Denis wants `axis = (; xscale = log10)` to work when Makie allows it, that is, when no
+x value is zero. Two rules make it work, and they apply whenever `axis` holds an
+`xscale` other than `identity`:
+
+- Each curve runs from the group's smallest x to its largest, not from 0, at 200
+  points evenly spaced on the transformed axis, so the curve stays smooth at the low
+  end.
+- A group with a point at x = 0 raises an error that names the group and says a log
+  axis cannot show zero.
+
+Ticks are Makie's own for that scale, labelled in the panel's unit.
+
 ## Calls I made, for Denis to check
 
 - **Sign mismatches.** The group scale uses absolute values over all rows, so a curve
@@ -169,8 +185,8 @@ These rules were settled on mockups drawn from the PKM2 table (591 rows, 28 grou
   replicates with the tied x metabolite at zero) draws its points and no curve, and
   its axis uses the unprefixed unit. A relative-mode group where no row gives a
   finite, nonzero prediction also draws its points and no curve.
-- **Log axes.** `axis = (; xscale = log10)` is not supported and not guarded. Curves
-  start at x = 0, so Makie will raise its own error. The docstring says x is linear.
+- **Zero x on a log axis.** The error names the group, instead of leaving Makie to
+  raise its own.
 - **Version.** 0.10.3: a new export is not breaking.
 - **Code placement.** The preparation is a top-level file in `src/`, beside
   `identify_rate_equation.jl`, with no new submodule and no new public name beyond the
@@ -183,7 +199,8 @@ These rules were settled on mockups drawn from the PKM2 table (591 rows, 28 grou
   metabolite including a tie; the series split; fixed and varying metabolites; the
   group scale against a hand calculation in relative mode and its absence in absolute
   mode; curve values against `rate_equation` called directly; unit labels for both
-  kinds of `concentration_unit`; the table checks `FittingProblem` enforces.
+  kinds of `concentration_unit`; the table checks `FittingProblem` enforces; the curve
+  range and the zero-x error under a log `xscale`.
 - **Drawing, with CairoMakie.** The call returns a `Figure` with one axis per group in
   the expected grid; `figure` and `axis` values reach the figure and axes; the global
   theme is unchanged after the call; a PNG and a PDF save without error.
