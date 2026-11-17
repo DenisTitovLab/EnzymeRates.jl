@@ -101,6 +101,7 @@ value becomes one cross-validation fold, so at least two groups are required.
 `IdentifyRateEquationProblem` validates the table at construction:
 
 - `:group` and `:Rate` columns must be present.
+- The table must have at least one row.
 - One column per substrate, product, and regulator (names match
   `metabolites(mechanism)` exactly).
 - No substrate, product, or regulator may be named `group` or `Rate`.
