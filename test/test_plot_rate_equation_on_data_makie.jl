@@ -67,6 +67,17 @@ end
         @test all(ax.xgridvisible[] for ax in panel_axes)
     end
 
+    @testset "tick labels carry no trailing zeros" begin
+        ax = first(_testhelper_blocks(Makie.Axis, _testhelper_makie_plot()))
+        values = [-5.0, -0.0, 0.0, 0.25, 0.5, 1.0, 1500.0, 0.1 + 0.2]
+        labels = ["−5", "0", "0", "0.25", "0.5", "1", "1500", "0.3"]
+        @test ax.xtickformat[](values) == labels
+        @test ax.ytickformat[](values) == labels
+        ax = first(_testhelper_blocks(Makie.Axis,
+            _testhelper_makie_plot(axis = (; xscale = log10))))
+        @test ax.xtickformat[] === Makie.automatic
+    end
+
     @testset "log x" begin
         panel_axes = _testhelper_blocks(Makie.Axis,
             _testhelper_makie_plot(axis = (; xscale = log10)))

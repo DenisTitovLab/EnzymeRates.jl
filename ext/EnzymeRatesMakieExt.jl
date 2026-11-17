@@ -37,8 +37,14 @@ function _panel_theme(fs, linear_x)
             xgridvisible = false, ygridvisible = false, topspinevisible = false,
             rightspinevisible = false, xticklabelsize = fs - 1, yticklabelsize = fs - 1,
             xticksize = 3, yticksize = 3, xlabelpadding = 1, ylabelpadding = 2,
-            xticks = linear_x ? ticks : Makie.automatic, yticks = ticks))
+            xticks = linear_x ? ticks : Makie.automatic, yticks = ticks,
+            xtickformat = linear_x ? _tick_labels : Makie.automatic,
+            ytickformat = _tick_labels))
 end
+
+# "0.5" and "1" where Makie writes "0.50" and "1.0". Adding 0.0 turns -0.0 into 0.0.
+_tick_labels(values) = [replace(chopsuffix(string(round(v; sigdigits = 4) + 0.0), ".0"),
+                                "-" => "−") for v in values]
 
 function _draw_panel!(layout, panel::RateEquationPanel, fs; ylabel, axis)
     ax = Axis(layout[1, 1]; title = panel.title, xlabel = panel.x_label, ylabel,
