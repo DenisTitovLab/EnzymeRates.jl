@@ -41,7 +41,9 @@ jobs:
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
+      - name: Run tests with a heap size hint
+        shell: bash
+        run: julia --color=yes --project -e 'using Pkg; Pkg.test(coverage=true, julia_args=["--heap-size-hint=2500M"])'
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v6
         with:
