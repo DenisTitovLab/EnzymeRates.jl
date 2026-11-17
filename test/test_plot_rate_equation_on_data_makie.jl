@@ -88,6 +88,11 @@ end
         @test_throws ArgumentError _testhelper_makie_plot(zero_x; axis = (; xscale = log10))
     end
 
+    @testset "rejected arguments" begin
+        no_rows = map(column -> column[1:0], _testhelper_makie_table)
+        @test_throws ErrorException("Table has no rows") _testhelper_makie_plot(no_rows)
+    end
+
     @testset "global theme unchanged" begin
         before = Makie.current_default_theme().fontsize[]
         _testhelper_makie_plot(figure = (; fontsize = 7))

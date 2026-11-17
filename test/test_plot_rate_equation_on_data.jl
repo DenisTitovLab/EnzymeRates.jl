@@ -254,6 +254,9 @@ _testhelper_plot_exp1(; factor = 3.0) =
             e
         end
         @test err isa ErrorException && occursin("params is missing", err.msg)
+
+        no_rows = map(column -> column[1:0], table)
+        @test_throws ErrorException("Table has no rows") _testhelper_plot_panels(no_rows)
     end
 end
 

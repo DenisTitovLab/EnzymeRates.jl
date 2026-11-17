@@ -34,7 +34,7 @@ end
 
 Construct a `FittingProblem` from an enzyme mechanism and tabular data.
 
-The table must have columns: `group`, `Rate`, and one column per
+The table must have at least one row and columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`, so no metabolite may be
 named `group` or `Rate`. Uses `Tables.columntable` for conversion.
 
