@@ -20,12 +20,15 @@ struct RateEquationPanel
 end
 
 # The divisor and unit label that show `largest` (a concentration in `unit`): under "M" the
-# prefix that fits it, otherwise the unit as given.
+# prefix that fits it, otherwise the unit as given. The prefix fits the value rounded to the
+# four digits it prints with, so 999.96 µM reads 1 mM and not 1000 µM.
 function _display_unit(largest::Real, unit::AbstractString)
     unit == "M" || return 1.0, String(unit)
-    largest >= 1e-3 ? (1e-3, "mM") :
-    largest >= 1e-6 ? (1e-6, "µM") :
-    largest > 0 ? (1e-9, "nM") : (1.0, "M")
+    shown = round(largest; sigdigits = 4)
+    shown >= 1 ? (1.0, "M") :
+    shown >= 1e-3 ? (1e-3, "mM") :
+    shown >= 1e-6 ? (1e-6, "µM") :
+    shown > 0 ? (1e-9, "nM") : (1.0, "M")
 end
 
 function _concentration_text(value::Real, unit::AbstractString)
@@ -151,8 +154,8 @@ save("fit.pdf", fig)
 - `absolute`: `false` for rates relative within each group, `true` for absolute
   per-enzyme turnover rates.
 - `concentration_unit`: the unit of the table's concentrations. With `"M"`, each x axis
-  shows mM, µM or nM to fit its largest value, and each legend value picks its own prefix.
-  Any other unit is shown as given, and the numbers are not converted.
+  shows M, mM, µM or nM to fit its largest value, and each legend value picks its own
+  prefix. Any other unit is shown as given, and the numbers are not converted.
 - `columns`: panels per row.
 - `figure`: keywords for `Makie.Figure`, such as `(; size = (510, 330), fontsize = 7.5)`.
   Every text size follows `fontsize` (10 by default); the default size is 320 × 200 per

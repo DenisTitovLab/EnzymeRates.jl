@@ -110,13 +110,26 @@ _testhelper_plot_exp1(; factor = 3.0) =
         @test p.series[1].x == [1e-4, 2e-4]
         @test p.fixed_concentrations == ["B 2 mM"]
 
+        # Rounding to four digits comes first: 999.96 µM reads 1 mM, 0.99996 M reads 1 M.
         for (value, text) in ((1.25e-3, "1.25 mM"), (1.08e-3, "1.08 mM"),
-            (5e-9, "5 nM"))
+            (5e-9, "5 nM"), (2.5, "2.5 M"), (1.0, "1 M"), (9.9996e-4, "1 mM"),
+            (0.99996, "1 M"))
             rows = [(1e-4, value, 0.0, 0.0), (2e-4, value, 0.0, 0.0)]
             p = only(_testhelper_plot_panels(
                 _testhelper_plot_table(fill("g", 2), rows)))
             @test p.fixed_concentrations == ["B $text"]
         end
+
+        for (largest, label) in ((2.0, "A (M)"), (0.99996, "A (M)"),
+            (9.9996e-4, "A (mM)"))
+            rows = [(largest / 2, 1e-3, 0.0, 0.0), (largest, 1e-3, 0.0, 0.0)]
+            p = only(_testhelper_plot_panels(
+                _testhelper_plot_table(fill("g", 2), rows)))
+            @test p.x_label == label
+        end
+        rows = [(1.0, 1e-3, 0.0, 0.0), (2.0, 1e-3, 0.0, 0.0)]
+        p = only(_testhelper_plot_panels(_testhelper_plot_table(fill("g", 2), rows)))
+        @test p.series[1].x == [1.0, 2.0]
     end
 
     @testset "no curve" begin

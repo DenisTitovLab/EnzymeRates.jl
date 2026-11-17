@@ -166,5 +166,5 @@ geometric mean of the measured-to-predicted ratios, as the fitting loss does, so
 show the shape of the fit and not the raw prediction. The keywords `figure` and `axis` pass
 options to the `Makie.Figure` and to every panel's axis, for example
 `axis = (; xscale = log10)`. `concentration_unit` is the unit of the concentration
-columns; with the default `"M"`, the axis and legend show concentrations in mM, µM or nM,
-whichever fits, and any other unit is shown as given.
+columns; with the default `"M"`, the axis and legend show concentrations in M, mM, µM or
+nM, whichever fits, and any other unit is shown as given.
