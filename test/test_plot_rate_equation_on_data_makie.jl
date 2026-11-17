@@ -40,6 +40,12 @@ end
             _testhelper_makie_table; Keq = _testhelper_plot_keq, absolute = false,
             concentration_unit = "M", xscale = identity)
         @test [ax.limits[][2] for ax in panel_axes] == [p.rate_limits for p in panels]
+        for (ax, p) in zip(panel_axes, panels)
+            @test [l[1][] for l in _testhelper_plots(Lines, ax)] ==
+                  [Point2.(s.curve_x, s.curve_rate) for s in p.series]
+            @test [points[1][] for points in _testhelper_plots(Scatter, ax)] ==
+                  [Point2.(s.x, s.rate) for s in p.series]
+        end
     end
 
     @testset "grid" begin
@@ -141,6 +147,17 @@ end
         title, entries = only(only(_testhelper_blocks(Makie.Legend, fig)).entrygroups[])
         @test title == "Q"
         @test [typeof.(e.elements) for e in entries] == fill([MarkerElement], 3)
+    end
+
+    @testset "a panel with nothing beside it" begin
+        # Only A is nonzero: no metabolite to list, no series to tell apart.
+        rows = [(1e-4, 0.0, 0.0, 0.0), (2e-4, 0.0, 0.0, 0.0)]
+        fig = _testhelper_makie_plot(
+            _testhelper_plot_table(fill("bare", 2), rows; rates = [1.0, 2.0]))
+        @test length(_testhelper_blocks(Makie.Axis, fig)) == 1
+        @test isempty(_testhelper_blocks(Makie.Legend, fig))
+        @test isempty(_testhelper_blocks(Makie.Label, fig))
+        @test size(colorbuffer(fig; px_per_unit = 1)) == (200, 320)
     end
 
     @testset "series styles cycle by index" begin
