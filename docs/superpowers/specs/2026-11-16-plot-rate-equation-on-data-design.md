@@ -160,6 +160,15 @@ These rules were settled on mockups drawn from the PKM2 table (591 rows, 28 grou
 - **More series than colours.** Colours come from Makie's seven-colour Wong palette
   and eight marker shapes, each cycling. Past seven series a colour repeats with a
   different marker.
+- **Many series.** Where two metabolites change together on every row, each row
+  becomes its own series, and a 20-row group draws 20 curves and 20 legend entries.
+  This is accepted and not capped. The docstring says how series are formed, so the
+  user can see why.
+- **Groups with nothing to draw a curve from.** The call never throws on a table
+  `FittingProblem` accepts. A group whose largest x is 0 (for example one row, or
+  replicates with the tied x metabolite at zero) draws its points and no curve, and
+  its axis uses the unprefixed unit. A relative-mode group where no row gives a
+  finite, nonzero prediction also draws its points and no curve.
 - **Log axes.** `axis = (; xscale = log10)` is not supported and not guarded. Curves
   start at x = 0, so Makie will raise its own error. The docstring says x is linear.
 - **Version.** 0.10.3: a new export is not breaking.
@@ -200,6 +209,10 @@ These rules were settled on mockups drawn from the PKM2 table (591 rows, 28 grou
 - Whether `test/test_boundaries.jl` needs to know about `ext/`.
 - The order of tests so that the no-Makie error is checked before CairoMakie loads.
 - Exact margins, gaps and tick counts, matched by eye to the approved mockup.
+- Whether the drawing tests fit in the main test process. The full suite needs about
+  4 GB free of 7.7 GB under a 2500M heap hint, and CairoMakie adds to that peak.
+  Measure it; if it does not fit, run the drawing tests in a separate process or CI
+  job.
 - What CairoMakie adds to CI time. It took 140 s to precompile once on the development
   machine and was not measured on CI.
 
