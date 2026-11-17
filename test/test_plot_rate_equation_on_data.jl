@@ -5,9 +5,11 @@ using Test
 using EnzymeRates
 using EnzymeRates: rate_equation_panels
 
-function _testhelper_plot_panels(table; absolute = false, unit = "M", xscale = identity)
+function _testhelper_plot_panels(table; absolute = false, unit = "M", xscale = identity,
+                                 metabolites_not_in_mechanism = ())
     rate_equation_panels(_testhelper_plot_m, _testhelper_plot_params, table;
-        Keq = _testhelper_plot_keq, absolute, concentration_unit = unit, xscale)
+        Keq = _testhelper_plot_keq, absolute, concentration_unit = unit, xscale,
+        metabolites_not_in_mechanism)
 end
 
 # Group "exp_1": A at four values for each B in (1e-3, 2e-3), Q = 5e-5, P = 0.
@@ -239,6 +241,67 @@ _testhelper_plot_exp1(; factor = 3.0) =
         @test occursin("zero_group", err.msg) && occursin("cannot show zero", err.msg)
     end
 
+    @testset "metabolites not in the mechanism" begin
+        # A at three values with B fixed, once without and once with 2 mM of I, a
+        # metabolite the mechanism does not bind and which halves the measured rate.
+        rows = [(a, 1e-3, 0.0, 0.0) for _ in 1:2 for a in (1e-4, 2e-4, 5e-4)]
+        inhibitor = [fill(0.0, 3); fill(2e-3, 3)]
+        predicted = [_testhelper_plot_rate((A = r[1], B = r[2], P = r[3], Q = r[4]))
+                     for r in rows]
+        rates = predicted .* [fill(2.0, 3); fill(0.5, 3)]
+        table = merge(_testhelper_plot_table(fill("g", 6), rows; rates), (I = inhibitor,))
+
+        merged = only(_testhelper_plot_panels(table))
+        @test length(merged.series) == 1
+
+        p = only(_testhelper_plot_panels(table; metabolites_not_in_mechanism = (:I,)))
+        @test p.x_label == "A (µM)"
+        @test p.legend_title == "I"
+        @test p.fixed_concentrations == ["B 1 mM"]
+        @test [s.label for s in p.series] == ["0", "2 mM"]
+        @test p.series[1].rate ≈ rates[1:3]
+        @test p.series[2].rate ≈ rates[4:6]
+        # The rate equation does not respond to I, so both series share one curve, scaled
+        # by the geometric mean of the ratios 2 and 0.5.
+        expected = [_testhelper_plot_rate((A = x * 1e-6, B = 1e-3, P = 0.0, Q = 0.0))
+                    for x in p.series[1].curve_x]
+        @test p.series[1].curve_rate ≈ expected rtol = 1e-10
+        @test p.series[2].curve_rate == p.series[1].curve_rate
+
+        # A vector of names works like a tuple.
+        @test only(_testhelper_plot_panels(table;
+            metabolites_not_in_mechanism = [:I])).legend_title == "I"
+
+        # I held at one nonzero concentration stands with the fixed metabolites.
+        held = merge(table, (I = fill(2e-3, 6),))
+        p = only(_testhelper_plot_panels(held; metabolites_not_in_mechanism = (:I,)))
+        @test p.fixed_concentrations == ["B 1 mM", "I 2 mM"]
+        @test length(p.series) == 1
+
+        # I alone varies: it is the x axis and the curve is flat.
+        rows = fill((1e-4, 1e-3, 0.0, 0.0), 4)
+        table = merge(_testhelper_plot_table(fill("g", 4), rows;
+            rates = [4.0, 3.0, 2.0, 1.0]), (I = [0.0, 1e-3, 2e-3, 4e-3],))
+        p = only(_testhelper_plot_panels(table; metabolites_not_in_mechanism = (:I,)))
+        @test p.x_label == "I (mM)"
+        @test p.fixed_concentrations == ["A 100 µM", "B 1 mM"]
+        s = only(p.series)
+        @test s.x ≈ [0.0, 1.0, 2.0, 4.0]
+        @test s.curve_x[end] ≈ 4.0
+        @test allequal(s.curve_rate)
+        @test first(s.curve_rate) ≈ exp(sum(log, [4.0, 3.0, 2.0, 1.0]) / 4)
+
+        @test_throws ArgumentError _testhelper_plot_panels(table;
+            metabolites_not_in_mechanism = (:A,))
+        @test_throws ArgumentError _testhelper_plot_panels(table;
+            metabolites_not_in_mechanism = (:I, :I))
+        @test_throws ErrorException("Missing metabolite column: J") _testhelper_plot_panels(
+            table; metabolites_not_in_mechanism = (:J,))
+        negative = merge(table, (I = [0.0, 1e-3, 2e-3, -4e-3],))
+        @test_throws ErrorException _testhelper_plot_panels(negative;
+            metabolites_not_in_mechanism = (:I,))
+    end
+
     @testset "input checks" begin
         table = _testhelper_plot_exp1()
         no_group = Base.structdiff(table, NamedTuple{(:group,)})
@@ -248,7 +311,8 @@ _testhelper_plot_exp1(; factor = 3.0) =
         err = try
             rate_equation_panels(_testhelper_plot_m, short, table;
                 Keq = _testhelper_plot_keq, absolute = false,
-                concentration_unit = "M", xscale = identity)
+                concentration_unit = "M", xscale = identity,
+                metabolites_not_in_mechanism = ())
             nothing
         catch e
             e

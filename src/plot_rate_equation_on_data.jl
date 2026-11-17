@@ -59,29 +59,35 @@ function _group_scale(measured, predicted)
 end
 
 """
-    rate_equation_panels(m, params, table; Keq, absolute, concentration_unit, xscale)
+    rate_equation_panels(m, params, table; Keq, absolute, concentration_unit, xscale,
+        metabolites_not_in_mechanism)
 
 One `RateEquationPanel` per distinct `group` of `table`, in order of first appearance, with
 the measured points and the rate equation of `m` at `params` for plotting. `xscale`
 other than `identity` starts each curve at the group's smallest x and refuses a group with
-an x of zero.
+an x of zero. The columns named in `metabolites_not_in_mechanism` are concentrations the
+panels show beside those of the metabolites of `m`.
 """
 function rate_equation_panels(@nospecialize(m), @nospecialize(params::NamedTuple), table;
                               Keq::Real, absolute::Bool,
-                              concentration_unit::AbstractString, xscale)
+                              concentration_unit::AbstractString, xscale,
+                              metabolites_not_in_mechanism)
     fp = Fitting.FittingProblem(m, table; Keq, absolute)
     for name in Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
         haskey(params, name) || error("params is missing the fitted parameter $name")
     end
+    shown = (Mechanisms.metabolites(fp.mechanism)..., metabolites_not_in_mechanism...)
+    allunique(shown) || throw(ArgumentError(
+        "metabolites_not_in_mechanism must name distinct columns that are not " *
+        "metabolites of the mechanism; got $(repr(metabolites_not_in_mechanism))"))
+    data = Data.RateData(table, shown; Keq, absolute).data
     turnover_params = merge(params, (Keq = fp.rate_data.Keq, E_total = 1.0))
-    groups = fp.rate_data.data.group
-    [_rate_equation_panel(fp, turnover_params, findall(isequal(g), groups),
-         concentration_unit, xscale) for g in unique(groups)]
+    [_rate_equation_panel(fp.mechanism, turnover_params, data, shown,
+         findall(isequal(g), data.group), absolute, concentration_unit, xscale)
+     for g in unique(data.group)]
 end
 
-function _rate_equation_panel(fp, params, rows, unit, xscale)
-    mech, data = fp.mechanism, fp.rate_data.data
-    mets = Mechanisms.metabolites(mech)
+function _rate_equation_panel(mech, params, data, mets, rows, absolute, unit, xscale)
     columns = NamedTuple{mets}(map(k -> data[k][rows], mets))
     row_concentrations = [map(column -> column[i], columns) for i in eachindex(rows)]
     predict(concs) = Derivation.rate_equation(mech, concs, params)
@@ -99,8 +105,7 @@ function _rate_equation_panel(fp, params, rows, unit, xscale)
     divisor, x_unit = _display_unit(largest_x, unit)
 
     measured = data.Rate[rows]
-    scale = fp.rate_data.absolute ? 1.0 :
-        _group_scale(measured, predict.(row_concentrations))
+    scale = absolute ? 1.0 : _group_scale(measured, predict.(row_concentrations))
     drawn = scale !== nothing && largest_x > 0
     largest_rate = maximum(abs, measured)
     rate_power = largest_rate < 0.01 ? floor(Int, log10(largest_rate)) : 0
@@ -127,7 +132,8 @@ end
 
 """
     plot_rate_equation_on_data(m, params, table; Keq, absolute = false,
-        concentration_unit = "M", columns = 5, figure = (;), axis = (;)) -> Makie.Figure
+        concentration_unit = "M", metabolites_not_in_mechanism = (), columns = 5,
+        figure = (;), axis = (;)) -> Makie.Figure
 
 Draws the rate equation of mechanism `m` at `params` over the measured rates of `table`, one
 panel per `group` in order of first appearance, `columns` panels per row, and returns the
@@ -145,13 +151,19 @@ save("fit.pdf", fig)
 - `params`: must hold every name of `parameters(m, FittedParameters())`; other names are
   ignored.
 - `table`: a `group` column, a `Rate` column and one column per metabolite of `m`, passing
-  the checks of `FittingProblem`; other columns are ignored.
+  the checks of `FittingProblem`; other columns are ignored unless
+  `metabolites_not_in_mechanism` names them.
 - `Keq`: the reaction's equilibrium constant.
 - `absolute`: `false` for rates relative within each group, `true` for absolute
   per-enzyme turnover rates.
 - `concentration_unit`: the unit of the table's concentrations. With `"M"`, each x axis
   shows M, mM, µM or nM to fit its largest value, and each legend value picks its own
   prefix. Any other unit is shown as given, and the numbers are not converted.
+- `metabolites_not_in_mechanism`: the table's columns, as `Symbol`s, that hold
+  concentrations of metabolites `m` does not bind, such as `(:Citrate, :ATP)`. The panels
+  show them like the metabolites of `m`, so that measurements differing only in one of
+  them are not drawn as one series. In a tie for the x axis they come after the
+  metabolites of `m`, in the order given.
 - `columns`: panels per row.
 - `figure`: keywords for `Makie.Figure`, such as `(; size = (510, 330), fontsize = 7.5)`.
   Every text size follows `fontsize` (10 by default); the default size is 320 × 200 per
@@ -162,7 +174,9 @@ Values in `figure` and `axis` override the built-in defaults.
 
 # A panel
 The x axis is the metabolite with the most distinct concentrations in the group; a tie goes
-to the earlier one in `metabolites(m)`. Each distinct combination of the other metabolites'
+to the earlier one in `metabolites(m)`. The rate equation does not respond to a metabolite
+of `metabolites_not_in_mechanism`: along such an x axis the curve is flat, and series that
+differ only in one share a curve. Each distinct combination of the other metabolites'
 concentrations is a series with its own colour and marker: the measured `Rate` as points
 and the rate equation at `E_total = 1` as a curve. With `absolute = false`, each group's
 curves are multiplied by one factor, the geometric mean of `|Rate / predicted|` over the
@@ -178,14 +192,17 @@ largest.
 # Errors
 - `ErrorException` when no Makie backend is loaded, or when `params` lacks a fitted
   parameter.
-- `ArgumentError` when `columns` is less than 1.
+- `ArgumentError` when `columns` is less than 1, or when `metabolites_not_in_mechanism`
+  repeats a name or names a metabolite of `m`.
 - `ArgumentError` when `axis` sets an `xscale` other than `identity` and a group has an x
   of zero, which a log axis cannot show.
-- The errors `FittingProblem` raises for a table it rejects.
+- The errors `FittingProblem` raises for a table it rejects; a column of
+  `metabolites_not_in_mechanism` is checked like a metabolite's.
 """
 function plot_rate_equation_on_data(@nospecialize(m), @nospecialize(params::NamedTuple),
                                     table; Keq::Real, absolute::Bool = false,
                                     concentration_unit::AbstractString = "M",
+                                    metabolites_not_in_mechanism = (),
                                     columns::Integer = 5, figure::NamedTuple = (;),
                                     axis::NamedTuple = (;))
     makie_extension = Base.get_extension(EnzymeRates, :EnzymeRatesMakieExt)
@@ -194,7 +211,7 @@ function plot_rate_equation_on_data(@nospecialize(m), @nospecialize(params::Name
         "(or another Makie backend) first")
     columns >= 1 || throw(ArgumentError("columns must be at least 1; got $columns"))
     panels = rate_equation_panels(m, params, table; Keq, absolute, concentration_unit,
-        xscale = get(axis, :xscale, identity))
+        xscale = get(axis, :xscale, identity), metabolites_not_in_mechanism)
     # Not a function declared here with its method in the extension: without Makie that
     # call has no method, which JET's package test reports, and with Makie JET would follow
     # it into the drawing, so test_type_stability.jl would depend on what is loaded.

@@ -169,3 +169,9 @@ options to the `Makie.Figure` and to every panel's axis, for example
 `axis = (; xscale = log10)`. `concentration_unit` is the unit of the concentration
 columns; with the default `"M"`, the axis and legend show concentrations in M, mM, µM or
 nM, whichever fits, and any other unit is shown as given.
+
+A table often holds concentrations of metabolites the mechanism does not bind, such as a
+regulator left out of it. Name those columns in `metabolites_not_in_mechanism`, for example
+`metabolites_not_in_mechanism = (:Citrate,)`, and the panels show them like the
+mechanism's own metabolites. Otherwise measurements that differ only in such a metabolite
+are drawn as one series, which can hide that the rate equation misses its effect.
