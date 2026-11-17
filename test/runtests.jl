@@ -34,6 +34,7 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
     include("Fitting/test_fit_search.jl")
     include("Enumeration/test_mechanism_enumeration.jl")
     include("test_identify_rate_equation.jl")
+    include("test_plot_rate_equation_on_data.jl")
     if v"1.13.0-" <= VERSION < v"1.14.0-"
         include("test_type_stability.jl")
     else

@@ -37,5 +37,6 @@ include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation, test_rate_equation
 include("Enumeration/Enumeration.jl")
 include("identify_rate_equation.jl")
+include("plot_rate_equation_on_data.jl")
 
 end
