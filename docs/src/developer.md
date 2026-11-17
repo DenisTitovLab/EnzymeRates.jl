@@ -99,7 +99,9 @@ back. It hides the parser. The macros run the guard, so they cannot live in `Mec
 `plot_rate_equation_on_data` and the exports. It hides the beam search, the one fit per
 rate law, cross-validation, the CSV output and the preparation of each plot panel. The
 package extension `ext/EnzymeRatesMakieExt.jl`, which Julia loads with Makie, draws the
-panels, so loading EnzymeRates alone never loads Makie.
+panels, so loading EnzymeRates alone never loads Makie. The extension defines
+`draw_rate_equation_panels(panels; columns, figure, axis)`, which
+`plot_rate_equation_on_data` calls through `Base.get_extension` with the panels it prepared.
 
 ### Module docstrings
 
