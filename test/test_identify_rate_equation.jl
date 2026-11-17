@@ -770,6 +770,29 @@ end
     @test cv == expected
 end
 
+# `FittingProblem` groups rows with `isequal`, so a blank (`missing`) or NaN group is a group.
+@testset "_cross_validation_loss holds out a missing or NaN group" begin
+    em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
+    optimizer = CMAEvolutionStrategyOpt()
+    fit_options = (; n_restarts = 1, maxiters = 50)
+    @testset "held out $shown" for (blank, shown) in ((missing, "missing"), (NaN, "NaN"))
+        data = (group = [blank, blank, 2.0, 2.0], Rate = [0.5, 0.8, 1.0, 1.1],
+                S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+        reference = _testhelper_row_reference(data)
+        Random.seed!(7)
+        cv = EnzymeRates._cross_validation_loss(em, data, blank;
+            Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+        Random.seed!(7)
+        held = isequal.(data.group, blank)
+        fit = fit_rate_equation(
+            FittingProblem(em, map(col -> col[.!held], data); Keq = 2.0, reference),
+            optimizer; fit_options...)
+        expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+            FittingProblem(em, map(col -> col[held], data); Keq = 2.0, reference))
+        @test cv == expected
+    end
+end
+
 @testset "a fold whose reference fails scores the unscaled fit" begin
     em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
     optimizer = CMAEvolutionStrategyOpt()
