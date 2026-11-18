@@ -22,6 +22,24 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   variants the flip search in `_seed_variants` already builds (with A and B, 51 s, 45%
   under the time before the facts). No benchmark or pin yet covers the live bytes of a held
   result set.
+  - **On Julia 1.11 the full suite can peak above 4 GB.**
+    With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB (3.84-3.86
+    GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
+    grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
+    `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
+    1 GB of garbage. No test value retains the garbage: a full collection after the testset
+    frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the
+    lower-bound job, on a runner with more memory, so nothing checks the compat floor against
+    the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
+  - **macOS CI takes 23-39 minutes for the tests, up from about 8.**
+    Ubuntu and Windows stay at 15-17 minutes. The macOS runner has 7 GiB against their 16:
+    in one instrumented run its heap reached 5.5 GiB with 3.0 GiB resident, and the
+    enumeration test file took 1,165 s, 600 s of it in garbage collection, against 273 s on
+    Ubuntu. A `--heap-size-hint=2500M` on macOS gave 25.6 and 32.4 minutes in two runs,
+    inside the range without it, and slows Ubuntu and Windows to about 20 minutes. macOS
+    runner speed varies about 30% between runs, so one run proves nothing. The next step is
+    to measure which stored fields hold the memory; a change to the `Mechanism`
+    representation needs the maintainer's approval.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
@@ -36,21 +54,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `FitObjective`, so an optimizer that scores points on several threads at once, such as
   CMA-ES with `multi_threading` passed through `solver_kwargs`, would race on both buffers.
   Fits run in parallel only across `pmap` workers, each of which builds its own problem.
-- **`BigInt` arithmetic inflates the GC's live-byte count.**
-  Class 3's model point (`_model_point`, `src/Derivation/limit_test.jl`; an integer null
-  space in `Rational{BigInt}`) raises `Base.gc_live_bytes` by bytes that no live object
-  holds, by 101 KiB on the six-step bi-bi ping-pong at two conformations. A 6×6 determinant
-  outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
-  `Rational{Int}`. The joint solve adds nothing, on a plain
-  mechanism or on a concrete allosteric one; it runs in `Rational{Int}` on 10,226 enumerated
-  bi-bi and ter-bi mechanisms without overflow. The count holds no memory and raises no
-  peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB RSS, and the enumeration
-  tests' count after a full collection stays near 1.8 GiB whether their peak RSS is 2.2 or
-  3.5 GB. The higher peak came from mechanisms that kept vectors at the capacity their
-  builds grew to; `_canonicalize` stores each at its length, and
-  `test/Mechanisms/test_reaction_graph.jl` pins it. A loop that calls it and prints
-  `Base.gc_live_bytes()` and `Base.gc_num().full_sweep` shows it.
-
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
   as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
@@ -70,52 +73,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   refuses a zero rate, and the loss scores a NaN prediction as a sign mismatch, the penalty
   a 0 prediction gets (`test/Derivation/test_admission.jl`). Adding these corners to the
   faces would drop at least these 369 mechanisms, 93 of whose laws have a limit there.
-- **On Julia 1.11 the full suite can peak above 4 GB.**
-  With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB (3.84-3.86
-  GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
-  of the ter-ter entry below grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
-  `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
-  1 GB of garbage. No test value retains the garbage: a full collection after the testset
-  frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the
-  lower-bound job, on a runner with more memory, so nothing checks the compat floor against
-  the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
-- **The full suite segfaulted once in Julia 1.13.3's garbage collector.**
-  On Ubuntu x64, CI run 41755239865 crashed in `gc_mark_obj8`, during an allocation in
-  `_check_representation`, while `test/Derivation/test_oracles.jl` built its population.
-  Rerunning the job passed, and a green run of the same 203 dependency versions came just
-  before it, so the crash does not follow from a dependency change. The cause is unknown: GC
-  marking is where corruption surfaces, not where it starts. `src/` calls no `unsafe_`
-  function or `ccall`. A second `signal 11` in CI would be the next evidence to read.
-- **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
-  The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
-  is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
-  half-reaction, each stopping that half in the inactive conformation. On the V-type
-  that stops the second half, change-tag's relaxation of both half-reactions to
-  `:NonequalAI` passes admission, but the guard rejects it: at zero substrates, and at
-  zero B, the covalent forms of both conformations lie on one rapid-equilibrium
-  segment, joined only through free E, so the rate's limit depends on how fast each
-  conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that
-  child, so the search never gives this ping-pong an inactive conformation that runs
-  both half-reactions. On the three-step ping-pong, whose steps are all steady-state,
-  the same relaxation passes.
-- **The six-step bi-bi ping-pong keeps no allosteric child with a forward rate.**
-  The guard rejects the tag set that stops the first half-reaction (`_SPLIT` at zero A and
-  B), so no tagging base stops it. On the base that stops the second
-  half, the inactive conformation's first half-reaction fills the covalent forms, which only
-  P's binding drains, so the rate is exactly 0 at zero products in every allosteric child
-  the exit keeps and in every allosteric child of those on the same graph: 33 with a
-  regulator declared, at one subunit and again at two, and 13 at two subunits without one.
-  Forward initial-rate data cannot fit any of them.
-- **A one-half tagging base is fitted only beside a regulator.**
-  When the guard rejects the tag set that stops all chemistry, each tagging base stops one
-  half-reaction and the inactive conformation runs the other (`_tagging_bases`,
-  `src/Enumeration/moves.jl`). The tagging move emits a base only beside a declared
-  regulator, and no move reaches the bare base: change-tag relaxes tags only to
-  `:NonequalAI`, and no move removes a site. Yet a bare base can be well-posed with its `L`
-  identifiable: on the three-step bi-bi ping-pong each bare base fits 6 parameters at rank 6
-  over the parent's 5, at one and at two subunits, and the one that stops the first half
-  turns over at zero products. Without a regulator, the one allosteric child that ping-pong
-  keeps at two subunits has rate 0 there.
 - **A batch's progress-log header can print twice.**
   When an L phantom's source's fit throws in the phantom's own batch, `run_batch!`'s log
   closure (`src/identify_rate_equation.jl`) prints the batch header again above the demotion
@@ -154,8 +111,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   at one catalytic subunit), so admission rejects it. The tagging move keeps allosteric
   ping-pong reachable by stopping one half per V-type base (`_tagging_bases`,
   `src/Enumeration/moves.jl`), as PDH's phosphorylation stops E1 and leaves E2 and E3
-  running; on the six-step bi-bi ping-pong no child left turns over at zero products (Known
-  issues). Above one subunit it drops a child whose inactive law is not hyperbolic
+  running; on the six-step bi-bi ping-pong no child left turns over at zero products
+  (below). Above one subunit it drops a child whose inactive law is not hyperbolic
   (`_hyperbolic_catalysis`), as when the running half joins two segments that each hold an
   abortive complex, so the six-step ping-pong seed whose A and P groups each hold an
   abortive binding keeps no well-posed tagging child at two subunits; its descendant with
@@ -164,6 +121,50 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
   forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
   medium.
+  What the search does today:
+  - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
+    The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
+    is the rapid-equilibrium step `E(B; residual = A - P) ⇌ E(Q)`, one V-type per
+    half-reaction, each stopping that half in the inactive conformation. On the V-type
+    that stops the second half, change-tag's relaxation of both half-reactions to
+    `:NonequalAI` passes admission, but the guard rejects it: at zero substrates, and at
+    zero B, the covalent forms of both conformations lie on one rapid-equilibrium
+    segment, joined only through free E, so the rate's limit depends on how fast each
+    conformation's steps run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that
+    child, so the search never gives this ping-pong an inactive conformation that runs
+    both half-reactions. On the three-step ping-pong, whose steps are all steady-state,
+    the same relaxation passes.
+  - **The six-step bi-bi ping-pong keeps no allosteric child with a forward rate.**
+    The guard rejects the tag set that stops the first half-reaction (`_SPLIT` at zero A and
+    B), so no tagging base stops it. On the base that stops the second
+    half, the inactive conformation's first half-reaction fills the covalent forms, which only
+    P's binding drains, so the rate is exactly 0 at zero products in every allosteric child
+    the exit keeps and in every allosteric child of those on the same graph: 33 with a
+    regulator declared, at one subunit and again at two, and 13 at two subunits without one.
+    Forward initial-rate data cannot fit any of them.
+  - **A one-half tagging base is fitted only beside a regulator.**
+    When the guard rejects the tag set that stops all chemistry, each tagging base stops one
+    half-reaction and the inactive conformation runs the other (`_tagging_bases`,
+    `src/Enumeration/moves.jl`). The tagging move emits a base only beside a declared
+    regulator, and no move reaches the bare base: change-tag relaxes tags only to
+    `:NonequalAI`, and no move removes a site. Yet a bare base can be well-posed with its `L`
+    identifiable: on the three-step bi-bi ping-pong each bare base fits 6 parameters at rank 6
+    over the parent's 5, at one and at two subunits, and the one that stops the first half
+    turns over at zero products. Without a regulator, the one allosteric child that ping-pong
+    keeps at two subunits has rate 0 there.
+- **Shrink the module interfaces.**
+  The package aims at deep modules: few public names, simple arguments, the complexity
+  inside (`.claude/CLAUDE.md`). Three places fall short. Priority: high.
+  - **`Mechanisms` has 25 public names.**
+    Some serve one caller and expose how it works: `segment_walk` and `present_species`
+    are used only by `Derivation`, `check_conformation_label` and `check_decodable_names`
+    only by `DSL`, and `has_unbalanced_cycle` takes six vectors. Each either moves to its
+    one caller or folds into a function that hides it.
+  - **`identify_rate_equation` has at least 18 keyword arguments,** such as
+    `eq_complexity_filter = 337`. Each becomes an internal constant unless users have a
+    real reason to change it, as they do for optimizer settings.
+  - **`DSL.parse_mechanism` is public and no other module in `src/` uses it.** Make it
+    private if nothing needs it.
 - **Log the time of each search phase.**
   `progress.log` carries no timestamps, so a cluster run cannot say where its wall time goes.
   In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of PGK's
@@ -217,11 +218,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the mechanism,
   so moving it behind a function that compiles once may save part of this; the saving is not
   measured.
-- **Reduce CMA-ES's own cost per evaluation.**
-  Its eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up to
-  20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
+- **Reduce what CMA-ES itself costs per evaluation.**
+  At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
+  10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
+  PGK laws, so any faster `rate_equation` gains only on the `loss!` part. The solver's
+  eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up
+  to 20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
   change upstream; neither is explored.
-
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
@@ -248,19 +251,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   62 such bi-bi variants on 16 keys in a sampled round 2). Applying the exclusion to
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
-- **Spend fewer restarts per fit.**
+- **Choose the number of restarts per fit.**
   Over 120 sampled fits per enzyme, the best of 10 restarts took half the time of 20 and came
   within 1% of the best of 20 in 98% of PFKP's fits (worst 10.7% above it) and in all of PGK's.
   Stopping once the best loss recurs 4 times gives 1.7× and 2.4×, and 2% of PFKP's fits end
   more than 5% high. A loss above the beam's cutoff drops a mechanism for good, so test a rule
   by comparing whole search results, not single fits.
+  More restarts have a case too: on five PFKP laws of 16 or more parameters whose fits had
+  missed, 20, 40 and 80 restarts gave 13, 3 and 0 misses in 60 fits, and one such miss
+  dropped the line to PFKP's 18-parameter law from the beam. No whole search has been run
+  at 10 or at 40 restarts, and which way to move the default is undecided.
 - **Start a child's restarts from its parent's fit.**
   A child usually holds its parent as a limit, so one restart could begin at the parent's
   parameters. Not measured.
-- **Measure what CMA-ES itself costs per evaluation.**
-  At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
-  10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
-  PGK laws. Any faster `rate_equation` gains only on the `loss!` part.
 - **Pin each law's operation counts.**
   The `rate_equation` time bound tolerates the spread between machines, so undoing a 3× gain
   on a small law passes it: the MWC tetramer's former 20.3 ns sits under its 34 ns bound. A
@@ -308,12 +311,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   every per-member rate and every order of the two limits, its cheapest in-tree costs more
   than the law network's; each comparison is one linear-programming feasibility test, not
   yet prototyped.
-- **Review `identify_rate_equation`'s keyword arguments.**
-  It has at least 18, such as `eq_complexity_filter = 337`. Each becomes an internal constant
-  unless users have a real reason to change it, as they do for optimizer settings.
-- **Make `DSL.parse_mechanism` private if nothing needs it.**
-  It is a public name that no other module in `src/` uses.
-
 ## Decided against
 
 - **Scheduled CI and Downgrade runs.**
@@ -333,12 +330,3 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
   BlackBoxOptim users meet the warning, `test/Fitting/test_fitting.jl` captures it, and the
   docs and HPC scripts use CMA-ES.
-- **Load identify CSVs written by EnzymeRates 0.7 or earlier, or that name a mechanism by
-  its type string (`mechanism_type`) instead of its text and id.** The loader would be a
-  backward-compatibility shim; rerunning is cleaner, and the CSVs read as plain tables.
-- **Replay the 0.8 LOOCV random stream so seeded runs reproduce its fold scores.** Nothing
-  needs this backward-compatibility code, and unseeded workers never made HPC fold scores
-  bit-reproducible.
-- **Re-rescale the rate constants of saved allosteric fits.** Only CSVs written before
-  0.9.0 carry the mis-scaled constants, current output is correct, and losses and model
-  selection never depended on the scale.

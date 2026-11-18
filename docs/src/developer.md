@@ -495,6 +495,18 @@ concrete mechanism asked about, matched by `===`, so each is derived once for al
 The memo holds one mechanism in the task's local storage, so it never grows and tasks
 share nothing. The compiled types' derivation never reads it.
 
+### Reading `Base.gc_live_bytes`
+
+`BigInt` arithmetic raises `Base.gc_live_bytes` by bytes that no live object holds, so
+the count overstates what a derivation retains. Class 3's model point (`_model_point`,
+`src/Derivation/limit_test.jl`; an integer null space in `Rational{BigInt}`) raises it by
+101 KiB on the six-step bi-bi ping-pong at two conformations, and a 6×6 determinant
+outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
+`Rational{Int}`. The joint solve adds nothing: it runs in `Rational{Int}` on 10,226
+enumerated bi-bi and ter-bi mechanisms without overflow. The count holds no memory and
+raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB resident. Measure
+retained memory by the resident set.
+
 ## Well-posedness guard
 
 The guard (`src/Derivation/guard.jl`, with `limit_test.jl`, `admission.jl` and
