@@ -7,7 +7,8 @@ using JET
     # The Downgrade workflow's action moves the test dependencies into [deps], where they
     # would read as stale.
     Aqua.test_all(EnzymeRates; undocumented_names=true, stale_deps=(ignore=[:Aqua, :JET,
-        :OptimizationBBO, :OptimizationCMAEvolutionStrategy, :OrdinaryDiffEqFIRK],))
+        :OptimizationBBO, :OptimizationCMAEvolutionStrategy, :OrdinaryDiffEqFIRK,
+        :CairoMakie],))
 end
 
 @testset "no two files differ only in case" begin

@@ -44,8 +44,12 @@ include("type_stability_harness.jl")
     checks_user_input = (;
         reason = "validates a user-supplied anchor of unknown type",
         functions = [:_check_anchors])
+    draws_a_figure = (;
+        reason = "prepares a figure from a mechanism it does not specialize on and draws " *
+                 "it through the Makie extension, once per call",
+        functions = [:plot_rate_equation_on_data, :rate_equation_panels])
     exemption_sets = (error_messages, value_to_type, solver_boundary, pmap_and_tables,
-                      expr_walk, prints_to_stdout, checks_user_input)
+                      expr_walk, prints_to_stdout, checks_user_input, draws_a_figure)
 
     # ── The values whose types the rows use; no row runs its call ────────────
     plain = @enzyme_mechanism begin
@@ -200,7 +204,7 @@ include("type_stability_harness.jl")
             @_testhelper_dispatches_in value_to_type Fit.FittingProblem(
                 m, table(m); Keq = 2.0)
             @_testhelper_dispatches_in value_to_type Fit.test_rate_equation(
-                m, floats(parameters(m)), table(m); Keq = 2.0)
+                m, floats(parameters(m)), table(m))
         end
     end
 
@@ -254,6 +258,17 @@ include("type_stability_harness.jl")
                 EnzymeRates._fold_problem(m, table(m), ::BitVector; Keq = 2.0,
                                           absolute = false, reference = anchors))
         end
+    end
+
+    @testset "plot_rate_equation_on_data" begin
+        # It takes a `@nospecialize` mechanism and parameters, so this is what compiles. The
+        # row reads the same whether or not a Makie backend is loaded.
+        @_testhelper_dispatches_in(
+            value_to_type, draws_a_figure,
+            plot_rate_equation_on_data(
+                ::Union{Mech.AbstractEnzymeMechanism, EnzymeRates.Mechanism,
+                        EnzymeRates.AllostericMechanism, Function},
+                ::NamedTuple, plain_table))
     end
 
     # ── What the rows must cover ──────────────────────────────────────────────

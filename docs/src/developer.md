@@ -11,7 +11,7 @@ The two halves and the optimizer layer are described below.
 
 ## Modules
 
-EnzymeRates is six submodules and a top level. Each submodule lives in `src/<Module>/`:
+EnzymeRates is seven submodules and a top level. Each submodule lives in `src/<Module>/`:
 `<Module>.jl` declares the module, includes its files and lists its interface in a
 `public` statement. A module's public names are its interface to the other modules; only
 the exports are promised to users. Its tests live in `test/<Module>/`. The diagram below
@@ -32,12 +32,14 @@ and `julia test/update_module_map.jl` rewrites it, together with the table of mo
 flowchart TB
   top["<b><big>EnzymeRates</big></b><br/>Finds the best mechanism for a reaction from measured rates.<br/><br/>Defines:<br/><b>★#nbsp;identify_rate_equation()</b><br/><b>★#nbsp;IdentifyRateEquationProblem</b><br/><b>★#nbsp;IdentifyRateEquationResults</b>"]
   dsl["<b><big>DSL</big></b><br/>Turns macro-written reactions and mechanisms<br/>into checked objects."]
+  plot["<b><big>Plotting</big></b><br/>Draws a rate equation over measured rates."]
   enum["<b><big>Enumeration</big></b><br/>Generates candidate mechanisms for a reaction."]
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
   der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
   mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;EnzymeMechanism</b><br/><b>★#nbsp;AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★#nbsp;@enzyme_reaction</b><br/><b>★#nbsp;@enzyme_mechanism</b><br/><b>★#nbsp;@allosteric_mechanism</b>"| dsl
+  top -->|"<b>★#nbsp;plot_rate_equation_on_data()</b>"| plot
   top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
   top -->|"<b>★#nbsp;fit_rate_equation()</b><br/><b>★#nbsp;FittingProblem</b><br/>test_rate_equation()"| fit
   top -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/><b>★#nbsp;IndependentParameters</b><br/><b>★#nbsp;FittedParameters</b><br/><b>★#nbsp;AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
@@ -45,6 +47,9 @@ flowchart TB
   top -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
+  plot -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b>"| der
+  plot -->|"RateData"| data
+  plot -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
@@ -52,7 +57,7 @@ flowchart TB
   fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
-  class top,dsl,enum,fit,der,data,mech mod;
+  class top,dsl,plot,enum,fit,der,data,mech mod;
 ```
 
 ★ bold: exported by EnzymeRates. Arrows carry every name one module takes from another;
@@ -95,6 +100,14 @@ expansion moves and the structural filters that prune the search.
 `@allosteric_mechanism`, and `parse_mechanism`, which reads a mechanism's printed text
 back. It hides the parser. The macros run the guard, so they cannot live in `Mechanisms`.
 
+**`Plotting`** draws a rate equation over the rates it was fitted to, with
+`plot_rate_equation_on_data`. It hides the preparation of each panel: the choice of x
+axis, the series, the curves and their scaling, and the labels. The package extension
+`ext/EnzymeRatesMakieExt.jl`, which Julia loads with Makie, draws the panels, so loading
+EnzymeRates alone never loads Makie. The extension defines
+`draw_rate_equation_panels(panels; columns, figure, axis)`, which
+`plot_rate_equation_on_data` calls through `Base.get_extension` with the panels it prepared.
+
 **The top level** (`src/EnzymeRates.jl`, `src/identify_rate_equation.jl`) holds
 `identify_rate_equation` and the exports. It hides the beam search, the one fit per rate
 law, cross-validation and the CSV output.
@@ -111,6 +124,7 @@ EnzymeRates.Derivation
 EnzymeRates.Fitting
 EnzymeRates.Enumeration
 EnzymeRates.DSL
+EnzymeRates.Plotting
 ```
 
 ### Interfaces
@@ -123,7 +137,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 
 | Name | What it does | Used by | Exported |
 |:-----|:-------------|:--------|:---------|
-| `RateData` | A checked rate table with `Keq` and its anchors | Fitting, top level | |
+| `RateData` | A checked rate table with `Keq` and its anchors | Fitting, Plotting, top level | |
 
 **`Mechanisms`**
 
@@ -133,20 +147,21 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `Reactant` | A substrate or product with its atoms | DSL | |
 | `Regulator` | A declared regulator with its kind and effect | DSL | |
 | `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | |
-| | | Fitting, top level | |
+| | | Fitting, Plotting, top level | |
 | `AllostericMechanism` | A `Mechanism` with MWC tags and sites | DSL, Derivation, | |
-| | | Enumeration, Fitting, top level | |
+| | | Enumeration, Fitting, Plotting, top level | |
 | `EnzymeForm` | An enzyme form | DSL, Enumeration | |
 | `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
 | `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
-| `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, top level | |
+| `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, Plotting, | |
+| | | top level | |
 | `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, Fitting, top level | ✓ |
 | `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, Fitting, top level | ✓ |
 | `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, | |
-| | | top level | |
+| | | Plotting, top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
-| | | Fitting, top level | |
+| | | Fitting, Plotting, top level | |
 | `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration, Fitting | |
 | `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
@@ -164,12 +179,12 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 
 | Name | What it does | Used by | Exported |
 |:-----|:-------------|:--------|:---------|
-| `rate_equation` | Evaluates the rate law, allocation-free | Fitting, top level | ✓ |
+| `rate_equation` | Evaluates the rate law, allocation-free | Fitting, Plotting, top level | ✓ |
 | `rate_equation_string` | The rate law as text | top level | ✓ |
-| `parameters` | Parameter names by kind | Fitting, top level | ✓ |
+| `parameters` | Parameter names by kind | Fitting, Plotting, top level | ✓ |
 | `dependent_parameter_values` | The dependent constants' values from the independent ones | top level | ✓ |
 | `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
-| `FittedParameters` | Kind: the constants a fit estimates | Fitting, top level | ✓ |
+| `FittedParameters` | Kind: the constants a fit estimates | Fitting, Plotting, top level | ✓ |
 | `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
 | `StepParameter` | A constant of a step: its step, slot and conformation | Fitting | |
 | `RegulatorParameter` | A regulator ligand's constant in one conformation | Fitting | |
@@ -204,6 +219,12 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `@enzyme_mechanism` | Builds, checks and compiles a mechanism | top level | ✓ |
 | `@allosteric_mechanism` | Builds, checks and compiles an MWC mechanism | top level | ✓ |
 | `parse_mechanism` | Reads a mechanism's printed text back | | |
+
+**`Plotting`**
+
+| Name | What it does | Used by | Exported |
+|:-----|:-------------|:--------|:---------|
+| `plot_rate_equation_on_data` | Draws a rate equation over its data, a panel per group | top level | ✓ |
 
 **The top level**
 

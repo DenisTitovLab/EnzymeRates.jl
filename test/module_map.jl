@@ -1,12 +1,12 @@
 # ABOUTME: Parses src/ for the module boundary tests (cross-module uses, public names,
 # ABOUTME: exports) and generates the module map and the module table from them.
 
-# The six submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
+# The submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
-    :DSL)
+    :DSL, :Plotting)
 
 # The modules each module may name through `Module.name`. The top level (files outside
-# src/<Module>/, owner :EnzymeRates) may name all six.
+# src/<Module>/, owner :EnzymeRates) may name all of them.
 const _testhelper_LAYERS = Dict(
     :Data => Symbol[],
     :Mechanisms => Symbol[],
@@ -14,6 +14,7 @@ const _testhelper_LAYERS = Dict(
     :Enumeration => [:Mechanisms, :Derivation],
     :Fitting => [:Mechanisms, :Derivation, :Data],
     :DSL => [:Mechanisms, :Derivation],
+    :Plotting => [:Mechanisms, :Derivation, :Data],
 )
 
 """Calls `visit(ex, line)` on every `Expr` below `ex`, children before parents; `line` is
@@ -28,7 +29,7 @@ function _testhelper_walk(visit, ex, line = Ref(0))
     end
 end
 
-"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the six modules), else
+"""The module `M` of a `M.name` or `EnzymeRates.M.name` node (one of the submodules), else
 `nothing`. A node of one argument (`using X: name` lists) is no `M.name`, nor is a quoted
 path that interpolates its name (`:(M.\$T)`)."""
 function _testhelper_module_head(ex)
@@ -42,7 +43,7 @@ function _testhelper_module_head(ex)
 end
 
 """`(module, name)` for each name that a `using Path.Mod: a, b` or `import Path.Mod: a`
-statement takes from one of the six modules; `Mod` itself is no use."""
+statement takes from one of the submodules; `Mod` itself is no use."""
 function _testhelper_imported_names(ex)
     (length(ex.args) == 1 && ex.args[1] isa Expr && ex.args[1].head === :(:)) || return []
     path, items... = ex.args[1].args
@@ -52,7 +53,7 @@ function _testhelper_imported_names(ex)
     [(mod, name) for name in names if name !== mod]
 end
 
-"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the six
+"""`(module, name, line)` for each `Mod.name` in the source text, `Mod` one of the
 modules (also written `EnzymeRates.Mod.name`), and for each name imported from one. A type
 annotation `x::Mod.T` and a method extension `function Mod.f(...)` are uses of `T` and
 `f`."""
@@ -169,7 +170,7 @@ const _testhelper_MAP_HEADER = """
       "lineColor": "#777777", "edgeLabelBackground": "#ffffff", "clusterBkg": "#eaf2ee",
       "clusterBorder": "#666666", "titleColor": "#1f4f42"}}}%%
     """
-const _testhelper_MAP_BOXES = (:EnzymeRates => "top", :DSL => "dsl",
+const _testhelper_MAP_BOXES = (:EnzymeRates => "top", :DSL => "dsl", :Plotting => "plot",
     :Enumeration => "enum", :Fitting => "fit", :Derivation => "der", :Data => "data",
     :Mechanisms => "mech")
 

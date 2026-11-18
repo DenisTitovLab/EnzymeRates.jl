@@ -8,7 +8,7 @@ reader needs and cannot see), and it grows a little with every careless change. 
 code is not enough: each change, a bug fix included, leaves the code it touches simpler
 than it found it.
 
-Deep modules keep complexity down. `src/` is six modules, each with a small interface and
+Deep modules keep complexity down. `src/` is a few modules, each with a small interface and
 its complexity inside, so that using a module, or fixing a bug in another one, needs only
 its interface and not how it works. The same holds for a function: a deep function does a
 lot behind a simple signature.
@@ -31,6 +31,7 @@ the part for a module before changing its internals.
 |:--|:--|:--|:--|
 | EnzymeRates (top level) | Finds the best mechanism for a reaction from measured rates. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` | all |
 | DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, ★ `@allosteric_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
+| Plotting | Draws a rate equation over measured rates. | ★ `plot_rate_equation_on_data` | Mechanisms, Derivation, Data |
 | Enumeration | Generates candidate mechanisms for a reaction. | `expand_mechanisms`, `starting_mechanisms` | Mechanisms, Derivation |
 | Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
 | Derivation | Derives a mechanism's rate equation and compiles it. | ★ `rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, ★ `IndependentParameters`, ★ `FittedParameters`, ★ `AllParameters`, `AllostericParameter`, `RegulatorParameter`, `StepParameter`, `check_valid_rate_equation`, `fitted_parameter_count`, `name`, `parameter_info`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |

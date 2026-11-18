@@ -16,12 +16,12 @@ A rate table that has passed its checks, with the constants that go with it.
 - `reference`: the anchors `concentrations => turnover` that set a relative fit's scale,
   with Float64 turnovers; empty in absolute mode and when a relative table gives none
 
-`Keq` must be positive and finite, the table needs a `group` column, a `Rate` column and
-one column per name in `metabolite_names`, no metabolite may be named `group` or `Rate`,
-every concentration must be a finite number ≥ 0 (zero is valid), and every rate must be a
-finite, nonzero number (the loss takes its log). In relative mode `reference` is optional
-and, when given, checked against `metabolite_names` of the `owner` (`"mechanism"` or
-`"reaction"`); in absolute mode it must be `nothing`.
+`Keq` must be positive and finite, the table needs at least one row, a `group` column, a
+`Rate` column and one column per name in `metabolite_names`, no metabolite may be named
+`group` or `Rate`, every concentration must be a finite number ≥ 0 (zero is valid), and
+every rate must be a finite, nonzero number (the loss takes its log). In relative mode
+`reference` is optional and, when given, checked against `metabolite_names` of the `owner`
+(`"mechanism"` or `"reaction"`); in absolute mode it must be `nothing`.
 """
 struct RateData{D<:NamedTuple}
     data::D
@@ -46,6 +46,7 @@ function _rate_table(table, mnames, Keq)
                                "column; rename the metabolite")
         req in keys(data) || error("Missing required column: $req")
     end
+    isempty(data.Rate) && error("Table has no rows")
     for m in mnames
         m in keys(data) || error("Missing metabolite column: $m")
         i = findfirst(c -> !(c isa Real && isfinite(c) && c >= 0), data[m])
