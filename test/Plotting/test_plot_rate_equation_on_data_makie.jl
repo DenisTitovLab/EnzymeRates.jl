@@ -101,6 +101,16 @@ end
             @test_throws(ArgumentError("columns must be at least 1; got $columns"),
                 _testhelper_makie_plot(; columns))
         end
+        # A wrong `rate` or `params` is refused by the exported function itself.
+        rate(concs, p) = p[1] * concs.A
+        for arguments in (("A", _testhelper_plot_params), (rate, [1.0]))
+            refusal = try
+                plot_rate_equation_on_data(arguments..., _testhelper_makie_table)
+            catch err
+                err
+            end
+            @test refusal isa MethodError && refusal.f === plot_rate_equation_on_data
+        end
     end
 
     @testset "global theme unchanged" begin

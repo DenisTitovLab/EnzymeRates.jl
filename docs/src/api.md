@@ -20,7 +20,7 @@ fit_rate_equation(::FittingProblem, ::Any)
 identify_rate_equation(::IdentifyRateEquationProblem)
 metabolites(::M) where M<:Mechanisms.AbstractEnzymeMechanism
 parameters(::Any)
-plot_rate_equation_on_data(::Any, ::Any, ::Any)
+plot_rate_equation_on_data(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism, Function}, ::NamedTuple, ::Any)
 dependent_parameter_values(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism}, ::NamedTuple)
 rate_equation(::M_type, ::NamedTuple, ::NamedTuple) where M_type<:Mechanisms.AbstractEnzymeMechanism
 rate_equation_string(::Union{AllostericMechanism, Mechanism})

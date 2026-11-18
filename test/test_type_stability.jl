@@ -47,8 +47,7 @@ include("type_stability_harness.jl")
     draws_a_figure = (;
         reason = "prepares a figure from a mechanism it does not specialize on and draws " *
                  "it through the Makie extension, once per call",
-        functions = [:plot_rate_equation_on_data, :rate_equation_panels,
-                     :_rate_at_params])
+        functions = [:plot_rate_equation_on_data, :rate_equation_panels])
     exemption_sets = (error_messages, value_to_type, solver_boundary, pmap_and_tables,
                       expr_walk, prints_to_stdout, checks_user_input, draws_a_figure)
 
@@ -264,8 +263,12 @@ include("type_stability_harness.jl")
     @testset "plot_rate_equation_on_data" begin
         # It takes a `@nospecialize` mechanism and parameters, so this is what compiles. The
         # row reads the same whether or not a Makie backend is loaded.
-        @_testhelper_dispatches_in draws_a_figure plot_rate_equation_on_data(
-            ::Any, ::NamedTuple, plain_table)
+        @_testhelper_dispatches_in(
+            value_to_type, draws_a_figure,
+            plot_rate_equation_on_data(
+                ::Union{Mech.AbstractEnzymeMechanism, EnzymeRates.Mechanism,
+                        EnzymeRates.AllostericMechanism, Function},
+                ::NamedTuple, plain_table))
     end
 
     # ── What the rows must cover ──────────────────────────────────────────────

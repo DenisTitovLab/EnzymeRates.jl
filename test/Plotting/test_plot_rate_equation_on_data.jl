@@ -301,9 +301,9 @@ _testhelper_plot_exp1(; factor = 3.0) =
     end
 
     @testset "a rate function in place of a mechanism" begin
-        # Michaelis–Menten with a competitive inhibitor, its constants in a vector.
-        rate(concs, p) = p[1] * concs.S / (p[2] * (1 + concs.I / p[3]) + concs.S)
-        params = [2.0, 3e-4, 1e-3]
+        # Michaelis–Menten with a competitive inhibitor.
+        rate(concs, p) = p.V * concs.S / (p.K * (1 + concs.I / p.Ki) + concs.S)
+        params = (V = 2.0, K = 3e-4, Ki = 1e-3)
         rows = [(S = s, I = i) for i in (0.0, 1e-3) for s in (1e-4, 2e-4, 5e-4)]
         table = (group = fill("g", 6), S = [r.S for r in rows], I = [r.I for r in rows],
                  Rate = [3 * rate(r, params) for r in rows])

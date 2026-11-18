@@ -95,7 +95,7 @@ function _rate_at_params(@nospecialize(m::_AnyMechanism),
 end
 
 # A rate function holds its own Keq, so the table is checked with a placeholder.
-_rate_at_params(rate::Function, @nospecialize(params)) =
+_rate_at_params(rate::Function, @nospecialize(params::NamedTuple)) =
     (concs -> rate(concs, params), (), 1.0)
 
 _compiled(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism)) = m
@@ -168,15 +168,16 @@ fig = plot_rate_equation_on_data(michaelis_menten, (Vmax = 2.0, Km = 1e-4), data
   `rate_equation(m, concentrations, params)`; or a function, which draws
   `rate(concentrations, params)`. `concentrations` is a `NamedTuple` of one row's
   concentrations, one per concentration column of `table`.
-- `params`: with a mechanism, a `NamedTuple` that holds every name of
+- `params`: a `NamedTuple`. With a mechanism, it holds every name of
   `parameters(m, FittedParameters())` and `Keq`, as a fit's `params` does; other names
-  are ignored. With a function, any value; the function receives it as given.
-- `table`: a `group` column, a `Rate` column and concentration columns. Every other
-  column is a concentration, so remove columns that hold anything else, such as a pH or
-  a source name. A mechanism needs a column for each of its metabolites and ignores the
-  concentrations of metabolites it does not bind; the panels still show them, so that
-  measurements differing only in one of them are not drawn as one series. The table must
-  pass the checks of `FittingProblem`.
+  are ignored. A function receives it as given.
+- `table`: a Tables.jl table, such as a `DataFrame`, a `NamedTuple` of columns or the
+  result of `CSV.File`, with a `group` column, a `Rate` column and concentration
+  columns. Every other column is a concentration, so remove columns that hold anything
+  else, such as a pH or a source name. A mechanism needs a column for each of its
+  metabolites and ignores the concentrations of metabolites it does not bind; the panels
+  still show them, so that measurements differing only in one of them are not drawn as
+  one series. The table must pass the checks of `FittingProblem`.
 - `absolute`: `false` for rates relative within each group, `true` for absolute
   per-enzyme turnover rates.
 - `concentration_unit`: the unit of the table's concentrations. With `"M"`, each x axis
@@ -217,7 +218,8 @@ largest.
 - The errors `FittingProblem` raises for a table it rejects, with every column but `group`
   and `Rate` checked as a concentration.
 """
-function plot_rate_equation_on_data(@nospecialize(rate), @nospecialize(params), table;
+function plot_rate_equation_on_data(@nospecialize(rate::Union{_AnyMechanism, Function}),
+                                    @nospecialize(params::NamedTuple), table;
                                     absolute::Bool = false,
                                     concentration_unit::AbstractString = "M",
                                     columns::Integer = 5, figure::NamedTuple = (;),
