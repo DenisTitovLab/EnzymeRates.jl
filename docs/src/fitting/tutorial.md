@@ -43,12 +43,13 @@ end
 metabolites(uni_uni)
 ```
 
-A missing required column, a missing metabolite column, a metabolite named `group` or
-`Rate`, a zero, non-finite or missing `Rate`, a concentration that is not a finite
-number ≥ 0, a `Keq` that is not positive and finite, a `reference` passed with
-`absolute = true`, or a `reference` that names an unknown metabolite, has a concentration
-that is not a finite number ≥ 0, or has a zero or non-finite turnover each raises an
-`ErrorException` at construction — the check runs before any fitting.
+A table with no rows, a missing required column, a missing metabolite column, a
+metabolite named `group` or `Rate`, a zero, non-finite or missing `Rate`, a
+concentration that is not a finite number ≥ 0, a `Keq` that is not positive and finite,
+a `reference` passed with `absolute = true`, or a `reference` that names an unknown
+metabolite, has a concentration that is not a finite number ≥ 0, or has a zero or
+non-finite turnover each raises an `ErrorException` at construction — the check runs
+before any fitting.
 
 ## Building the `FittingProblem`
 
@@ -116,6 +117,9 @@ result.retcode isa Symbol
 result.params
 ```
 
+`result.params` holds the fitted constants and the problem's `Keq`, so it can go to
+`plot_rate_equation_on_data` as it is, and to `rate_equation` once `E_total` is merged in.
+
 The fit runs `n_restarts` independent optimizations from random initial points
 and returns the best. Multiple restarts are necessary because finding the global
 minimum of an enzyme rate-equation fit is NP-hard — any single optimization can
@@ -141,3 +145,51 @@ In relative mode (the default), the returned `params` are scaled so the mechanis
 reproduces the `reference` turnovers. [Normalized vs absolute rate](@ref) explains the
 scale without a `reference`, absolute mode, and how to score a fit on other data;
 [Loss & optimizers](@ref) covers the loss function and how to supply your own optimizer.
+
+## Plotting the fit on the data
+
+`plot_rate_equation_on_data` draws the fitted rate equation over the measured rates, one
+panel per `group`. In a panel the x axis is the metabolite with the most distinct
+concentrations in that group, and each combination of the other metabolites'
+concentrations is a series with its own colour and marker. It never fits: it draws the
+rate equation at the parameters you pass, which hold `Keq` as a fit's `params` does. It
+needs a Makie backend, loaded here with `using CairoMakie`.
+
+```@example fitting
+using CairoMakie
+
+fig = plot_rate_equation_on_data(uni_uni, result.params, data)
+save("fit_on_data.png", fig)
+nothing # hide
+```
+
+![The fitted rate equation drawn as curves over the measured rates of group G1, one curve and marker style per concentration of P](fit_on_data.png)
+
+By default (`absolute = false`) each group's curves are multiplied by one factor, the
+geometric mean of the measured-to-predicted ratios, as the fitting loss does, so curves
+show the shape of the fit and not the raw prediction. The keywords `figure` and `axis` pass
+options to the `Makie.Figure` and to every panel's axis, for example
+`axis = (; xscale = log10)`. `concentration_unit` is the unit of the concentration
+columns; with the default `"M"`, the axis and legend show concentrations in M, mM, µM or
+nM, whichever fits, and any other unit is shown as given.
+
+Every column of the table other than `group` and `Rate` is taken as a concentration, so
+remove columns that hold anything else, such as a pH or a source name. A mechanism ignores
+the concentrations of metabolites it does not bind, such as a regulator left out of it,
+but the panels still show them: measurements that differ only in such a metabolite are
+separate series that share one curve, which shows that the rate equation misses its
+effect.
+
+To draw a rate equation of your own in place of a mechanism's, pass a function of the
+concentrations and the parameters. It receives one row's concentrations as a `NamedTuple`,
+and the parameters as you gave them, in any form.
+
+```@example fitting
+reversible_michaelis_menten(concentrations, params) =
+    params.Vmax * (concentrations.S - concentrations.P / params.Keq) /
+    (params.Km + concentrations.S + concentrations.P)
+
+fig = plot_rate_equation_on_data(reversible_michaelis_menten,
+    (Vmax = 5.0, Km = 1.0, Keq = 2.0), data)
+nothing # hide
+```

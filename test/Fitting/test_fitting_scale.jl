@@ -117,7 +117,7 @@ using OptimizationCMAEvolutionStrategy
                                 maxiters = 20)
         @test fit.loss == Inf
         @test fit.retcode === :ReferenceFailed
-        @test keys(fit.params) == parameters(bibi, FittedParameters())
+        @test keys(fit.params) == (parameters(bibi, FittedParameters())..., :Keq)
         @test all(v -> isfinite(v) && v > 0, values(fit.params))
     end
 
@@ -173,32 +173,34 @@ using OptimizationCMAEvolutionStrategy
                                 CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 20)
         @test fit.retcode === :ReferenceFailed
         @test fit.loss == Inf
-        @test keys(fit.params) == parameters(mm, FittedParameters())
+        @test keys(fit.params) == (parameters(mm, FittedParameters())..., :Keq)
         @test all(v -> isfinite(v) && v > 0, values(fit.params))
     end
 
     @testset "test_rate_equation is the fitting loss" begin
         fit = fit_rate_equation(FittingProblem(mm, mm_data; Keq = 2.0),
                                 CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 50)
-        @test test_rate_equation(mm, fit.params, mm_data; Keq = 2.0) ≈ fit.loss
-        # Names beyond the mechanism's fitted parameters are ignored.
-        @test test_rate_equation(mm, merge(fit.params, (Keq = 2.0, E_total = 1.0)),
-                                 mm_data; Keq = 2.0) ≈ fit.loss
+        @test fit.params.Keq == 2.0
+        @test test_rate_equation(mm, fit.params, mm_data) ≈ fit.loss
+        # Names beyond the mechanism's fitted parameters and Keq are ignored.
+        @test test_rate_equation(mm, merge(fit.params, (E_total = 1.0,)), mm_data) ≈
+              fit.loss
         # The concrete mechanism gives the same loss.
-        @test test_rate_equation(EnzymeRates.Mechanism(mm), fit.params, mm_data;
-                                 Keq = 2.0) ≈ fit.loss
+        @test test_rate_equation(EnzymeRates.Mechanism(mm), fit.params, mm_data) ≈
+              fit.loss
         # Absolute mode scores the magnitude: the true constants fit the data exactly,
         # constants ten times as fast do not.
         truth = _testhelper_mm_params(1.0)
-        exact = test_rate_equation(mm, truth, mm_data; Keq = 2.0, absolute = true)
+        exact = test_rate_equation(mm, truth, mm_data; absolute = true)
         @test exact ≈ 0 atol = 1e-20
-        fast = NamedTuple{(:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)}(
-            10 .* values(truth)[1:3])
-        @test test_rate_equation(mm, fast, mm_data; Keq = 2.0, absolute = true) > 1
-        missing_one = Base.structdiff(fit.params, NamedTuple{(:k_ES_to_E_S,)}((0.0,)))
-        err = @test_throws ErrorException test_rate_equation(mm, missing_one, mm_data;
-                                                             Keq = 2.0)
-        @test occursin("k_ES_to_E_S", err.value.msg)
+        fast = NamedTuple{(:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES, :Keq)}(
+            (10 .* values(truth)[1:3]..., truth.Keq))
+        @test test_rate_equation(mm, fast, mm_data; absolute = true) > 1
+        for absent in (:k_ES_to_E_S, :Keq)
+            without = Base.structdiff(fit.params, NamedTuple{(absent,)}((0.0,)))
+            @test_throws ErrorException("params is missing $absent") test_rate_equation(
+                mm, without, mm_data)
+        end
     end
 
 end

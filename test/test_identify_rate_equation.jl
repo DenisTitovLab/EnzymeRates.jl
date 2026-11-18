@@ -31,6 +31,10 @@ end)
 
 # A BatchEntry of the uni seed with rate-law key `key`; selection reads only the key, the
 # loss and the count.
+# The fitted constants of `params` as `loss!` takes them; a fit's `params` also hold Keq.
+_testhelper_log_fitted(m, params) =
+    Float64[log(params[k]) for k in parameters(m, FittedParameters())]
+
 _testhelper_entry(key, loss, n = 3) =
     EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss, :Success, key, key, (;))
 
@@ -764,10 +768,33 @@ end
     g2 = map(col -> col[data.group .== "G2"], data)
     fit = fit_rate_equation(FittingProblem(em, g1; Keq = 2.0, reference),
                             optimizer; fit_options...)
-    expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+    expected = EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
         FittingProblem(em, g2; Keq = 2.0, reference))
     @test cv isa Float64
     @test cv == expected
+end
+
+# `FittingProblem` groups rows with `isequal`, so a blank (`missing`) or NaN group is a group.
+@testset "_cross_validation_loss holds out a missing or NaN group" begin
+    em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
+    optimizer = CMAEvolutionStrategyOpt()
+    fit_options = (; n_restarts = 1, maxiters = 50)
+    @testset "held out $shown" for (blank, shown) in ((missing, "missing"), (NaN, "NaN"))
+        data = (group = [blank, blank, 2.0, 2.0], Rate = [0.5, 0.8, 1.0, 1.1],
+                S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
+        reference = _testhelper_row_reference(data)
+        Random.seed!(7)
+        cv = EnzymeRates._cross_validation_loss(em, data, blank;
+            Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+        Random.seed!(7)
+        held = isequal.(data.group, blank)
+        fit = fit_rate_equation(
+            FittingProblem(em, map(col -> col[.!held], data); Keq = 2.0, reference),
+            optimizer; fit_options...)
+        expected = EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
+            FittingProblem(em, map(col -> col[held], data); Keq = 2.0, reference))
+        @test cv == expected
+    end
 end
 
 @testset "a fold whose reference fails scores the unscaled fit" begin
@@ -789,7 +816,7 @@ end
                             optimizer; fit_options...)
     @test fit.retcode === :ReferenceFailed
     @test isfinite(cv)
-    @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+    @test cv == EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
         FittingProblem(em, g2; Keq = 2.0, reference))
 end
 
@@ -808,7 +835,7 @@ end
     on(g) = map(col -> col[data.group .== g], data)
     fit = fit_rate_equation(FittingProblem(em, on("G2"); Keq=10.0, absolute=true),
                             optimizer; fit_options...)
-    @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+    @test cv == EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
         FittingProblem(em, on("G1"); Keq=10.0, absolute=true))
 end
 

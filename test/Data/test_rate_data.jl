@@ -84,6 +84,9 @@
             (group = ["G1"], Rate = [0.0], S = [1.0], P = [0.1]))
         @test_throws ErrorException _testhelper_rate_data(
             (Rate = [1.0], S = [1.0], P = [0.1]))
+        # With no rows the loss would divide 0 by 0.
+        @test_throws(ErrorException("Table has no rows"), _testhelper_rate_data(
+            (group = String[], Rate = Float64[], S = Float64[], P = Float64[])))
 
         # A non-finite, missing or non-numeric rate: the error names the Rate column and
         # the row, and shows the value as Julia prints it, so a String rate is quoted.
