@@ -146,9 +146,9 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `Reactant` | A substrate or product with its atoms | DSL | |
 | `Regulator` | A declared regulator with its kind and effect | DSL | |
 | `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | |
-| | | Fitting, top level | |
+| | | Fitting, Plotting, top level | |
 | `AllostericMechanism` | A `Mechanism` with MWC tags and sites | DSL, Derivation, | |
-| | | Enumeration, Fitting, top level | |
+| | | Enumeration, Fitting, Plotting, top level | |
 | `EnzymeForm` | An enzyme form | DSL, Enumeration | |
 | `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
 | `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |

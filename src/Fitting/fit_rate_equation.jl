@@ -236,7 +236,7 @@ In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
 `retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
 
 Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
-- `params`: fitted rate constants as a NamedTuple
+- `params`: the fitted rate constants, then the problem's `Keq`, as a NamedTuple
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
   `:Success` indicates the optimizer converged on its own criteria; any other
@@ -296,13 +296,14 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
         end
     end
 
-    result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
+    result_params = merge(NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np))),
+                          (Keq = fp.rate_data.Keq,))
     at_bound = isfinite(best_loss) ?
         Tuple(pnames[i] for i in 1:np
               if min(best_x[i] - lb[i], ub[i] - best_x[i]) <= AT_BOUND_TOLERANCE) : ()
     (fp.rate_data.absolute || !isfinite(best_loss)) &&
         return (params = result_params, loss = best_loss, retcode = best_retcode, at_bound)
-    scale = _reference_scale(fp, merge(result_params, (Keq = fp.rate_data.Keq,)))
+    scale = _reference_scale(fp, result_params)
     scale === nothing &&
         return (params = result_params, loss = Inf, retcode = :ReferenceFailed, at_bound)
     return (params = _scale_rate_constants(fp.mechanism, result_params, scale),
@@ -434,27 +435,27 @@ function _reference_scale(@nospecialize(fp::FittingProblem),
 end
 
 """
-    test_rate_equation(m, params::NamedTuple, table; Keq, absolute = false) -> Float64
+    test_rate_equation(m, params::NamedTuple, table; absolute = false) -> Float64
 
-The fitting loss of mechanism `m` at the rate constants `params` on `table`: the loss
+The fitting loss of mechanism `m` at the constants `params` on `table`: the loss
 `fit_rate_equation` minimizes, for scoring a fit on data it did not see. `params` must
-hold every name of `parameters(m, FittedParameters())`, as a fit's `params` does; other
-names are ignored. `table` has the columns `FittingProblem` needs. `Keq` is the fixed
-equilibrium constant. With `absolute = false` (the default) the loss centers each group's
-log-ratios, so it does not depend on the scale of `params`; with `absolute = true` it
-scores the absolute turnover.
+hold every name of `parameters(m, FittedParameters())` and `Keq`, as a fit's `params`
+does; other names are ignored. `table` has the columns `FittingProblem` needs. With
+`absolute = false` (the default) the loss centers each group's log-ratios, so it does not
+depend on the scale of `params`; with `absolute = true` it scores the absolute turnover.
 
 ```julia
 fit = fit_rate_equation(FittingProblem(m, train; Keq = 2.0), optimizer)
-EnzymeRates.test_rate_equation(m, fit.params, test; Keq = 2.0)
+EnzymeRates.test_rate_equation(m, fit.params, test)
 ```
 """
 function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple), table;
-                            Keq::Real, absolute::Bool = false)
-    fp = FittingProblem(m, table; Keq, absolute)
+                            absolute::Bool = false)
+    haskey(params, :Keq) || error("params is missing Keq")
+    fp = FittingProblem(m, table; Keq = params.Keq, absolute)
     names = Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
     for name in names
-        haskey(params, name) || error("params is missing the fitted parameter $name")
+        haskey(params, name) || error("params is missing $name")
     end
     loss!(Float64[log(params[name]) for name in names], fp)
 end

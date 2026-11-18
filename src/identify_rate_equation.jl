@@ -1072,7 +1072,7 @@ function _cross_validation_loss(
         _fold_problem(mechanism, data, .!held; Keq, absolute, reference),
         optimizer; kwargs...)
     test_loss = test_rate_equation(mechanism, fit.params, map(col -> col[held], data);
-                                   Keq, absolute)
+                                   absolute)
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
     # the fit).

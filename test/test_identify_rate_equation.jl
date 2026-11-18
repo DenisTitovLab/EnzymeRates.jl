@@ -31,6 +31,10 @@ end)
 
 # A BatchEntry of the uni seed with rate-law key `key`; selection reads only the key, the
 # loss and the count.
+# The fitted constants of `params` as `loss!` takes them; a fit's `params` also hold Keq.
+_testhelper_log_fitted(m, params) =
+    Float64[log(params[k]) for k in parameters(m, FittedParameters())]
+
 _testhelper_entry(key, loss, n = 3) =
     EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss, :Success, key, key, (;))
 
@@ -764,7 +768,7 @@ end
     g2 = map(col -> col[data.group .== "G2"], data)
     fit = fit_rate_equation(FittingProblem(em, g1; Keq = 2.0, reference),
                             optimizer; fit_options...)
-    expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+    expected = EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
         FittingProblem(em, g2; Keq = 2.0, reference))
     @test cv isa Float64
     @test cv == expected
@@ -787,7 +791,7 @@ end
         fit = fit_rate_equation(
             FittingProblem(em, map(col -> col[.!held], data); Keq = 2.0, reference),
             optimizer; fit_options...)
-        expected = EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+        expected = EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
             FittingProblem(em, map(col -> col[held], data); Keq = 2.0, reference))
         @test cv == expected
     end
@@ -812,7 +816,7 @@ end
                             optimizer; fit_options...)
     @test fit.retcode === :ReferenceFailed
     @test isfinite(cv)
-    @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+    @test cv == EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
         FittingProblem(em, g2; Keq = 2.0, reference))
 end
 
@@ -831,7 +835,7 @@ end
     on(g) = map(col -> col[data.group .== g], data)
     fit = fit_rate_equation(FittingProblem(em, on("G2"); Keq=10.0, absolute=true),
                             optimizer; fit_options...)
-    @test cv == EnzymeRates.Fitting.loss!([log(v) for v in fit.params],
+    @test cv == EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
         FittingProblem(em, on("G1"); Keq=10.0, absolute=true))
 end
 

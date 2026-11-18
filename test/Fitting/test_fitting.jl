@@ -570,12 +570,12 @@ end
                 fit_rate_equation(fp, opt; n_restarts, maxtime=0.5)
             end
             @test keys(res) == (:params, :loss, :retcode, :at_bound)
-            @test keys(res.params) == parameters(uni_uni, FittedParameters())
+            @test keys(res.params) == (parameters(uni_uni, FittedParameters())..., :Keq)
+            @test res.params.Keq == Keq_val
             @test isfinite(res.loss)
             @test res.retcode isa Symbol
             concs, turnover = only(reference)
-            @test rate_equation(uni_uni, concs,
-                                merge(res.params, (Keq = Keq_val, E_total = 1.0))) ≈
+            @test rate_equation(uni_uni, concs, merge(res.params, (E_total = 1.0,))) ≈
                   turnover rtol=1e-9
         end
     end
@@ -584,6 +584,7 @@ end
     @testset "reference scale, failed reference and absolute mode on known constants" begin
         data = _testhelper_make_synthetic_data(uni_uni, true_params, concs5)
         pn = parameters(uni_uni, FittedParameters())
+        unscaled = NamedTuple{(pn..., :Keq)}((1.0, 1.0, 1.0, Keq_val))
         _testhelper_stub_fit(u; kwargs...) = fit_rate_equation(
             FittingProblem(uni_uni, data; Keq=Keq_val, kwargs...),
             _testhelper_ConstantStubOpt(u); n_restarts=1)
@@ -592,29 +593,31 @@ end
         # scales every fitted constant, each a rate constant, by 6.
         rel = _testhelper_stub_fit(0.0; reference=[(S = 1.0,) => 2.0])
         @test keys(rel) == (:params, :loss, :retcode, :at_bound)
-        @test all(v -> isapprox(v, 6.0; rtol=1e-12), values(rel.params))
+        @test keys(rel.params) == (pn..., :Keq)
+        @test all(k -> isapprox(rel.params[k], 6.0; rtol=1e-12), pn)
+        @test rel.params.Keq == Keq_val
         @test rel.retcode === :Success && isfinite(rel.loss)
         # The product alone runs the law backwards, against a forward reference turnover:
         # no factor matches it, so the fit fails without throwing and keeps its constants.
         wrong_sign = _testhelper_stub_fit(0.0; reference=[(P = 1.0,) => 1.0])
-        @test wrong_sign.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test wrong_sign.params == unscaled
         @test wrong_sign.loss == Inf && wrong_sign.retcode === :ReferenceFailed
         # At exp(-700) every product of two constants underflows to zero, so the law
         # predicts zero turnover at the reference: the fit fails the same way.
         tiny = _testhelper_stub_fit(-700.0; reference=[(S = 1.0,) => 2.0])
-        @test all(==(exp(-700.0)), values(tiny.params))
+        @test all(k -> tiny.params[k] == exp(-700.0), pn)
         @test tiny.loss == Inf && tiny.retcode === :ReferenceFailed
         # With no finite restart the fit returns before the reference step, so its retcode
         # says so even where the reference would fail.
         no_finite = fit_rate_equation(
             FittingProblem(uni_uni, data; Keq=Keq_val, reference=[(P = 1.0,) => 1.0]),
             _testhelper_ConstantStubOpt(0.0; infinite=true); n_restarts=1)
-        @test no_finite.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test no_finite.params == unscaled
         @test no_finite.loss == Inf && no_finite.retcode === :NoFiniteLoss
         # Absolute mode returns the fitted constants as they are.
         absolute_fit = _testhelper_stub_fit(0.0; absolute=true)
         @test keys(absolute_fit) == (:params, :loss, :retcode, :at_bound)
-        @test absolute_fit.params == NamedTuple{pn}((1.0, 1.0, 1.0))
+        @test absolute_fit.params == unscaled
     end
 
     # ── solver-option forwarding (named commons + solver_kwargs) ──

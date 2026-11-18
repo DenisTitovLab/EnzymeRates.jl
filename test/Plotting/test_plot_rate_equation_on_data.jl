@@ -5,11 +5,10 @@ using Test
 using EnzymeRates
 using EnzymeRates.Plotting: rate_equation_panels
 
-function _testhelper_plot_panels(table; absolute = false, unit = "M", xscale = identity,
-                                 metabolites_not_in_mechanism = ())
-    rate_equation_panels(_testhelper_plot_m, _testhelper_plot_params, table;
-        Keq = _testhelper_plot_keq, absolute, concentration_unit = unit, xscale,
-        metabolites_not_in_mechanism)
+function _testhelper_plot_panels(table; rate = _testhelper_plot_m,
+                                 params = _testhelper_plot_params, absolute = false,
+                                 unit = "M", xscale = identity)
+    rate_equation_panels(rate, params, table; absolute, concentration_unit = unit, xscale)
 end
 
 # Group "exp_1": A at four values for each B in (1e-3, 2e-3), Q = 5e-5, P = 0.
@@ -251,10 +250,7 @@ _testhelper_plot_exp1(; factor = 3.0) =
         rates = predicted .* [fill(2.0, 3); fill(0.5, 3)]
         table = merge(_testhelper_plot_table(fill("g", 6), rows; rates), (I = inhibitor,))
 
-        merged = only(_testhelper_plot_panels(table))
-        @test length(merged.series) == 1
-
-        p = only(_testhelper_plot_panels(table; metabolites_not_in_mechanism = (:I,)))
+        p = only(_testhelper_plot_panels(table))
         @test p.x_label == "A (µM)"
         @test p.legend_title == "I"
         @test p.fixed_concentrations == ["B 1 mM"]
@@ -268,13 +264,9 @@ _testhelper_plot_exp1(; factor = 3.0) =
         @test p.series[1].curve_rate ≈ expected rtol = 1e-10
         @test p.series[2].curve_rate == p.series[1].curve_rate
 
-        # A vector of names works like a tuple.
-        @test only(_testhelper_plot_panels(table;
-            metabolites_not_in_mechanism = [:I])).legend_title == "I"
-
         # I held at one nonzero concentration stands with the fixed metabolites.
         held = merge(table, (I = fill(2e-3, 6),))
-        p = only(_testhelper_plot_panels(held; metabolites_not_in_mechanism = (:I,)))
+        p = only(_testhelper_plot_panels(held))
         @test p.fixed_concentrations == ["B 1 mM", "I 2 mM"]
         @test length(p.series) == 1
 
@@ -282,7 +274,7 @@ _testhelper_plot_exp1(; factor = 3.0) =
         rows = fill((1e-4, 1e-3, 0.0, 0.0), 4)
         table = merge(_testhelper_plot_table(fill("g", 4), rows;
             rates = [4.0, 3.0, 2.0, 1.0]), (I = [0.0, 1e-3, 2e-3, 4e-3],))
-        p = only(_testhelper_plot_panels(table; metabolites_not_in_mechanism = (:I,)))
+        p = only(_testhelper_plot_panels(table))
         @test p.x_label == "I (mM)"
         @test p.fixed_concentrations == ["A 100 µM", "B 1 mM"]
         s = only(p.series)
@@ -291,33 +283,70 @@ _testhelper_plot_exp1(; factor = 3.0) =
         @test allequal(s.curve_rate)
         @test first(s.curve_rate) ≈ exp(sum(log, [4.0, 3.0, 2.0, 1.0]) / 4)
 
-        @test_throws ArgumentError _testhelper_plot_panels(table;
-            metabolites_not_in_mechanism = (:A,))
-        @test_throws ArgumentError _testhelper_plot_panels(table;
-            metabolites_not_in_mechanism = (:I, :I))
-        @test_throws ErrorException("Missing metabolite column: J") _testhelper_plot_panels(
-            table; metabolites_not_in_mechanism = (:J,))
+        # In a tie for the x axis the mechanism's metabolites come first, wherever the
+        # other column stands in the table.
+        tied = merge((I = [1e-3, 2e-3, 3e-3],), _testhelper_plot_table(fill("g", 3),
+            [(a, 1e-3, 0.0, 0.0) for a in (1e-4, 2e-4, 5e-4)]))
+        @test only(_testhelper_plot_panels(tied)).x_label == "A (µM)"
+
+        # Every column but group and Rate is checked as a concentration.
         negative = merge(table, (I = [0.0, 1e-3, 2e-3, -4e-3],))
-        @test_throws ErrorException _testhelper_plot_panels(negative;
-            metabolites_not_in_mechanism = (:I,))
+        message = "Concentration I at row 4 must be a finite number ≥ 0; got -0.004"
+        @test_throws ErrorException(message) _testhelper_plot_panels(negative)
+        @test_throws ErrorException _testhelper_plot_panels(
+            merge(table, (Article = fill("Smith 1990", 4),)))
+        without_B = Base.structdiff(table, NamedTuple{(:B,)})
+        @test_throws ErrorException("Missing metabolite column: B") _testhelper_plot_panels(
+            without_B)
+    end
+
+    @testset "a rate function in place of a mechanism" begin
+        # Michaelis–Menten with a competitive inhibitor, its constants in a vector.
+        rate(concs, p) = p[1] * concs.S / (p[2] * (1 + concs.I / p[3]) + concs.S)
+        params = [2.0, 3e-4, 1e-3]
+        rows = [(S = s, I = i) for i in (0.0, 1e-3) for s in (1e-4, 2e-4, 5e-4)]
+        table = (group = fill("g", 6), S = [r.S for r in rows], I = [r.I for r in rows],
+                 Rate = [3 * rate(r, params) for r in rows])
+        panels(; table = table, keywords...) =
+            _testhelper_plot_panels(table; rate, params, keywords...)
+
+        for (absolute, factor) in ((false, 3.0), (true, 1.0))
+            p = only(panels(; absolute))
+            @test p.x_label == "S (µM)"
+            @test p.legend_title == "I"
+            @test [s.label for s in p.series] == ["0", "1 mM"]
+            for (s, i) in zip(p.series, (0.0, 1e-3))
+                expected = [factor * rate((S = x * 1e-6, I = i), params) for x in s.curve_x]
+                @test s.curve_rate ≈ expected rtol = 1e-10
+            end
+        end
+        # The function receives every column but group and Rate, in the table's order.
+        received = Set{Any}()
+        recording(concs, p) = (push!(received, keys(concs)); rate(concs, p))
+        swapped = (group = table.group, Rate = table.Rate, I = table.S, S = table.I)
+        p = only(_testhelper_plot_panels(swapped; rate = recording, params))
+        @test received == Set([(:I, :S)])
+        @test p.x_label == "I (µM)"
+
+        @test_throws ErrorException panels(table = merge(table, (Note = fill("a", 6),)))
+        @test_throws ErrorException("Missing required column: group") panels(
+            table = Base.structdiff(table, NamedTuple{(:group,)}))
     end
 
     @testset "input checks" begin
         table = _testhelper_plot_exp1()
         no_group = Base.structdiff(table, NamedTuple{(:group,)})
         @test_throws ErrorException _testhelper_plot_panels(no_group)
-        short = Base.structdiff(_testhelper_plot_params,
-            NamedTuple{(first(keys(_testhelper_plot_params)),)})
-        err = try
-            rate_equation_panels(_testhelper_plot_m, short, table;
-                Keq = _testhelper_plot_keq, absolute = false,
-                concentration_unit = "M", xscale = identity,
-                metabolites_not_in_mechanism = ())
-            nothing
-        catch e
-            e
+        for absent in (first(keys(_testhelper_plot_params)), :Keq)
+            params = Base.structdiff(_testhelper_plot_params, NamedTuple{(absent,)})
+            @test_throws ErrorException("params is missing $absent") begin
+                _testhelper_plot_panels(table; params)
+            end
         end
-        @test err isa ErrorException && occursin("params is missing", err.msg)
+        @test_throws ErrorException("Keq must be positive and finite; got -4.0") begin
+            _testhelper_plot_panels(table;
+                params = merge(_testhelper_plot_params, (Keq = -4.0,)))
+        end
 
         no_rows = map(column -> column[1:0], table)
         @test_throws ErrorException("Table has no rows") _testhelper_plot_panels(no_rows)
@@ -330,8 +359,8 @@ end
     message = "plot_rate_equation_on_data needs a Makie backend: run `using CairoMakie` " *
               "(or another Makie backend) first"
     @test_throws ErrorException(message) plot_rate_equation_on_data(_testhelper_plot_m,
-        _testhelper_plot_params, _testhelper_plot_exp1(); Keq = _testhelper_plot_keq)
+        _testhelper_plot_params, _testhelper_plot_exp1())
     # A table the preparation would reject gets the same error, so the check comes first.
     @test_throws ErrorException(message) plot_rate_equation_on_data(_testhelper_plot_m,
-        _testhelper_plot_params, (; Rate = [1.0]); Keq = _testhelper_plot_keq)
+        _testhelper_plot_params, (; Rate = [1.0]))
 end

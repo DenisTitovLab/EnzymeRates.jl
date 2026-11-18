@@ -4893,16 +4893,16 @@ const _testhelper_plot_m = @enzyme_mechanism begin
     end
 end
 
-const _testhelper_plot_keq = 4.0
 const _testhelper_plot_params = let
     fitted = parameters(_testhelper_plot_m, FittedParameters())
     rng = MersenneTwister(7)
-    NamedTuple{fitted}(Tuple(1e5 * (0.1 + 9.9 * rand(rng)) for _ in fitted))
+    merge(NamedTuple{fitted}(Tuple(1e5 * (0.1 + 9.9 * rand(rng)) for _ in fitted)),
+        (Keq = 4.0,))
 end
 
 # The rate equation at E_total = 1, the quantity the plot's curves show.
 _testhelper_plot_rate(concs) = rate_equation(_testhelper_plot_m, concs,
-    merge(_testhelper_plot_params, (Keq = _testhelper_plot_keq, E_total = 1.0)))
+    merge(_testhelper_plot_params, (E_total = 1.0,)))
 
 # A table of rows (A, B, P, Q) per group whose Rate is `factor` times the rate equation.
 function _testhelper_plot_table(groups, rows; factor = 1.0, rates = nothing)

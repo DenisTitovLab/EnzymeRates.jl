@@ -7,6 +7,7 @@ using ..Mechanisms: Mechanisms
 using ..Derivation: Derivation
 using ..Data: Data
 using Statistics: mean
+using Tables: Tables
 
 public plot_rate_equation_on_data
 

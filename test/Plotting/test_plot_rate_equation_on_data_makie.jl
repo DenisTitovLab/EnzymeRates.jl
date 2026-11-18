@@ -16,7 +16,7 @@ const _testhelper_makie_table = _testhelper_plot_table(
 
 _testhelper_makie_plot(table = _testhelper_makie_table; keywords...) =
     plot_rate_equation_on_data(_testhelper_plot_m, _testhelper_plot_params, table;
-        Keq = _testhelper_plot_keq, keywords...)
+        keywords...)
 
 _testhelper_blocks(T, fig) = filter(b -> b isa T, fig.content)
 _testhelper_figure_size(fig) = Tuple(widths(fig.scene.viewport[]))
@@ -37,9 +37,8 @@ end
         @test [ax.title[] for ax in panel_axes] == ["exp 1", "exp 2", "exp 3"]
         @test [ax.xlabel[] for ax in panel_axes] == ["A (mM)", "A (µM)", "B (µM)"]
         panels = rate_equation_panels(_testhelper_plot_m, _testhelper_plot_params,
-            _testhelper_makie_table; Keq = _testhelper_plot_keq, absolute = false,
-            concentration_unit = "M", xscale = identity,
-            metabolites_not_in_mechanism = ())
+            _testhelper_makie_table; absolute = false, concentration_unit = "M",
+            xscale = identity)
         @test [ax.limits[][2] for ax in panel_axes] == [p.rate_limits for p in panels]
         for (ax, p) in zip(panel_axes, panels)
             @test [l[1][] for l in _testhelper_plots(Lines, ax)] ==
@@ -179,10 +178,16 @@ end
         table = merge(_testhelper_plot_table(fill("g", 4), rows;
             rates = [4.0, 3.0, 2.0, 1.0]), (I = [0.0, 1e-3, 2e-3, 4e-3],))
         ax = only(_testhelper_blocks(Makie.Axis, _testhelper_makie_plot(table)))
-        @test ax.xlabel[] == "A (µM)"
-        ax = only(_testhelper_blocks(Makie.Axis,
-            _testhelper_makie_plot(table; metabolites_not_in_mechanism = (:I,))))
         @test ax.xlabel[] == "I (mM)"
+    end
+
+    @testset "a rate function in place of a mechanism" begin
+        rate(concs, p) = p.V * concs.S / (p.K + concs.S)
+        table = (group = fill("g", 3), S = [1e-4, 2e-4, 5e-4], Rate = [1.0, 1.6, 2.5])
+        fig = plot_rate_equation_on_data(rate, (V = 3.0, K = 2e-4), table)
+        ax = only(_testhelper_blocks(Makie.Axis, fig))
+        @test ax.xlabel[] == "S (µM)"
+        @test length(_testhelper_plots(Lines, ax)) == 1
     end
 
     @testset "power of ten note" begin

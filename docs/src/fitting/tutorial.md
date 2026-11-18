@@ -117,6 +117,9 @@ result.retcode isa Symbol
 result.params
 ```
 
+`result.params` holds the fitted constants and the problem's `Keq`, so it can go to
+`plot_rate_equation_on_data` as it is, and to `rate_equation` once `E_total` is merged in.
+
 The fit runs `n_restarts` independent optimizations from random initial points
 and returns the best. Multiple restarts are necessary because finding the global
 minimum of an enzyme rate-equation fit is NP-hard — any single optimization can
@@ -149,13 +152,13 @@ scale without a `reference`, absolute mode, and how to score a fit on other data
 panel per `group`. In a panel the x axis is the metabolite with the most distinct
 concentrations in that group, and each combination of the other metabolites'
 concentrations is a series with its own colour and marker. It never fits: it draws the
-rate equation at the parameters you pass. It needs a Makie backend, loaded here with
-`using CairoMakie`.
+rate equation at the parameters you pass, which hold `Keq` as a fit's `params` does. It
+needs a Makie backend, loaded here with `using CairoMakie`.
 
 ```@example fitting
 using CairoMakie
 
-fig = plot_rate_equation_on_data(uni_uni, result.params, data; Keq = 2.0)
+fig = plot_rate_equation_on_data(uni_uni, result.params, data)
 save("fit_on_data.png", fig)
 nothing # hide
 ```
@@ -170,8 +173,23 @@ options to the `Makie.Figure` and to every panel's axis, for example
 columns; with the default `"M"`, the axis and legend show concentrations in M, mM, µM or
 nM, whichever fits, and any other unit is shown as given.
 
-A table often holds concentrations of metabolites the mechanism does not bind, such as a
-regulator left out of it. Name those columns in `metabolites_not_in_mechanism`, for example
-`metabolites_not_in_mechanism = (:Citrate,)`, and the panels show them like the
-mechanism's own metabolites. Otherwise measurements that differ only in such a metabolite
-are drawn as one series, which can hide that the rate equation misses its effect.
+Every column of the table other than `group` and `Rate` is taken as a concentration, so
+remove columns that hold anything else, such as a pH or a source name. A mechanism ignores
+the concentrations of metabolites it does not bind, such as a regulator left out of it,
+but the panels still show them: measurements that differ only in such a metabolite are
+separate series that share one curve, which shows that the rate equation misses its
+effect.
+
+To draw a rate equation of your own in place of a mechanism's, pass a function of the
+concentrations and the parameters. It receives one row's concentrations as a `NamedTuple`,
+and the parameters as you gave them, in any form.
+
+```@example fitting
+reversible_michaelis_menten(concentrations, params) =
+    params.Vmax * (concentrations.S - concentrations.P / params.Keq) /
+    (params.Km + concentrations.S + concentrations.P)
+
+fig = plot_rate_equation_on_data(reversible_michaelis_menten,
+    (Vmax = 5.0, Km = 1.0, Keq = 2.0), data)
+nothing # hide
+```
