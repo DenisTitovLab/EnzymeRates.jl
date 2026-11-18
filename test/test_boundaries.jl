@@ -332,7 +332,9 @@ end
             "the Mermaid module map in docs/src/developer.md differs from the one " *
             "generated from src/; rewrite it with `julia test/update_module_map.jl`"]
         @test _testhelper_replace_generated_block(stale, map, expected) == doc
-        @test !isempty(_testhelper_generated_block_problems("no diagram", map, root))
+        @test _testhelper_generated_block_problems("no diagram", map, root) == [
+            "the Mermaid module map in docs/src/developer.md differs from the one " *
+            "generated from src/; rewrite it with `julia test/update_module_map.jl`"]
 
         @test _testhelper_module_table(root) == expected_table
         doc = "text\n\n$(table.opening)$(expected_table)$(table.closing)\nmore\n"
@@ -340,11 +342,18 @@ end
         @test _testhelper_generated_block_problems(
             replace(doc, "\n" => "\r\n"), table, root) == String[]
         stale = replace(doc, "Stores things." => "Stores.")
-        @test _testhelper_generated_block_problems(stale, table, root) == [
-            "the module table in .claude/CLAUDE.md differs from the one generated " *
-            "from src/; rewrite it with `julia test/update_module_map.jl`"]
+        differs = ["the module table in .claude/CLAUDE.md differs from the one generated " *
+                   "from src/; rewrite it with `julia test/update_module_map.jl`"]
+        @test _testhelper_generated_block_problems(stale, table, root) == differs
         @test _testhelper_replace_generated_block(stale, table, expected_table) == doc
-        @test !isempty(_testhelper_generated_block_problems("no table", table, root))
+        @test _testhelper_replace_generated_block(
+            replace(stale, "\n" => "\r\n"), table, expected_table) == doc
+        @test _testhelper_generated_block_problems("no table", table, root) == differs
+        # A character of several bytes just before the closing line.
+        @test _testhelper_generated_block_problems(
+            "$(table.opening)★$(table.closing)", table, root) == differs
+        @test_throws "the module table in .claude/CLAUDE.md has no generated block" (
+            _testhelper_replace_generated_block("no table", table, expected_table))
     end
 end
 

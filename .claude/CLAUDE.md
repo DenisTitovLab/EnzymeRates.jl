@@ -42,14 +42,17 @@ the part for a module before changing its internals.
   `src/<Module>/<Module>.jl`, and has its tests in `test/<Module>/`.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
-- Only the exports (★) are promised to users. `compile_mechanism`, `test_rate_equation`,
-  `Mechanism`, `AllostericMechanism` and `Enumeration.init_mechanisms(rxn)` are usable as
-  `EnzymeRates.<name>` but not promised.
-- A mechanism's stored fields (`steps`, `groups`, `step_kinds`, `toward_products`,
-  `step_sides`, `modifiers`) are part of the `Mechanisms` interface: read them with dots
-  (`m.steps[k].from`). Enumeration works on the concrete `Mechanism` and
-  `AllostericMechanism` from end to end; `compile_mechanism(m)` lifts one to its
-  `EnzymeMechanism{Sig}` type when the generated rate equation is needed.
+- Only the exports (★) are promised to users. Users and tests can also reach
+  `compile_mechanism`, `test_rate_equation`, `Mechanism`, `AllostericMechanism` and
+  `Enumeration.init_mechanisms(rxn)` as `EnzymeRates.<name>`, without a promise. Code in
+  `src/` still follows the bullet above.
+- The stored fields of a `Mechanism` are part of the `Mechanisms` interface, read with
+  dots (`m.steps[k].from`): `substrates`, `products`, `nodes`, `steps`, and the derived
+  `modifiers`, `groups`, `step_kinds`, `toward_products` and `step_sides`. An
+  `AllostericMechanism` holds its `Mechanism` in `m.catalytic`, beside its own fields.
+- Enumeration works on the concrete `Mechanism` and `AllostericMechanism` from end to
+  end; `compile_mechanism(m)` lifts one to its `EnzymeMechanism{Sig}` type when the
+  generated rate equation is needed.
 - Data tables mark measurements that share one E_total with a `group` column. Keq is
   always given by the user and never estimated from data.
 
@@ -81,7 +84,7 @@ the part for a module before changing its internals.
 
 ## Changing an interface
 
-Design an interface before implementing it. For a function used outside its file, write
+Design an interface before implementing it. For a function shared across files, write
 the docstring first. If the docstring must be long, or must describe the implementation,
 the design is shallow: change the design, not the docstring.
 
@@ -110,9 +113,10 @@ non-exported shared name needs no approval; do it and say so in the report.
 2. Delete first: dead code, one-caller wrappers, redundant checks. Then reshape.
 3. Migrate every caller and remove the old name in the same change. No parallel old and
    new paths.
-4. Keep the result only if a reader now needs to know less. Judge by public names,
+4. Re-read the changed files for dead code and further simplification.
+5. Keep the result only if a reader now needs to know less. Judge by public names,
    arguments and cross-module calls first, and by line count second.
-5. Commit a refactor separately from a fix wherever the two can be separated.
+6. Commit a refactor separately from a fix wherever the two can be separated.
 
 ### Bug fix
 
@@ -124,8 +128,8 @@ thing at a time, and leave the touched code simpler than the smallest patch woul
 
 1. Measure before changing anything, and name what limits the time.
 2. Time both versions in alternating runs and report the median and the range. Check
-   allocations with `@allocated`, type stability with the rows of
-   `test/test_type_stability.jl`, and compile time with `test/test_compile_budget.jl`.
+   allocations with `@allocated`, type stability with `test/test_type_stability.jl` under
+   `julia +1.13`, and compile time with `test/test_compile_budget.jl`.
 3. Simplify the hot path before adding machinery to it.
 4. Revert a change that does not measurably help, unless it makes the code simpler.
 
@@ -137,8 +141,8 @@ thing at a time, and leave the touched code simpler than the smallest patch woul
   that, not to specialize per mechanism: `EnzymeMechanism{Sig}` and
   `AllostericEnzymeMechanism{Sig}` exist because `rate_equation` is generated, and
   specializing further costs compile time.
-- CI runs Julia 1.13, where a closure over a `@nospecialize` argument is untyped; use
-  `Base.Fix2` there.
+- On Julia 1.13 a closure over a `@nospecialize` argument is untyped; use `Base.Fix2`
+  in its place.
 - 92-character lines, 4-space indentation. Match the style of the surrounding code, and
   leave whitespace alone unless a formatter changes it.
 - Where this file is silent, follow the SciML style guide
@@ -150,10 +154,16 @@ thing at a time, and leave the touched code simpler than the smallest patch woul
 A name says what the thing does, specifically enough that a reader can follow a call
 without opening its docstring. Read a name together with its arguments: `name(p, m)` is
 clear, and dispatch means it needs no `parameter_` prefix. A longer name is better than a
-vague one: `has_turnover_cycle(m)`, not `check(m)`; `rate_equation_dedup_key(m)`, not
-`key(m)`. Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a
-function that mutates its arguments. A name that is hard to choose often marks a design
-that is not yet clear.
+vague one:
+
+- `has_turnover_cycle(m)`, not `check(m)`
+- `dependent_parameter_values(m, ...)`, not `compute_values(m, ...)`
+- `rate_equation_dedup_key(m)`, not `key(m)`
+- `_to_concrete_mechanism(m)`, not `_concrete(m)`
+
+Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a function that
+mutates its arguments, a leading `_` on an internal name. A name that is hard to choose
+often marks a design that is not yet clear.
 
 Names and comments describe the code as it is. They do not mention how it is implemented,
 what it used to be or how it changed, so no "new", "old", "legacy", "improved" or
@@ -164,15 +174,16 @@ numerical reason, the bug that would happen without it, a trap for the next edit
 a comment that restates the code, and update a comment in the same change as its code.
 
 A docstring gives a caller what they need: arguments, result, units and errors. It does
-not describe the implementation. An internal function whose name and arguments make its
-job obvious needs none.
+not describe the implementation. A helper private to its file needs none when its name
+and arguments make its job obvious.
 
 Every code file starts with two comment lines, each beginning `ABOUTME: `, saying what the
 file does.
 
 ## Guards
 
-These rules are enforced by tests. When one fails, fix the code, not the test.
+Tests enforce these rules. When one fails, fix the code; change the test only as part of
+an approved interface change.
 
 - **Module boundaries.** `test/test_boundaries.jl` parses `src/` and fails on a
   cross-module name that is not public, a module naming one its layer forbids, an
@@ -181,10 +192,10 @@ These rules are enforced by tests. When one fails, fix the code, not the test.
   `docs/src/developer.md` disagree with `src/`. After changing a `public` statement, an
   export, a module docstring or a cross-module call, update the developer page in the same
   commit and run `julia test/update_module_map.jl`.
-- **Type stability.** `test/test_type_stability.jl` requires, on Julia 1.13, that JET find
-  no run-time dispatch under any exported or public function, internal callees included.
-  A new public function needs a row there, with a named exemption set for any dispatch
-  it keeps.
+- **Type stability.** `test/test_type_stability.jl` requires that JET find no run-time
+  dispatch under any exported or public function, internal callees included. The suite
+  runs it on Julia 1.13 only (`julia +1.13`). A new public function needs a row there,
+  with a named exemption set for any dispatch it keeps.
 - **Parameter names.** Every parameter name is rendered by `name(p, m)` in
   `src/Derivation/names.jl`. A testset in `test/Derivation/test_names.jl` fails on a
   `Symbol("K…")`, `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal anywhere else
@@ -192,27 +203,33 @@ These rules are enforced by tests. When one fails, fix the code, not the test.
 - **Canonical Step Form.** The `Mechanism` and `AllostericMechanism` constructors
   canonicalize edge direction, edge order and group order. Deduplication by `==` and
   `hash`, and the naming of every constant, depend on it. Read the Developer page before
-  touching `_canonicalize` or the dependent-parameter priority (`_priority_key`).
+  touching `_canonicalize` or the dependent-parameter priority (`_priority_key`). No
+  single test names this rule; the enumeration and derivation tests break without it.
 - **`rate_equation` speed.** `rate_equation` is allocation-free and takes under
-  `50 ns + 0.5 ns × denominator terms` per call on every gated law. `Fitting.loss!` is
+  `50 ns + 0.5 ns × denominator terms` per call on every gated law: each mechanism in
+  `MECHANISM_TEST_SPECS` and the larger laws that test file lists. `Fitting.loss!` is
   allocation-free, and its time per data row is at most 1.25 × `rate_equation` per call
   plus 8 `log` calls, met by any of 20 batches. `test/Derivation/test_rate_eq_derivation.jl`
   enforces both. A fit evaluates the law millions of times, so stop and discuss with the
   maintainer before a change that would make it allocate or slow down. CI timings vary by
   runner: rerun a job that misses the bound rather than loosening it.
-- **Compile time.** `test/test_compile_budget.jl` bounds what a mechanism costs to compile.
+- **Compile time.** `test/test_compile_budget.jl` bounds the first-call compile time of
+  `rate_equation` and how many method instances each mechanism's fit compiles. Code
+  specialized per mechanism trips it.
 
 Propose a new guard when the maintainer corrects something a deterministic check could
 have caught, when existing code breaks a rule in this file, or when you are about to add a
 mechanically checkable rule here. Propose it in your report or in `ROADMAP.md`; do not
-build it unasked. A rule that needs judgment, such as depth or naming, stays prose: a test
-of a proxy such as length would enforce the wrong thing.
+build it unasked. When a guard lands, shrink its prose rule here to a line naming the
+test. A rule that needs judgment, such as depth or naming, stays prose: a test of a
+proxy such as length would enforce the wrong thing.
 
 ## Tests
 
 - Read all test and system output. It must be pristine: an expected error or warning is
   captured and asserted.
 - Tests exercise real behaviour: no test of a mock, and no mocks in end-to-end tests.
+  Tell the maintainer when you find an existing test of mocked behaviour.
 - A failing test is never deleted or weakened to pass; raise it with the maintainer. Every
   failure you see is yours to fix or report, whoever caused it.
 - Do not reduce coverage. New behaviour comes with tests of all of it.
@@ -300,8 +317,9 @@ Workflow:
 - Give your honest technical judgment and push back on an idea you think is wrong, with
   the reason, or say that it is a gut feeling.
 - Stop and ask when the decision is the maintainer's: a design choice between valid
-  approaches, a public name, rewriting a whole implementation or module, or anything hard
-  to undo. Otherwise do the task, with its obvious follow-ups: choose, say what you
-  chose and what it costs if wrong.
+  approaches, adding or changing a public name, rewriting a whole implementation or
+  module, or anything hard to undo. Otherwise do the task, with its obvious follow-ups:
+  choose, say what you chose and what it costs if wrong.
+- When asked how to approach something, answer the question; do not start implementing.
 - Doing it right matters more than doing it fast. Tedious, systematic work is often the
   correct solution.

@@ -304,7 +304,7 @@ function _testhelper_generated_block_range(doc, block)
     opening = findfirst(block.opening, doc)
     opening === nothing && return nothing
     closing = findnext(block.closing, doc, last(opening) + 1)
-    closing === nothing ? nothing : (last(opening) + 1):(first(closing) - 1)
+    closing === nothing ? nothing : (last(opening) + 1):prevind(doc, first(closing))
 end
 
 """One line when the generated `block` of the Markdown text `doc` is missing or differs
@@ -318,8 +318,12 @@ function _testhelper_generated_block_problems(doc, block, root)
      "`julia test/update_module_map.jl`"]
 end
 
-"""`doc` with the text of its generated `block` replaced by `text`."""
+"""`doc`, with LF line endings, and the text of its generated `block` replaced by `text`.
+Throws when `doc` lacks the block's opening or closing line."""
 function _testhelper_replace_generated_block(doc, block, text)
+    doc = replace(doc, "\r\n" => "\n")
     range = _testhelper_generated_block_range(doc, block)
+    range === nothing && error("$(block.described) has no generated block: add the " *
+                               "lines $(repr(block.opening)) and $(repr(block.closing))")
     doc[1:prevind(doc, first(range))] * text * doc[nextind(doc, last(range)):end]
 end
