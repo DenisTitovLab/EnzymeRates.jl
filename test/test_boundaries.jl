@@ -1,5 +1,5 @@
 # ABOUTME: Checks the module boundaries of src/ by parsing it (public names, layers,
-# ABOUTME: underscore names, exports), the developer docs' module map and the exports' docs.
+# ABOUTME: underscore names, exports), the generated module map and table, exported docs.
 
 import REPL  # defines Base.Docs.doc(::Binding), read by the docstring testset
 
@@ -286,7 +286,7 @@ end
     end
 end
 
-@testset "module map diagram" begin
+@testset "module map diagram and table" begin
     tree = (
         "Mechanisms/Mechanisms.jl" =>
             "\"\"\"Stores things. Hides more.\"\"\"\nmodule Mechanisms\n" *
@@ -312,26 +312,51 @@ end
         "  fit -->|\"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()\"| mech",
         "  classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;",
         "  class top,fit,mech mod;", ""], "\n")
+    expected_table = join([
+        "| Module | What it does | Public names (★ exported) | May call |",
+        "|:--|:--|:--|:--|",
+        "| EnzymeRates (top level) | Does it all. | ★ `identify`, ★ `Result` | all |",
+        "| Fitting | Fits a law to data. | ★ `fit` | Mechanisms, Derivation, Data |",
+        "| Mechanisms | Stores things. | ★ `metabolites`, `Mechanism`, " *
+        "`compile_mechanism` | none |", ""], "\n")
     _testhelper_with_tree(tree...) do root
+        map, table = _testhelper_MAP_BLOCK, _testhelper_TABLE_BLOCK
         @test _testhelper_module_map(root) == expected
         doc = "text\n\n```mermaid\n$expected```\n\nmore\n"
-        @test _testhelper_module_map_block_problems(doc, root) == String[]
+        @test _testhelper_generated_block_problems(doc, map, root) == String[]
         # A Windows checkout writes CRLF line endings.
-        @test _testhelper_module_map_block_problems(replace(doc, "\n" => "\r\n"), root) ==
-              String[]
-        stale =replace(doc, "Stores things." => "Stores.")
-        @test _testhelper_module_map_block_problems(stale, root) == [
+        @test _testhelper_generated_block_problems(
+            replace(doc, "\n" => "\r\n"), map, root) == String[]
+        stale = replace(doc, "Stores things." => "Stores.")
+        @test _testhelper_generated_block_problems(stale, map, root) == [
             "the Mermaid module map in docs/src/developer.md differs from the one " *
             "generated from src/; rewrite it with `julia test/update_module_map.jl`"]
-        @test _testhelper_replace_module_map(stale, expected) == doc
-        @test !isempty(_testhelper_module_map_block_problems("no diagram", root))
+        @test _testhelper_replace_generated_block(stale, map, expected) == doc
+        @test !isempty(_testhelper_generated_block_problems("no diagram", map, root))
+
+        @test _testhelper_module_table(root) == expected_table
+        doc = "text\n\n$(table.opening)$(expected_table)$(table.closing)\nmore\n"
+        @test _testhelper_generated_block_problems(doc, table, root) == String[]
+        @test _testhelper_generated_block_problems(
+            replace(doc, "\n" => "\r\n"), table, root) == String[]
+        stale = replace(doc, "Stores things." => "Stores.")
+        @test _testhelper_generated_block_problems(stale, table, root) == [
+            "the module table in .claude/CLAUDE.md differs from the one generated " *
+            "from src/; rewrite it with `julia test/update_module_map.jl`"]
+        @test _testhelper_replace_generated_block(stale, table, expected_table) == doc
+        @test !isempty(_testhelper_generated_block_problems("no table", table, root))
     end
 end
 
-@testset "the developer docs' module map matches src/" begin
-    doc = read(joinpath(@__DIR__, "..", "docs", "src", "developer.md"), String)
+@testset "the generated module map and table match src/" begin
+    root = joinpath(@__DIR__, "..")
+    doc = read(joinpath(root, "docs", "src", "developer.md"), String)
     @test _testhelper_module_map_problems(doc, _testhelper_SRC) == String[]
-    @test _testhelper_module_map_block_problems(doc, _testhelper_SRC) == String[]
+    @test _testhelper_generated_block_problems(
+        doc, _testhelper_MAP_BLOCK, _testhelper_SRC) == String[]
+    @test _testhelper_generated_block_problems(
+        read(joinpath(root, ".claude", "CLAUDE.md"), String), _testhelper_TABLE_BLOCK,
+        _testhelper_SRC) == String[]
 end
 
 @testset "Mechanisms API is the data model" begin

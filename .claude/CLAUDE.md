@@ -203,6 +203,18 @@ A parameter is a `StepParameter(step, slot, inactive)` (which is also the joint 
 
 `src/` is six submodules layered `Mechanisms ← Derivation ← {Fitting, Enumeration, DSL}` and `Data ← Fitting` (`DSL` holds the macros and `parse_mechanism`; `Data` holds `RateData`), each in `src/<Module>/` with its interface declared by the `public` statement in `src/<Module>/<Module>.jl`; the top level (identify, the exports) uses all of them.
 
+<!-- module table, generated from src/ by test/update_module_map.jl -->
+| Module | What it does | Public names (★ exported) | May call |
+|:--|:--|:--|:--|
+| EnzymeRates (top level) | Finds the best mechanism for a reaction from measured rates. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` | all |
+| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, ★ `@allosteric_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
+| Enumeration | Generates candidate mechanisms for a reaction. | `expand_mechanisms`, `starting_mechanisms` | Mechanisms, Derivation |
+| Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
+| Derivation | Derives a mechanism's rate equation and compiles it. | ★ `rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, ★ `IndependentParameters`, ★ `FittedParameters`, ★ `AllParameters`, `AllostericParameter`, `RegulatorParameter`, `StepParameter`, `check_valid_rate_equation`, `fitted_parameter_count`, `name`, `parameter_info`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
+| Data | Checks and holds a table of measured rates. | `RateData` | none |
+| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `EnzymeMechanism`, ★ `AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `AllostericMechanism`, `EnzymeForm`, `Mechanism`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `check_decodable_names`, `compile_mechanism`, `excludes`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `present_species`, `rapid_equilibrium_segments`, `segment_walk`, `step_text` | none |
+<!-- end of module table -->
+
 We want deep modules: the fewest public names and the complexity inside the module, so you can work on a module knowing only the others' interfaces. Complexity counts public names and the number and complexity of their arguments, with the cleanest, simplest arguments as the goal. A value is an internal constant unless users have a real reason to change it, as they do for optimizer settings.
 
 Denis's approval comes first for adding a public name, adding an argument to one, and any change to an exported function. Removing or shrinking a non-exported shared name goes in with the change that finds it, and the report says so.

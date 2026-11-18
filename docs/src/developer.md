@@ -18,7 +18,8 @@ the exports are promised to users. Its tests live in `test/<Module>/`. The diagr
 shows every exported name and every name one module takes from another, and the tables
 list every module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
 diagram is generated: each box's sentence is the first sentence of its module's docstring,
-and `julia test/update_module_map.jl` rewrites it.
+and `julia test/update_module_map.jl` rewrites it, together with the table of modules in
+`.claude/CLAUDE.md`, which the same test checks.
 
 ### The module map
 
