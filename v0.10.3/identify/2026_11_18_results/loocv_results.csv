@@ -1,0 +1,84 @@
+n_params,parent_n_params,loss,mechanism,mechanism_id,parent_id,rate_equation,retcode,error,key,fit_inherited,fit_source_id,L_phantom,at_bound,K_A_Areg,K_A_EP_to_E_P,K_A_ES_to_E_S,K_EP_to_E_P,K_ES_to_E_S,K_I_Areg,L,k_A_ES_to_EP,cv_score,cv_score_se,cv_fold_G1,cv_fold_G2
+5,,8.360995506284607e-14,"@allosteric_mechanism begin
+    substrates: S
+    products: P
+    allosteric_regulators: A
+    catalytic_multiplicity: 2
+    steps: begin
+        E + P ⇌ E(P) :: EqualAI
+        E + S ⇌ E(S) :: EqualAI
+        E(S) <--> E(P) :: OnlyA
+    end
+    regulatory_site(2): A::OnlyA
+end",a29357efffadf9b1,,"(; S, P, A) = concs
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+D_I = 1 + dI_S * S + dI_P * P
+W_A = (1 + A / K_A_Areg)^2
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,ea1c5c709e4415ad1efc73b02107fcbef9424ca80071a418a7d5a9ebe5c23884,false,a29357efffadf9b1,false,"",1.0000001666858893,,,0.9999986273301342,0.999997198013115,,99.99999095826021,4.999989083132237,2.0790951303164062e-13,1.7344919885894557e-13,3.813587118905862e-13,3.446031417269504e-14
+5,,0.006467700696796885,"@allosteric_mechanism begin
+    substrates: S
+    products: P
+    allosteric_regulators: A
+    catalytic_multiplicity: 2
+    steps: begin
+        E + P ⇌ E(P) :: OnlyA
+        E + S ⇌ E(S) :: EqualAI
+        E(S) <--> E(P) :: OnlyA
+    end
+    regulatory_site(2): A::OnlyA
+end",9bec69da846bf50e,,"(; S, P, A) = concs
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+D_I = 1 + dI_S * S
+W_A = (1 + A / K_A_Areg)^2
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,945d668d97831f76138298e437dba27b20a6583248a28fd79d864adfcd3f56f3,false,9bec69da846bf50e,false,K_A_EP_to_E_P,1.000000122054374,730964.3560121402,,,1.2840871545866428,,100.00007315948014,5.65745764461853,0.006468922148097777,0.00522788625329681,0.011696808401394587,0.001241035894800967
+5,,0.1354174881389625,"@allosteric_mechanism begin
+    substrates: S
+    products: P
+    allosteric_regulators: A
+    catalytic_multiplicity: 2
+    steps: begin
+        E + P ⇌ E(P) :: EqualAI
+        E + S ⇌ E(S) :: OnlyA
+        E(S) <--> E(P) :: OnlyA
+    end
+    regulatory_site(2): A::OnlyA
+end",c352c3a23a76325d,,"(; S, P, A) = concs
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+D_I = 1 + dI_P * P
+W_A = (1 + A / K_A_Areg)^2
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)",Success,,84561dd3b4fa1be0d9eb6b02b00763ec6368e7aa74919e5cd68cedfa5135eac5,false,c352c3a23a76325d,false,K_A_ES_to_E_S,0.9999999182428372,,5.662103222977995e6,2.5918496606919645,,,100.00016109024517,2.1002036737021588e7,0.13955743287366637,0.09999826334990293,0.039559169523763434,0.23955569622356931
+5,,0.14021585444604576,"@allosteric_mechanism begin
+    substrates: S
+    products: P
+    allosteric_regulators: A
+    catalytic_multiplicity: 2
+    steps: begin
+        E + P ⇌ E(P) :: OnlyA
+        E + S ⇌ E(S) :: OnlyA
+        E(S) <--> E(P) :: OnlyA
+    end
+    regulatory_site(2): A::OnlyA
+end",0761dcdfeea01dd0,,"(; S, P, A) = concs
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+W_A = (1 + A / K_A_Areg)^2
+v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L)",Success,,07d603da14f70ca745e93d3f4c768ae82cdac1a83633c5fae84317b2f0f90b34,false,0761dcdfeea01dd0,false,K_A_EP_to_E_P;K_A_ES_to_E_S,0.9999995209514615,730973.6087409749,5.662103302488213e6,,,,100.00025144481108,2.022184350611522e7,0.14021615112767444,0.09485194318272121,0.045364207944953217,0.23506809431039563
+5,,3.1700639775552997,"@allosteric_mechanism begin
+    substrates: S
+    products: P
+    allosteric_regulators: A
+    catalytic_multiplicity: 2
+    steps: begin
+        E + P ⇌ E(P) :: OnlyA
+        E + S ⇌ E(S) :: OnlyA
+        E(S) <--> E(P) :: OnlyA
+    end
+    regulatory_site(2): A::OnlyI
+end",1d5df94b5d796a43,,"(; S, P, A) = concs
+Q_A = nA_0
+D_A = 1 + dA_S * S + dA_P * P
+W_I = (1 + A / K_I_Areg)^2
+v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L * W_I)",Success,,4baf9519d01fd58b73b72d2c363c0f0db753003729e82870c873804e96dafd98,false,1d5df94b5d796a43,false,"",,1.0000005569761412,1.0000046921400745,,,2.897577829345608e6,3.3859663802079806e-7,0.05248835366934601,3.1700639775555146,1.7308377096333773e-12,3.1700639775572452,3.1700639775537836
