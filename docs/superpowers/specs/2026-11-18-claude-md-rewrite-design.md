@@ -53,6 +53,7 @@ Chosen: **A**. The maintainer's reason: under 200 lines needs no split.
 - pstack is not installed. Borrowed: a playbook per task type; the selection rule of its
   `architect` skill; its refactoring sequence; its benchmark questions, rewritten for Julia.
 - One file (approach A).
+- Guards are proposed on a trigger, not sought continuously (section 8).
 
 ## Content of the new file, by section
 
@@ -135,6 +136,12 @@ Target: about 150 lines. Calm wording throughout: no capitals for emphasis, no "
    module boundaries; type stability rows; the parameter-name chokepoint; Canonical Step
    Form; `rate_equation` and `loss!` performance (the numeric bounds stay, since they are
    the contract, with "stop and discuss before a change that would allocate or slow it").
+   The section closes with when to propose a guard: the maintainer corrects something a
+   deterministic check could have caught; existing code breaks a rule this file states; or
+   a mechanically checkable rule is about to be added to this file. The agent proposes the
+   test in its report or in `ROADMAP.md` and does not build it unasked. When a guard lands,
+   its prose rule shrinks to a line naming the test. Rules that need judgment (depth,
+   naming) stay prose: a test of a proxy such as length would enforce the wrong thing.
 
 9. **Tests** (about 20 lines). Test output is pristine; no mocked behaviour; never delete a
    failing test; `_testhelper_` prefix. The two Derivation-test rules and the three
