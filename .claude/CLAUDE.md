@@ -1,164 +1,260 @@
-# CLAUDE.md
+# EnzymeRates: instructions for agents
 
-You are an experienced, pragmatic software engineer. You don't over-engineer a solution when a simple one is possible.
-Rule #1: If you want exception to ANY rule, YOU MUST STOP and get explicit permission from Denis first. BREAKING THE LETTER OR SPIRIT OF THE RULES IS FAILURE.
+## Goal: low complexity
 
-## Foundational rules
+Complexity is whatever makes this package hard to understand and change. It comes from
+dependencies (code that cannot be understood or changed alone) and from obscurity (facts a
+reader needs and cannot see), and it grows a little with every careless change. Working
+code is not enough: each change, a bug fix included, leaves the code it touches simpler
+than it found it.
 
-- Doing it right is better than doing it fast. You are not in a rush. NEVER skip steps or take shortcuts.
-- Tedious, systematic work is often the correct solution. Don't abandon an approach because it's repetitive - abandon it only if it's technically wrong.
-- Honesty is a core value. If you lie, you'll be replaced.
-- You MUST think of and address your human partner as "Denis" at all times
+Deep modules keep complexity down. `src/` is six modules, each with a small interface and
+its complexity inside, so that using a module, or fixing a bug in another one, needs only
+its interface and not how it works. The same holds for a function: a deep function does a
+lot behind a simple signature.
 
-## Our relationship
+Two patterns defeat this, and both arrive one small helper at a time:
 
-- We're colleagues working together as "Denis" and "Claude" - no formal hierarchy.
-- Don't glaze me. The last assistant was a sycophant and it made them unbearable to work with.
-- YOU MUST speak up immediately when you don't know something or we're in over our heads
-- YOU MUST call out bad ideas, unreasonable expectations, and mistakes - I depend on this
-- NEVER be agreeable just to be nice - I NEED your HONEST technical judgment
-- NEVER write the phrase "You're absolutely right!"  You are not a sycophant. We're working together because I value your opinion.
-- Stop and ask when the decision is Denis's: design, a public name or exported function, or anything hard to undo. Otherwise choose, say what you chose, and report what it costs if wrong.
-- If you're having trouble, YOU MUST STOP and ask for help, especially for tasks where human input would be valuable.
-- When you disagree with my approach, YOU MUST push back. Cite specific technical reasons if you have them, but if it's just a gut feeling, say so. 
-- If you're uncomfortable pushing back out loud, just say "Strange things are afoot at the Circle K". I'll know what you mean
-- We discuss architectural decisions (framework changes, rewriting a whole implementation or module, system design) together before implementation. Routine fixes, simplifying the code a change touches and clear implementations don't need discussion.
+- Functions that call each other across the package. Any change then needs knowledge of
+  the whole package and breaks code that looked unrelated.
+- Many small, shallow functions and modules. Each hides nothing, so there are many
+  interfaces to learn and remember.
 
+How each module works inside is on the Developer page of the docs
+(<https://DenisTitovLab.github.io/EnzymeRates.jl/>, source `docs/src/developer.md`); read
+the part for a module before changing its internals.
 
-# Proactiveness
+## Module map
 
-When asked to do something, just do it - including obvious follow-up actions needed to complete the task properly.
-  Only pause to ask for confirmation when:
-  - Multiple valid approaches exist and the choice is Denis's to make
-  - The action would rewrite a whole implementation or module
-  - You genuinely don't understand what's being asked
-  - Your partner specifically asks "how should I approach X?" (answer the question, don't jump to
-  implementation)
+<!-- module table, generated from src/ by test/update_module_map.jl -->
+| Module | What it does | Public names (★ exported) | May call |
+|:--|:--|:--|:--|
+| EnzymeRates (top level) | Finds the best mechanism for a reaction from measured rates. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` | all |
+| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, ★ `@allosteric_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
+| Enumeration | Generates candidate mechanisms for a reaction. | `expand_mechanisms`, `starting_mechanisms` | Mechanisms, Derivation |
+| Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
+| Derivation | Derives a mechanism's rate equation and compiles it. | ★ `rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, ★ `IndependentParameters`, ★ `FittedParameters`, ★ `AllParameters`, `AllostericParameter`, `RegulatorParameter`, `StepParameter`, `check_valid_rate_equation`, `fitted_parameter_count`, `name`, `parameter_info`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
+| Data | Checks and holds a table of measured rates. | `RateData` | none |
+| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `EnzymeMechanism`, ★ `AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `AllostericMechanism`, `EnzymeForm`, `Mechanism`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `check_decodable_names`, `compile_mechanism`, `excludes`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `present_species`, `rapid_equilibrium_segments`, `segment_walk`, `step_text` | none |
+<!-- end of module table -->
 
-## Designing software
+- A module lives in `src/<Module>/`, declares its interface in the `public` statement of
+  `src/<Module>/<Module>.jl`, and has its tests in `test/<Module>/`.
+- Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
+  only if it is public there. Inside a module, call its own names bare.
+- Only the exports (★) are promised to users. `compile_mechanism`, `test_rate_equation`,
+  `Mechanism`, `AllostericMechanism` and `Enumeration.init_mechanisms(rxn)` are usable as
+  `EnzymeRates.<name>` but not promised.
+- A mechanism's stored fields (`steps`, `groups`, `step_kinds`, `toward_products`,
+  `step_sides`, `modifiers`) are part of the `Mechanisms` interface: read them with dots
+  (`m.steps[k].from`). Enumeration works on the concrete `Mechanism` and
+  `AllostericMechanism` from end to end; `compile_mechanism(m)` lifts one to its
+  `EnzymeMechanism{Sig}` type when the generated rate equation is needed.
+- Data tables mark measurements that share one E_total with a `group` column. Keq is
+  always given by the user and never estimated from data.
 
-- YAGNI. The best code is no code. Don't add features we don't need right now.
-- When it doesn't conflict with YAGNI, architect for extensibility and flexibility.
-- Prefer deep functions and modules: a simple interface and few shared names, with the complexity buried inside, so that callers can use them without knowing the implementation.
+## Design rules
 
+- Make functions and modules deep: a simple interface over substantial work. An
+  interface's cost is its names, its arguments and their complexity, its errors and its
+  preconditions.
+- A simple interface matters more than a simple implementation. Handle the hard case
+  inside rather than passing it to callers as an argument, an option or an error.
+- Each design decision lives in one module. When two modules know the same format or
+  rule, merge them or move the knowledge behind one interface.
+- Build only what is needed now, behind an interface general enough that it does not name
+  its one current caller.
+- No pass-through functions, no wrappers with one caller, no arguments that only travel
+  through. Do not split a function for its length; split it when the parts can be
+  understood separately.
+- Extract repeated code when the snippet is substantial and the helper's signature is
+  simple. Two similar lines are cheaper than one more interface.
+- Keep error cases few. Define an operation so that the odd input is a normal case.
+  Validate user input once, at the entry point, with a message in the user's terms; inside,
+  trust the types.
+- Write obvious code: a reader's first guess about what it does should be right. Prefer
+  that to brevity or cleverness.
+- A value is an internal constant unless users have a real reason to change it, as they do
+  for optimizer settings.
+- Remove an unused feature entirely rather than adding a way to disable it. Backward
+  compatibility needs the maintainer's approval.
 
-## Test Driven Development  (TDD)
- 
-- FOR EVERY NEW FEATURE OR BUGFIX, YOU MUST follow Test Driven Development :
-    1. Write a failing test that correctly validates the desired functionality
-    2. Run the test to confirm it fails as expected
-    3. Write ONLY enough code to make the failing test pass
-    4. Run the test to confirm success
-    5. Refactor if needed while keeping tests green
+## Changing an interface
 
-## Writing code
+Design an interface before implementing it. For a function used outside its file, write
+the docstring first. If the docstring must be long, or must describe the implementation,
+the design is shallow: change the design, not the docstring.
 
-- When submitting work, verify that you have FOLLOWED ALL RULES. (See Rule #1)
-- Every change, bug fixes included, leaves the code it touches simpler, in its interface and inside the module, rather than taking the smallest patch that adds complexity. Stay within the code the change touches, and commit a refactor separately from a fix where the two can be separated.
-- We STRONGLY prefer simple, clean, maintainable solutions over clever or complex ones. Readability and maintainability are PRIMARY CONCERNS, even at the cost of conciseness or performance.
-- YOU MUST WORK HARD to reduce code duplication, even if the refactoring takes extra effort.
-- Rewriting a whole implementation or module needs Denis's explicit permission. Simplifying the code a change touches does not.
-- YOU MUST get Denis's explicit approval before implementing ANY backward compatibility.
-- YOU MUST MATCH the style and formatting of surrounding code, even if it differs from standard style guides. Consistency within a file trumps external standards.
-- YOU MUST NOT manually change whitespace that does not affect execution or output. Otherwise, use a formatting tool.
-- Fix broken things immediately when you find them. Don't ask permission to fix bugs, unless the fix adds a public name, adds an argument to one or changes an exported function. Anything else unrelated goes in `ROADMAP.md`.
+Adding a public name, adding an argument to one, or changing an exported function needs
+the maintainer's approval before implementation. Sketch two or three different interfaces,
+compare them from the caller's side, and bring the comparison with a recommendation. Prefer
+the one where each fact has one owner, each task has one way to do it, and callers need to
+know least.
 
+Every change looks for a public name or an argument it can remove. Removing or shrinking a
+non-exported shared name needs no approval; do it and say so in the report.
 
+## Playbooks
 
-## Naming
+### Feature
 
-Choose names with care. A name describes what the thing does, specifically enough that a reader, human or agent, can follow a call without opening its docstring. Read a name together with its arguments: `name(p, m)` is clear, and dispatch means it needs no `parameter_` prefix. A longer name is better than a vague one. Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a function that mutates its arguments, a leading `_` on an internal name.
+1. Design the interface as above.
+2. Write failing tests against that interface and watch them fail.
+3. Implement until they pass.
+4. Re-read the changed files for dead code, shallow helpers and anything the change made
+   unnecessary.
 
-For example:
+### Refactor
 
-- `has_turnover_cycle(m)`, not `check(m)`
-- `dependent_parameter_values(m, ...)`, not `compute_values(m, ...)`
-- `rate_equation_dedup_key(m)`, not `key(m)`
-- `_to_concrete_mechanism(m)`, not `_concrete(m)`
+1. Pin the behaviour with tests before moving anything.
+2. Delete first: dead code, one-caller wrappers, redundant checks. Then reshape.
+3. Migrate every caller and remove the old name in the same change. No parallel old and
+   new paths.
+4. Keep the result only if a reader now needs to know less. Judge by public names,
+   arguments and cross-module calls first, and by line count second.
+5. Commit a refactor separately from a fix wherever the two can be separated.
 
-Keep how and when out of names:
+### Bug fix
 
-- Names MUST tell what code does, not how it's implemented or its history
-- When changing code, never document the old behavior or the behavior change
-- NEVER use temporal/historical context in names (e.g., "NewAPI", "LegacyHandler", "UnifiedTool", "ImprovedInterface", "EnhancedParser")
+Follow `superpowers:systematic-debugging`: find the root cause before any fix, and never
+patch a symptom. Reproduce the bug in the simplest failing test, watch it fail, fix one
+thing at a time, and leave the touched code simpler than the smallest patch would.
 
-## Code Comments
+### Optimization
 
-Don't write a comment that restates the code: it adds nothing, and it misleads once the code changes. Write one when the code can't say it: why something exists, a chemical or numerical reason, a bug that would happen without this code, a trap for the next editor. Delete a restating comment when you touch it, keep one that explains why, and update a comment in the same change as the code it describes.
+1. Measure before changing anything, and name what limits the time.
+2. Time both versions in alternating runs and report the median and the range. Check
+   allocations with `@allocated`, type stability with the rows of
+   `test/test_type_stability.jl`, and compile time with `test/test_compile_budget.jl`.
+3. Simplify the hot path before adding machinery to it.
+4. Revert a change that does not measurably help, unless it makes the code simpler.
 
- - NEVER add comments explaining that something is "improved", "better", "new", "enhanced", or referencing what it used to be
- - NEVER add instructional comments telling developers what to do ("copy this pattern"). A warning about a trap is fine.
- - If you're refactoring, don't add comments explaining the refactoring.
- - YOU MUST NEVER add comments about what used to be there or how something has changed. 
- - YOU MUST NEVER refer to temporal context in comments (like "recently refactored" "moved") or code. Comments should be evergreen and describe the code as it is. If you name something "new" or "enhanced" or "improved", you've probably made a mistake and MUST STOP and ask me what to do.
- - All code files MUST start with a brief 2-line comment explaining what the file does. Each line MUST start with "ABOUTME: " to make them easily greppable.
+## Julia style
 
-  Examples:
-  // BAD: This uses Zod for validation instead of manual checking
-  // BAD: Refactored from the old validation system
-  // BAD: Wrapper around MCP tool protocol
-  // GOOD: Without a residue here, the enzyme returns to apo E mid-cycle
+- Dispatch on types rather than branching with `isa` or tags; walking an `Expr` is the
+  exception. Add a trait only where a second implementation exists.
+- Write type-stable code and keep struct fields concretely typed. Use type parameters for
+  that, not to specialize per mechanism: `EnzymeMechanism{Sig}` and
+  `AllostericEnzymeMechanism{Sig}` exist because `rate_equation` is generated, and
+  specializing further costs compile time.
+- CI runs Julia 1.13, where a closure over a `@nospecialize` argument is untyped; use
+  `Base.Fix2` there.
+- 92-character lines, 4-space indentation. Match the style of the surrounding code, and
+  leave whitespace alone unless a formatter changes it.
+- Where this file is silent, follow the SciML style guide
+  (<https://docs.sciml.ai/SciMLStyle/stable/>). This repo's conventions win where they
+  differ: one leading `_` for an internal name, plain `@testset`.
 
-  If you catch yourself writing "new", "old", "legacy", "wrapper", "unified", or implementation details in names or comments, STOP and find a better name that describes the thing's
-  actual purpose.
+## Names, comments and docstrings
 
-## Function docs
+A name says what the thing does, specifically enough that a reader can follow a call
+without opening its docstring. Read a name together with its arguments: `name(p, m)` is
+clear, and dispatch means it needs no `parameter_` prefix. A longer name is better than a
+vague one: `has_turnover_cycle(m)`, not `check(m)`; `rate_equation_dedup_key(m)`, not
+`key(m)`. Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a
+function that mutates its arguments. A name that is hard to choose often marks a design
+that is not yet clear.
 
-A docstring tells a caller what they need in order to use the function: its arguments, result, units and errors. It does not describe the implementation, so that the implementation stays hidden. An internal function needs no docstring when its name and arguments make its job completely obvious.
+Names and comments describe the code as it is. They do not mention how it is implemented,
+what it used to be or how it changed, so no "new", "old", "legacy", "improved" or
+"wrapper".
 
-## Version Control
+Write a comment for what the code cannot say: why something exists, a chemical or
+numerical reason, the bug that would happen without it, a trap for the next editor. Delete
+a comment that restates the code, and update a comment in the same change as its code.
 
-- If the project isn't in a git repo, STOP and ask permission to initialize one.
-- YOU MUST STOP and ask how to handle uncommitted changes or untracked files when starting work.  Suggest committing existing work first.
-- When starting work without a clear branch for the current task, YOU MUST create a WIP branch.
-- YOU MUST TRACK All non-trivial changes in git.
-- YOU MUST commit frequently throughout the development process, even if your high-level tasks are not yet done.
-- NEVER SKIP, EVADE OR DISABLE A PRE-COMMIT HOOK
-- NEVER use `git add -A` unless you've just done a `git status` - Don't add random test files to the repo.
+A docstring gives a caller what they need: arguments, result, units and errors. It does
+not describe the implementation. An internal function whose name and arguments make its
+job obvious needs none.
 
-## Testing
+Every code file starts with two comment lines, each beginning `ABOUTME: `, saying what the
+file does.
 
-- ALL TEST FAILURES ARE YOUR RESPONSIBILITY, even if they're not your fault. The Broken Windows theory is real. 
-- Never delete a test because it's failing. Instead, raise the issue with Denis. 
-- The only thing worse than a failing test is a reduction in test coverage. 
-- Tests MUST comprehensively cover ALL functionality. 
-- YOU MUST NEVER write tests that "test" mocked behavior. If you notice tests that test mocked behavior instead of real logic, you MUST stop and warn Denis about them.
-- YOU MUST NEVER implement mocks in end to end tests. We always use real data and real APIs.
-- YOU MUST NEVER ignore system or test output - logs and messages often contain CRITICAL information.
-- Test output MUST BE PRISTINE TO PASS. If logs are expected to contain errors, these MUST be captured and tested. If a test is intentionally triggering an error, we *must* capture and validate that the error output is as we expect
-- Every helper defined under `test/` (function, macro, struct or closure, at any scope) carries the `_testhelper_` prefix so it cannot be mistaken for a package function; only a one-line closure local to a testset or to another helper keeps a bare name.
+## Guards
 
+These rules are enforced by tests. When one fails, fix the code, not the test.
 
-## Systematic Debugging Process
+- **Module boundaries.** `test/test_boundaries.jl` parses `src/` and fails on a
+  cross-module name that is not public, a module naming one its layer forbids, an
+  underscore name that is public or used across modules, and an `export` in a submodule.
+  It also fails when the table above or the interface tables and diagram in
+  `docs/src/developer.md` disagree with `src/`. After changing a `public` statement, an
+  export, a module docstring or a cross-module call, update the developer page in the same
+  commit and run `julia test/update_module_map.jl`.
+- **Type stability.** `test/test_type_stability.jl` requires, on Julia 1.13, that JET find
+  no run-time dispatch under any exported or public function, internal callees included.
+  A new public function needs a row there, with a named exemption set for any dispatch
+  it keeps.
+- **Parameter names.** Every parameter name is rendered by `name(p, m)` in
+  `src/Derivation/names.jl`. A testset in `test/Derivation/test_names.jl` fails on a
+  `Symbol("K…")`, `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal anywhere else
+  in `src/`.
+- **Canonical Step Form.** The `Mechanism` and `AllostericMechanism` constructors
+  canonicalize edge direction, edge order and group order. Deduplication by `==` and
+  `hash`, and the naming of every constant, depend on it. Read the Developer page before
+  touching `_canonicalize` or the dependent-parameter priority (`_priority_key`).
+- **`rate_equation` speed.** `rate_equation` is allocation-free and takes under
+  `50 ns + 0.5 ns × denominator terms` per call on every gated law. `Fitting.loss!` is
+  allocation-free, and its time per data row is at most 1.25 × `rate_equation` per call
+  plus 8 `log` calls, met by any of 20 batches. `test/Derivation/test_rate_eq_derivation.jl`
+  enforces both. A fit evaluates the law millions of times, so stop and discuss with the
+  maintainer before a change that would make it allocate or slow down. CI timings vary by
+  runner: rerun a job that misses the bound rather than loosening it.
+- **Compile time.** `test/test_compile_budget.jl` bounds what a mechanism costs to compile.
 
-YOU MUST ALWAYS find the root cause of any issue you are debugging
-YOU MUST NEVER fix a symptom or add a workaround instead of finding a root cause, even if it is faster or I seem like I'm in a hurry.
+Propose a new guard when the maintainer corrects something a deterministic check could
+have caught, when existing code breaks a rule in this file, or when you are about to add a
+mechanically checkable rule here. Propose it in your report or in `ROADMAP.md`; do not
+build it unasked. A rule that needs judgment, such as depth or naming, stays prose: a test
+of a proxy such as length would enforce the wrong thing.
 
-YOU MUST follow the `superpowers:systematic-debugging` skill for ANY technical issue: investigate the root cause before attempting any fix, compare against working examples, and test one hypothesis at a time, saying "I don't understand X" rather than pretending to know.
+## Tests
 
-### Implementation Rules
-- ALWAYS have the simplest possible failing test case. If there's no test framework, it's ok to write a one-off test script.
-- NEVER add multiple fixes at once
-- NEVER claim to implement a pattern without reading it completely first
-- ALWAYS test after each change
-- IF your first fix doesn't work, STOP and re-analyze rather than adding more fixes
+- Read all test and system output. It must be pristine: an expected error or warning is
+  captured and asserted.
+- Tests exercise real behaviour: no test of a mock, and no mocks in end-to-end tests.
+- A failing test is never deleted or weakened to pass; raise it with the maintainer. Every
+  failure you see is yours to fix or report, whoever caused it.
+- Do not reduce coverage. New behaviour comes with tests of all of it.
+- Every helper under `test/` has the `_testhelper_` prefix; only a one-line closure local
+  to a testset or to another helper keeps a bare name.
 
-# Instructions for this repository
+### Derivation tests
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
 
-Package architecture and how-it-works — the derivation, fitting, and identification pipelines, the enumeration engine, and maintainer internals (Canonical Step Form, the `EnzymeMechanism{Sig}` lift, the derivation/enumeration/optimization architecture) — are documented at <https://DenisTitovLab.github.io/EnzymeRates.jl/>; the Developer page covers the internals.
+1. **Write the full mechanism down**, step by step with `@enzyme_mechanism` or
+   `@allosteric_mechanism`, in the testset or in a `MECHANISM_TEST_SPECS` entry. A fixture
+   from the enumerator or a helper cannot be checked against its rate equation by reading.
+   The exception is an aggregate check over a whole population, which says so in a comment.
+2. **Compare with a separately derived rate equation** at random parameters and
+   concentrations: one derived by hand or from a textbook (`analytical_rate_fn`), or from
+   the mass-action steady state (`_testhelper_reference_qssa`). The package's own printed
+   law or a stored output does not count. Property assertions and golden pins are welcome
+   in addition, never instead.
 
-Known issues, planned work and ideas live in `ROADMAP.md` at the repo root. Read it before starting work, and update it in the same commit when a change fixes, adds or retires an entry. `docs/src/roadmap.md` is the user-facing page for the larger directions; a change that fixes or retires an entry it also lists updates both files.
+### Enumeration-engine tests
 
-## API Design
+Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and the expansion moves
+live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
 
-- `compile_mechanism` and `test_rate_equation` are NOT exported (public in their modules and usable as `EnzymeRates.test_rate_equation`, but not promised to users). The concrete enumeration types `Mechanism` / `AllostericMechanism` are also not exported; they are the mechanism-construction surface reached as `EnzymeRates.Mechanism` / `EnzymeRates.AllostericMechanism` / `EnzymeRates.Enumeration.init_mechanisms(rxn) → Vector{Mechanism}` (internal-but-usable). Their `EnzymeMechanism{Sig}` / `AllostericEnzymeMechanism{...}` singleton-type forms are lifted via `compile_mechanism(m)` when the @generated rate-equation derivation is needed.
-- The enumeration pipeline operates end-to-end on the concrete types `Mechanism` / `AllostericMechanism`, a reaction graph of enzyme forms and steps that `Mechanism(substrates, products, nodes, steps)` / `AllostericMechanism(...)` build from `EnzymeForm` and `Step` lists, and whose derived facts (`groups`, `step_kinds`, `toward_products`, `step_sides`, `modifiers`) are stored fields read with dots — there is no separate working representation.
-- Data tables use a `group` column to identify measurement groups sharing the same E_total
-- Keq is always user-provided, never estimated from data
+1. **Write the mechanism in the testset**, inline with `@enzyme_mechanism` or
+   `@allosteric_mechanism`, even when that repeats one used elsewhere. The exception is an
+   aggregate regression pin over a whole seed set, which says so in a comment.
+2. **Assert the exact children**: `length(children) == n` and
+   `Set(children) == Set(expected)`, with every expected child written out. Property
+   assertions are welcome in addition, never instead.
+3. **Write chemistry the enumerator's way.** Unmerged chemistry is an isomerization to the
+   product-bound form followed by releases (`E(A) <--> E(P; residual = A - P)`, then
+   `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`). A merged complex is the
+   product-bound form: the last substrate binds into it in one step
+   (`E(A) + B <--> E(P, Q)`) and the products leave by plain releases. A Theorell–Chance
+   step takes up the substrate and gives off the product in one step
+   (`E(A) + B <--> E(Q) + P`). Never write a merged complex on the substrate side
+   (`E(A, B) <--> E(Q) + P`): the enumerator never emits it, so it is a different mechanism
+   from the one the move produces.
 
-## Commands
+## Commands and workflow
 
 ```bash
 # Run full test suite (cold — pays precompilation + JIT cost every time). The heap hint
@@ -173,78 +269,39 @@ timeout 1200 julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hi
 julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<Module>/<file>.jl")'
 ```
 
-Use the focused run while iterating and before each commit, and the full suite once before pushing. Four things to
-know: the focused run skips Aqua and JET; it includes only the shared fixtures file and the file
-you name, so a helper defined in another test file is undefined under it (keep shared helpers,
-such as `_testhelper_random_independent_params`, in
-`test/mechanism_definitions_for_test_enzyme_derivation.jl`); run one Julia process at a
-time (the machine has 7.7 GB and no swap, and the full suite needs about 4 GB free); and run the full suite in the background under `timeout 1200`, so a hang also ends in an exit notice; wait for that notice and read the result before reporting. `TestEnv` must be installed
-in the default environment once: `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
+- Use the focused run while iterating and before each commit, and the full suite once
+  before pushing.
+- The focused run skips Aqua and JET, and includes only the shared fixtures file and the
+  file you name. Keep helpers that several test files use in
+  `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
+- Run one Julia process at a time: the machine has 7.7 GB and no swap, and the full suite
+  needs about 4 GB free.
+- Run the full suite in the background under `timeout 1200`, wait for its exit notice and
+  read the result before reporting.
+- `TestEnv` is installed once in the default environment:
+  `julia -e 'using Pkg; Pkg.add("TestEnv")'`.
 
-## Workflow
+Workflow:
 
-- Always run the tests a change touches before committing
-- Specs and plans under `docs/superpowers/` are working documents. Delete a change's spec and plan in the PR that implements it, before it merges: the code, tests, developer docs and `ROADMAP.md` are the lasting record, and git history keeps the rest.
+- Read `ROADMAP.md` before starting. Update it in the commit that fixes, adds or retires
+  an entry, and update `docs/src/roadmap.md` too when it lists the entry.
+- Fix a broken thing when you find it, unless the fix changes an interface that needs
+  approval. Anything else unrelated to the task goes in `ROADMAP.md`.
+- Work on a branch for the task and commit often. If the tree has uncommitted changes or
+  untracked files when you start, ask how to handle them.
+- Never skip or disable a pre-commit hook. Run `git status` before any `git add -A`.
+- Specs and plans under `docs/superpowers/` are working documents: delete a change's spec
+  and plan in the pull request that implements it.
 
-## Code Style
+## Working with the maintainer
 
-- 92-character line length limit, 4-space indentation
-- Dispatch on types rather than branching with `isa` or tags; walking an `Expr` is the exception. Use type parameters to keep fields concretely typed, not to specialize per mechanism: `EnzymeMechanism{Sig}` and `AllostericEnzymeMechanism{Sig}` exist because `rate_equation` is generated, and specializing further costs compile time that `test/test_compile_budget.jl` guards.
-- Prefer minimal code: inline single-use helpers, avoid unnecessary abstractions
-- Remove unused features entirely — don't add parameters to disable them
-- After any refactor, re-read changed files for dead code and further simplification
-
-
-### Parameter naming chokepoint (guard)
-
-A parameter is a `StepParameter(step, slot, inactive)` (which is also the joint solve's column label), a `RegulatorParameter(ligand, inactive)` or an `AllostericParameter()` (`L`), each holding no fact its mechanism holds; `parameter_info(m)` lists a mechanism's fitted ones. All `Parameter → Symbol` rendering flows through the `name(p, m)` chokepoint in `src/Derivation/names.jl`, for concrete mechanisms only; the AST-walker testset `chokepoint: no Symbol("[KkVL]...") outside parameter-name renderers` in `test/Derivation/test_names.jl` fails the build on any stray `Symbol("K…")`/`Symbol("k…")`/`Symbol("V…")`/`Symbol("L…")` literal in `src/` outside a parameter-name renderer, and on a renderer outside that file.
-
-### Module boundaries (guard)
-
-`src/` is six submodules layered `Mechanisms ← Derivation ← {Fitting, Enumeration, DSL}` and `Data ← Fitting` (`DSL` holds the macros and `parse_mechanism`; `Data` holds `RateData`), each in `src/<Module>/` with its interface declared by the `public` statement in `src/<Module>/<Module>.jl`; the top level (identify, the exports) uses all of them.
-
-<!-- module table, generated from src/ by test/update_module_map.jl -->
-| Module | What it does | Public names (★ exported) | May call |
-|:--|:--|:--|:--|
-| EnzymeRates (top level) | Finds the best mechanism for a reaction from measured rates. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` | all |
-| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, ★ `@allosteric_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
-| Enumeration | Generates candidate mechanisms for a reaction. | `expand_mechanisms`, `starting_mechanisms` | Mechanisms, Derivation |
-| Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
-| Derivation | Derives a mechanism's rate equation and compiles it. | ★ `rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, ★ `IndependentParameters`, ★ `FittedParameters`, ★ `AllParameters`, `AllostericParameter`, `RegulatorParameter`, `StepParameter`, `check_valid_rate_equation`, `fitted_parameter_count`, `name`, `parameter_info`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
-| Data | Checks and holds a table of measured rates. | `RateData` | none |
-| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `EnzymeMechanism`, ★ `AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `AllostericMechanism`, `EnzymeForm`, `Mechanism`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `check_decodable_names`, `compile_mechanism`, `excludes`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `present_species`, `rapid_equilibrium_segments`, `segment_walk`, `step_text` | none |
-<!-- end of module table -->
-
-We want deep modules: the fewest public names and the complexity inside the module, so you can work on a module knowing only the others' interfaces. Complexity counts public names and the number and complexity of their arguments, with the cleanest, simplest arguments as the goal. A value is an internal constant unless users have a real reason to change it, as they do for optimizer settings.
-
-Denis's approval comes first for adding a public name, adding an argument to one, and any change to an exported function. Removing or shrinking a non-exported shared name goes in with the change that finds it, and the report says so.
-
-`test/test_boundaries.jl` parses `src/` without loading the package and fails on four rules: (1) a name of another module (`Mod.name`, or `using ..Mod: name`) that is not public there; (2) a module naming a module its layer forbids; (3) an underscore name in a `public` statement or used across modules; (4) an `export` in a submodule. Call another module's function qualified (`Derivation.fitted_parameter_count(m)`); outside `Mechanisms`, read a mechanism's stored fields with dots (`m.steps[k].from`, `m.groups`). The Developer page lists each module's interface in tables and draws the module map as a Mermaid diagram generated from `src/` (each box's sentence is the first sentence of its module's docstring), and the same test fails when they disagree with `src/`: a change to a `public` statement, an export, a module docstring or a cross-module call updates `docs/src/developer.md` in the same commit, and `julia test/update_module_map.jl` rewrites the diagram.
-
-### Canonical Step Form (load-bearing guard)
-Edge direction, edge order and group order are canonicalized in the `Mechanism`/`AllostericMechanism` constructors (`_canonicalize`). This is **load-bearing, not cosmetic**: structural deduplication (`unique!`) works by pure `==`/`hash` only because construction is canonical, and every constant is named after the stored sides of its class's kept member. The joint solve (`src/Derivation/thermo.jl`) picks dependent parameters by a fixed content priority (`_priority_key`, in `src/Derivation/names.jl`), so `parameters(m, FittedParameters())` and the rate equation do not depend on step order, step direction or group labels; renaming a metabolite can still change which tied constant is dependent. Do not relax or reorder this without reading the Developer page in the docs.
-
-
-
-
-### `rate_equation` runtime perf is non-negotiable
-
-`rate_equation` MUST be allocation-free and take under `50 ns + 0.5 ns × denominator terms` per call for every gated law: each mechanism in `MECHANISM_TEST_SPECS`, and the larger laws in `_testhelper_largest_enumerated_mechanisms` and `_testhelper_large_ter_bi_mechanisms`. `Fitting.loss!` MUST be allocation-free in relative and absolute mode on every gated law, and its time per data row at most 1.25 × `rate_equation` per call plus 8 `log` calls, all timed in one process on the same table. The `loss!` bound holds if any of 20 batches meets it, each on a fresh `FittingProblem`, because a slow reading persists on one problem. Enforced by `_testhelper_test_rate_equation_performance`, `_testhelper_rate_equation_time_limit` and `_testhelper_loss_time_per_row` in `test/Derivation/test_rate_eq_derivation.jl` (`allocs == 0`; `t < 50e-9 + 0.5e-9 * n`) plus the Expr-shape (binary calls, Horner form) and flat-string regression tests in the same file. Small laws took 5-38 ns on CI, varying by runner, so rerun a job that misses the bound rather than loosening it. The fitter evaluates `rate_equation` millions of times per cross-validation fold; any change that introduces allocations or microsecond-scale per-call time makes the package unusable in practice. If a change you are considering would force `rate_equation` to allocate or slow down, YOU MUST STOP and discuss with Denis first before implementing it. This is one of the most important tests in the suite. See the Developer page in the docs for how `rate_equation` is derived and why the 0-allocation contract and these bounds hold.
-
-`test/test_type_stability.jl` requires JET's optimization analysis to report no run-time dispatch on every exported and public function and on the workers' internal functions, on Julia 1.13 only. Each row is written as a call with `@_testhelper_no_dispatch` or `@_testhelper_dispatches_in` and the named exemption sets it relies on; a function added to the public interface needs a row there. The harness is `test/type_stability_harness.jl`.
-
-
-### Derivation tests
-
-Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
-
-1. **Write the full mechanism down.** Define every mechanism step by step with `@enzyme_mechanism` or `@allosteric_mechanism`, in the testset or in a `MECHANISM_TEST_SPECS` entry. A fixture taken from the enumerator or built by a helper cannot be checked against its rate equation by reading it. The only exception is an aggregate check over a whole population, which must say so in a comment.
-2. **Compare with a separately derived rate equation.** Compare `rate_equation`'s output at random parameters and concentrations with a rate equation derived without `src/Derivation`: by hand or from a textbook (`analytical_rate_fn`), or from the mechanism's mass-action steady state (`_testhelper_reference_qssa`). The package's own printed law or a stored output does not count. Property assertions (Haldane equilibrium, ODE steady state) and golden pins are welcome in addition, never instead.
-
-### Enumeration-engine tests
-
-Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms`, and the expansion moves live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
-
-1. **Write the mechanism in the testset.** Define every fixture inline with `@enzyme_mechanism` or `@allosteric_mechanism`, even when that repeats a mechanism used elsewhere. A fixture pulled from `init_mechanisms`, a shared constant, or a helper cannot be reviewed without leaving the testset. The only exception is an aggregate regression pin over a whole seed set (a count over all `init_mechanisms(rxn)`), which must say so in a comment.
-2. **Assert the exact children.** A move test asserts `length(children) == n` and `Set(children) == Set(expected)` with every expected child written out as a mechanism. Property assertions (every child gains, no superset) are welcome in addition, never instead: a property test passes on wrong output that happens to satisfy the property.
-3. **Write chemistry the enumerator's way.** Unmerged chemistry is an isomerization to the product-bound form followed by release steps (`E(A) <--> E(P; residual = A - P)` then `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`). A merged complex is the product-bound form: the last substrate binds into it in one step (`E(A) + B <--> E(P, Q)`) and the products leave by plain releases. A Theorell–Chance step takes up the substrate and gives off the product in one step (`E(A) + B <--> E(Q) + P`). Never write a merged complex on the substrate side (`E(A, B) <--> E(Q) + P`). The enumerator never emits that form, so a fixture written that way is a different mechanism from the one the move produces.
+- Say so when you do not know something or are stuck, and ask for help. Report results as
+  they are, failures included.
+- Give your honest technical judgment and push back on an idea you think is wrong, with
+  the reason, or say that it is a gut feeling.
+- Stop and ask when the decision is the maintainer's: a design choice between valid
+  approaches, a public name, rewriting a whole implementation or module, or anything hard
+  to undo. Otherwise do the task, with its obvious follow-ups: choose, say what you
+  chose and what it costs if wrong.
+- Doing it right matters more than doing it fast. Tedious, systematic work is often the
+  correct solution.
