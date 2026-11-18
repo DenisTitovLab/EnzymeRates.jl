@@ -116,7 +116,9 @@ non-exported shared name needs no approval; do it and say so in the report.
 4. Re-read the changed files for dead code and further simplification.
 5. Keep the result only if a reader now needs to know less. Judge by public names,
    arguments and cross-module calls first, and by line count second.
-6. Commit a refactor separately from a fix wherever the two can be separated.
+6. Give a refactor its own commit, apart from a fix, wherever the two can be separated.
+   Both belong in one pull request when the refactor simplifies the code around the fix
+   or grew out of its investigation.
 
 ### Bug fix
 
@@ -196,15 +198,6 @@ an approved interface change.
   dispatch under any exported or public function, internal callees included. The suite
   runs it on Julia 1.13 only (`julia +1.13`). A new public function needs a row there,
   with a named exemption set for any dispatch it keeps.
-- **Parameter names.** Every parameter name is rendered by `name(p, m)` in
-  `src/Derivation/names.jl`. A testset in `test/Derivation/test_names.jl` fails on a
-  `Symbol("K…")`, `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal anywhere else
-  in `src/`.
-- **Canonical Step Form.** The `Mechanism` and `AllostericMechanism` constructors
-  canonicalize edge direction, edge order and group order. Deduplication by `==` and
-  `hash`, and the naming of every constant, depend on it. Read the Developer page before
-  touching `_canonicalize` or the dependent-parameter priority (`_priority_key`). No
-  single test names this rule; the enumeration and derivation tests break without it.
 - **`rate_equation` speed.** `rate_equation` is allocation-free and takes under
   `50 ns + 0.5 ns × denominator terms` per call on every gated law: each mechanism in
   `MECHANISM_TEST_SPECS` and the larger laws that test file lists. `Fitting.loss!` is

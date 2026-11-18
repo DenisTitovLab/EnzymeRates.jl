@@ -424,7 +424,10 @@ Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:Onl
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member that comes last in that order
 (`_kept_members`), through the `name(p, m)` chokepoint; `constant_columns` returns each
-column's name with it, so the naming rule lives in `src/Derivation/names.jl`. The
+column's name with it, so the naming rule lives in `src/Derivation/names.jl`. A testset
+in `test/Derivation/test_names.jl` walks `src/` and fails on a `Symbol("K…")`,
+`Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal outside a parameter-name renderer,
+and on a renderer outside that file. The
 engine (`_law`,
 `src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
 keeps (`am.active_steps`, `am.inactive_steps`; every edge
@@ -570,7 +573,10 @@ member — each side's enzyme form followed by its free metabolites (`K_ES_to_E_
 `E(A) + B <--> E(Q) + P`).
 
 Like the singleton types, the graph is canonical, so the order or direction in which
-steps are written does not change the resulting mechanism. `_canonicalize` stores free E
+steps are written does not change the resulting mechanism. The canonical form is
+load-bearing: deduplication by `==` and `hash` works only because construction is
+canonical, and every constant is named after the stored sides of its class's kept member,
+so do not relax or reorder it. `_canonicalize` stores free E
 first and the other forms in content order, and stores every edge in its
 physical-forward direction (`_orientation`): a step with one metabolite takes it up, so a
 release is stored as the binding it reverses; otherwise the side holding more substrates,
