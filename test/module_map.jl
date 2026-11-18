@@ -1,5 +1,5 @@
 # ABOUTME: Parses src/ for the module boundary tests (cross-module uses, public names,
-# ABOUTME: exports) and generates the developer docs' Mermaid module map from them.
+# ABOUTME: exports) and generates the module map and the module table from them.
 
 # The submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
@@ -264,18 +264,67 @@ function _testhelper_module_map(root)
     _testhelper_MAP_HEADER * join(lines, "\n") * "\n"
 end
 
-const _testhelper_MAP_FENCE = r"```mermaid\n(.*?)```\n"s
-
-"""One line when the Mermaid block of the Markdown text `doc` is missing or differs from
-the module map generated from `root`, naming the command that rewrites it. CRLF line
-endings (a Windows checkout) compare as LF."""
-function _testhelper_module_map_block_problems(doc, root)
-    block = match(_testhelper_MAP_FENCE, replace(doc, "\r\n" => "\n"))
-    block !== nothing && block[1] == _testhelper_module_map(root) && return String[]
-    ["the Mermaid module map in docs/src/developer.md differs from the one generated " *
-     "from src/; rewrite it with `julia test/update_module_map.jl`"]
+"""The module table of the tree at `root`, as Markdown: a row for the top level and each
+module that has a folder, with the first sentence of its docstring, its public names (the
+top level's are the exports no module owns) and the modules its layer lets it call."""
+function _testhelper_module_table(root)
+    apis = Dict(m => _testhelper_api(root, m)
+        for m in keys(_testhelper_module_sources(root)))
+    exports = _testhelper_exports(joinpath(root, "EnzymeRates.jl"))
+    types = _testhelper_type_names(root)
+    shown(names) = join([(n in exports ? "★ " : "") * "`$n`"
+        for n in _testhelper_map_order(names, types, exports)], ", ")
+    callable(layer) = isempty(layer) ? "none" : join(layer, ", ")
+    rows = ["| Module | What it does | Public names (★ exported) | May call |",
+        "|:--|:--|:--|:--|"]
+    for (m, _) in _testhelper_MAP_BOXES
+        top = m === :EnzymeRates
+        top || haskey(apis, m) || continue
+        file = joinpath(root, top ? "EnzymeRates.jl" : "$m/$m.jl")
+        sentence = replace(_testhelper_box_sentence(file, m), "<br/>" => " ")
+        names = top ? [n for n in exports if !any(api -> n in api, values(apis))] : apis[m]
+        push!(rows, "| $(top ? "$m (top level)" : m) | $sentence | $(shown(names)) | " *
+                    "$(top ? "all" : callable(_testhelper_LAYERS[m])) |")
+    end
+    join(rows, "\n") * "\n"
 end
 
-"""`doc` with the text of its Mermaid block replaced by `map`."""
-_testhelper_replace_module_map(doc, map) =
-    replace(doc, _testhelper_MAP_FENCE => SubstitutionString("```mermaid\n$(map)```\n"))
+# The two blocks generated from src/: the lines that open and close each, the function that
+# generates its text from a source tree, and how a problem line describes it.
+const _testhelper_MAP_BLOCK = (; opening = "```mermaid\n", closing = "```\n",
+    generate = _testhelper_module_map,
+    described = "the Mermaid module map in docs/src/developer.md")
+const _testhelper_TABLE_BLOCK = (;
+    opening = "<!-- module table, generated from src/ by test/update_module_map.jl -->\n",
+    closing = "<!-- end of module table -->\n", generate = _testhelper_module_table,
+    described = "the module table in .claude/CLAUDE.md")
+
+"""The range of `doc` between `block`'s opening and closing lines, or `nothing` when `doc`
+lacks the block."""
+function _testhelper_generated_block_range(doc, block)
+    opening = findfirst(block.opening, doc)
+    opening === nothing && return nothing
+    closing = findnext(block.closing, doc, last(opening) + 1)
+    closing === nothing ? nothing : (last(opening) + 1):prevind(doc, first(closing))
+end
+
+"""One line when the generated `block` of the Markdown text `doc` is missing or differs
+from the one generated from `root`, naming the command that rewrites it. CRLF line endings
+(a Windows checkout) compare as LF."""
+function _testhelper_generated_block_problems(doc, block, root)
+    doc = replace(doc, "\r\n" => "\n")
+    range = _testhelper_generated_block_range(doc, block)
+    range !== nothing && doc[range] == block.generate(root) && return String[]
+    ["$(block.described) differs from the one generated from src/; rewrite it with " *
+     "`julia test/update_module_map.jl`"]
+end
+
+"""`doc`, with LF line endings, and the text of its generated `block` replaced by `text`.
+Throws when `doc` lacks the block's opening or closing line."""
+function _testhelper_replace_generated_block(doc, block, text)
+    doc = replace(doc, "\r\n" => "\n")
+    range = _testhelper_generated_block_range(doc, block)
+    range === nothing && error("$(block.described) has no generated block: add the " *
+                               "lines $(repr(block.opening)) and $(repr(block.closing))")
+    doc[1:prevind(doc, first(range))] * text * doc[nextind(doc, last(range)):end]
+end

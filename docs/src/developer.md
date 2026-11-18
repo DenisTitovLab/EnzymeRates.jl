@@ -18,7 +18,8 @@ the exports are promised to users. Its tests live in `test/<Module>/`. The diagr
 shows every exported name and every name one module takes from another, and the tables
 list every module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
 diagram is generated: each box's sentence is the first sentence of its module's docstring,
-and `julia test/update_module_map.jl` rewrites it.
+and `julia test/update_module_map.jl` rewrites it, together with the table of modules in
+`.claude/CLAUDE.md`, which the same test checks.
 
 ### The module map
 
@@ -444,7 +445,10 @@ Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:Onl
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member that comes last in that order
 (`_kept_members`), through the `name(p, m)` chokepoint; `constant_columns` returns each
-column's name with it, so the naming rule lives in `src/Derivation/names.jl`. The
+column's name with it, so the naming rule lives in `src/Derivation/names.jl`. A testset
+in `test/Derivation/test_names.jl` walks `src/` and fails on a `Symbol("K…")`,
+`Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal outside a parameter-name renderer,
+and on a renderer outside that file. The
 engine (`_law`,
 `src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
 keeps (`am.active_steps`, `am.inactive_steps`; every edge
@@ -511,6 +515,18 @@ Identify asks one mechanism four questions in a row: `check_valid_rate_equation`
 concrete mechanism asked about, matched by `===`, so each is derived once for all four.
 The memo holds one mechanism in the task's local storage, so it never grows and tasks
 share nothing. The compiled types' derivation never reads it.
+
+### Reading `Base.gc_live_bytes`
+
+`BigInt` arithmetic raises `Base.gc_live_bytes` by bytes that no live object holds, so
+the count overstates what a derivation retains. Class 3's model point (`_model_point`,
+`src/Derivation/limit_test.jl`; an integer null space in `Rational{BigInt}`) raises it by
+101 KiB on the six-step bi-bi ping-pong at two conformations, and a 6×6 determinant
+outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
+`Rational{Int}`. The joint solve adds nothing: it runs in `Rational{Int}` on 10,226
+enumerated bi-bi and ter-bi mechanisms without overflow. The count holds no memory and
+raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB resident. Measure
+retained memory by the resident set.
 
 ## Well-posedness guard
 
@@ -590,7 +606,10 @@ member — each side's enzyme form followed by its free metabolites (`K_ES_to_E_
 `E(A) + B <--> E(Q) + P`).
 
 Like the singleton types, the graph is canonical, so the order or direction in which
-steps are written does not change the resulting mechanism. `_canonicalize` stores free E
+steps are written does not change the resulting mechanism. The canonical form is
+load-bearing: deduplication by `==` and `hash` works only because construction is
+canonical, and every constant is named after the stored sides of its class's kept member,
+so do not relax or reorder it. `_canonicalize` stores free E
 first and the other forms in content order, and stores every edge in its
 physical-forward direction (`_orientation`): a step with one metabolite takes it up, so a
 release is stored as the binding it reverses; otherwise the side holding more substrates,

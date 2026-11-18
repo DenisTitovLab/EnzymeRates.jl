@@ -1,9 +1,10 @@
-# ABOUTME: Rewrites the Mermaid module map in docs/src/developer.md from src/; run it with
-# ABOUTME: `julia test/update_module_map.jl` after a change that test_boundaries.jl reports.
+# ABOUTME: Rewrites the Mermaid module map of docs/src/developer.md and the module table of
+# ABOUTME: .claude/CLAUDE.md from src/; run it after a change test_boundaries.jl reports.
 include("module_map.jl")
 
-const _testhelper_DEVELOPER_PAGE = normpath(joinpath(@__DIR__, "..", "docs", "src",
-    "developer.md"))
-
-write(_testhelper_DEVELOPER_PAGE, _testhelper_replace_module_map(
-    read(_testhelper_DEVELOPER_PAGE, String), _testhelper_module_map(_testhelper_SRC)))
+for (block, path) in (_testhelper_MAP_BLOCK => ("docs", "src", "developer.md"),
+                      _testhelper_TABLE_BLOCK => (".claude", "CLAUDE.md"))
+    file = normpath(joinpath(@__DIR__, "..", path...))
+    write(file, _testhelper_replace_generated_block(
+        read(file, String), block, block.generate(_testhelper_SRC)))
+end
