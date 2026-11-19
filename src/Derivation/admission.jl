@@ -1,15 +1,13 @@
-# ABOUTME: Admission of allosteric mechanisms: the interior (excluded bindings, arc cycles,
+# ABOUTME: Admission of allosteric mechanisms: the interior (pinned fast steps, arc cycles,
 # ABOUTME: islands, active turnover) and the face condition on each face of the ε-network.
 
-# ─── Admission: the interior (spec section 7) ──────────────────────────
+# ─── Admission: the interior ───────────────────────────────────────────
 
-"""The plain bindings of `am`'s catalytic graph that conformation `c` excludes, in edge
-order: admission's arcs, each stored as its uptake, unbound side first."""
-function _arcs(am::Mechanisms.AllostericMechanism, c::Int)
-    m = Mechanisms.catalytic(am)
-    excluded = _excluded_steps(am, c)
-    [k for k in eachindex(m.steps) if excluded[k] && m.step_kinds[k] === :binding]
-end
+"""The edges of `am`'s catalytic graph that conformation `c` excludes and that lose their
+affinity there (`_switch_offs`), in edge order: admission's arcs, each stored as its
+uptake, unbound side first."""
+_arcs(am::Mechanisms.AllostericMechanism, c::Int) =
+    findall(==(_LOSES_AFFINITY), _switch_offs(am, c))
 
 """The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
 excludes none."""
@@ -72,21 +70,20 @@ end
 """
 The edge an island's message names, 0 when free E's component reaches every component
 (`reached`): of the edges conformation `c` excludes that join a reached component to an
-unreached one, the first chemistry edge (a `step_kinds` entry other than `:binding`)
-that, run toward products (`toward_products`), enters the unreached one; else the first
-chemistry edge; else the first edge.
+unreached one, the first that does not just take up one metabolite and that, run toward
+products (`toward_products`), enters the unreached one; else the first that does not just
+take up one metabolite; else the first edge.
 """
 function _island_edge(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{Int},
                       reached::BitVector)
     m = Mechanisms.catalytic(am)
     best, rank = 0, 4
     excluded = _excluded_steps(am, c)
-    for k in eachindex(m.steps)
+    for (k, e) in enumerate(m.steps)
         excluded[k] || continue
-        from, to = m.steps[k].from, m.steps[k].to
-        a, b = reached[comp[from]], reached[comp[to]]
+        a, b = reached[comp[e.from]], reached[comp[e.to]]
         a == b && continue
-        r = m.step_kinds[k] === :binding ? 3 :
+        r = length(e.taken_up) == 1 && isempty(e.given_off) ? 3 :
             a == m.toward_products[k] ? 1 : 2
         if r < rank
             best, rank = k, r
@@ -98,16 +95,19 @@ end
 """
     _admission_interior(am) -> _Verdict
 
-Admission's interior checks (spec section 7), for each conformation `c` whose tags exclude
-an edge (`Mechanisms.excludes`), on the components of the forms its other edges join
-(`exclusion_components`) with its tagged plain bindings as arcs (`_arcs`):
-- existence: no arc stays inside one component (`_NO_LIMIT`) and the arcs close no
-  directed cycle (`_ARC_CYCLE`); equivalent to the exact cone test, since with every other
-  constant fixed a direction's equilibrium-ratio exponents are differences of component
+Admission's interior checks, for each conformation `c` whose tags exclude an edge
+(`Mechanisms.excludes`), each excluded edge switched off as `_switch_offs` reads it, on
+the components of the forms its other edges join (`exclusion_components`) with the edges
+that lose their affinity as arcs (`_arcs`):
+- kind: no excluded rapid-equilibrium edge that `c` cannot switch off, since a step keeps
+  its kind in both conformations (`_FAST_STEP_PINNED`, the first such edge);
+- existence: the arcs close no directed cycle (`_ARC_CYCLE`); equivalent to the exact cone
+  test, since an arc never lies inside one component and, with every other constant
+  fixed, a direction's equilibrium-ratio exponents are differences of component
   potentials and only the arcs need a sign;
 - uniqueness: free E's component reaches every component along the arcs, so every island
-  lies behind a tagged plain binding on its bound side and the limit is deletion plus
-  pruning (`_ISLAND`);
+  lies behind an arc on its bound side and the limit is deletion plus pruning
+  (`_ISLAND`);
 - turnover: when tags exclude edges of the active conformation, its law network still
   holds a cycle that turns the reaction over (`_NO_ACTIVE_TURNOVER`).
 The verdict carries the conformation and the edge its message leads with (face 0).
@@ -116,12 +116,11 @@ function _admission_interior(am::Mechanisms.AllostericMechanism)
     m = Mechanisms.catalytic(am)
     for c in 1:2
         _first_excluded(am, c) == 0 && continue
+        pinned = findfirst(==(_CANNOT_SWITCH_OFF), _switch_offs(am, c))
+        pinned === nothing ||
+            return _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, c, pinned)
         comp = exclusion_components(am, _CONFORMATIONS[c])
         arcs = _arcs(am, c)
-        for k in arcs
-            a, b = m.steps[k].from, m.steps[k].to
-            comp[a] == comp[b] && return _Verdict(_NO_LIMIT, _LIMIT_UNTESTED, 0, c, k)
-        end
         cycle = _arc_cycle(m, comp, arcs)
         isempty(cycle) || return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, cycle[1])
         k = _island_edge(am, c, comp, _reached_components(m, comp, arcs))
@@ -225,22 +224,32 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
     vanish(js) = length(js) == 1 ? "that step vanishes" : "those steps vanish"
     untag_passes(ks) = all(t -> _retag_passes(am, ks, t), (:EqualAI, :NonequalAI))
     # The fixes whose variants pass: the groups of `untag` (`what`) tagged :EqualAI or
-    # :NonequalAI, and the steps `joins` that join `sides` tagged :OnlyA.
+    # :NonequalAI, and the steps `joins` that join `sides` tagged :OnlyA, if any.
     function fixes(untag::Vector{Int}, what::String, joins::Vector{Int}, sides::String)
         found = String[]
         untag_passes(untag) && push!(found, "tag $what :EqualAI or :NonequalAI")
-        _retag_passes(am, joins, :OnlyA) &&
+        !isempty(joins) && _retag_passes(am, joins, :OnlyA) &&
             push!(found, "tag :OnlyA the steps that join $sides: $(lines(joins))")
-        isempty(found) ? "" : " " * uppercasefirst(join(found, ", or ")) * "."
+        found
     end
-    if v.fault === _NO_LIMIT
-        msg = "AllostericMechanism: in the $conf conformation, steps outside $tag " *
-              "groups still join the two sides of the $tag binding $(line(k)), so " *
-              "thermodynamics keeps its affinity finite and the binding has no limit " *
-              "there."
-        c == 2 || return msg
-        return msg * fixes([k], "its group",
-                           _kept_path(am, c, m.steps[k].from, m.steps[k].to), "its sides")
+    # The fixes `found` as one sentence of alternatives; nothing when there are none.
+    offer(found) = isempty(found) ? "" : " " * uppercasefirst(join(found, ", or ")) * "."
+    if v.fault === _FAST_STEP_PINNED
+        msg = "AllostericMechanism: in the $conf conformation the rapid-equilibrium step " *
+              "$(line(k)) is tagged $tag but cannot be switched off. A step keeps its " *
+              "kind in both conformations, so a rapid-equilibrium step can only lose its " *
+              "affinity, and it can do that only when it takes up one metabolite into a " *
+              "form the other steps no longer reach."
+        found = String[]
+        if c == 2
+            from, to = m.steps[k].from, m.steps[k].to
+            comp = exclusion_components(am, :inactive)
+            # When no kept steps join the two sides, there are none to tag :OnlyA.
+            joins = comp[from] == comp[to] ? _kept_path(am, c, from, to) : Int[]
+            found = fixes([k], "its group", joins, "its sides")
+        end
+        _steady_state_passes(am, k) && push!(found, "make its group steady-state")
+        return msg * offer(found)
     elseif v.fault === _ARC_CYCLE
         cycle = _arc_cycle(m, exclusion_components(am, _CONFORMATIONS[c]),
                            _arcs(am, c))
@@ -255,31 +264,19 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
             append!(joins, _kept_path(am, c, m.steps[j].to,
                                       m.steps[next].from))
         end
-        return msg * fixes(cycle, "them", unique!(joins), "them")
+        return msg * offer(fixes(cycle, "them", unique!(joins), "them"))
     elseif v.fault === _ISLAND
         comp = exclusion_components(am, _CONFORMATIONS[c])
         reached = _reached_components(m, comp, _arcs(am, c))
         from, to = m.steps[k].from, m.steps[k].to
         lost = reached[comp[from]] ? comp[to] : comp[from]
-        fixable = c == 2 && untag_passes([k])
         msg = "AllostericMechanism: in the $conf conformation the forms " *
               join([Mechanisms.form_text(m, f)
                     for f in eachindex(m.nodes) if comp[f] == lost], ", ") *
               " join free E only through $tag steps that are not bindings toward them, " *
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
-        msg = c == 2 && fixable ?
-              msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
-        # A ping-pong whose inactive conformation runs neither half-reaction strands the
-        # covalent forms between the halves; the roadmap lists what would hold them.
-        neither = c == 2 && all(j -> m.step_kinds[j] === :binding ||
-                                     am.excluded_inactive[j],
-                                eachindex(m.steps))
-        covalent = any(f -> comp[f] == lost && !(isempty(m.nodes[f].added) &&
-                                                 isempty(m.nodes[f].subtracted)),
-                       eachindex(m.nodes))
-        return neither && covalent ?
-               msg * " An inactive conformation that runs neither half-reaction of a " *
-                     "ping-pong is not supported yet (see the Roadmap page)." : msg
+        return c == 2 && untag_passes([k]) ?
+               msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
     elseif v.fault in (_EPS_NONUNIQUE, _PUMPED, _BRIDGE)
         eps, law = _eps_network(am), _law_network(am)
         faces = _faces(m)
@@ -577,8 +574,8 @@ end
 """
     _admission(am) -> _Verdict
 
-Admission alone (spec section 7): the interior checks (`_admission_interior`), then the
-face condition on every face (`_admission_face`), class 3 not run.
+Admission alone: the interior checks (`_admission_interior`), then the face condition on
+every face (`_admission_face`), class 3 not run.
 """
 function _admission(am::Mechanisms.AllostericMechanism)
     v = _admission_interior(am)

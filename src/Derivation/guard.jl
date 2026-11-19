@@ -53,10 +53,11 @@ turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed cl
 the limit test rejects where procedure A stopped at a trap fed on the face (`_TRAP`), a
 segment whose lowest forms split (`_SPLIT`), a law segment chain with several closed
 classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
-interior (class 4, spec section 7), a tagged binding whose two sides the conformation's
-other steps join (`_NO_LIMIT`), tagged bindings that close a directed cycle
-(`_ARC_CYCLE`), forms free E's component does not reach along the tagged bindings
-(`_ISLAND`), or an active conformation that no longer turns the reaction over
+interior (class 4), each excluded step switched off as `_switch_offs` reads it, a
+rapid-equilibrium step that a conformation excludes and cannot switch off
+(`_FAST_STEP_PINNED`), steps that lose their affinity and close a directed cycle
+(`_ARC_CYCLE`), forms free E's component does not reach along the steps that lose their
+affinity (`_ISLAND`), or an active conformation that no longer turns the reaction over
 (`_NO_ACTIVE_TURNOVER`); on a face, in admission's face condition, a second closed class
 of the ε-network (`_EPS_NONUNIQUE`), a stranded basin entered by, or holding, an alive step
 whose reverse is dead, or entered from outside it and the law's forms (`_PUMPED`), or
@@ -73,7 +74,7 @@ absorbs their turnover (`_BRIDGE`).
     _SPLIT
     _LAW_MULTI
     _MULTILEVEL
-    _NO_LIMIT
+    _FAST_STEP_PINNED
     _ARC_CYCLE
     _ISLAND
     _EPS_NONUNIQUE
@@ -82,8 +83,8 @@ absorbs their turnover (`_BRIDGE`).
     _NO_ACTIVE_TURNOVER
 end
 
-"""The faults admission reports (spec section 7); `_admission_message` writes their text."""
-const _ADMISSION_FAULTS = (_NO_LIMIT, _ARC_CYCLE, _ISLAND, _NO_ACTIVE_TURNOVER,
+"""The faults admission reports; `_admission_message` writes their text."""
+const _ADMISSION_FAULTS = (_FAST_STEP_PINNED, _ARC_CYCLE, _ISLAND, _NO_ACTIVE_TURNOVER,
                            _EPS_NONUNIQUE, _PUMPED, _BRIDGE)
 
 """
@@ -264,10 +265,11 @@ end
 
 """
 The ε-network N of `m`, its rapid-equilibrium flags overridden by `re`: every form and
-edge in each copy. In the copy that excludes an edge (`excluded_active`,
-`excluded_inactive`), a rapid-equilibrium plain binding stays fast while its uptake
-vanishes and its release keeps its rate; any other excluded edge is slow and vanishes
-both ways. A plain mechanism's ε-network is its law network.
+edge in each copy. In the copy that excludes an edge, as that conformation switches it off
+(`_switch_offs`): an edge that loses its affinity keeps its kind while its uptake vanishes
+and its release keeps its rate; any other excluded edge is slow and vanishes both ways
+(admission rejects a rapid-equilibrium one, `_FAST_STEP_PINNED`). A plain mechanism's
+ε-network is its law network.
 """
 _eps_network(m::Mechanisms.Mechanism,
              re::BitVector = _re_flags(m)) = _law_network(m, re)
@@ -276,14 +278,16 @@ function _eps_network(am::Mechanisms.AllostericMechanism,
                           _re_flags(Mechanisms.catalytic(am)))
     m = Mechanisms.catalytic(am)
     n = length(m.steps)
-    masks = ntuple(c -> _excluded_steps(am, c), 2)
     fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
-    for c in 1:2, k in eachindex(m.steps)
-        excluded = masks[c][k]
-        plain = m.step_kinds[k] === :binding
-        fast[k, c] = re[k] && (!excluded || plain)
-        vanish_forward[k, c] = excluded
-        vanish_reverse[k, c] = excluded && !plain
+    for c in 1:2
+        off = _switch_offs(am, c)
+        for k in eachindex(m.steps)
+            excluded = off[k] !== _RUNS
+            loses = off[k] === _LOSES_AFFINITY
+            fast[k, c] = re[k] && (!excluded || loses)
+            vanish_forward[k, c] = excluded
+            vanish_reverse[k, c] = excluded && !loses
+        end
     end
     _network(m, trues(2 * length(m.nodes)), trues(n, 2), fast, vanish_forward,
              vanish_reverse)
@@ -382,11 +386,12 @@ end
 The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (a cycle
 turns the reaction over, `Mechanisms.has_turnover_cycle`); class 2 (no cycle of fast
 transitions does, `_re_turnover_transitions`, on the ε-network, where an excluded
-rapid-equilibrium binding stays fast while its affinity vanishes); for an allosteric
-mechanism, admission's interior (`_admission_interior`); then on every face class 3
-(`_check_face`, on the law network) and, for an allosteric mechanism, admission's face
-condition (`_admission_face`, on the ε-network), the first fault winning. `_WELL_POSED` when
-every check passes. It reads the reaction graph through masks and builds nothing.
+rapid-equilibrium step that loses its affinity, `_switch_offs`, stays fast); for an
+allosteric mechanism, admission's interior (`_admission_interior`); then on every face
+class 3 (`_check_face`, on the law network) and, for an allosteric mechanism, admission's
+face condition (`_admission_face`, on the ε-network), the first fault winning.
+`_WELL_POSED` when every check passes. It reads the reaction graph through masks and
+builds nothing.
 """
 function _guard(mech::_AnyMech)
     m = Mechanisms.catalytic(mech)

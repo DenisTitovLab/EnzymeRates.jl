@@ -1035,6 +1035,38 @@ function _testhelper_excludes(m, k::Int, c::Int)
     (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
 end
 
+"""Each form's component under the edges that conformation `c` of `am` keeps
+(`_testhelper_excludes`), numbered by first form, so free E's is 1."""
+function _testhelper_kept_components(am, c::Int)
+    cm = EnzymeRates.Mechanisms.catalytic(am)
+    parent = collect(eachindex(cm.nodes))
+    root(i) = parent[i] == i ? i : root(parent[i])
+    for (k, e) in enumerate(cm.steps)
+        _testhelper_excludes(am, k, c) || (parent[root(e.from)] = root(e.to))
+    end
+    roots = [root(f) for f in eachindex(cm.nodes)]
+    label = Dict(r => q for (q, r) in enumerate(unique(roots)))
+    [label[r] for r in roots]
+end
+
+"""
+How conformation `c` (1 active, 2 inactive) of `am` switches off edge `k` of its catalytic
+graph, read from the graph alone: `:runs` when `c` does not exclude it; `:loses_affinity`
+when it takes up one metabolite and gives off none into a cut-off form, the edges `c` keeps
+(`_testhelper_kept_components`) joining neither its two sides nor its bound side to free
+E; otherwise, since a step keeps its kind in both conformations, `:cannot_switch_off` at
+rapid equilibrium and `:stopped` at steady state.
+"""
+function _testhelper_switch_off(am, c::Int, k::Int)
+    _testhelper_excludes(am, k, c) || return :runs
+    e = EnzymeRates.Mechanisms.catalytic(am).steps[k]
+    component = _testhelper_kept_components(am, c)
+    length(e.taken_up) == 1 && isempty(e.given_off) &&
+        component[e.from] != component[e.to] && component[e.to] != component[1] &&
+        return :loses_affinity
+    e.rapid_equilibrium ? :cannot_switch_off : :stopped
+end
+
 """One reversible step of an oracle network between nodes `i` and `j`: forward rate `f`
 and reverse rate `r`, concentrations included, `w` copies of the first substrate taken up
 from `i` to `j`; a `fast` link runs at Λ times its rates."""
@@ -1091,11 +1123,11 @@ conformation `c` runs fast at speed `speeds[k, c]`, a steady-state one at
 exclude, on the forms they join to free E (deletion and pruning). `mode = :vanish` is the
 ε-network: every form and edge, each excluded edge vanishing as ε → 0 along a direction,
 with `potentials[c][f]` the potential of form `f`'s component in conformation `c` and
-`d = potentials[c][to] - potentials[c][from]`. A plain binding's equilibrium constant
-scales by `ε^d`: a rapid-equilibrium one stays fast, its on rate scaled by `ε^(θ d)` and
-its off rate by `ε^(-(1 - θ) d)`; a steady-state one keeps its off rate. Any other
-excluded edge is slow, its rates scaled by `ε^(σ + max(±d, 0))`. `sigma` (σ) and `theta`
-(θ) hold one value per edge.
+`d = potentials[c][to] - potentials[c][from]`. The equilibrium constant of an edge that
+loses its affinity (`_testhelper_switch_off`) scales by `ε^d`: a rapid-equilibrium one
+stays fast, its on rate scaled by `ε^(θ d)` and its off rate by `ε^(-(1 - θ) d)`; a
+steady-state one keeps its off rate. Any other excluded edge is slow, its rates scaled by
+`ε^(σ + max(±d, 0))`. `sigma` (σ) and `theta` (θ) hold one value per edge.
 """
 function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFloat},
                              mode::Symbol = :law, ε::BigFloat = big(1.0),
@@ -1124,7 +1156,7 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
         f, r = fast ? (speeds[k, c] * sqrt(K), speeds[k, c] / sqrt(K)) : (kf, kf / K)
         if excluded
             d = potentials[c][e.to] - potentials[c][e.from]
-            if EnzymeRates.Mechanisms._is_plain_binding(cm, e)
+            if _testhelper_switch_off(mech, c, k) === :loses_affinity
                 f, r = fast ? (f * ε^(theta[k] * d), r * ε^(-(1 - theta[k]) * d)) :
                        (f * ε^d, r)
             else
@@ -1456,30 +1488,23 @@ end
 """
     _testhelper_exclusion(am, c) -> (; component, arcs, failure, lost)
 
-The exclusion structure of conformation `c` of `am` (spec section 7): `component[f]`, the
-component of form `f` under the edges `c` keeps, numbered by first form; `arcs`,
-`(unbound side's component, bound side's, edge)` for each plain binding `c` excludes;
-`failure`, `:inside` when an arc stays inside one component, `:cycle` when the arcs close
-a directed cycle, else `:none` (a path to the limit exists); `lost`, the components free
-E's does not reach along the arcs (islands).
+The exclusion structure of conformation `c` of `am`: `component[f]`, the component of form
+`f` under the edges `c` keeps (`_testhelper_kept_components`); `arcs`, `(unbound side's
+component, bound side's, edge)` for each edge `c` excludes that loses its affinity
+(`_testhelper_switch_off`); `failure`, `:fast` when `c` excludes a rapid-equilibrium edge
+it cannot switch off, `:cycle` when the arcs close a directed cycle, else `:none` (a path
+to the limit exists); `lost`, the components free E's does not reach along the arcs
+(islands).
 """
 function _testhelper_exclusion(am, c::Int)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    nf = length(cm.nodes)
-    parent = collect(1:nf)
-    root(i) = parent[i] == i ? i : root(parent[i])
-    for (k, e) in enumerate(cm.steps)
-        _testhelper_excludes(am, k, c) || (parent[root(e.from)] = root(e.to))
-    end
-    roots = [root(f) for f in 1:nf]
-    label = Dict(r => q for (q, r) in enumerate(unique(roots)))
-    component = [label[r] for r in roots]
-    n = length(label)
+    component = _testhelper_kept_components(am, c)
+    n = maximum(component)
+    off = [_testhelper_switch_off(am, c, k) for k in eachindex(cm.steps)]
     arcs = Tuple{Int, Int, Int}[(component[e.from], component[e.to], k)
                                 for (k, e) in enumerate(cm.steps)
-                                if _testhelper_excludes(am, k, c) &&
-                                   EnzymeRates.Mechanisms._is_plain_binding(cm, e)]
-    failure = any(a -> a[1] == a[2], arcs) ? :inside : :none
+                                if off[k] === :loses_affinity]
+    failure = :cannot_switch_off in off ? :fast : :none
     if failure === :none
         indegree = zeros(Int, n)
         foreach(a -> indegree[a[2]] += 1, arcs)
@@ -1526,8 +1551,8 @@ end
 """
 The ε-path's six standard directions for `am`: integer potentials, arcs rising by 1 and
 every component other than free E's starting at +1 or at -1, each with one speed exponent
-σ ∈ {½, 1, 2} for every blocked edge and the even split θ = ½ of each vanishing
-rapid-equilibrium binding. Each is `(; potentials, sigma, theta)`, `potentials[c][f]` the
+σ ∈ {½, 1, 2} for every blocked edge and the even split θ = ½ of each rapid-equilibrium
+edge that loses its affinity. Each is `(; potentials, sigma, theta)`, `potentials[c][f]` the
 potential of form `f` in conformation `c` (empty where `c` excludes nothing).
 """
 function _testhelper_standard_directions(am)
@@ -1562,8 +1587,8 @@ end
 The ε-path's corner directions for `am`: the corners of the admissible cone, every binary
 choice made one way or the other. Every arc rises by 1 or 20, every component other than
 free E's that no arc enters starts at -5 or 5, every blocked edge's σ is 1/8 or 16 and
-every vanishing rapid-equilibrium binding's θ is 0 or 1; all corners when there are at
-most 128, else 128 of them (`_testhelper_corners`).
+the θ of every rapid-equilibrium edge that loses its affinity is 0 or 1; all corners when
+there are at most 128, else 128 of them (`_testhelper_corners`).
 """
 function _testhelper_corner_directions(am, rng)
     cm = EnzymeRates.Mechanisms.catalytic(am)
@@ -1575,9 +1600,10 @@ function _testhelper_corner_directions(am, rng)
         append!(slots, [(:start, c, x) for x in 1:maximum(ex.component)
                         if x != ex.component[1] && !(x in entered)])
     end
-    for (k, e) in enumerate(cm.steps)
-        any(c -> _testhelper_excludes(am, k, c), 1:2) || continue
-        if !EnzymeRates.Mechanisms._is_plain_binding(cm, e)
+    # A step is excluded in one conformation at most, so it gets one slot at most.
+    for (k, e) in enumerate(cm.steps), c in 1:2
+        _testhelper_excludes(am, k, c) || continue
+        if _testhelper_switch_off(am, c, k) !== :loses_affinity
             push!(slots, (:sigma, k, 0))
         elseif e.rapid_equilibrium
             push!(slots, (:theta, k, 0))
@@ -1605,16 +1631,17 @@ end
 """How far the ε-network of `am` along direction `d` spreads its rates' ε-exponents
 (`_testhelper_network`): the sum over the excluded edges of the magnitudes of each edge's
 two rate exponents. With δ the potential's rise across the edge and σ its speed exponent,
-that is |δ| for a plain binding and 2σ + |δ| for any other edge, whose exponents are
-σ + max(δ, 0) and σ + max(-δ, 0). The RE-first order lets Λ outgrow it."""
+that is |δ| for an edge that loses its affinity (`_testhelper_switch_off`) and 2σ + |δ|
+for any other edge, whose exponents are σ + max(δ, 0) and σ + max(-δ, 0). The RE-first
+order lets Λ outgrow it."""
 function _testhelper_epsilon_span(am, d)
     cm = EnzymeRates.Mechanisms.catalytic(am)
     span = big(0.0)
     for c in 1:2, (k, e) in enumerate(cm.steps)
         _testhelper_excludes(am, k, c) || continue
         rise = abs(d.potentials[c][e.to] - d.potentials[c][e.from])
-        span += EnzymeRates.Mechanisms._is_plain_binding(cm, e) ? rise : 2 * d.sigma[k] +
-            rise
+        span += _testhelper_switch_off(am, c, k) === :loses_affinity ? rise :
+                2 * d.sigma[k] + rise
     end
     span
 end
@@ -1780,23 +1807,22 @@ function _testhelper_feasible(M::Matrix{Rational{BigInt}}, b::Vector{Rational{Bi
 end
 
 """
-Admission's existence test as an exact LP (spec section 7): whether conformation `c` of
-`am` has a direction of vanishing exponents for its excluded constants that keeps every
-cycle row of the catalytic graph (`_testhelper_cycle_basis`) with every other constant
-fixed. A plain binding's equilibrium constant must fall (exponent at least 1, after
-scaling); any other excluded edge's exponent is free.
+Admission's existence test as an exact LP: whether conformation `c` of `am` has a
+direction of vanishing exponents for its excluded constants that keeps every cycle row of
+the catalytic graph (`_testhelper_cycle_basis`) with every other constant fixed. The
+equilibrium constant of an edge that loses its affinity (`_testhelper_switch_off`) must
+fall (exponent at least 1, after scaling); any other excluded edge's exponent is free.
 """
 function _testhelper_lp_existence(am, c::Int)
     cm = EnzymeRates.Mechanisms.catalytic(am)
     excluded = [k for k in eachindex(cm.steps) if _testhelper_excludes(am, k, c)]
-    plain =
-        [k for k in excluded if EnzymeRates.Mechanisms._is_plain_binding(cm, cm.steps[k])]
-    isempty(plain) && return true
+    losing = [k for k in excluded if _testhelper_switch_off(am, c, k) === :loses_affinity]
+    isempty(losing) && return true
     rows = _testhelper_cycle_basis((forms = cm.nodes, steps = cm.steps))
     isempty(rows) && return true
     Z = Rational{BigInt}.(permutedims(reduce(hcat, rows)))
-    AP, AF = Z[:, plain], Z[:, setdiff(excluded, plain)]
-    _testhelper_feasible([AP AF -AF], -AP * ones(Rational{BigInt}, length(plain)))
+    AP, AF = Z[:, losing], Z[:, setdiff(excluded, losing)]
+    _testhelper_feasible([AP AF -AF], -AP * ones(Rational{BigInt}, length(losing)))
 end
 
 """
@@ -1979,6 +2005,18 @@ function _testhelper_admission_agreement(am; rng)
                                                                           face = faces[i]))
         f === EnzymeRates.Derivation._NO_FAULT ? epath && respeed[i] === :agree : epath
     end
+end
+
+"""The cause the guard's message gives when conformation `c` (1 active, 2 inactive) of the
+allosteric mechanism `am` cannot switch off its rapid-equilibrium edge `k`
+(`_FAST_STEP_PINNED`), before any fix."""
+function _testhelper_pinned_cause(am, k::Int, c::Int)
+    conf, tag = c == 1 ? ("active", ":OnlyI") : ("inactive", ":OnlyA")
+    "AllostericMechanism: in the $conf conformation the rapid-equilibrium step " *
+    "$(EnzymeRates.Mechanisms.step_text(am.catalytic, k)) is tagged $tag but cannot be " *
+    "switched off. A step keeps its kind in both conformations, so a rapid-equilibrium " *
+    "step can only lose its affinity, and it can do that only when it takes up one " *
+    "metabolite into a form the other steps no longer reach."
 end
 
 """
@@ -2175,21 +2213,22 @@ _testhelper_plain_moves(m, rxn) =
 
 """
 Whether admission's existence test in the inactive conformation (`_admission_interior`:
-no tagged plain binding inside one component of that conformation's other steps, no cycle
-of such bindings) agrees with the exact LP (`_testhelper_lp_existence`) on `am`, a
-mechanism with no `:OnlyI` group, on which admission's active-conformation and turnover
-checks do not run, and its fault with the test's own exclusion structure
-(`_testhelper_exclusion`): inside, cycle, an island, or none.
+no excluded rapid-equilibrium step that cannot be switched off, no cycle of steps that
+lose their affinity) agrees with the test's own rule on `am`, a mechanism with no `:OnlyI`
+group, on which admission's active-conformation and turnover checks do not run: its
+fault with the test's exclusion structure (`_testhelper_exclusion`: a step it cannot
+switch off, a cycle, an island, or none), and a limit exists exactly when no step is
+pinned and the exact LP (`_testhelper_lp_existence`) is feasible.
 """
 function _testhelper_existence_agrees(am)
-    v = EnzymeRates.Derivation._admission_interior(am)
+    D = EnzymeRates.Derivation
+    v = D._admission_interior(am)
     ex = _testhelper_exclusion(am, 2)
-    fault = ex.failure === :inside ? EnzymeRates.Derivation._NO_LIMIT :
-            ex.failure === :cycle ? EnzymeRates.Derivation._ARC_CYCLE :
-            isempty(ex.lost) ? EnzymeRates.Derivation._NO_FAULT :
-            EnzymeRates.Derivation._ISLAND
-    exists = v.fault ∉ (EnzymeRates.Derivation._NO_LIMIT, EnzymeRates.Derivation._ARC_CYCLE)
-    exists == _testhelper_lp_existence(am, 2) && v.fault === fault
+    fault = ex.failure === :fast ? D._FAST_STEP_PINNED :
+            ex.failure === :cycle ? D._ARC_CYCLE :
+            isempty(ex.lost) ? D._NO_FAULT : D._ISLAND
+    exists = v.fault ∉ (D._FAST_STEP_PINNED, D._ARC_CYCLE)
+    exists == (ex.failure !== :fast && _testhelper_lp_existence(am, 2)) && v.fault === fault
 end
 
 # ── Rate-law oracles ────────────────────────────────────────────────────────
