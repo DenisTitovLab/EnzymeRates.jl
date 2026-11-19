@@ -208,14 +208,17 @@ _with_steps(am::Mechanisms.AllostericMechanism, steps::Vector{Mechanisms.Step}) 
 """
 The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
 line (`step_text`), and each fix only when its variant passes the guard: a retag through
-`_retag_passes`, a steady-state fix through `_steady_state_passes`. In the active
-conformation the only retag offered untags the `:OnlyI` groups that leave it no turnover.
+`_retag_passes`, a steady-state fix through `_steady_state_passes`. A fault of the active
+conformation is offered the fixes of the same fault in the inactive conformation, with
+`:OnlyI` in place of `:OnlyA`.
 """
 function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
     m = Mechanisms.catalytic(am)
     c, k = v.conformation, v.edge
     conf = c == 1 ? "active" : "inactive"
-    tag = c == 1 ? ":OnlyI" : ":OnlyA"
+    # The state that excludes steps from conformation `c`, and its text.
+    excluding = c == 1 ? :OnlyI : :OnlyA
+    tag = ":$excluding"
     line(j) = Mechanisms.step_text(m, j)
     lines(js) = join((Mechanisms.step_text(m, j) for j in js), "; ")
     # The steps `js` as "step …" or "steps …", and the clause that says they vanish.
@@ -223,12 +226,12 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
     vanish(js) = length(js) == 1 ? "that step vanishes" : "those steps vanish"
     untag_passes(ks) = all(t -> _retag_passes(am, ks, t), (:EqualAI, :NonequalAI))
     # The fixes whose variants pass: the groups of `untag` (`what`) tagged :EqualAI or
-    # :NonequalAI, and the steps `joins` that join `sides` tagged :OnlyA, if any.
+    # :NonequalAI, and the steps `joins` that join `sides` tagged `excluding`, if any.
     function fixes(untag::Vector{Int}, what::String, joins::Vector{Int}, sides::String)
         found = String[]
         untag_passes(untag) && push!(found, "tag $what :EqualAI or :NonequalAI")
-        !isempty(joins) && _retag_passes(am, joins, :OnlyA) &&
-            push!(found, "tag :OnlyA the steps that join $sides: $(lines(joins))")
+        !isempty(joins) && _retag_passes(am, joins, excluding) &&
+            push!(found, "tag $tag the steps that join $sides: $(lines(joins))")
         found
     end
     # The fixes `found` as one sentence of alternatives; nothing when there are none.
@@ -242,15 +245,11 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         # These names stay apart from those the closures above and the island branch's
         # comprehension use: a name a closure shares with this function is boxed, and every
         # call on it then dispatches at run time.
-        offered = String[]
-        if c == 2
-            from, to = m.steps[k].from, m.steps[k].to
-            components = exclusion_components(am, :inactive)
-            # When no kept steps join the two sides, there are none to tag :OnlyA.
-            joins = components[from] == components[to] ? _kept_path(am, c, from, to) :
-                    Int[]
-            offered = fixes([k], "its group", joins, "its sides")
-        end
+        from, to = m.steps[k].from, m.steps[k].to
+        components = exclusion_components(am, _CONFORMATIONS[c])
+        # When no kept steps join the two sides, there are none to tag.
+        joins = components[from] == components[to] ? _kept_path(am, c, from, to) : Int[]
+        offered = fixes([k], "its group", joins, "its sides")
         _steady_state_passes(am, k) && push!(offered, "make its group steady-state")
         return msg * offer(offered)
     elseif v.fault === _ARC_CYCLE
@@ -260,7 +259,6 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
               "the $conf conformation: steps outside $tag groups join each one's bound " *
               "side to the next one's unbound side, so thermodynamics forbids their " *
               "affinities to vanish together."
-        c == 2 || return msg
         joins = Int[]
         for (i, j) in enumerate(cycle)
             next = cycle[mod1(i + 1, length(cycle))]
@@ -278,7 +276,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
                     for f in eachindex(m.nodes) if comp[f] == lost], ", ") *
               " join free E only through $tag steps that are not bindings toward them, " *
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
-        return c == 2 && untag_passes([k]) ?
+        return untag_passes([k]) ?
                msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
     elseif v.fault in (_EPS_NONUNIQUE, _PUMPED, _BRIDGE)
         eps, law = _eps_network(am), _law_network(am)

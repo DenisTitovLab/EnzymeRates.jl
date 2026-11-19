@@ -1663,7 +1663,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
 
         # The constructor takes :OnlyI on any group and leaves the verdict to the guard:
         # the active conformation cannot switch off the rapid-equilibrium S binding,
-        # whose bound form the chemistry and the P binding still reach.
+        # whose bound form the chemistry and the P binding still reach. The message
+        # offers untagging it, whose variants pass.
         uni = ER.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
@@ -1680,7 +1681,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         v = ER.Derivation._guard(onlyi)
         @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, k)
         @test ER.Derivation._guard_message(onlyi, v) ==
-              _testhelper_pinned_cause(onlyi, k, 1)
+              _testhelper_pinned_cause(onlyi, k, 1) *
+              " Tag its group :EqualAI or :NonequalAI."
+        @test all(t -> ER.Derivation._retag_passes(onlyi, [k], t), (:EqualAI, :NonequalAI))
 
         # Length mismatch
         @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *

@@ -206,11 +206,14 @@ end
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
     # Any group may be :OnlyI, and the guard judges the mechanism: the active
     # conformation cannot switch off the rapid-equilibrium S binding (step 2), whose bound
-    # form the chemistry and the P binding still reach.
+    # form the chemistry and the P binding still reach. The message offers untagging it,
+    # whose variants pass.
     onlyi = ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites)
     v = ER.Derivation._guard(onlyi)
     @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, 2)
-    @test ER.Derivation._guard_message(onlyi, v) == _testhelper_pinned_cause(onlyi, 2, 1)
+    @test ER.Derivation._guard_message(onlyi, v) ==
+          _testhelper_pinned_cause(onlyi, 2, 1) * " Tag its group :EqualAI or :NonequalAI."
+    @test all(t -> ER.Derivation._retag_passes(onlyi, [2], t), (:EqualAI, :NonequalAI))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
         "rendered regulator parameter names would collide. " *

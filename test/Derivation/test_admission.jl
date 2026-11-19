@@ -4346,14 +4346,14 @@ end
 end
 
 @testset "the active conformation's interior faults name the :OnlyI step" begin
-    # The mirror of the :OnlyA interior faults, in conformation 1. The messages offer no
-    # retag in the active conformation, and no test shows an untagged variant
-    # well-posed. The ε-path oracle agrees with each verdict.
+    # The mirror of the :OnlyA interior faults, in conformation 1. Each message offers the
+    # fixes whose variants pass. The ε-path oracle agrees with each verdict.
     rng = Random.MersenneTwister(91)
     FP, U = EnzymeRates.Derivation._FAST_STEP_PINNED, EnzymeRates.Derivation._LIMIT_UNTESTED
     # I binds E and E(S); without E + I ⇌ E(I), the untagged I binding at E(S) and S
     # binding at E(I) still join E to E(I), so the I binding cannot lose its affinity,
-    # and at rapid equilibrium the active conformation cannot switch it off.
+    # and at rapid equilibrium the active conformation cannot switch it off. The message
+    # offers untagging it, whose variants pass.
     no_limit = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -4370,7 +4370,10 @@ end
     v = EnzymeRates.Derivation._guard(no_limit)
     @test v == EnzymeRates.Derivation._Verdict(FP, U, 0, 1, k)
     @test EnzymeRates.Derivation._guard_message(no_limit, v) ==
-          _testhelper_pinned_cause(no_limit, k, 1)
+          _testhelper_pinned_cause(no_limit, k, 1) *
+          " Tag its group :EqualAI or :NonequalAI."
+    @test all(t -> EnzymeRates.Derivation._retag_passes(no_limit, [k], t),
+              (:EqualAI, :NonequalAI))
     @test _testhelper_epath_verdict(no_limit; rng) === :no_path
     # I binds E and J binds E(I), both :OnlyI; the untagged J binding at E and I binding
     # at E(J) join E(I, J) back to E, so the J binding at E(I) cannot lose its affinity,
@@ -4441,6 +4444,75 @@ end
     @test _testhelper_epath_verdict(island; rng) in (:direction_dependent, :wrong_limit)
 end
 
+@testset "a pinned step and its mirror get one message, but for conformation and tag" begin
+    # Either conformation is offered the same fixes, each with that conformation's tag,
+    # when both conformations catalyze in every fix's variant, as here, where the S path
+    # stays untagged. I binds E :OnlyI, and the J bindings join E(I) back to E, so the
+    # active conformation cannot switch the I binding off. Untagging it passes, and so
+    # does tagging :OnlyI the steps that join its sides. The mirror image, the I binding
+    # :OnlyA, gets the same message in the inactive conformation, with :OnlyA.
+    D = EnzymeRates.Derivation
+    swapped(text) = replace(text, "the active conformation" => "the inactive conformation",
+                            ":OnlyI" => ":OnlyA")
+    square = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(I) + J ⇌ E(I, J)      :: EqualAI
+            E + J ⇌ E(J)            :: EqualAI
+            E(J) + I ⇌ E(I, J)      :: EqualAI
+        end
+    end
+    k = _testhelper_edge(square, "E + I ⇌ EI")
+    joins = [_testhelper_edge(square, t) for t in ("E + J ⇌ EJ", "EJ + I ⇌ EIJ",
+                                                   "EI + J ⇌ EIJ")]
+    v = D._guard(square)
+    @test (v.fault, v.conformation, v.edge) == (D._FAST_STEP_PINNED, 1, k)
+    msg = D._guard_message(square, v)
+    @test msg == _testhelper_pinned_cause(square, k, 1) * " Tag its group :EqualAI or " *
+                 ":NonequalAI, or tag :OnlyI the steps that join its sides: " *
+                 "E + J ⇌ E(J); E(J) + I ⇌ E(I, J); E(I) + J ⇌ E(I, J)."
+    @test all(t -> D._retag_passes(square, [k], t), (:EqualAI, :NonequalAI))
+    @test D._retag_passes(square, joins, :OnlyI)
+    mirror = _testhelper_mirror(square)
+    w = D._guard(mirror)
+    @test (w.fault, w.conformation, w.edge) == (D._FAST_STEP_PINNED, 2, k)
+    @test D._guard_message(mirror, w) == swapped(msg)
+    # The one rule that tells the states apart: the active conformation must catalyze.
+    # The steps that join the sides of this I binding include the P release, so tagging
+    # them :OnlyI leaves the active conformation no turnover: only the mirror image is
+    # offered that fix.
+    no_limit = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)            :: EqualAI
+            E(S) <--> E + P         :: EqualAI
+            E + I ⇌ E(I)            :: OnlyI
+            E(I) + S ⇌ E(I, S)      :: EqualAI
+            E(S) + I ⇌ E(I, S)      :: EqualAI
+        end
+    end
+    k = _testhelper_edge(no_limit, "E + I ⇌ EI")
+    e = no_limit.catalytic.steps[k]
+    joins = D._kept_path(no_limit, 1, e.from, e.to)
+    retagged = copy(no_limit.mwc_tags)
+    retagged[[no_limit.catalytic.steps[j].group for j in joins]] .= :OnlyI
+    @test D._guard(EnzymeRates.AllostericMechanism(
+              no_limit.catalytic, retagged, 1,
+              EnzymeRates.Mechanisms.RegulatorySite[])).fault === D._NO_ACTIVE_TURNOVER
+    msg = D._guard_message(no_limit, D._guard(no_limit))
+    mirror = _testhelper_mirror(no_limit)
+    @test D._guard_message(mirror, D._guard(mirror)) ==
+          chop(swapped(msg)) * ", or tag :OnlyA the steps that join its sides: " *
+          "E + P <--> E(S); E(S) + I ⇌ E(I, S); E(I) + S ⇌ E(I, S)."
+end
+
 @testset ":OnlyI on a step that does more than bind a modifier" begin
     # Any group may be :OnlyI while the active conformation still catalyzes the reaction.
     # Each mechanism the macro admits has a law equal to the limit on every face, by the
@@ -4495,7 +4567,8 @@ end
         end
     end
     # A rapid-equilibrium S binding :OnlyI whose bound form the chemistry and the P
-    # binding keep joined to free E: the active conformation cannot switch it off.
+    # binding keep joined to free E: the active conformation cannot switch it off. The
+    # message offers untagging it, whose variants pass.
     pinned_active = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -4511,7 +4584,9 @@ end
     msg = D._guard_message(pinned_active, v)
     @test occursin("in the active conformation", msg)
     @test occursin(":OnlyI", msg)
-    @test msg == _testhelper_pinned_cause(pinned_active, k, 1)
+    @test msg == _testhelper_pinned_cause(pinned_active, k, 1) *
+                 " Tag its group :EqualAI or :NonequalAI."
+    @test all(t -> D._retag_passes(pinned_active, [k], t), (:EqualAI, :NonequalAI))
     @test _testhelper_epath_verdict(pinned_active; rng) === :no_path
 end
 
