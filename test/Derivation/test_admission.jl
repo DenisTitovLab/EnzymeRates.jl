@@ -4289,16 +4289,16 @@ end
 
 @testset "an essential activator tagged :OnlyI stops catalysis" begin
     # X binds only the inactive conformation, and every turnover passes through E(X):
-    # the active conformation, which alone the convention lets catalyze, turns nothing
-    # over. Tagging the X binding :EqualAI or :NonequalAI, the message's fix, passes.
+    # the active conformation, which must catalyze, turns nothing over. Tagging the X
+    # binding :EqualAI or :NonequalAI, the message's fix, passes.
     ea = _testhelper_onlyi_fixtures().essential_activator
     v = EnzymeRates.Derivation._guard(ea)
     @test (v.fault, v.face, v.conformation) ==
           (EnzymeRates.Derivation._NO_ACTIVE_TURNOVER, 0, 1)
     @test EnzymeRates.Derivation._guard_message(ea, v) ==
           "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X) the active " *
-          "conformation turns no substrate into product, and only the active " *
-          "conformation may catalyze. Tag their groups :EqualAI or :NonequalAI."
+          "conformation turns no substrate into product, but it must catalyze the " *
+          "reaction. Tag their groups :EqualAI or :NonequalAI."
     for (i, tag) in enumerate((:EqualAI, :NonequalAI))
         fixed = EnzymeRates.AllostericMechanism(eval(:(@allosteric_mechanism begin
             substrates: S
@@ -4341,14 +4341,14 @@ end
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :NonequalAI)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
           "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X); E(S) + X ⇌ " *
-          "E(S, X) the active conformation turns no substrate into product, and only " *
-          "the active conformation may catalyze."
+          "E(S, X) the active conformation turns no substrate into product, but it " *
+          "must catalyze the reaction."
 end
 
 @testset "the active conformation's interior faults name the :OnlyI step" begin
     # The mirror of the :OnlyA interior faults, in conformation 1. The messages offer no
-    # retag: a step tagged :OnlyI binds modifiers alone, and no test shows an untagged
-    # variant well-posed. The ε-path oracle agrees with each verdict.
+    # retag in the active conformation, and no test shows an untagged variant
+    # well-posed. The ε-path oracle agrees with each verdict.
     rng = Random.MersenneTwister(91)
     FP, U = EnzymeRates.Derivation._FAST_STEP_PINNED, EnzymeRates.Derivation._LIMIT_UNTESTED
     # I binds E and E(S); without E + I ⇌ E(I), the untagged I binding at E(S) and S

@@ -209,8 +209,7 @@ _with_steps(am::Mechanisms.AllostericMechanism, steps::Vector{Mechanisms.Step}) 
 The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
 line (`step_text`), and each fix only when its variant passes the guard: a retag through
 `_retag_passes`, a steady-state fix through `_steady_state_passes`. In the active
-conformation the only retag offered untags the `:OnlyI` groups that leave it no turnover,
-since a step tagged `:OnlyI` must bind modifiers alone.
+conformation the only retag offered untags the `:OnlyI` groups that leave it no turnover.
 """
 function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
     m = Mechanisms.catalytic(am)
@@ -330,8 +329,8 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
     elseif v.fault === _NO_ACTIVE_TURNOVER
         ks = [j for j in eachindex(m.steps) if am.excluded_active[j]]
         msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
-              "conformation turns no substrate into product, and only the active " *
-              "conformation may catalyze."
+              "conformation turns no substrate into product, but it must catalyze the " *
+              "reaction."
         return untag_passes(ks) ? msg * " Tag their groups :EqualAI or :NonequalAI." : msg
     else
         error("_admission_message: $(v.fault) is no admission fault")
