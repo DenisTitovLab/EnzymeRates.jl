@@ -26,8 +26,13 @@ before starting. Stages 2 and 3 of the spec are not in this plan.
   |:--|:--|
   | Rapid equilibrium, takes up one metabolite into a cut-off form | Loses its affinity: stays fast, uptake vanishes |
   | Rapid equilibrium, anything else | Fault |
-  | Steady state, takes up one metabolite into a cut-off form | Loses its affinity: uptake rate vanishes, release keeps its rate |
+  | Steady state, takes up one metabolite into a cut-off form | Loses its affinity (uptake rate vanishes, release keeps its rate), or is stopped: whichever gives a limit |
   | Steady state, anything else | Stopped: both rates vanish |
+
+  The guard tries twice (Task 8): first with every steady-state uptake into a cut-off form
+  losing its affinity; on an admission fault, again with every such step stopped. It
+  admits if either try finds no fault and otherwise reports the first try's verdict. No
+  mixtures of the two readings.
 
   "Takes up one metabolite into a cut-off form" means: `length(e.taken_up) == 1`,
   `isempty(e.given_off)`, the steps the conformation keeps do not join `e.from` and
@@ -38,7 +43,10 @@ before starting. Stages 2 and 3 of the spec are not in this plan.
 - A test may change only in the four ways the spec lists under "Verdicts that change".
   The tests of a law that is not the limit pass unchanged.
 - **Stop and report to the maintainer** when: a mechanism admitted before this work is
-  rejected for any reason but the new fault; a newly admitted law fails an oracle; a
+  rejected for any reason but the new fault (the maintainer accepted two exceptions, gate
+  entries 53145 and 53246, rejected with `_BRIDGE`: each holds an excluded
+  rapid-equilibrium step that binds and reacts at once, which the old guard read as
+  stopped); a newly admitted law fails an oracle; a
   hand-written `MECHANISM_TEST_SPECS` entry or an identify test's true mechanism is now
   rejected; or a test would have to change in a fifth way.
 - One Julia process at a time. Focused run of one test file (from `.claude/CLAUDE.md`):
@@ -331,6 +339,120 @@ git add src/Mechanisms/types.jl src/DSL/macros.jl test/Derivation/test_admission
 git commit -m "Let any group be :OnlyI while the active conformation catalyzes"
 ```
 
+### Task 8: The second try for a steady-state uptake (runs after Task 3, before Task 4)
+
+The gate (Task 4) found two ter-ter mechanisms, admitted before this work, that the guard
+now rejects with `_BRIDGE` though their law is the limit. In each, a steady-state step
+that binds and reacts at once leads into a cut-off form; the old guard read it as stopped,
+the rule reads it as losing its affinity. Both readings keep the step steady-state, so the
+maintainer decided the guard tries both.
+
+**Files:**
+- Modify: `src/Derivation/conformations.jl` (`_switch_offs`), `src/Derivation/guard.jl`
+  (`_guard`, `_eps_network`), `src/Derivation/admission.jl` (`_arcs`,
+  `_admission_interior`, `_admission`), and any docstring in `src/` that states the rule
+  for a steady-state step (`_SwitchOff`, `_Fault`, `@allosteric_mechanism`)
+- Test: `test/mechanism_definitions_for_test_enzyme_derivation.jl`,
+  `test/Derivation/test_admission.jl`
+
+**Interfaces:**
+- Consumes: `_switch_offs(am, c)`, `_SwitchOff`, `_testhelper_switch_off(am, c, k)`,
+  `_testhelper_admission_agreement(am; rng)`, `_testhelper_mirror(am)` from Tasks 2 and 3.
+- Produces:
+  - `_switch_offs(am, c::Int, slow_uptake::_SwitchOff = _LOSES_AFFINITY)`: `slow_uptake`
+    is how a steady-state step that takes up one metabolite into a cut-off form is switched
+    off, `_LOSES_AFFINITY` or `_STOPPED`. Nothing else in the result depends on it.
+  - The same trailing argument, with the same default, on `_arcs`, `_admission_interior`,
+    `_admission` and `_eps_network`, so every existing call keeps the first reading.
+  - `_guard(am)`: the first try as now. If its fault is one of `_ADMISSION_FAULTS`, the
+    interior and face checks run again with `_STOPPED`; `_WELL_POSED` if that try finds no
+    fault, else the first try's verdict unchanged. Classes 1 to 3 do not depend on the
+    reading. A second try that would read no step differently is not run.
+  - `_testhelper_switch_off(am, c, k; slow_uptake = :loses_affinity)` (`:stopped` for the
+    second reading), threaded through the oracle helpers that read it, and
+    `_testhelper_admission_agreement(am; rng)` judging under the reading the guard admitted
+    with: `:stopped` when the guard admits and the first reading alone does not, else the
+    first. The helpers keep their own rule; they do not call `_switch_offs`.
+
+The fixtures, each written out in full in its testset with `@allosteric_mechanism` (they
+are entries of the gate's recorded populations; their text is in
+`/home/denis.linux/claude-scratchpad/lean-mechanism-spike/gate/report.md`, "Violations").
+Build them unguarded where the guard would refuse them.
+
+- `second_try_a` (entry 54443) and `second_try_b` (entry 54593): admitted by the second
+  try alone.
+- `bridge_fast_a` (entry 53145) and `bridge_fast_b` (entry 53246): stay rejected.
+
+- [ ] **Step 1: Write the failing tests**
+
+A testset `"a steady-state uptake into a cut-off form may be stopped"` in
+`test/Derivation/test_admission.jl`:
+
+```julia
+# second_try_a, inactive conformation: the chemistry step joins two cut-off forms.
+k = _testhelper_edge(second_try_a, "E(B, D) + A <--> E(P, Q, R)")
+first, second = D._switch_offs(second_try_a, 2), D._switch_offs(second_try_a, 2, D._STOPPED)
+@test first[k] === D._LOSES_AFFINITY
+@test second[k] === D._STOPPED
+@test [first[j] for j in eachindex(first) if j != k] ==
+      [second[j] for j in eachindex(second) if j != k]
+@test _testhelper_switch_off(second_try_a, 2, k) === :loses_affinity
+@test _testhelper_switch_off(second_try_a, 2, k; slow_uptake = :stopped) === :stopped
+
+for am in (second_try_a, second_try_b)
+    @test D._admission(am).fault === D._BRIDGE            # the first try alone
+    @test D._admission(am, D._STOPPED) == D._WELL_POSED
+    @test D._guard(am) == D._WELL_POSED
+    @test all(_testhelper_admission_agreement(am; rng = MersenneTwister(1)))
+end
+```
+
+and, in the same testset:
+- the first try's `_BRIDGE` on `second_try_a` is at the face with A, B and D zero, in
+  conformation 2, on the edge `E(D, P) + Q ⇌ E(D, P, Q)`;
+- the law of `second_try_a` and of `second_try_b` equals the oracle's own deletion limit
+  (`_testhelper_check_law_against_limit`), so the admitted law is compared with a
+  separately derived one;
+- `bridge_fast_a`: `D._guard(am) == D._admission(am)`, fault `_BRIDGE`, conformation 2,
+  edge `E(D, Q) + P ⇌ E(D, P, Q)`; `D._admission(am, D._STOPPED).fault === D._ISLAND`; the
+  ε-path oracle under the first reading is `:direction_dependent` at the face with P zero;
+- `bridge_fast_b`: fault `_BRIDGE`, and `D._switch_offs(am, c) ==
+  D._switch_offs(am, c, D._STOPPED)` for both `c` (no steady-state uptake to read again);
+- the first try decides when it passes: for the K-type uni-uni mechanism
+  `E + S <--> E(S) :: OnlyA`, `E(S) <--> E(P) :: OnlyA`, `E(P) ⇌ E + P`, written in the
+  testset, `D._guard(am) == D._WELL_POSED` and
+  `D._admission_interior(am, D._STOPPED).fault === D._ISLAND`;
+- the two conformations are read alike: `D._switch_offs(_testhelper_mirror(am), 1, r) ==
+  D._switch_offs(am, 2, r)` for `am = second_try_a` and both readings `r`.
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Focused run of `test/Derivation/test_admission.jl`. Expected: a `MethodError` on the
+three-argument `_switch_offs`.
+
+- [ ] **Step 3: Implement**
+
+As the Interfaces block says. Update each docstring that states how a steady-state step is
+switched off; the guard's error messages stay the first try's.
+
+- [ ] **Step 4: Run the tests and the guards**
+
+- Focused runs: `test/Derivation/test_admission.jl`, `test/Mechanisms/test_types.jl`,
+  `test/Mechanisms/test_reaction_graph.jl`, `test/DSL/test_dsl.jl`,
+  `test/Enumeration/test_mechanism_enumeration.jl`. No existing assertion may change. **If
+  one would have to, a population pin included, stop and report it.**
+- `test/test_type_stability.jl` and `test/test_boundaries.jl` pass (the default `julia`
+  is 1.13.4; `julia +1.13` is not installed).
+- Report the wall time of the enumeration file's focused run before and after the change:
+  enumeration calls the guard for every tagging it proposes.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Derivation test/Derivation/test_admission.jl test/mechanism_definitions_for_test_enzyme_derivation.jl
+git commit -m "Let a steady-state uptake into a cut-off form be stopped on a second try"
+```
+
 ### Task 4: The gate
 
 **Files:**
@@ -346,7 +468,10 @@ git commit -m "Let any group be :OnlyI while the active conformation catalyzes"
 For every entry of `gate_populations()`, build the mechanism and take the guard's fault
 now. Classify against the baseline: admitted before and now; admitted before, rejected
 now; rejected or refused before, admitted now; rejected both. Then:
-- every "admitted before, rejected now" entry must have fault `_FAST_STEP_PINNED`;
+- every "admitted before, rejected now" entry must have fault `_FAST_STEP_PINNED`, except
+  entries 53145 and 53246 of the recorded populations, which must have `_BRIDGE` and hold
+  an excluded rapid-equilibrium step with `step_kinds[k] === :fused_binding` that
+  `_switch_offs` reads as `_LOSES_AFFINITY`; the report lists both;
 - every "admitted now, not before" entry of `:onlyA` and `:terter`, and 400 spaced ones of
   `:onlyI`, must give `all(_testhelper_admission_agreement(am; rng))`;
 - 200 spaced "admitted before and now" entries must give the same;

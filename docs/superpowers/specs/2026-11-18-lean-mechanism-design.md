@@ -94,7 +94,9 @@ form, identify's keyword arguments.
 4. **As 3, and a step keeps its kind in both conformations (chosen).** The maintainer's
    principle: rapid equilibrium and steady state differ more than 100-fold, and a step
    does not jump from the fastest kind in one conformation to slower than every
-   steady-state step in the other.
+   steady-state step in the other. A steady-state uptake into a cut-off form keeps its
+   kind either way, so the guard may read it as stopped too (decision 2; added after the
+   gate, on the maintainer's decision).
 
 ### How a mechanism is compiled
 
@@ -201,7 +203,7 @@ step keeps its kind (rapid equilibrium or steady state) in both conformations:
 |:--|:--|
 | Rapid equilibrium, takes up one metabolite into a cut-off form | It stays fast and loses its affinity ("K very high"). |
 | Rapid equilibrium, anything else | Fault. Thermodynamics pins its equilibrium constant, so it could be switched off only by turning slow. |
-| Steady state, takes up one metabolite into a cut-off form | It loses its affinity: the uptake rate vanishes and the release keeps its rate. |
+| Steady state, takes up one metabolite into a cut-off form | It loses its affinity (the uptake rate vanishes and the release keeps its rate), or it is stopped: whichever gives a limit. |
 | Steady state, anything else | It is stopped: both rates vanish, and its equilibrium constant stays what thermodynamics requires. |
 
 "Into a cut-off form" means: the bound side is cut off, and the steps that still run do
@@ -210,6 +212,15 @@ not join the two sides.
 Why a step into a cut-off form must lose its affinity: the law assumes the cut-off form is
 empty. With both rates low and the affinity unchanged, the form would keep its equilibrium
 share however slow the step, and the law that drops it would be wrong.
+
+Why a steady-state one may be stopped all the same: both readings keep it steady-state, so
+the principle allows either, and the law is the same under both, since the law drops the
+step. Stopped is safe only where other steps that lose their affinity already empty the
+cut-off form, which the guard's checks decide. So the guard tries twice. It first reads
+every such step as losing its affinity. If that finds a fault, it reads every such step as
+stopped and runs its checks again. The mechanism is admitted if either try finds no fault;
+if both find one, the error reports the first try's. The guard does not try mixtures of
+the two readings.
 
 Why thermodynamics holds: each set of forms that the running steps keep joined has one
 energy level. A step that loses its affinity raises the level of its bound side, and every
@@ -236,7 +247,7 @@ every face. Against today's guard:
 | Rapid-equilibrium plain binding whose two sides stay joined | Fault (`_NO_LIMIT`) | Fault |
 | Steady-state plain binding whose two sides stay joined | Fault (`_NO_LIMIT`) | Admitted: stopped |
 | Rapid-equilibrium step that binds and reacts at once, or isomerizes | Admitted: fast in one conformation, stopped in the other | Fault |
-| Step that binds and reacts at once into a cut-off form | Stopped, so the cut-off form is an island | Loses its affinity |
+| Step that binds and reacts at once into a cut-off form | Stopped, so the cut-off form is an island | Rapid equilibrium: loses its affinity. Steady state: loses its affinity or is stopped |
 
 #### `:OnlyI` on any group
 
@@ -285,8 +296,28 @@ oracle against the package's law.
   uni-uni unchanged; bi-bi loses 12 of 2,060 children; ping-pong loses 38 of 1,593 in round
   one and 316 of 7,014 in round two, and gains 4 and 17.
 
-Not checked: ter-ter; and an excluded rapid-equilibrium isomerization that could stay
-fast with its equilibrium pushed to the side that remains, which the rule rejects for now.
+The gate (see Tests) reran these on the rule as built, with a sample of 2,000 ter-ter
+taggings added:
+
+- The first population came out exactly as in the table. In the `:OnlyI` sample every
+  lost mechanism has the new fault, and 400 of 400 sampled newly admitted ones have laws
+  equal to the limit.
+- Ter-ter, 1,202 admitted before: 26 lost, 169 newly admitted, all 169 with laws equal to
+  the limit. Of the 26, 22 have the new fault and 4 are rejected as a bridge. Each of the
+  4 holds an excluded step that binds and reacts at once into a cut-off form, which the
+  old guard read as stopped.
+- In 2 of the 4 that step is steady-state. The second try (above) admits both, and one
+  ter-ter mechanism more, each with a law equal to the limit on every face. It changes no
+  verdict in the other two populations.
+- In the other 2 that step is rapid equilibrium, so the old guard admitted them only by
+  turning a fast step slow. They stay rejected, as a bridge and not with the new fault
+  (the maintainer's decision). For one of them the numerical limit does depend on the
+  path.
+- Trying every mixture of the two readings would admit 7 mechanisms more of about 55,000.
+  They were not tested numerically, and the guard does not do it.
+
+Not checked: an excluded rapid-equilibrium isomerization that could stay fast with its
+equilibrium pushed to the side that remains, which the rule rejects for now.
 
 The spike scripts and logs are kept at
 `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/`, outside the repository. They
@@ -447,8 +478,10 @@ Exports after the change: `Mechanism` and `compile_rate_equation` join;
   principle that a step keeps its kind was added.)
 - **The guard rule is a gate.** Stage 1 lands and passes before any fixture is
   translated. The work stops and returns to the maintainer if a mechanism admitted today
-  is rejected for any reason but an excluded rapid-equilibrium step that would have to
-  stop, or if a newly admitted law is not the numerical limit. The data model leaves no
+  is rejected for any reason but an excluded rapid-equilibrium step that today's guard
+  read as stopped, or if a newly admitted law is not the numerical limit. Such a step
+  shows as the new fault where it cannot lose its affinity, and as a bridge in the two
+  ter-ter mechanisms of decision 2's evidence, where it can. The data model leaves no
   room for a per-step flag.
 - **What counts as checked.** The comparisons of decision 2 are rerun once on the
   implemented rule and reported in the pull request, with a sample of at least 2,000
@@ -466,7 +499,7 @@ maintainer's request). It lands with stage 1, when the rule changes:
   `:OnlyI` assume (a very high dissociation constant or very low rate constants, with
   every thermodynamic constraint kept in each conformation); that a step keeps its kind,
   rapid equilibrium or steady state, in both conformations; the four-row table of
-  decision 2; the three worked examples; and what the error means when a
+  decision 2, with the two ways a steady-state step can be switched off; the three worked examples; and what the error means when a
   rapid-equilibrium step cannot be switched off, with the two fixes (make the step
   steady-state, or exclude the steps that keep its bound form reachable).
 - **The mechanism macro's docstring** states the rule in two or three sentences and links
