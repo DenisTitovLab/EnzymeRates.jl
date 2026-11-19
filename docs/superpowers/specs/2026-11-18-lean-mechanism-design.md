@@ -96,8 +96,15 @@ form, identify's keyword arguments.
    does not jump from the fastest kind in one conformation to slower than every
    steady-state step in the other. A steady-state uptake into a cut-off form keeps its
    kind either way, so the guard may read it as stopped too, and tries three fixed
-   choices (decision 2; added after the gate and the enumeration tests, on the
-   maintainer's decisions).
+   choices (added after the gate and the enumeration tests, on the maintainer's
+   decisions). Built, and kept as the first three readings of approach 5.
+5. **Energy levels (chosen).** Every cut-off group of forms lies higher in energy; an
+   excluded step between two groups loses its uphill rate in either direction, or stops
+   if steady-state; the guard searches for a reading that passes its checks (decision 2).
+   It admits everything approach 4 does, most allosteric ping-pongs that stop both
+   half-reactions, and about a thousand mechanisms more in the populations measured. It
+   needs one face check approach 4 does not. The maintainer chose it after the spikes,
+   knowing the evidence for that check is numerical.
 
 ### How a mechanism is compiled
 
@@ -194,72 +201,154 @@ E + P ⇌ EP      :: EqualAI    runs; E and EP stay, ES is cut off
 #### How an excluded step is switched off
 
 The guard asks whether that law is still the limit when the excluded steps are nearly
-absent, not absent. The science it assumes is unchanged: an excluded step has a very high
-dissociation constant, or very low rate constants, and every thermodynamic constraint
-still holds in each conformation. What changes is how the guard chooses between the two
-for a step. Today it reads the form contents. Under this rule it reads the graph, and a
-step keeps its kind (rapid equilibrium or steady state) in both conformations:
+absent, not absent. The science it assumes: an excluded step has a very high or very low
+equilibrium constant, or very low rate constants, and every thermodynamic constraint still
+holds in each conformation. The guard reads this from the graph, not from the form
+contents, and a step keeps its kind (rapid equilibrium or steady state) in both
+conformations.
+
+The picture is energy. The steps a conformation keeps join the forms into groups. Free E's
+group holds the law's forms. Every other group is cut off: in that conformation it lies
+higher in energy, and so holds no enzyme. Then:
 
 | Excluded step | How it is switched off |
 |:--|:--|
-| Rapid equilibrium, takes up one metabolite into a cut-off form | It stays fast and loses its affinity ("K very high"). |
-| Rapid equilibrium, anything else | Fault. Thermodynamics pins its equilibrium constant, so it could be switched off only by turning slow. |
-| Steady state, takes up one metabolite into a cut-off form | It loses its affinity (the uptake rate vanishes and the release keeps its rate), or it is stopped: whichever gives a limit. |
-| Steady state, anything else | It is stopped: both rates vanish, and its equilibrium constant stays what thermodynamics requires. |
+| Between two groups | It loses its uphill rate and keeps its downhill rate: the far side is higher. A rapid-equilibrium step stays fast. |
+| Between two groups, steady state | It may be stopped instead: both rates vanish. |
+| Inside one group, steady state | It is stopped. |
+| Inside one group, rapid equilibrium | Fault. Its two sides have one energy, so thermodynamics pins its equilibrium constant, and it could be switched off only by turning slow. |
 
-"Into a cut-off form" means: the bound side is cut off, and the steps that still run do
-not join the two sides.
+Which group lies above which is not given. A **reading** chooses, for each excluded step
+between two groups, which side is higher, or, for a steady-state step, that it stops. A
+reading is consistent when the steps that lose, each pointing uphill:
 
-Why a step into a cut-off form must lose its affinity: the law assumes the cut-off form is
-empty. With both rates low and the affinity unchanged, the form would keep its equilibrium
-share however slow the step, and the law that drops it would be wrong.
+1. close no cycle, so energies exist;
+2. never point into free E's group, since nothing lies below it; and
+3. lead from free E's group to every group, so every cut-off group lies above it and has a
+   step by which it empties.
 
-Why a steady-state one may be stopped all the same: both readings keep it steady-state, so
-the principle allows either for each such step, and the law is the same under every
-choice, since the law drops the step. Stopped is safe only where other steps that lose
-their affinity already empty the cut-off form, which the guard's checks decide. No one
-choice suits every mechanism (Evidence), so the guard tries three, in this order, and
-admits the mechanism at the first that finds no fault:
+The law is the same under every reading, since the law drops the excluded steps. The guard
+admits the mechanism when some consistent reading passes the face checks below.
 
-1. every such step loses its affinity;
-2. such a step loses its affinity only when it leads away from free E, and the others
-   are stopped;
-3. every such step is stopped.
+Why a step loses its uphill rate: the law assumes the cut-off forms are empty, and a step
+into a higher group that kept its uphill rate would fill it. "Loses its affinity" is the
+case in which the step is a binding and its bound side is the higher one.
 
-"Leads away from free E" is read from the graph. The steps that still run join the forms
-into parts. A part's distance is the fewest excluded steps that take up one metabolite
-into a cut-off form, rapid-equilibrium or steady-state, that lead to it from free E's
-part. A step leads away when its bound side's part is farther than its unbound side's.
+Why a rapid-equilibrium step may lose in either direction but never stop: the maintainer's
+principle. Rapid equilibrium and steady state differ more than 100-fold, and turning a
+rapid-equilibrium step into the slowest step of the other conformation is not a reasonable
+approximation. A mechanism that needs it is written with that step steady-state.
 
-If all three find a fault, the error reports the first try's. The guard tries no other
-mixture of the two readings.
+Why thermodynamics holds: each group has one energy level, and every excluded step's
+equilibrium constant shifts by the difference between its two ends' levels. The shifts
+cancel around every cycle.
 
-Why thermodynamics holds: each set of forms that the running steps keep joined has one
-energy level. A step that loses its affinity raises the level of its bound side, and every
-excluded step's equilibrium constant shifts by the difference between its two ends'
-levels. The shifts cancel around every cycle.
-
-Three examples, each in the inactive conformation, the unlisted steps `:EqualAI`:
+Four examples, each in the inactive conformation, the unlisted steps `:EqualAI`:
 
 | Mechanism | Verdict |
 |:--|:--|
-| `E + S ⇌ ES :: OnlyA`, `ES <--> EP :: OnlyA`, `E + P ⇌ EP` | Admitted. `ES` is cut off: S binding loses its affinity, the chemistry is stopped. |
-| `E + S ⇌ ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Fault. `ES` stays, made from P, so thermodynamics pins the affinity of S, and a rapid-equilibrium step cannot be stopped. |
-| `E + S <--> ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Admitted. The steady-state binding is stopped: S neither binds nor leaves, and `ES` exists, made from P. Enumeration does not build this one (decision 5). |
+| `E + S ⇌ ES :: OnlyA`, `ES <--> EP :: OnlyA`, `E + P ⇌ EP` | Admitted. `ES` is cut off: S binding loses its uptake, and the chemistry loses its rate into `ES` or stops. |
+| `E + S ⇌ ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Fault. `ES` stays in free E's group, made from P, so S binding is inside one group and a rapid-equilibrium step cannot be stopped. |
+| `E + S <--> ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Admitted. The steady-state binding is inside one group and is stopped. Enumeration does not build this one (decision 5). |
+| Ping-pong `E + A ⇌ EA`, `EA <--> FP :: OnlyA`, `F + P ⇌ FP`, `F + B ⇌ FB`, `FB ⇌ EQ :: OnlyA`, `E + Q ⇌ EQ` (F the modified enzyme) | Admitted. `F`, `FP` and `FB` are one cut-off group: `EA → FP` and `EQ → FB` vanish, their reverses keep their rates, and the group empties through both halves. |
 
-#### The checks
+#### The search for a reading
 
-With each excluded step read that way, the guard's checks run as today: the steps that
-lose their affinity close no directed cycle, free E reaches every cut-off part along them,
-the active conformation still catalyzes the reaction, and the face condition holds on
-every face. Against today's guard:
+- The guard first tries the three readings built in stage 1's earlier tasks (Evidence
+  describes them), in which only a step that takes up one metabolite into a cut-off form
+  loses, toward its bound side. They are cheap and decide most mechanisms, and trying
+  them first keeps every mechanism the built guard admits.
+- If none passes, it searches the other consistent readings: each conformation's choices
+  against the three graph conditions above, then the surviving pairs, one choice per
+  conformation, against the face checks, in a fixed order, stopping at the first that
+  passes. Every reading, the three built ones included, gets the same face checks.
+- The search is skipped, whole, for a mechanism that is too large: when a conformation
+  has more choices than one internal constant, or the pairs that survive the graph
+  conditions number more than a second (the spike's were 20,000 and 5,000, which kept the
+  slowest guard call near 0.1 s; the builder sets them from the timings). It never stops
+  part-way, so a verdict does not depend on the order of the steps, and a mechanism and
+  its mirror image get the same one. A mechanism too large to search that the three built
+  readings reject is rejected. It is never wrongly admitted.
+- The guard can report, to the tests, the reading it admitted with.
+- A rejection's message describes a reading the guard tried and never says that a step
+  cannot be switched off when some reading switches it off. A rapid-equilibrium step
+  inside one group is reported first, since no reading changes it.
 
-| Case | Today | This rule |
+#### The face checks
+
+With a reading chosen, on every face (the interior, and each set of metabolites at zero
+that the guard checks today) class 3 and admission's face condition run as built. They
+read only which transitions vanish and which are fast, so they take any reading. Two
+things are added.
+
+**No form fills faster than it empties (needed for soundness).** In the built readings the
+direction a losing step keeps is always a release, which runs whatever is present. Under
+this rule a step can keep its uptake, which dies on the face where its metabolite is zero.
+Its vanishing direction then runs one way into the higher form. The check: on a face, a
+rapid-equilibrium transition that vanishes and is alive while its reverse, which does not
+vanish, is dead is refused when
+
+- the enzyme reaches its source on that face, and alive rapid-equilibrium transitions
+  (vanishing or not) lead from the law's forms to that source, so the flow into it grows
+  with the speed of the fast steps; and
+- no alive rapid-equilibrium transitions that do not vanish lead from its target to a law
+  form, so the target empties only through a slow step.
+
+The argument: a form's occupancy is its inflow over its outflow. Past a slow transition
+the inflow is bounded by a rate that vanishes. Through fast transitions alone it grows
+with their speed, and then only an outflow that grows as fast keeps the form empty in
+every order of the two limits. A steady-state transition filling one way is covered by the
+built stranded-form check. This argument is not a proof that the face condition with the
+check is sufficient for every reading; the evidence below is numerical, and the gate
+(Tests) is built to be hard to pass by accident.
+
+**Groups that cannot matter are set aside (removes over-cautious rejections).** The face
+condition refuses a mechanism when vanishing transitions open a faster route between two
+of the law's forms and it cannot prove the route harmless. When it refuses a face, the
+guard runs it once more on that face with some groups set aside, and the face passes if
+either run does. A group is the cut-off forms the enzyme reaches on the face that
+transitions join to one another, with every alive transition at them. It is set aside
+when, on this face:
+
+- the law's forms it touches lie within one set that the law's own rapid-equilibrium
+  steps, alive in both directions, hold in equilibrium (one touching form counts);
+- each of its forms reaches a law form along alive transitions that do not vanish; and
+- each of its transition pairs is safe: it runs both ways; or only its direction that does
+  not vanish is alive, so it only empties its form; or it joins two cut-off forms, only
+  its vanishing direction is alive, and that direction is slow, or its source is not one
+  that alive rapid-equilibrium transitions reach from the law's forms, or its target
+  reaches a law form along alive rapid-equilibrium transitions that do not vanish. A pair
+  at a law form with only its vanishing direction alive is not safe.
+
+A cut-off form the enzyme never reaches on the face, which empties only into a group set
+aside, goes with it: left alone it would read as a second place the enzyme could settle.
+
+The argument: a second route between two forms already in equilibrium changes nothing,
+and with one touching form there is no route between two different forms. The group's own
+occupancy vanishes because every form drains and none is filled faster than it empties.
+Class 2 has already refused any cycle of fast transitions that turns the reaction over, so
+a cycle inside the group carries a flux that vanishes with its occupancy.
+
+A wider version was measured and is not built: a group touching forms that are in
+equilibrium for another reason (a dead-end branch, or a part of the law's network with no
+cycle that turns the reaction over), in detailed balance with the law's steady state. It
+admitted nothing in any population.
+
+#### Against the built guard
+
+| Case | Built guard (three tries) | This rule |
 |:--|:--|:--|
-| Rapid-equilibrium plain binding whose two sides stay joined | Fault (`_NO_LIMIT`) | Fault |
-| Steady-state plain binding whose two sides stay joined | Fault (`_NO_LIMIT`) | Admitted: stopped |
-| Rapid-equilibrium step that binds and reacts at once, or isomerizes | Admitted: fast in one conformation, stopped in the other | Fault |
-| Step that binds and reacts at once into a cut-off form | Stopped, so the cut-off form is an island | Rapid equilibrium: loses its affinity. Steady state: loses its affinity or is stopped |
+| Rapid-equilibrium step inside one group | Fault | Fault |
+| Steady-state step inside one group | Stopped | Stopped |
+| Step that takes up one metabolite into a cut-off form | Loses its affinity; steady state may stop | The same, as one reading among several |
+| Rapid-equilibrium step between two groups that is not such an uptake | Fault | Loses its uphill rate, in either direction |
+| Steady-state step between two groups that is not such an uptake | Stopped | Loses its uphill rate, in either direction, or stopped |
+| A direction kept on a face where its metabolite is zero | Cannot arise | The filling check |
+| Cut-off forms touching the law's forms within one equilibrated set | Face condition may refuse | Set aside |
+
+Nothing the built guard admits is rejected. Its readings are tried first; the filling
+check never fires on them, since the direction they keep is always a release; and setting
+groups aside can only pass a face that failed.
 
 #### `:OnlyI` on any group
 
@@ -308,8 +397,12 @@ oracle against the package's law.
   uni-uni unchanged; bi-bi loses 12 of 2,060 children; ping-pong loses 38 of 1,593 in round
   one and 316 of 7,014 in round two, and gains 4 and 17.
 
-The gate (see Tests) reran these on the rule as built, with a sample of 2,000 ter-ter
-taggings added:
+The gate (see Tests) reran these on the guard as first built, with a sample of 2,000
+ter-ter taggings added. That guard lets only a step that takes up one metabolite into a
+cut-off form lose, toward its bound side, and reads the steady-state ones in three fixed
+ways, tried in order: all lose their affinity; only those that lead away from free E do
+(their bound side's group is more such steps from free E's than their unbound side's);
+none does. "The new fault" below is a rapid-equilibrium step that guard cannot switch off.
 
 - The first population came out exactly as in the table. In the `:OnlyI` sample every
   lost mechanism has the new fault, and 400 of 400 sampled newly admitted ones have laws
@@ -319,32 +412,66 @@ taggings added:
   4 holds an excluded step that binds and reacts at once into a cut-off form, which the
   old guard read as stopped.
 - In 2 of the 4 that step is steady-state. Reading every such step as stopped (the third
-  try above) admits both, and one ter-ter mechanism more, each with a law equal to the
-  limit on every face. It changes no verdict in the other two populations.
+  of those readings) admits both, and one ter-ter mechanism more, each with a law equal to
+  the limit on every face. It changes no verdict in the other two populations.
 - In the other 2 that step is rapid equilibrium, so the old guard admitted them only by
   turning a fast step slow. They stay rejected, as a bridge and not with the new fault
   (the maintainer's decision). For one of them the numerical limit does depend on the
   path.
-- With those two tries alone, the enumeration tests then found 64 mechanisms, admitted
-  before and outside the gate's populations, that the guard rejected: of the 9,878 K-type
-  taggings of the bi-bi split children, the ones in which one excluded steady-state
-  binding must lose its affinity and another must stop. The second try above admits all
-  64, and 5 `:OnlyI` and 2 ter-ter mechanisms more, each of the 71 with a law equal to the
-  limit on every face (the maintainer's decision to add it).
+- With the first and third readings alone, the enumeration tests then found 64
+  mechanisms, admitted before and outside the gate's populations, that the guard rejected:
+  of the 9,878 K-type taggings of the bi-bi split children, the ones in which one excluded
+  steady-state binding must lose its affinity and another must stop. The second reading
+  admits all 64, and 5 `:OnlyI` and 2 ter-ter mechanisms more, each of the 71 with a law
+  equal to the limit on every face (the maintainer's decision to add it).
 - No single reading replaces the three. The second alone rejects 81 ter-ter mechanisms the
   first admits; the first and second without the third lose one of the two steady-state
   ter-ter mechanisms.
 - With the three tries, every mechanism admitted before and now rejected, in all four
   populations, has the new fault or is one of the two rapid-equilibrium ter-ter ones.
-- The guard does not try every mixture of the two readings: the work doubles with each
-  such step. A mechanism only another mixture would admit is rejected, never wrongly
-  admitted. One is known: ter-ter entry 54057 of the gate's populations, rejected before
-  this work too, which one mixture admits with a law equal to the limit. A search of every
-  mixture, on the gate's mechanisms with 2 to 8 such steps that the first and third tries
-  reject, found no other that the three tries miss.
+- Trying every mixture of losing and stopping for those steps admits 2 mechanisms more of
+  the 65,000, both ter-ter and both rejected before this work (entries 54057 and 54341 of
+  the gate's populations), each with a law equal to the limit. The search of decision 2
+  covers them.
 
-Not checked: an excluded rapid-equilibrium isomerization that could stay fast with its
-equilibrium pushed to the side that remains, which the rule rejects for now.
+The energy-level rule was measured in further spikes (November 2026), which fed readings
+to the built guard's own class-2 and face checks and, separately, to the suite's oracles.
+The harsh test is the ε-path oracle with corner directions; the mild one, with standard
+directions, misses the failure below.
+
+| Population | Admitted by the built guard | More under the rule | Of those, set aside rule | Oracles agree |
+|:--|--:|--:|--:|:--|
+| 25 ping-pong init mechanisms with a covalent form, chemistry `:OnlyA` and every step `:OnlyA` (50) | 0 | 40 | 0 | 40 of 40 (38 harsh) |
+| `:OnlyA` taggings of uni-uni, bi-bi and ping-pong inits (9,616) | 7,520 | 180 | 35 | 180 of 180 (154 harsh) |
+| Sampled taggings with an `:OnlyI` group (43,311) | 2,200 | 34 | 0 | 34 of 34 (10 harsh) |
+| Sampled ter-ter taggings (2,000) | 1,350 | 254 | 23 | 143 of 143 checked (10 harsh) |
+| K-type taggings of the bi-bi split children (9,878) | 7,474 | 600 | 0 | 120 of 120 checked (30 harsh) |
+
+- Without the filling check the rule admits laws that are not the limit: at least 14 of
+  the 253 it then admits in the second population, each with a limit at zero B that
+  depends on how the steps vanish. The mild test passed them; the harsh test did not.
+- A first form of the filling check, which refused every one-way fast filling, was sound
+  but refused 13 of 42 ping-pongs, most of them valid: where the source is fed through a
+  slow step the flow vanishes. The form above is the second.
+- Of the three ping-pongs with both chemistry steps `:OnlyA` that stay rejected, none has
+  a limit under any reading: their covalent forms empty only by binding B.
+- None of the mechanisms the guard as first built dropped on purpose comes back (the 258,
+  26, 22 and 234 above that were admitted before this work and now hold a rapid-equilibrium
+  step that cannot be switched off): in each that step lies inside one group. Other
+  mechanisms with such a step between two groups, never admitted before, are admitted now,
+  the six-step ping-pong among them. An observation, reported by the gate, not a condition.
+- One fixed reading (levels by breadth-first distance) admits 6,252 of the 7,520, so a
+  search is needed. Every reading cost 0.15 to 1.2 s per population and at most 91 ms for
+  one mechanism; 53 of 644 ter-ter mechanisms searched exceeded the spike's cap.
+- What stays rejected though valid, from 120 sampled of the 832 mechanisms the second
+  population still loses at the face checks: 2 as a bridge; and 11 to 16 by the filling
+  check whose rate equals the law's although the cut-off forms hold most of the enzyme on
+  that face (the inactive conformation's kept chemistry has the active one's constants).
+  No simple rule found separates the last kind from the wrong ones; they stay rejected.
+- Not yet measured: reactions with inhibitors in the `:OnlyA` populations, ter-bi and
+  bi-ter, the enumerator's own expansion rounds, the hand-written mechanisms of
+  `test/Derivation/test_admission.jl`, ter-ter under the harsh test, and more than one
+  catalytic subunit. The gate covers them.
 
 The spike scripts and logs are kept at
 `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/`, outside the repository. They
@@ -510,6 +637,39 @@ Exports after the change: `Mechanism` and `compile_rate_equation` join;
   shows as the new fault where it cannot lose its affinity, and as a bridge in the two
   ter-ter mechanisms of decision 2's evidence, where it can. The data model leaves no
   room for a per-step flag.
+- **The gate for the energy-level rule.** It lands only when all of these hold, each
+  reported in the pull request:
+  - **Nothing lost.** No mechanism the built three-try guard admits is rejected, in every
+    population below.
+  - **Every small newly admitted mechanism passes the harsh test.** Each mechanism of 8
+    steps or fewer that the rule admits and the built guard does not agrees with both
+    oracles on every face, the ε-path oracle with corner directions.
+  - **Larger ones.** A spaced sample of at least 150 per population under the mild test,
+    and one long run of the harsh test on at least 100 newly admitted ter-ter mechanisms.
+  - **Wider populations than the spikes'.** The five of decision 2's evidence, and: the
+    `:OnlyA` taggings of a bi-bi reaction with a competitive inhibitor; of a ter-bi and a
+    bi-ter reaction; one expansion round of the census reactions (the enumerator's own
+    output); and the distinct allosteric mechanisms `test/Derivation/test_admission.jl`
+    puts through the guard.
+  - **The failure mode, exhaustively.** Every mechanism whose admitting reading (the one
+    the guard reports) has a vanishing transition alive on a face while its reverse is
+    dead is listed, and every such mechanism of 8 steps or fewer passes the harsh test
+    under that reading. Every oracle check in the gate uses the admitting reading.
+  - **The checks one at a time.** With the filling check off, the harsh test must reject at
+    least 14 mechanisms of the 9,616, entries 6580, 6595 and 8524 of that population among
+    them (it proves the gate can see the failure). With the set-aside rule off, the
+    verdicts of everything else are unchanged.
+  - **More than one subunit.** The verdict does not depend on `catalytic_multiplicity`
+    (already pinned), and a sample of newly admitted mechanisms agrees with the suite's
+    protomer-network oracle at two subunits where that oracle applies.
+  The work stops and returns to the maintainer if a newly admitted mechanism fails an
+  oracle, or a mechanism the built guard admits is lost.
+- **Permanent tests for the rule.** The suite keeps: the six-step ping-pong with both
+  chemistry steps `:OnlyA`, admitted, its law against the limit; a mechanism the filling
+  check refuses and its near-twin that it passes, each against the harsh oracle; a
+  mechanism the set-aside rule admits and one it must not; a sampled population test with
+  corner directions on small mechanisms; and the tests' own statement of the rule, which
+  does not call the package's.
 - **What counts as checked.** The comparisons of decision 2 are rerun once on the
   implemented rule and reported in the pull request, with a sample of at least 2,000
   ter-ter mechanisms and the 9,878 K-type taggings of the bi-bi split children added. The
@@ -526,10 +686,13 @@ maintainer's request). It lands with stage 1, when the rule changes:
   introduces allosteric mechanisms. It gives, in the user's terms: what `:OnlyA` and
   `:OnlyI` assume (a very high dissociation constant or very low rate constants, with
   every thermodynamic constraint kept in each conformation); that a step keeps its kind,
-  rapid equilibrium or steady state, in both conformations; the four-row table of
-  decision 2, with the two ways a steady-state step can be switched off; the three worked examples; and what the error means when a
-  rapid-equilibrium step cannot be switched off, with the two fixes (make the step
-  steady-state, or exclude the steps that keep its bound form reachable).
+  rapid equilibrium or steady state, in both conformations; the energy picture and the
+  four-row table of decision 2; that the package looks for a choice of energies under
+  which the rate equation is the limit, and accepts the mechanism when one exists; the
+  four worked examples, the ping-pong among them; what the error means when a
+  rapid-equilibrium step lies inside one group, with the two fixes (make the step
+  steady-state, or exclude the steps that keep its two sides joined); and that the last
+  check is validated numerically, with what was tested.
 - **The mechanism macro's docstring** states the rule in two or three sentences and links
   to that section.
 - **The guard's error message** for that fault names the step and says the same two fixes.
@@ -548,7 +711,9 @@ maintainer's request). It lands with stage 1, when the rule changes:
 
 1. This design is approved. Its first stage is planned and built alone: the guard's rule
    on today's data model. It removes `Derivation`'s last read of form contents, touches
-   no Enumeration internals, and is the gate.
+   no Enumeration internals, and is the gate. Stage 1 was built first with three fixed
+   readings (reviewed, gate clean); the energy-level rule is then built on top of it, in
+   the same branch, before the enumeration tests are brought to the rule.
 2. The Enumeration design: what its moves need to know about a form.
 3. The Derivation-interface design.
 4. The rest of this design is planned and built: the lean graph, the one type and the one
@@ -564,9 +729,21 @@ The `E_total` design can come anywhere in that list.
   those won.
 - **Allosteric ping-pong.** `ROADMAP.md` plans "let an allosteric ping-pong stop both
   half-reactions in the inactive conformation" and says admission rejects it. Under the
-  rule some of these are admitted, because an excluded first half-reaction that takes up
-  one metabolite into cut-off forms loses its affinity. The entry is re-examined and
-  rewritten as part of the work.
+  energy-level rule most are admitted (40 of 50 measured), with no second flip. The
+  tagging move already prefers the child that stops all chemistry when the guard admits
+  it, so the enumerator's ping-pong children change without new enumerator code. The
+  entry is rewritten as part of the work.
+- **The guard's last check rests on numerical evidence.** The filling check and the
+  set-aside rule passed every test run, but no proof shows the face checks sufficient for
+  every reading. A wrong law the guard admitted would not be caught by a fit: it is a
+  smooth function that can fit well, with a wrong mechanism label and unreliable
+  extrapolation toward the face where it fails. The gate in Tests is the protection.
+- **A check that nothing reaches.** With the built guard the tagging move's hyperbolic
+  drop above one subunit no longer drops anything. It is re-examined once the energy-level
+  rule is in, and kept or removed on the maintainer's decision.
+- **Valid mechanisms still rejected.** Those above the search cap that only an untried
+  reading would admit; a few the face condition refuses as a bridge; and those the filling
+  check refuses although their rate equals the law's. `ROADMAP.md` records them.
 - **Fitted-parameter names** change for some mechanisms (decision 5).
 - **Saved mechanism text** from earlier versions does not parse (decision 4).
 - **The decodability check** moves from `@enzyme_reaction` to the start of enumeration
