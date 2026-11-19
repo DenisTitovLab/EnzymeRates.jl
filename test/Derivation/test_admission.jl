@@ -2268,6 +2268,148 @@ end
     @test D._guard(shut_door).fault === D._NO_FAULT
 end
 
+@testset "a steady-state uptake into a cut-off form may be stopped" begin
+    # The guard first reads every excluded steady-state step that takes up one metabolite
+    # into a cut-off form as losing its affinity; when that leaves an admission fault, it
+    # reads every such step as stopped and checks again. Four ter-ter mechanisms of the
+    # gate's populations, built unguarded since the first reading rejects each: two that
+    # the second reading admits, and two whose bridges are rapid-equilibrium steps, which
+    # no reading stops.
+    D = EnzymeRates.Derivation
+    rng = Random.MersenneTwister(2613)
+    second_try_a = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + D ⇌ E(D), E(B, Q) + D ⇌ E(B, D, Q), E(P, Q) + D ⇌ E(D, P, Q),
+             E(Q) + D ⇌ E(D, Q)) :: EqualAI
+            (E + Q ⇌ E(Q), E(B, D) + Q ⇌ E(B, D, Q), E(D) + Q ⇌ E(D, Q),
+             E(D, P) + Q ⇌ E(D, P, Q)) :: OnlyA
+            E(B, D) + A <--> E(P, Q, R) :: OnlyA
+            (E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q), E(Q) + B ⇌ E(B, Q)) :: OnlyA
+            (E(D) + P <--> E(D, P), E(D, Q) + P <--> E(D, P, Q),
+             E(Q) + P <--> E(P, Q), E(Q, R) + P <--> E(P, Q, R)) :: EqualAI
+            (E(P, Q) + R ⇌ E(P, Q, R), E(Q) + R ⇌ E(Q, R)) :: EqualAI
+        end
+    end
+    second_try_b = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + A ⇌ E(A), E(D, P) + A ⇌ E(A, D, P), E(P) + A ⇌ E(A, P),
+             E(P, R) + A ⇌ E(A, P, R)) :: OnlyA
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, D) + P ⇌ E(A, D, P),
+             E(A, R) + P ⇌ E(A, P, R)) :: OnlyA
+            (E(A) + D ⇌ E(A, D), E(A, P) + D ⇌ E(A, D, P), E(A, R) + D ⇌ E(A, D, R),
+             E(P) + D ⇌ E(D, P), E(P, R) + D ⇌ E(D, P, R)) :: EqualAI
+            (E(A) + R <--> E(A, R), E(A, D) + R <--> E(A, D, R),
+             E(A, P) + R <--> E(A, P, R), E(D, P) + R <--> E(D, P, R),
+             E(P) + R <--> E(P, R)) :: EqualAI
+            E(A, D) + B <--> E(P, Q, R) :: OnlyA
+            E(P, R) + Q ⇌ E(P, Q, R) :: OnlyA
+        end
+    end
+    # second_try_a, inactive conformation: the chemistry step joins two cut-off forms.
+    k = _testhelper_edge(second_try_a, "EBD + A <--> EPQR")
+    first_reading, second_reading = D._switch_offs(second_try_a, 2),
+                                    D._switch_offs(second_try_a, 2, D._STOPPED)
+    @test first_reading[k] === D._LOSES_AFFINITY
+    @test second_reading[k] === D._STOPPED
+    @test [first_reading[j] for j in eachindex(first_reading) if j != k] ==
+          [second_reading[j] for j in eachindex(second_reading) if j != k]
+    @test _testhelper_switch_off(second_try_a, 2, k) === :loses_affinity
+    @test _testhelper_switch_off(second_try_a, 2, k; slow_uptake = :stopped) === :stopped
+    # The two conformations are read alike.
+    for r in (D._LOSES_AFFINITY, D._STOPPED)
+        @test D._switch_offs(_testhelper_mirror(second_try_a), 1, r) ==
+              D._switch_offs(second_try_a, 2, r)
+    end
+    # The first reading alone finds a bridge at zero substrates in the inactive
+    # conformation.
+    v = D._admission(second_try_a)
+    @test (_testhelper_faces(second_try_a)[v.face], v.conformation, v.edge) ==
+          (Set([:A, :B, :D]), 2, _testhelper_edge(second_try_a, "EDP + Q ⇌ EDPQ"))
+    for am in (second_try_a, second_try_b)
+        @test D._admission(am).fault === D._BRIDGE            # the first try alone
+        @test D._admission(am, D._STOPPED) == D._WELL_POSED
+        @test D._guard(am) == D._WELL_POSED
+        @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
+        # The compiled law, derived through the guard, against the oracle's own deletion
+        # limit.
+        _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(am))
+    end
+    # bridge_fast_a: its bridge, the rapid-equilibrium P binding E(D, Q) + P ⇌ E(D, P, Q),
+    # loses its affinity under either reading, and stopping its steady-state uptakes
+    # leaves forms that free E does not reach. At zero P the ε-path oracle finds that the
+    # limit depends on the direction: the rejection is real.
+    bridge_fast_a =@_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + D ⇌ E(D), E(A, P) + D ⇌ E(A, D, P), E(P) + D ⇌ E(D, P),
+             E(P, Q) + D ⇌ E(D, P, Q)) :: EqualAI
+            (E + P ⇌ E(P), E(D) + P ⇌ E(D, P), E(D, Q) + P ⇌ E(D, P, Q),
+             E(R; residual = A + D - R) + P ⇌ E(A, D, P)) :: OnlyA
+            E(; residual = A + D - R) + B ⇌ E(P, Q) :: OnlyA
+            E(; residual = A + D - R) + R ⇌ E(R; residual = A + D - R) :: EqualAI
+            (E(A, P) + Q <--> E(A, P, Q), E(D) + Q <--> E(D, Q),
+             E(D, P) + Q <--> E(D, P, Q), E(P) + Q <--> E(P, Q),
+             E(R; residual = A + D - R) + Q <--> E(A, D, Q)) :: OnlyA
+            (E(D) + A <--> E(R; residual = A + D - R), E(D, P) + A <--> E(A, D, P),
+             E(D, Q) + A <--> E(A, D, Q), E(P) + A <--> E(A, P),
+             E(P, Q) + A <--> E(A, P, Q)) :: EqualAI
+        end
+    end
+    v = D._guard(bridge_fast_a)
+    @test v == D._admission(bridge_fast_a)
+    @test (v.fault, v.conformation, v.edge) ==
+          (D._BRIDGE, 2, _testhelper_edge(bridge_fast_a, "EDQ + P ⇌ EDPQ"))
+    @test D._admission(bridge_fast_a, D._STOPPED).fault === D._ISLAND
+    @test _testhelper_epath_verdict(bridge_fast_a; rng, face = Set([:P])) ===
+          :direction_dependent
+    # bridge_fast_b: every excluded uptake into a cut-off form is a rapid-equilibrium step,
+    # so there is no steady-state one to read again.
+    bridge_fast_b = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + A ⇌ E(A), E(B, Q) + A ⇌ E(A, B, Q),
+             E(P; residual = A + B - P) + A ⇌ E(A, P; residual = A + B - P),
+             E(Q) + A ⇌ E(A, Q)) :: OnlyA
+            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q),
+             E(P; residual = A + B - P) + Q ⇌ E(A, B, Q)) :: OnlyA
+            (E(; residual = A + B - P) + P ⇌ E(P; residual = A + B - P),
+             E(A) + P ⇌ E(A, P),
+             E(P; residual = A + B - P) + P ⇌ E(A, B, P)) :: EqualAI
+            E(; residual = A + B - P) + D ⇌ E(Q, R) :: EqualAI
+            (E(A) + B <--> E(P; residual = A + B - P), E(A, P) + B <--> E(A, B, P),
+             E(A, Q) + B <--> E(A, B, Q),
+             E(P; residual = A + B - P) + B <--> E(B, P; residual = A + B - P),
+             E(Q) + B <--> E(B, Q)) :: EqualAI
+            (E(Q) + R <--> E(Q, R),
+             E(Q, R) + R <--> E(D, R; residual = A + B - P)) :: EqualAI
+        end
+    end
+    @test D._guard(bridge_fast_b).fault === D._BRIDGE
+    for c in 1:2
+        @test D._switch_offs(bridge_fast_b, c) ==
+              D._switch_offs(bridge_fast_b, c, D._STOPPED)
+    end
+    # The first try decides when it passes: with its S binding stopped, the K-type
+    # uni-uni mechanism would leave E(S) out of free E's reach.
+    k_type = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)     :: OnlyA
+            E(S) <--> E(P)      :: OnlyA
+            E(P) ⇌ E + P        :: EqualAI
+        end
+    end
+    @test D._guard(k_type) == D._WELL_POSED
+    @test D._admission_interior(k_type, D._STOPPED).fault === D._ISLAND
+end
+
 @testset "the graph test equals the exact LP on the uni-uni grid" begin
     # A limit exists exactly when no excluded rapid-equilibrium step is pinned and the
     # steps that lose their affinity close no cycle; the test oracle's own reading of the

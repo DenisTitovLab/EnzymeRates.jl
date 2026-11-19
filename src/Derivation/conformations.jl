@@ -54,18 +54,20 @@ rates vanishing (`_STOPPED`); or it cannot be switched off (`_CANNOT_SWITCH_OFF`
 @enum _SwitchOff::UInt8 _RUNS _LOSES_AFFINITY _STOPPED _CANNOT_SWITCH_OFF
 
 """
-    _switch_offs(am, c::Int) -> Vector{_SwitchOff}
+    _switch_offs(am, c::Int, slow_uptake = _LOSES_AFFINITY) -> Vector{_SwitchOff}
 
 How conformation `c` (1 active, 2 inactive) of `am` switches off each catalytic step, read
 from the reaction graph alone. It keeps a step it does not exclude. An excluded step that
 takes up one metabolite and gives off none into a cut-off form, the steps `c` keeps
-(`exclusion_components`) joining neither its two sides nor its bound side to free E,
-loses its affinity. Any other excluded step keeps its kind, rapid equilibrium or steady
-state, as every step does in both conformations: a steady-state one is stopped, and a
-rapid-equilibrium one, whose equilibrium constant thermodynamics pins, cannot be switched
-off.
+(`exclusion_components`) joining neither its two sides nor its bound side to free E, loses
+its affinity at rapid equilibrium; at steady state it is switched off as `slow_uptake`
+says, `_LOSES_AFFINITY` or `_STOPPED`, the guard's two readings (`_guard`). Any other
+excluded step keeps its kind, rapid equilibrium or steady state, as every step does in
+both conformations: a steady-state one is stopped, and a rapid-equilibrium one, whose
+equilibrium constant thermodynamics pins, cannot be switched off.
 """
-function _switch_offs(am::Mechanisms.AllostericMechanism, c::Int)
+function _switch_offs(am::Mechanisms.AllostericMechanism, c::Int,
+                      slow_uptake::_SwitchOff = _LOSES_AFFINITY)
     comp = exclusion_components(am, _CONFORMATIONS[c])
     excluded = _excluded_steps(am, c)
     off = fill(_RUNS, length(am.catalytic.steps))
@@ -73,7 +75,7 @@ function _switch_offs(am::Mechanisms.AllostericMechanism, c::Int)
         excluded[k] || continue
         into_cut_off = length(e.taken_up) == 1 && isempty(e.given_off) &&
                        comp[e.from] != comp[e.to] && comp[e.to] != comp[1]
-        off[k] = into_cut_off ? _LOSES_AFFINITY :
+        off[k] = into_cut_off ? (e.rapid_equilibrium ? _LOSES_AFFINITY : slow_uptake) :
                  e.rapid_equilibrium ? _CANNOT_SWITCH_OFF : _STOPPED
     end
     off

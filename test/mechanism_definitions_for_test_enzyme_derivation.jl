@@ -1051,19 +1051,21 @@ end
 
 """
 How conformation `c` (1 active, 2 inactive) of `am` switches off edge `k` of its catalytic
-graph, read from the graph alone: `:runs` when `c` does not exclude it; `:loses_affinity`
-when it takes up one metabolite and gives off none into a cut-off form, the edges `c` keeps
+graph, read from the graph alone: `:runs` when `c` does not exclude it; when it takes up
+one metabolite and gives off none into a cut-off form, the edges `c` keeps
 (`_testhelper_kept_components`) joining neither its two sides nor its bound side to free
-E; otherwise, since a step keeps its kind in both conformations, `:cannot_switch_off` at
-rapid equilibrium and `:stopped` at steady state.
+E, `:loses_affinity` at rapid equilibrium and `slow_uptake` at steady state
+(`:loses_affinity`, the guard's first reading, or `:stopped`, its second); otherwise,
+since a step keeps its kind in both conformations, `:cannot_switch_off` at rapid
+equilibrium and `:stopped` at steady state.
 """
-function _testhelper_switch_off(am, c::Int, k::Int)
+function _testhelper_switch_off(am, c::Int, k::Int; slow_uptake::Symbol = :loses_affinity)
     _testhelper_excludes(am, k, c) || return :runs
     e = EnzymeRates.Mechanisms.catalytic(am).steps[k]
     component = _testhelper_kept_components(am, c)
     length(e.taken_up) == 1 && isempty(e.given_off) &&
         component[e.from] != component[e.to] && component[e.to] != component[1] &&
-        return :loses_affinity
+        return e.rapid_equilibrium ? :loses_affinity : slow_uptake
     e.rapid_equilibrium ? :cannot_switch_off : :stopped
 end
 
@@ -1119,7 +1121,7 @@ _testhelper_draw_speeds(m, rng) =
 
 """
     _testhelper_network(m, point, concs; speeds, mode = :law, ε = 1, potentials, sigma,
-                        theta) -> _testhelper_Network
+                        theta, slow_uptake = :loses_affinity) -> _testhelper_Network
 
 The mass-action network of `m`'s catalytic graph, one catalytic subunit, at the constants
 of `point` (`_testhelper_consistent_point`) and the concentrations `concs`: one copy of
@@ -1133,16 +1135,18 @@ exclude, on the forms they join to free E (deletion and pruning). `mode = :vanis
 ε-network: every form and edge, each excluded edge vanishing as ε → 0 along a direction,
 with `potentials[c][f]` the potential of form `f`'s component in conformation `c` and
 `d = potentials[c][to] - potentials[c][from]`. The equilibrium constant of an edge that
-loses its affinity (`_testhelper_switch_off`) scales by `ε^d`: a rapid-equilibrium one
-stays fast, its on rate scaled by `ε^(θ d)` and its off rate by `ε^(-(1 - θ) d)`; a
-steady-state one keeps its off rate. Any other excluded edge is slow, its rates scaled by
-`ε^(σ + max(±d, 0))`. `sigma` (σ) and `theta` (θ) hold one value per edge.
+loses its affinity (`_testhelper_switch_off`, each steady-state uptake into a cut-off form
+read as `slow_uptake`) scales by `ε^d`: a rapid-equilibrium one stays fast, its on rate
+scaled by `ε^(θ d)` and its off rate by `ε^(-(1 - θ) d)`; a steady-state one keeps its
+off rate. Any other excluded edge is slow, its rates scaled by `ε^(σ + max(±d, 0))`.
+`sigma` (σ) and `theta` (θ) hold one value per edge.
 """
 function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFloat},
                              mode::Symbol = :law, ε::BigFloat = big(1.0),
                              potentials::Vector{Vector{BigFloat}} = Vector{BigFloat}[],
                              sigma::Vector{BigFloat} = BigFloat[],
-                             theta::Vector{BigFloat} = BigFloat[])
+                             theta::Vector{BigFloat} = BigFloat[],
+                             slow_uptake::Symbol = :loses_affinity)
     mech = _testhelper_lift(m)
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     nf = length(cm.nodes)
@@ -1165,7 +1169,7 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
         f, r = fast ? (speeds[k, c] * sqrt(K), speeds[k, c] / sqrt(K)) : (kf, kf / K)
         if excluded
             d = potentials[c][e.to] - potentials[c][e.from]
-            if _testhelper_switch_off(mech, c, k) === :loses_affinity
+            if _testhelper_switch_off(mech, c, k; slow_uptake) === :loses_affinity
                 f, r = fast ? (f * ε^(theta[k] * d), r * ε^(-(1 - theta[k]) * d)) :
                        (f * ε^d, r)
             else
@@ -1495,21 +1499,22 @@ function _testhelper_respeed_verdicts(m; rng, law::Symbol = :package)
 end
 
 """
-    _testhelper_exclusion(am, c) -> (; component, arcs, failure, lost)
+    _testhelper_exclusion(am, c; slow_uptake = :loses_affinity)
+        -> (; component, arcs, failure, lost)
 
 The exclusion structure of conformation `c` of `am`: `component[f]`, the component of form
 `f` under the edges `c` keeps (`_testhelper_kept_components`); `arcs`, `(unbound side's
 component, bound side's, edge)` for each edge `c` excludes that loses its affinity
-(`_testhelper_switch_off`); `failure`, `:fast` when `c` excludes a rapid-equilibrium edge
-it cannot switch off, `:cycle` when the arcs close a directed cycle, else `:none` (a path
-to the limit exists); `lost`, the components free E's does not reach along the arcs
-(islands).
+(`_testhelper_switch_off`, each steady-state uptake into a cut-off form read as
+`slow_uptake`); `failure`, `:fast` when `c` excludes a rapid-equilibrium edge it cannot
+switch off, `:cycle` when the arcs close a directed cycle, else `:none` (a path to the
+limit exists); `lost`, the components free E's does not reach along the arcs (islands).
 """
-function _testhelper_exclusion(am, c::Int)
+function _testhelper_exclusion(am, c::Int; slow_uptake::Symbol = :loses_affinity)
     cm = EnzymeRates.Mechanisms.catalytic(am)
     component = _testhelper_kept_components(am, c)
     n = maximum(component)
-    off = [_testhelper_switch_off(am, c, k) for k in eachindex(cm.steps)]
+    off = [_testhelper_switch_off(am, c, k; slow_uptake) for k in eachindex(cm.steps)]
     arcs = Tuple{Int, Int, Int}[(component[e.from], component[e.to], k)
                                 for (k, e) in enumerate(cm.steps)
                                 if off[k] === :loses_affinity]
@@ -1538,10 +1543,11 @@ function _testhelper_exclusion(am, c::Int)
     (; component, arcs, failure, lost = findall(!, reached))
 end
 
-"""The excluding conformations of `am` with their exclusion structures, `[(c, ex)]`."""
-function _testhelper_excluding(am)
+"""The excluding conformations of `am` with their exclusion structures, `[(c, ex)]`, each
+steady-state uptake into a cut-off form read as `slow_uptake` (`_testhelper_exclusion`)."""
+function _testhelper_excluding(am; slow_uptake::Symbol = :loses_affinity)
     edges = eachindex(EnzymeRates.Mechanisms.catalytic(am).steps)
-    [(c, _testhelper_exclusion(am, c)) for c in 1:2
+    [(c, _testhelper_exclusion(am, c; slow_uptake)) for c in 1:2
      if any(k -> _testhelper_excludes(am, k, c), edges)]
 end
 
@@ -1562,14 +1568,16 @@ The ε-path's six standard directions for `am`: integer potentials, arcs rising 
 every component other than free E's starting at +1 or at -1, each with one speed exponent
 σ ∈ {½, 1, 2} for every blocked edge and the even split θ = ½ of each rapid-equilibrium
 edge that loses its affinity. Each is `(; potentials, sigma, theta)`, `potentials[c][f]` the
-potential of form `f` in conformation `c` (empty where `c` excludes nothing).
+potential of form `f` in conformation `c` (empty where `c` excludes nothing). The arcs are
+those of `_testhelper_excluding`, each steady-state uptake into a cut-off form read as
+`slow_uptake`.
 """
-function _testhelper_standard_directions(am)
+function _testhelper_standard_directions(am; slow_uptake::Symbol = :loses_affinity)
     ne = length(EnzymeRates.Mechanisms.catalytic(am).steps)
     directions = []
     for offset in (1, -1), σ in (big(0.5), big(1.0), big(2.0))
         potentials = [BigFloat[] for _ in 1:2]
-        for (c, ex) in _testhelper_excluding(am)
+        for (c, ex) in _testhelper_excluding(am; slow_uptake)
             start = [x == ex.component[1] ? big(0.0) : BigFloat(offset)
                      for x in 1:maximum(ex.component)]
             φ = _testhelper_component_potentials(ex, start, ones(BigFloat, length(ex.arcs)))
@@ -1597,11 +1605,12 @@ The ε-path's corner directions for `am`: the corners of the admissible cone, ev
 choice made one way or the other. Every arc rises by 1 or 20, every component other than
 free E's that no arc enters starts at -5 or 5, every blocked edge's σ is 1/8 or 16 and
 the θ of every rapid-equilibrium edge that loses its affinity is 0 or 1; all corners when
-there are at most 128, else 128 of them (`_testhelper_corners`).
+there are at most 128, else 128 of them (`_testhelper_corners`). Each steady-state uptake
+into a cut-off form is read as `slow_uptake` (`_testhelper_switch_off`).
 """
-function _testhelper_corner_directions(am, rng)
+function _testhelper_corner_directions(am, rng; slow_uptake::Symbol = :loses_affinity)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    excluding = _testhelper_excluding(am)
+    excluding = _testhelper_excluding(am; slow_uptake)
     slots = Tuple{Symbol, Int, Int}[]
     for (c, ex) in excluding
         append!(slots, [(:rise, c, q) for q in eachindex(ex.arcs)])
@@ -1612,7 +1621,7 @@ function _testhelper_corner_directions(am, rng)
     # A step is excluded in one conformation at most, so it gets one slot at most.
     for (k, e) in enumerate(cm.steps), c in 1:2
         _testhelper_excludes(am, k, c) || continue
-        if _testhelper_switch_off(am, c, k) !== :loses_affinity
+        if _testhelper_switch_off(am, c, k; slow_uptake) !== :loses_affinity
             push!(slots, (:sigma, k, 0))
         elseif e.rapid_equilibrium
             push!(slots, (:theta, k, 0))
@@ -1640,16 +1649,17 @@ end
 """How far the ε-network of `am` along direction `d` spreads its rates' ε-exponents
 (`_testhelper_network`): the sum over the excluded edges of the magnitudes of each edge's
 two rate exponents. With δ the potential's rise across the edge and σ its speed exponent,
-that is |δ| for an edge that loses its affinity (`_testhelper_switch_off`) and 2σ + |δ|
-for any other edge, whose exponents are σ + max(δ, 0) and σ + max(-δ, 0). The RE-first
-order lets Λ outgrow it."""
-function _testhelper_epsilon_span(am, d)
+that is |δ| for an edge that loses its affinity (`_testhelper_switch_off`, each
+steady-state uptake into a cut-off form read as `slow_uptake`) and 2σ + |δ| for any
+other edge, whose exponents are σ + max(δ, 0) and σ + max(-δ, 0). The RE-first order
+lets Λ outgrow it."""
+function _testhelper_epsilon_span(am, d; slow_uptake::Symbol = :loses_affinity)
     cm = EnzymeRates.Mechanisms.catalytic(am)
     span = big(0.0)
     for c in 1:2, (k, e) in enumerate(cm.steps)
         _testhelper_excludes(am, k, c) || continue
         rise = abs(d.potentials[c][e.to] - d.potentials[c][e.from])
-        span += _testhelper_switch_off(am, c, k) === :loses_affinity ? rise :
+        span += _testhelper_switch_off(am, c, k; slow_uptake) === :loses_affinity ? rise :
                 2 * d.sigma[k] + rise
     end
     span
@@ -1686,13 +1696,14 @@ end
 
 """
     _testhelper_epath_verdict(m; rng, face = Set{Symbol}(), corners = false,
-                              precision = 256) -> Symbol
+                              precision = 256, slow_uptake = :loses_affinity) -> Symbol
 
 The ε-path oracle (spec section 14) on the face of `m` where the names `face` vanish, one
 catalytic subunit: along each direction (the six standard ones, or the corners with
 `corners`) and each order κ ∈ (RE first, 8, 2, ½, ε first) of the two limits, the
 turnover of the ε-network against the deletion law's value there
-(`_testhelper_limit_law`). The first verdict that applies:
+(`_testhelper_limit_law`), each excluded steady-state uptake into a cut-off form switched
+off as `slow_uptake` says (`_testhelper_switch_off`). The first verdict that applies:
 - `:no_path`: an excluding conformation has no path to the limit (`_testhelper_exclusion`);
 - `:nonunique`: an ε-network has more than one closed class on the face;
 - `:diverges`: some path's turnover grows without bound (a fast cycle of the ε-network
@@ -1704,10 +1715,11 @@ turnover of the ε-network against the deletion law's value there
   settle).
 """
 function _testhelper_epath_verdict(m; rng, face::Set{Symbol} = Set{Symbol}(),
-                                   corners::Bool = false, precision::Int = 256)
+                                   corners::Bool = false, precision::Int = 256,
+                                   slow_uptake::Symbol = :loses_affinity)
     setprecision(BigFloat, precision) do
         am = _testhelper_single_subunit(_testhelper_lift(m))
-        any(((_, ex),) -> ex.failure !== :none, _testhelper_excluding(am)) &&
+        any(((_, ex),) -> ex.failure !== :none, _testhelper_excluding(am; slow_uptake)) &&
             return :no_path
         point = _testhelper_consistent_point(am, rng)
         concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
@@ -1717,19 +1729,19 @@ function _testhelper_epath_verdict(m; rng, face::Set{Symbol} = Set{Symbol}(),
         vin = _testhelper_limit_law(am, point, concs, Set{Symbol}(); rng)
         scale = max(isfinite(vdel) ? abs(vdel) : big(0), isfinite(vin) ? abs(vin) : big(1),
                     big(10)^-30)
-        directions = corners ? _testhelper_corner_directions(am, rng) :
-                     _testhelper_standard_directions(am)
+        directions = corners ? _testhelper_corner_directions(am, rng; slow_uptake) :
+                     _testhelper_standard_directions(am; slow_uptake)
         speeds = _testhelper_draw_speeds(am, rng)
         outcomes, ends = Symbol[], BigFloat[]
         for d in directions
             function _testhelper_eps_network(ε)
                 _testhelper_network(am, point, c0; speeds, mode = :vanish, ε,
                                     potentials = d.potentials, sigma = d.sigma,
-                                    theta = d.theta)
+                                    theta = d.theta, slow_uptake)
             end
             nw = _testhelper_eps_network(big(10)^-2)
             _testhelper_steady_rate(nw; Λ = big(1.0)).nclasses > 1 && return :nonunique
-            span = _testhelper_epsilon_span(am, d)
+            span = _testhelper_epsilon_span(am, d; slow_uptake)
             for κ in (:re_first, 8, 2, 1 // 2, :eps_first)
                 r = _testhelper_path_limit(_testhelper_eps_network, κ, span,
                                            length(nw.nodes), scale)
@@ -1976,16 +1988,19 @@ const _testhelper_class3_faults =
 """
 The guard's fault on each face of the allosteric mechanism `am`, in the order of `_faces`
 (and `_testhelper_faces`), after its interior checks pass: class 3's where `_check_face`
-rejects the face, else that of admission's face condition (`_admission_face`).
+rejects the face, else that of admission's face condition (`_admission_face`), each
+steady-state uptake into a cut-off form read as `slow_uptake` (`:loses_affinity`, the
+guard's first reading, or `:stopped`, its second).
 """
-function _testhelper_admission_faults(am)
-    eps, law = EnzymeRates.Derivation._eps_network(am),
-        EnzymeRates.Derivation._law_network(am)
-    faces = EnzymeRates.Derivation._faces(am.catalytic)
+function _testhelper_admission_faults(am; slow_uptake::Symbol = :loses_affinity)
+    D = EnzymeRates.Derivation
+    reading = slow_uptake === :stopped ? D._STOPPED : D._LOSES_AFFINITY
+    eps = D._eps_network(am, D._re_flags(am.catalytic), reading)
+    law = D._law_network(am)
+    faces = D._faces(am.catalytic)
     map(eachindex(faces)) do i
-        v = EnzymeRates.Derivation._check_face(am, law, faces, i)
-        v.fault === EnzymeRates.Derivation._NO_FAULT ?
-            EnzymeRates.Derivation._admission_face(am, eps, law, faces, i).fault : v.fault
+        v = D._check_face(am, law, faces, i)
+        v.fault === D._NO_FAULT ? D._admission_face(am, eps, law, faces, i).fault : v.fault
     end
 end
 
@@ -2001,18 +2016,24 @@ Whether the guard's fault on each face of the allosteric mechanism `am`
 with the RE-speed oracle (`_testhelper_agrees`), an admission fault with the ε-path oracle
 (`_testhelper_admission_agrees`), and an accepted face with both. The RE-speed oracle
 compares with its own deletion limit (`law = :limit`): the package cannot derive the law
-of a mechanism the guard rejects. One `Bool` per face.
+of a mechanism the guard rejects. Both the faults and the ε-path oracle read each
+steady-state uptake into a cut-off form as the guard admitted with: `:stopped` when the
+guard admits and admission's first reading (`_admission`) does not, else
+`:loses_affinity`. One `Bool` per face.
 """
 function _testhelper_admission_agreement(am; rng)
-    faults = _testhelper_admission_faults(am)
+    D = EnzymeRates.Derivation
+    slow_uptake = _testhelper_is_valid(am) && D._admission(am) !== D._WELL_POSED ?
+                  :stopped : :loses_affinity
+    faults = _testhelper_admission_faults(am; slow_uptake)
     faces = _testhelper_faces(am)
     respeed = _testhelper_respeed_verdicts(am; rng, law = :limit)
     map(eachindex(faults)) do i
         f = faults[i]
         f in _testhelper_class3_faults && return _testhelper_agrees(f, respeed[i])
-        epath = _testhelper_admission_agrees(f, _testhelper_epath_verdict(am; rng,
-                                                                          face = faces[i]))
-        f === EnzymeRates.Derivation._NO_FAULT ? epath && respeed[i] === :agree : epath
+        epath = _testhelper_admission_agrees(
+            f, _testhelper_epath_verdict(am; rng, face = faces[i], slow_uptake))
+        f === D._NO_FAULT ? epath && respeed[i] === :agree : epath
     end
 end
 
