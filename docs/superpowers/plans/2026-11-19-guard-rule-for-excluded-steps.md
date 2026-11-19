@@ -20,7 +20,27 @@ before starting. Stages 2 and 3 of the spec are not in this plan.
 
 ## Global Constraints
 
-- The rule, copied from the spec. In a conformation, for each step it excludes:
+- **The energy-level rule (Tasks 10 to 13), copied from the spec's decision 2.** The steps a
+  conformation keeps join the forms into groups; every group but free E's is cut off and
+  lies higher in energy.
+
+  | Excluded step | How it is switched off |
+  |:--|:--|
+  | Between two groups | Loses its uphill rate and keeps its downhill rate. A rapid-equilibrium step stays fast. |
+  | Between two groups, steady state | May be stopped instead: both rates vanish |
+  | Inside one group, steady state | Stopped |
+  | Inside one group, rapid equilibrium | Fault |
+
+  A reading chooses, for each excluded step between two groups, which side is higher, or,
+  for a steady-state step, that it stops. It is consistent when the steps that lose, each
+  pointing uphill, close no cycle, never point into free E's group, and lead from free E's
+  group to every group. The guard admits a mechanism when some consistent reading passes
+  class 2 and the face checks. It tries the three built readings first, then searches the
+  rest, unless the mechanism is too large to search. Read the spec's subsections "The
+  search for a reading" and "The face checks" before Tasks 11 and 12: they state the
+  filling check and the set-aside rule in full.
+- **The three built readings (Tasks 2, 8 and 9).** In a conformation, for each step it
+  excludes:
 
   | Excluded step | How it is switched off |
   |:--|:--|
@@ -50,7 +70,8 @@ before starting. Stages 2 and 3 of the spec are not in this plan.
 - A test may change only in the four ways the spec lists under "Verdicts that change".
   The tests of a law that is not the limit pass unchanged.
 - **Stop and report to the maintainer** when: a mechanism admitted before this work is
-  rejected for any reason but the new fault (the maintainer accepted two exceptions, gate
+  rejected for any reason but the built guard's fault for a rapid-equilibrium step it
+  cannot switch off (the maintainer accepted two exceptions, gate
   entries 53145 and 53246, rejected with `_BRIDGE`: each holds an excluded
   rapid-equilibrium step that binds and reacts at once, which the old guard read as
   stopped); a newly admitted law fails an oracle; a
@@ -614,6 +635,316 @@ and 64 `:split` entries the other two do not, and every one must give
 `all(_testhelper_admission_agreement(am; rng))`. **If a count differs, an entry admitted
 before is lost for another reason, or an oracle disagrees, stop and report it.**
 
+### Task 10: A reading names how every excluded step is switched off (runs after Task 9)
+
+A refactor with no change of verdict: the guard's checks take a whole reading, in which a
+step may lose in either direction, so that Tasks 11 and 12 can feed them any reading.
+
+**Files:**
+- Modify: `src/Derivation/conformations.jl`, `src/Derivation/admission.jl`,
+  `src/Derivation/guard.jl`, `src/Derivation/messages.jl`
+- Test: `test/mechanism_definitions_for_test_enzyme_derivation.jl`,
+  `test/Derivation/test_admission.jl`, and any test that names `_LOSES_AFFINITY` or
+  `_switch_offs`
+
+**Interfaces:**
+- Produces, internal to `Derivation`:
+  - `@enum _SwitchOff::UInt8 _RUNS _LOSES_FORWARD _LOSES_REVERSE _STOPPED _CANNOT_SWITCH_OFF`.
+    `_LOSES_FORWARD`: the step's stored direction is uphill and vanishes, its reverse keeps
+    its rate (what `_LOSES_AFFINITY` meant; that name goes). `_LOSES_REVERSE`: the reverse.
+  - `const _Reading = Matrix{_SwitchOff}`: `reading[k, c]` for catalytic step `k` in
+    conformation `c` (1 active, 2 inactive).
+  - `_built_reading(am, r::_SlowUptakeReading = _ALL_LOSE_AFFINITY) -> _Reading`, in place
+    of `_switch_offs(am, c, r)`.
+  - `_admission_interior(am, reading::_Reading)`, `_admission(am, reading::_Reading)` and
+    `_eps_network(am, re::BitVector, reading::_Reading)`: no `_SlowUptakeReading` argument
+    remains on them, and no default reading. The interior follows each losing step from
+    its lower side's group to its higher side's, and also refuses a losing step that points
+    into free E's group (`_ARC_CYCLE`, since no energies exist). `_eps_network` marks the
+    forward transition of a `_LOSES_FORWARD` step and the reverse of a `_LOSES_REVERSE`
+    step as vanishing; either stays fast when the step is rapid-equilibrium.
+  - `_guard(am)` tries `_built_reading(am, r)` for the three `r` exactly as now.
+- Produces, in the test helpers (their own statement of the rule; they do not call the
+  package's):
+  - `_testhelper_reading(am, name::Symbol) -> Matrix{Symbol}` for the three built names,
+    with entries `:runs`, `:loses_forward`, `:loses_reverse`, `:stopped`,
+    `:cannot_switch_off`; and `_testhelper_reading(reading::D._Reading)`, which only
+    renames the entries.
+  - The keyword `reading` of `_testhelper_exclusion`, `_testhelper_network`,
+    `_testhelper_epath_verdict`, `_testhelper_corner_directions`,
+    `_testhelper_standard_directions`, `_testhelper_epsilon_span` and
+    `_testhelper_admission_faults` takes a `Matrix{Symbol}` (a built name still works).
+    Arcs point from the lower group to the higher. A steady-state step that loses keeps
+    the rate out of its higher side whichever way it is stored: with `d` the potential's
+    rise along the stored direction, `(f ε^d, r)` when `d >= 0` and `(f, r ε^-d)` when
+    `d < 0`. `_testhelper_switch_off(am, c, k; reading)` goes or becomes an index into the
+    matrix.
+
+- [ ] **Step 1: Write the failing tests**
+
+A testset `"a reading may lose a step in either direction"` in `test_admission.jl`, on the
+six-step ping-pong of the spec's fourth example, written in the testset with both
+chemistry steps `:OnlyA` and built unguarded. With `r` a `_Reading` that is `_RUNS`
+everywhere except `_LOSES_FORWARD` at `EA <--> FP` and `_LOSES_REVERSE` at `FB ⇌ EQ` in
+conformation 2:
+
+```julia
+@test D._admission_interior(am, r) == D._WELL_POSED
+eps = D._eps_network(am, D._re_flags(am.catalytic), r)
+# FB ⇌ EQ in copy 2: the reverse (EQ → FB) vanishes, the forward does not, both fast.
+@test [eps.vanishing[t] for t in (fwd, rev)] == [false, true]
+@test eps.fast[fwd] && eps.fast[rev]
+# Both steps pointing into the covalent group's lower neighbour: no energies exist.
+@test D._admission_interior(am, flipped).fault === D._ARC_CYCLE
+# The tests' own network agrees on which rates vanish.
+@test _testhelper_reading(r) == expected_symbols
+```
+
+with `fwd`, `rev` the two transitions of that step in copy 2 found through `eps.edge` and
+`eps.conformation`, and `flipped` the reading with the two directions exchanged. Add: the
+ε-path oracle under `_testhelper_reading(r)` converges on every face with
+`corners = true`, and under `_testhelper_reading(am, :all_lose_affinity)` it is `:no_path`.
+
+- [ ] **Step 2: Run them and watch them fail** (`UndefVarError: _LOSES_REVERSE`).
+
+- [ ] **Step 3: Implement**, migrating every caller and removing `_switch_offs` and
+`_LOSES_AFFINITY` in the same change.
+
+- [ ] **Step 4: Run the tests and the guards**
+
+Focused runs of `test/Derivation/test_admission.jl`, `test/Mechanisms/test_types.jl`,
+`test/Mechanisms/test_reaction_graph.jl`, `test/DSL/test_dsl.jl`; `test/test_boundaries.jl`
+and `test/test_type_stability.jl`. No assertion changes but the renames. The enumeration
+file fails at this commit exactly as before it (32,144 pass, 41 fail, 16 error): report
+its failing testsets and wall time before and after. Rerun
+`gate/compare.jl` and confirm every verdict is unchanged. **If a verdict changes, stop.**
+
+- [ ] **Step 5: Commit**
+
+`git commit -m "Let a reading switch a step off in either direction"`
+
+### Task 11: The two additions to the face checks
+
+**Files:**
+- Modify: `src/Derivation/admission.jl`, `src/Derivation/guard.jl`,
+  `src/Derivation/messages.jl`
+- Test: `test/Derivation/test_admission.jl`
+
+**Interfaces:**
+- Consumes: Task 10's `_Reading`, `_eps_network(am, re, reading)`, `_admission(am, reading)`.
+- Produces, internal to `Derivation`:
+  - A fault `_FILLED` in `_Fault` and in `_ADMISSION_FAULTS`: on a face, a rapid-equilibrium
+    transition that vanishes is alive while its reverse, which does not vanish, is dead,
+    its source is reached by the enzyme and from the law's forms along alive
+    rapid-equilibrium transitions, and its target reaches no law form along alive
+    rapid-equilibrium transitions that do not vanish (the spec's "No form fills faster
+    than it empties"). `_face_condition` reports it before `_PUMPED`, with the
+    conformation and the step. Its message names the face, the step, the form it fills
+    and the form's slow way out, and offers the steady-state fix where that variant passes.
+  - The set-aside rule exactly as the spec's "Groups that cannot matter are set aside"
+    states it: when `_face_condition` refuses a face with `_PUMPED` or `_BRIDGE`, it runs
+    once more on the network without the groups that qualify, and the face passes if that
+    run does. `_FILLED` and `_EPS_NONUNIQUE` are not retried.
+- Reference only, not to copy: `pump_ok` and `without_appendages` in
+  `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/gate/final.jl` are the
+  versions the spec's numbers come from (use its `:h1` branch; the `:h2` branch is not
+  built). They patch nothing but are written as a spike.
+
+- [ ] **Step 1: Write the failing tests**
+
+A testset `"no form fills faster than it empties"`, each mechanism written out and built
+unguarded, each reading written out as a `_Reading`:
+
+- `filled` (gate entry 8524 of the `:onlyA` population; text and reading in
+  `gate/pump_diag3.out`): `D._admission(am, r).fault === D._FILLED` on the face with B
+  zero, in conformation 2, at `F + B ⇌ FB`; the ε-path oracle under
+  `_testhelper_reading(r)` with `corners = true` is not `:converges` on that face, and is
+  `:converges` on the interior.
+- The six-step ping-pong of Task 10 under its reading: `D._admission(am, r) ==
+  D._WELL_POSED` (a one-way transition never arises: neither excluded step takes up a
+  metabolite).
+- `slow_source` (ping-pong case 5 of `gate/pump_diag2.out`, its first reading): a fast
+  one-way filling whose source is fed through a steady-state step passes, and the oracle
+  with `corners = true` converges on every face.
+- No built reading can raise the fault: for the three `_built_reading`s of `filled`, no
+  face gives `_FILLED`.
+
+A testset `"cut-off forms that cannot matter are set aside"`:
+
+- `set_aside` (a mechanism the rule admits only through it: take the smallest of the 35
+  in the `:onlyA` population, found by running `gate/final.jl`'s search with and without
+  `SHARP[]`; write its text and reading in the testset): `_admission(am, r) ==
+  _WELL_POSED`; with the group's touching forms not in one rapid-equilibrium set (the same
+  mechanism with the joining step steady-state) the face stays `_BRIDGE`; the oracle with
+  `corners = true` agrees with both verdicts.
+- The two conservative rejections the suite already pins
+  (`"conservative rejections the oracle admits stay rejected"`) stay rejected.
+
+- [ ] **Step 2: Run them and watch them fail** (`UndefVarError: _FILLED`).
+
+- [ ] **Step 3: Implement.**
+
+- [ ] **Step 4: Run the tests and the guards**
+
+As Task 10's step 4. `gate/compare.jl`: no mechanism it admits may be lost; list each
+mechanism newly admitted (the set-aside rule can pass a built reading) and check every
+one with `_testhelper_admission_agreement`, `corners = true` for 8 steps or fewer. **If
+one is lost or one disagrees, stop.**
+
+- [ ] **Step 5: Commit**
+
+`git commit -m "Refuse a form that fills faster than it empties; set harmless groups aside"`
+
+### Task 12: The search for a reading
+
+**Files:**
+- Modify: `src/Derivation/guard.jl`, `src/Derivation/admission.jl`,
+  `src/Derivation/conformations.jl`, `src/Derivation/messages.jl`, the
+  `@allosteric_mechanism` docstring in `src/DSL/macros.jl`
+- Test: `test/mechanism_definitions_for_test_enzyme_derivation.jl`,
+  `test/Derivation/test_admission.jl`, `test/Mechanisms/test_types.jl`,
+  `test/DSL/test_dsl.jl`
+
+**Interfaces:**
+- Consumes: Tasks 10 and 11.
+- Produces, internal to `Derivation`:
+  - `_admitting_reading(am) -> Union{_Reading, Nothing}`: the first reading under which
+    every check passes, `nothing` when none does. Order: the three built readings, then
+    the other consistent readings in a fixed order that does not depend on how the steps
+    are numbered beyond their stored order. `_guard(am)` admits exactly when it returns a
+    reading.
+  - The search as the spec's "The search for a reading": per conformation, each excluded
+    step between two groups takes `_LOSES_FORWARD` (unless its `to` side is in free E's
+    group), `_LOSES_REVERSE` (unless its `from` side is), or, when steady-state,
+    `_STOPPED`; an excluded step inside one group is `_STOPPED` or, rapid-equilibrium,
+    `_CANNOT_SWITCH_OFF`. The choices of a conformation that pass the interior are paired
+    with the other's and each pair is checked by class 2 and the faces.
+  - `const _MAX_CHOICES_PER_CONFORMATION = 20_000` and `const _MAX_READING_PAIRS = 5_000`:
+    the search is skipped whole when either count is exceeded. Set them from the timings
+    if the slowest guard call in the gate's populations is far from 0.1 s, and report it.
+  - `_FAST_STEP_PINNED` now means a rapid-equilibrium step excluded inside one group; it
+    is reported before any other admission fault, since no reading changes it. Its message
+    says the step's two sides stay joined by the steps the conformation keeps, and offers
+    the two fixes (make the step steady-state; exclude the steps that keep its sides
+    joined), each only where its variant passes. Any other rejection reports the first
+    built reading's verdict when that reading is consistent, else the first consistent
+    reading's. No message says a step cannot be switched off when a reading switches it
+    off.
+- Produces, in the test helpers:
+  - `_testhelper_reading_is_consistent(am, reading::Matrix{Symbol}) -> Bool`, the tests'
+    own statement of the four-row table and the three conditions, from
+    `_testhelper_kept_components`.
+  - `_testhelper_admission_agreement(am; rng, corners = false)`: judges under
+    `_testhelper_reading(D._admitting_reading(am))` when the guard admits, after asserting
+    that reading consistent by the tests' own rule; under the first built reading
+    otherwise.
+
+- [ ] **Step 1: Write the failing tests**
+
+A testset `"the guard searches for a reading"` in `test_admission.jl`, mechanisms written
+out:
+
+- the six-step ping-pong with both chemistry steps `:OnlyA`: `D._guard(am) ==
+  D._WELL_POSED`; `D._admitting_reading(am)` is Task 10's reading; the law equals the
+  oracle's deletion limit (`_testhelper_check_law_against_limit`);
+  `all(_testhelper_admission_agreement(am; rng, corners = true))`; the same at
+  `catalytic_multiplicity: 2`, and the same verdict for its mirror image;
+- the three-step ping-pong `E + A <--> F + P :: OnlyA`, `E + Q <--> EQ`,
+  `F + B <--> EQ :: OnlyA`: admitted, with the same four checks;
+- a ping-pong with no limit under any reading (case `init 13` of `gate/levels.out`:
+  `E + A <--> FP :: OnlyA`, `E + Q <--> EQ`, `F + P ⇌ FP`, `F + B ⇌ EQ :: OnlyA`):
+  `D._admitting_reading(am) === nothing`, and the oracle converges under none of its
+  consistent readings;
+- `filled` of Task 11: rejected, since its other readings fail too;
+- a mechanism admitted by a built reading returns that built reading (the search does not
+  run): `both_readings` of Task 9 returns `_built_reading(am, _OUTWARD_LOSE_AFFINITY)`;
+- a rapid-equilibrium step inside one group is still the fault, with its message: the
+  spec's second example;
+- a mechanism too large to search that the built readings reject is rejected, and one
+  they admit is admitted: assert on `_MAX_CHOICES_PER_CONFORMATION` with a ter-ter
+  mechanism from `gate/levels.out` ("too large") written in the testset;
+- step order: the six-step ping-pong written with its steps in another order gets the
+  same verdict.
+
+- [ ] **Step 2: Run them and watch them fail** (`UndefVarError: _admitting_reading`).
+
+- [ ] **Step 3: Implement.** Reference only: `choices`, `interior_ok`,
+`interior_columns` and `search` in `gate/levels.jl`.
+
+- [ ] **Step 4: Bring the tests to the rule**
+
+Focused runs of the four test files of Task 10. A fixture rejected before and admitted
+now is the spec's first allowed change: the test then asserts
+`all(_testhelper_admission_agreement(am; rng, corners = true))` (`corners = false` above
+8 steps) and its law against the limit. A fixture rejected before and rejected now for
+another fault, or with another message, is the third. Append each to
+`gate/changed-tests.md`. **Stop and report** if a fixture admitted before is rejected, a
+newly admitted fixture fails an oracle, or a `MECHANISM_TEST_SPECS` entry changes verdict.
+`test/test_boundaries.jl`, `test/test_type_stability.jl` and `test/test_compile_budget.jl`
+pass. Report the enumeration file's failing testsets and wall time before and after.
+
+- [ ] **Step 5: Commit**
+
+`git commit -m "Search for a reading of the excluded steps that gives a limit"`
+
+### Task 13: The gate for the energy-level rule
+
+**Files:**
+- Modify (outside the repository): `gate/populations.jl`, `gate/compare.jl`,
+  `gate/report.md`; keep the last run's files as `*-before-energy-levels.*`
+- Test: `test/Derivation/test_admission.jl`
+
+**Interfaces:**
+- Consumes: `D._admitting_reading`, `_testhelper_admission_agreement(am; rng, corners)`.
+
+- [ ] **Step 1: Widen the populations.** To the four of `compare.jl` add, each recorded
+with its fingerprint: the 50 ping-pong taggings of `gate/final.jl`; every nonempty
+`:OnlyA` set on the plain init mechanisms of a bi-bi reaction with a competitive
+inhibitor, of a ter-bi and of a bi-ter reaction (a spaced 3,000 of each when there are
+more); one expansion round of the census reactions (uni-uni, bi-bi, ping-pong), the
+allosteric children as emitted; and the distinct allosteric mechanisms
+`test/Derivation/test_admission.jl` puts through the guard (the spike's way of collecting
+them is in `lean-mechanism-spike/`). "Before" for the new populations is the guard at
+9850682d, computed in a worktree at that commit.
+
+- [ ] **Step 2: Write and run the checks**, each a line of `report.md` with its counts:
+
+1. No mechanism admitted at 9850682d is rejected.
+2. Every mechanism of 8 steps or fewer admitted now and not at 9850682d gives
+   `all(_testhelper_admission_agreement(am; rng, corners = true))`.
+3. Of the larger newly admitted ones, a spaced 150 per population with `corners = false`.
+4. Every mechanism whose admitting reading has, on some face, a vanishing transition
+   alive while its reverse is dead is listed with that count per population; each of 8
+   steps or fewer is in check 2.
+5. With the filling check switched off (a patched session, not a flag in `src/`), check 2
+   on the `:onlyA` population must fail for at least 14 mechanisms, entries 6580, 6595 and
+   8524 among them.
+6. With the set-aside rule switched off, every verdict outside the mechanisms it admits
+   is unchanged.
+7. At two catalytic subunits: for a spaced 40 of the newly admitted mechanisms of 8 steps
+   or fewer, the verdict equals the one-subunit verdict, and where
+   `_testhelper_protomer_network` applies its steady state agrees with the law.
+8. Reported, not required: how many of the mechanisms lost between the branch base and
+   9850682d are admitted again; the slowest guard call and the guard's total time per
+   population against 9850682d; how many mechanisms are too large to search.
+
+- [ ] **Step 3: The long run.** In the background, alone: check 2's assertion with
+`corners = true` on a spaced 100 of the newly admitted ter-ter mechanisms, under
+`timeout` of 8 hours, writing each result as it finishes. Report what completed.
+
+- [ ] **Step 4: The permanent sampled test.** A testset
+`"sampled taggings: the energy-level rule agrees with the oracles"` beside Task 4's, with
+a comment that it is an aggregate check over a population: from the ping-pong and bi-bi
+init mechanisms of 8 steps or fewer, `MersenneTwister(20261120)`, 40 random nonempty
+`:OnlyA` sets drawn among those the guard admits only by a searched reading; each gives
+`all(_testhelper_admission_agreement(am; rng, corners = true))`. It asserts that at least
+5 of the 40 have an admitting reading with a `:loses_reverse` entry. Under two minutes.
+
+- [ ] **Step 5: Commit** the test. **If any of checks 1, 2, 3, 5, 6 or 7 fails, stop and
+report the mechanism, its reading and both verdicts.**
+
+`git commit -m "Pin the energy-level rule against the oracles on sampled taggings"`
+
 ### Task 4: The gate
 
 **Files:**
@@ -669,7 +1000,7 @@ git add test/Derivation/test_admission.jl
 git commit -m "Pin the guard's rule against the oracles on sampled taggings"
 ```
 
-### Task 5: What Enumeration does not build
+### Task 5: What Enumeration does not build (runs after Task 13)
 
 **Files:**
 - Modify: `src/Enumeration/Enumeration.jl` (`_guard_accepts`)
@@ -717,7 +1048,8 @@ Expected: `UndefVarError: _kept_forms_can_be_made`.
 Run the focused command on `test/Enumeration/test_mechanism_enumeration.jl`. For each
 failing exact-children test, compute the children lost and gained. A lost child must hold
 `_FAST_STEP_PINNED`; a gained child must give
-`all(_testhelper_admission_agreement(child; rng))` and pass `_kept_forms_can_be_made`.
+`all(_testhelper_admission_agreement(child; rng, corners = true))` (`corners = false`
+above 8 steps) and pass `_kept_forms_can_be_made`.
 Then update the expected set and count, keeping every expected child written out. For an
 aggregate count pin, record old and new counts. Append all to `changed-tests.md`. Any
 other difference is a stop condition.
@@ -779,35 +1111,36 @@ user's terms and in this order: the assumption (an excluded step has a very high
 dissociation constant or very low rate constants, and every thermodynamic constraint holds
 in each conformation); that a step keeps its kind in both conformations, with the
 maintainer's reason (rapid equilibrium and steady state differ more than 100-fold); the
-four-row table, and under it, in two or three sentences, that a steady-state step into
-a cut-off form may be switched off either way and the package accepts the mechanism when
-one of the three choices it tries gives a limit (spec, decision 2); the spec's three
-worked examples as `@allosteric_mechanism` blocks; what
-the error for a rapid-equilibrium step means and its two fixes (make the step
-steady-state, or exclude the steps that keep its bound form reachable).
+energy picture and the four-row table of the spec's decision 2, and under them, in two
+or three sentences, that the package looks for a choice of energies under which the rate
+equation is the limit and accepts the mechanism when one exists; the spec's four worked
+examples as `@allosteric_mechanism` blocks, the ping-pong among them; that the last check
+is validated numerically, with what the gate tested; what
+the error for a rapid-equilibrium step inside one group means and its two fixes (make the
+step steady-state, or exclude the steps that keep its two sides joined).
 Then correct what the page says elsewhere: the paragraph at lines 66 to 70 (any group may
 be `:OnlyI` while the active conformation catalyzes), the numbered "Existence" and
 "Uniqueness" items and the example after them, and the K-system paragraphs near line 280
 (the catalytic step must be `:OnlyA` too when the substrate binding is at rapid
 equilibrium; a steady-state binding is stopped instead).
 
-- [ ] **Step 2: Rewrite the developer page's guard section** to the rule, the three
-tries in their order with what "leads away from free E" means, and the new fault, with no
-mention of the old one.
+- [ ] **Step 2: Rewrite the developer page's guard section** to the energy-level rule:
+readings and their three conditions, the search with the three built readings first and
+its two size limits, the filling check and the set-aside rule with their arguments, and
+the faults, with no mention of the rule before this work.
 
 - [ ] **Step 3: Update `ROADMAP.md`**
 
-Re-examine "Let an allosteric ping-pong stop both half-reactions in the inactive
-conformation": build the examples under "What the search does today", record what the
-guard now says of each, and rewrite those bullets to match. Leave its "The energy-level
-rule" bullets as they are (commit 03b283cd): they record measurements for a later design. Add under Planned the two things the spec leaves unchecked or rejected for
-now: an excluded rapid-equilibrium isomerization that could stay fast, and ter-ter beyond
-the gate's sample. Add a Known issue: the guard tries three fixed choices of how the
-steady-state steps into cut-off forms are switched off, so it rejects a mechanism that
-only another choice would admit (one is known, ter-ter, rejected before this work too;
-its text is entry 54057 in `gate/mix54057.out`; a second, entry 54341, is in
-`gate/all_mixtures.out`), and point to the energy-level rule in the ping-pong entry, whose
-search would replace the three tries. Update any Known issue that names `_NO_LIMIT` or the plain-binding rule.
+Rewrite "Let an allosteric ping-pong stop both half-reactions in the inactive
+conformation" for the rule as built: build the examples under "What the search does
+today" and record what the guard and the enumerator now do with each; turn "The
+energy-level rule" bullets into what remains open (the ping-pongs with no limit under any
+reading, the valid mechanisms still rejected and why, the wider set-aside variant that
+was not built, mechanisms too large to search, and that the last check rests on the
+gate's numerical evidence); move the entry out of Planned if nothing planned is left. Add under Planned the two things the spec leaves unchecked or rejected for
+now: ter-ter beyond the gate's sample. Add a Known issue for the valid mechanisms the
+guard still rejects (too large to search; refused as a bridge; refused by the filling
+check though the rate equals the law's), with the gate's counts. Update any Known issue that names `_NO_LIMIT` or the plain-binding rule.
 
 - [ ] **Step 4: Bump the version and build the docs**
 
