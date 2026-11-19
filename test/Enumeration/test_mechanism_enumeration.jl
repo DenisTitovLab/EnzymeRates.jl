@@ -3207,7 +3207,8 @@ end
     accepted = rejected = 0
     for am in parents
         cm = am.catalytic
-        verdict = EnzymeRates.Derivation._admission_interior(am).fault
+        verdict = EnzymeRates.Derivation._admission_interior(
+            am, EnzymeRates.Derivation._built_reading(am)).fault
         flux = EnzymeRates.Enumeration._flux_carrying_edges(
             cm, _testhelper_flags(cm))
         units = [(g, bp) for g in 1:length(cm.groups)
@@ -3220,7 +3221,8 @@ end
             re = _testhelper_flags(cm)
             foreach(u -> re[reverted[u]] .= true, sel)
             child = EnzymeRates.Enumeration._apply_bipartitions(am, units[sel], re)
-            @test EnzymeRates.Derivation._admission_interior(child).fault === verdict
+            @test EnzymeRates.Derivation._admission_interior(
+                child, EnzymeRates.Derivation._built_reading(child)).fault === verdict
         end
         verdict === EnzymeRates.Derivation._NO_FAULT ? (accepted += 1) : (rejected += 1)
     end
@@ -13942,9 +13944,12 @@ end
             E(Q) + B <--> E(B, Q)                                           :: EqualAI
         end
     end
-    _testhelper_admission_fault(t) =
-        EnzymeRates.Derivation._admission(EnzymeRates.AllostericMechanism(
-            m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
+    function _testhelper_admission_fault(t)
+        am = EnzymeRates.AllostericMechanism(m, t, 1,
+                                             EnzymeRates.Mechanisms.RegulatorySite[])
+        EnzymeRates.Derivation._admission(
+            am, EnzymeRates.Derivation._built_reading(am)).fault
+    end
     vt = [c ? :OnlyA : :EqualAI for c in EnzymeRates.Enumeration._chemistry_groups(m)]
     @test _testhelper_admission_fault(vt) === EnzymeRates.Derivation._NO_LIMIT
     @test isempty(EnzymeRates.Enumeration._tagging_bases(m))
@@ -14031,9 +14036,12 @@ end
     p = only(findall(!, chem))
     vt = [c ? :OnlyA : :EqualAI for c in chem]
     with_p(t) = (u = copy(t); u[p] = :OnlyA; u)
-    _testhelper_admission_fault(t) =
-        EnzymeRates.Derivation._admission(EnzymeRates.AllostericMechanism(
-            m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])).fault
+    function _testhelper_admission_fault(t)
+        am = EnzymeRates.AllostericMechanism(m, t, 1,
+                                             EnzymeRates.Mechanisms.RegulatorySite[])
+        EnzymeRates.Derivation._admission(
+            am, EnzymeRates.Derivation._built_reading(am)).fault
+    end
     @test _testhelper_admission_fault(vt) === EnzymeRates.Derivation._ISLAND
     @test all(t -> _testhelper_admission_fault(with_p(t)) ===
                    EnzymeRates.Derivation._PUMPED, tags)
@@ -15438,7 +15446,7 @@ end
         regulatory_site(1): R::OnlyI
     end
     D = EnzymeRates.Derivation
-    @test D._admission(half1).fault === D._NO_FAULT
+    @test D._admission(half1, D._built_reading(half1)).fault === D._NO_FAULT
     @test D._guard(half1).fault === D._SPLIT
     @test D._guard(every).fault === D._ISLAND
     bases = EnzymeRates.Enumeration._tagging_bases(m)

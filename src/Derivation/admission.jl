@@ -3,13 +3,17 @@
 
 # ─── Admission: the interior ───────────────────────────────────────────
 
-"""The edges of `am`'s catalytic graph that conformation `c` excludes and that lose their
-affinity there (`_switch_offs`, the steady-state uptakes into cut-off forms read as
-`reading` says), in edge order: admission's arcs, each stored as its uptake, unbound side
-first."""
-_arcs(am::Mechanisms.AllostericMechanism, c::Int,
-      reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY) =
-    findall(==(_LOSES_AFFINITY), _switch_offs(am, c, reading))
+"""Admission's arcs in conformation `c` of `reading`: the edges of `am`'s catalytic graph
+that lose a direction there, in edge order, each as `(lower side's form, higher side's
+form, edge)`, so that it points uphill, along the direction that vanishes."""
+function _arcs(am::Mechanisms.AllostericMechanism, c::Int, reading::_Reading)
+    arcs = NTuple{3, Int}[]
+    for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
+        reading[k, c] === _LOSES_FORWARD && push!(arcs, (e.from, e.to, k))
+        reading[k, c] === _LOSES_REVERSE && push!(arcs, (e.to, e.from, k))
+    end
+    arcs
+end
 
 """The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
 excludes none."""
@@ -17,33 +21,34 @@ _first_excluded(am::Mechanisms.AllostericMechanism, c::Int) =
     something(findfirst(_excluded_steps(am, c)), 0)
 
 """
-The arcs of one directed cycle that `arcs` close over the components `comp` (each arc an
-edge of `m` read from its unbound side's component to its bound side's), in cycle order;
-empty when they close none. Kahn's algorithm removes every component no cycle feeds; a
-walk back along the remaining arcs then lands on a cycle.
+The arcs (`_arcs`) of one directed cycle that `arcs` close over the components `comp`,
+each arc read from its lower side's component to its higher side's, in cycle order; empty
+when they close none. Kahn's algorithm removes every component no cycle feeds; a walk back
+along the remaining arcs then lands on a cycle. An arc inside one component closes a
+cycle alone.
 """
-function _arc_cycle(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int})
-    tail(k) = comp[m.steps[k].from]
-    head(k) = comp[m.steps[k].to]
+function _arc_cycle(comp::Vector{Int}, arcs::Vector{NTuple{3, Int}})
+    tail(i) = comp[arcs[i][1]]
+    head(i) = comp[arcs[i][2]]
     indeg = zeros(Int, length(comp))
-    for k in arcs
-        indeg[head(k)] += 1
+    for i in eachindex(arcs)
+        indeg[head(i)] += 1
     end
     todo = [r for r in unique(comp) if indeg[r] == 0]
     while !isempty(todo)
         u = pop!(todo)
-        for k in arcs
-            tail(k) == u && (indeg[head(k)] -= 1) == 0 && push!(todo, head(k))
+        for i in eachindex(arcs)
+            tail(i) == u && (indeg[head(i)] -= 1) == 0 && push!(todo, head(i))
         end
     end
     start = 0
-    for k in arcs
-        indeg[tail(k)] > 0 && indeg[head(k)] > 0 && (start = k; break)
+    for i in eachindex(arcs)
+        indeg[tail(i)] > 0 && indeg[head(i)] > 0 && (start = i; break)
     end
-    start == 0 && return Int[]
+    start == 0 && return NTuple{3, Int}[]
     function back(x)
-        for k in arcs
-            head(k) == x && indeg[tail(k)] > 0 && return k
+        for i in eachindex(arcs)
+            head(i) == x && indeg[tail(i)] > 0 && return i
         end
         0
     end
@@ -55,16 +60,15 @@ function _arc_cycle(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int
     while tail(cycle[end]) != x
         push!(cycle, back(tail(cycle[end])))
     end
-    reverse!(cycle)
+    arcs[reverse!(cycle)]
 end
 
-"""The components (`comp` labels) that free E's reaches along `arcs`, edges of `m` read
-from their unbound side's component to their bound side's."""
-function _reached_components(m::Mechanisms.Mechanism, comp::Vector{Int}, arcs::Vector{Int})
+"""The components (`comp` labels) that free E's reaches along `arcs` (`_arcs`), each read
+from its lower side's component to its higher side's."""
+function _reached_components(comp::Vector{Int}, arcs::Vector{NTuple{3, Int}})
     next = [Int[] for _ in comp]
-    for k in arcs
-        a, b = m.steps[k].from, m.steps[k].to
-        push!(next[comp[a]], comp[b])
+    for (low, high, _) in arcs
+        push!(next[comp[low]], comp[high])
     end
     _reached(next, [comp[1]])
 end
@@ -95,44 +99,45 @@ function _island_edge(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{I
 end
 
 """
-    _admission_interior(am, reading = _ALL_LOSE_AFFINITY) -> _Verdict
+    _admission_interior(am, reading) -> _Verdict
 
 Admission's interior checks, for each conformation `c` whose tags exclude an edge
-(`Mechanisms.excludes`), each excluded edge switched off as `_switch_offs` reads it, the
-steady-state uptakes into cut-off forms as `reading` says, on the components of the forms
-its other edges join (`exclusion_components`) with the edges that lose their affinity as
-arcs (`_arcs`):
+(`Mechanisms.excludes`), each excluded edge switched off as `reading` says, on the
+components of the forms its other edges join (`exclusion_components`) with the edges that
+lose a direction as arcs (`_arcs`), each pointing uphill:
 - kind: no excluded rapid-equilibrium edge that `c` cannot switch off, since a step keeps
   its kind in both conformations (`_FAST_STEP_PINNED`, the first such edge);
-- existence: the arcs close no directed cycle (`_ARC_CYCLE`); equivalent to the exact cone
-  test, since an arc never lies inside one component and, with every other constant
-  fixed, a direction's equilibrium-ratio exponents are differences of component
-  potentials and only the arcs need a sign;
+- existence: the arcs close no directed cycle, and none points into free E's component,
+  below which nothing lies (`_ARC_CYCLE`, the first edge of the cycle, else the first such
+  arc); equivalent to the exact cone test, since, with every other constant fixed, a
+  direction's equilibrium-ratio exponents are differences of component potentials and only
+  the arcs need a sign;
 - uniqueness: free E's component reaches every component along the arcs, so every island
-  lies behind an arc on its bound side and the limit is deletion plus pruning
+  lies behind an arc on its higher side and the limit is deletion plus pruning
   (`_ISLAND`);
 - turnover: when tags exclude edges of the active conformation, its law network still
   holds a cycle that turns the reaction over (`_NO_ACTIVE_TURNOVER`).
 The verdict carries the conformation and the edge its message leads with (face 0).
 """
-function _admission_interior(am::Mechanisms.AllostericMechanism,
-                             reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
-    m = Mechanisms.catalytic(am)
+function _admission_interior(am::Mechanisms.AllostericMechanism, reading::_Reading)
     for c in 1:2
         _first_excluded(am, c) == 0 && continue
-        pinned = findfirst(==(_CANNOT_SWITCH_OFF), _switch_offs(am, c, reading))
+        pinned = findfirst(==(_CANNOT_SWITCH_OFF), view(reading, :, c))
         pinned === nothing ||
             return _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, c, pinned)
         comp = exclusion_components(am, _CONFORMATIONS[c])
         arcs = _arcs(am, c, reading)
-        cycle = _arc_cycle(m, comp, arcs)
-        isempty(cycle) || return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, cycle[1])
-        k = _island_edge(am, c, comp, _reached_components(m, comp, arcs))
+        cycle = _arc_cycle(comp, arcs)
+        isempty(cycle) || return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, cycle[1][3])
+        for (_, high, k) in arcs
+            comp[high] == comp[1] && return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, k)
+        end
+        k = _island_edge(am, c, comp, _reached_components(comp, arcs))
         k == 0 || return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
     end
     k = _first_excluded(am, 1)
     k != 0 &&
-        !Mechanisms.has_turnover_cycle(m, am.active_steps) &&
+        !Mechanisms.has_turnover_cycle(Mechanisms.catalytic(am), am.active_steps) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
@@ -257,22 +262,22 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         _steady_state_passes(am, k) && push!(offered, "make its group steady-state")
         return msg * offer(offered)
     elseif v.fault === _ARC_CYCLE
-        cycle = _arc_cycle(m, exclusion_components(am, _CONFORMATIONS[c]),
-                           _arcs(am, c))
-        msg = "AllostericMechanism: the $tag bindings $(lines(cycle)) close a cycle in " *
+        cycle = _arc_cycle(exclusion_components(am, _CONFORMATIONS[c]),
+                           _arcs(am, c, _built_reading(am)))
+        edges = [a[3] for a in cycle]
+        msg = "AllostericMechanism: the $tag bindings $(lines(edges)) close a cycle in " *
               "the $conf conformation: steps outside $tag groups join each one's bound " *
               "side to the next one's unbound side, so thermodynamics forbids their " *
               "affinities to vanish together."
         joins = Int[]
-        for (i, j) in enumerate(cycle)
+        for (i, a) in enumerate(cycle)
             next = cycle[mod1(i + 1, length(cycle))]
-            append!(joins, _kept_path(am, c, m.steps[j].to,
-                                      m.steps[next].from))
+            append!(joins, _kept_path(am, c, a[2], next[1]))
         end
-        return msg * offer(fixes(cycle, "them", unique!(joins), "them"))
+        return msg * offer(fixes(edges, "them", unique!(joins), "them"))
     elseif v.fault === _ISLAND
         comp = exclusion_components(am, _CONFORMATIONS[c])
-        reached = _reached_components(m, comp, _arcs(am, c))
+        reached = _reached_components(comp, _arcs(am, c, _built_reading(am)))
         from, to = m.steps[k].from, m.steps[k].to
         lost = reached[comp[from]] ? comp[to] : comp[from]
         msg = "AllostericMechanism: in the $conf conformation the forms " *
@@ -283,7 +288,8 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         return untag_passes([k]) ?
                msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
     elseif v.fault in (_EPS_NONUNIQUE, _PUMPED, _BRIDGE)
-        eps, law = _eps_network(am), _law_network(am)
+        eps = _eps_network(am, _re_flags(m), _built_reading(am))
+        law = _law_network(am)
         faces = _faces(m)
         face = faces[v.face]
         phrase = _face_phrase(m, face)
@@ -577,14 +583,13 @@ function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law:
 end
 
 """
-    _admission(am, reading = _ALL_LOSE_AFFINITY) -> _Verdict
+    _admission(am, reading) -> _Verdict
 
-Admission alone, the steady-state uptakes into cut-off forms switched off as `reading`
-says (`_switch_offs`): the interior checks (`_admission_interior`), then the face
-condition on every face (`_admission_face`), class 3 not run.
+Admission alone, the excluded steps switched off as `reading` says: the interior checks
+(`_admission_interior`), then the face condition on every face (`_admission_face`) of the
+ε-network of that reading, class 3 not run.
 """
-function _admission(am::Mechanisms.AllostericMechanism,
-                    reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
+function _admission(am::Mechanisms.AllostericMechanism, reading::_Reading)
     v = _admission_interior(am, reading)
     v.fault === _NO_FAULT || return v
     eps = _eps_network(am, _re_flags(Mechanisms.catalytic(am)), reading)

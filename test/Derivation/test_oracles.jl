@@ -935,7 +935,8 @@ end
                    [flags .| ([e.group for e in m.steps] .== g)
                     for g in 1:length(m.groups)];
                    [trues(length(m.steps))]]
-            net = EnzymeRates.Derivation._eps_network(m, re)
+            net = EnzymeRates.Derivation._eps_network(
+                m, re, EnzymeRates.Derivation._built_reading(m))
             turnover = !isempty(EnzymeRates.Derivation._re_turnover_transitions(net))
             @test turnover == EnzymeRates.Mechanisms.has_turnover_cycle(m, re)
             push!(found, turnover)

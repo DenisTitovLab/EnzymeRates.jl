@@ -53,16 +53,17 @@ turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed cl
 the limit test rejects where procedure A stopped at a trap fed on the face (`_TRAP`), a
 segment whose lowest forms split (`_SPLIT`), a law segment chain with several closed
 classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
-interior (class 4), each excluded step switched off as the guard's first try reads it
-(`_switch_offs`, `_guard`), a rapid-equilibrium step that a conformation excludes and
-cannot switch off (`_FAST_STEP_PINNED`), steps that lose their affinity and close a
-directed cycle (`_ARC_CYCLE`), forms free E's component does not reach along the steps
-that lose their affinity (`_ISLAND`), or an active conformation that no longer turns the
-reaction over (`_NO_ACTIVE_TURNOVER`); on a face, in admission's face condition, a second
-closed class of the ε-network (`_EPS_NONUNIQUE`), a stranded basin entered by, or
-holding, an alive step whose reverse is dead, or entered from outside it and the law's
-forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest spanning in-tree
-where no potential absorbs their turnover (`_BRIDGE`).
+interior (class 4), each excluded step switched off as a reading says (`_Reading`; the
+guard reports its first try's, `_guard`), a rapid-equilibrium step that a conformation
+excludes and cannot switch off (`_FAST_STEP_PINNED`), steps that lose a direction and,
+each pointing uphill, close a directed cycle or point into free E's component
+(`_ARC_CYCLE`), forms free E's component does not reach along those steps (`_ISLAND`), or
+an active conformation that no longer turns the reaction over (`_NO_ACTIVE_TURNOVER`); on
+a face, in admission's face condition, a second closed class of the ε-network
+(`_EPS_NONUNIQUE`), a stranded basin entered by, or holding, an alive step whose reverse
+is dead, or entered from outside it and the law's forms (`_PUMPED`), or tagged steps that
+shorten the fed forms' cheapest spanning in-tree where no potential absorbs their
+turnover (`_BRIDGE`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -264,33 +265,25 @@ function _law_network(am::Mechanisms.AllostericMechanism)
 end
 
 """
-The ε-network N of `m`, its rapid-equilibrium flags overridden by `re`: every form and
-edge in each copy. In the copy that excludes an edge, as that conformation switches it off
-(`_switch_offs`, the steady-state uptakes into cut-off forms read as `reading` says): an
-edge that loses its affinity keeps its kind while its uptake vanishes and its release
-keeps its rate; any other excluded edge is slow and vanishes both ways (admission rejects
-a rapid-equilibrium one, `_FAST_STEP_PINNED`). A plain mechanism's ε-network is its law
-network.
+The ε-network N of `mech`, its rapid-equilibrium flags overridden by `re`: every form and
+edge in one copy per conformation of `reading`, each edge switched off as `reading` says
+there. An edge that runs keeps its kind and both rates; one that loses a direction keeps
+its kind while that direction vanishes and the other keeps its rate; any other is slow and
+vanishes both ways (admission rejects a rapid-equilibrium one, `_FAST_STEP_PINNED`). A
+plain mechanism's one conformation runs every step (`_built_reading`), so its ε-network is
+its law network.
 """
-_eps_network(m::Mechanisms.Mechanism,
-             re::BitVector = _re_flags(m)) = _law_network(m, re)
-function _eps_network(am::Mechanisms.AllostericMechanism,
-                      re::BitVector = _re_flags(Mechanisms.catalytic(am)),
-                      reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
-    m = Mechanisms.catalytic(am)
-    n = length(m.steps)
-    fast, vanish_forward, vanish_reverse = falses(n, 2), falses(n, 2), falses(n, 2)
-    for c in 1:2
-        off = _switch_offs(am, c, reading)
-        for k in eachindex(m.steps)
-            excluded = off[k] !== _RUNS
-            loses = off[k] === _LOSES_AFFINITY
-            fast[k, c] = re[k] && (!excluded || loses)
-            vanish_forward[k, c] = excluded
-            vanish_reverse[k, c] = excluded && !loses
-        end
+function _eps_network(mech::_AnyMech, re::BitVector, reading::_Reading)
+    m = Mechanisms.catalytic(mech)
+    dims = size(reading)
+    fast, vanish_forward, vanish_reverse = falses(dims), falses(dims), falses(dims)
+    for c in axes(reading, 2), k in axes(reading, 1)
+        o = reading[k, c]
+        fast[k, c] = re[k] && o in (_RUNS, _LOSES_FORWARD, _LOSES_REVERSE)
+        vanish_forward[k, c] = o !== _RUNS && o !== _LOSES_REVERSE
+        vanish_reverse[k, c] = o !== _RUNS && o !== _LOSES_FORWARD
     end
-    _network(m, trues(2 * length(m.nodes)), trues(n, 2), fast, vanish_forward,
+    _network(m, trues(dims[2] * length(m.nodes)), trues(dims), fast, vanish_forward,
              vanish_reverse)
 end
 
@@ -386,13 +379,13 @@ end
 
 The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (a cycle
 turns the reaction over, `Mechanisms.has_turnover_cycle`); class 2 (no cycle of fast
-transitions does, `_re_turnover_transitions`, on the ε-network, where an excluded
-rapid-equilibrium step that loses its affinity, `_switch_offs`, stays fast); for an
-allosteric mechanism, admission's interior (`_admission_interior`); then on every face
-class 3 and, for an allosteric mechanism, admission's face condition (`_faces_verdict`),
-the first fault winning. `_WELL_POSED` when every check passes.
+transitions does, `_re_turnover_transitions`, on the ε-network of the first built
+reading, `_built_reading`, where an excluded rapid-equilibrium step that loses a direction
+stays fast); for an allosteric mechanism, admission's interior (`_admission_interior`);
+then on every face class 3 and, for an allosteric mechanism, admission's face condition
+(`_faces_verdict`), the first fault winning. `_WELL_POSED` when every check passes.
 
-Admission tries each reading of the excluded steady-state steps that take up one
+Admission tries the built readings of the excluded steady-state steps that take up one
 metabolite into a cut-off form (`_SlowUptakeReading`) in turn: every one loses its
 affinity; only one that leads away from free E does; none does. The guard passes at the
 first try that finds no fault, and otherwise reports the first try's verdict.
@@ -401,29 +394,30 @@ function _guard(mech::_AnyMech)
     m = Mechanisms.catalytic(mech)
     Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
-    eps = _eps_network(mech)
+    re, first_reading = _re_flags(m), _built_reading(mech)
+    eps = _eps_network(mech, re, first_reading)
     v = _re_turnover_verdict(eps)
     v === _WELL_POSED || return v
     # A plain mechanism's ε-network is its law network, and admission reads no tag of it.
     mech isa Mechanisms.AllostericMechanism || return _faces_verdict(mech, eps)
-    # A reading changes only the arcs (`_ARC_CYCLE`, `_ISLAND`) and which transitions
-    # vanish (`_PUMPED`, `_BRIDGE`): classes 1 to 3, a pinned fast step, the ε-network's
-    # closed classes and the active conformation's turnover recur in every try. So the
-    # guard tries again only after one of those four faults, and skips a reading that
-    # switches off every step as an earlier try did.
-    first_verdict, tried = _WELL_POSED, Vector{_SwitchOff}[]
-    for reading in instances(_SlowUptakeReading)
-        off = [_switch_offs(mech, 1, reading); _switch_offs(mech, 2, reading)]
-        off in tried && continue
+    # The built readings differ only in the arcs (`_ARC_CYCLE`, `_ISLAND`) and which
+    # transitions vanish (`_PUMPED`, `_BRIDGE`): classes 1 to 3, a pinned fast step, the
+    # ε-network's closed classes and the active conformation's turnover recur in every
+    # try. So the guard tries again only after one of those four faults, and skips a
+    # reading that switches off every step as an earlier try did.
+    first_verdict, tried = _WELL_POSED, _Reading[]
+    for r in instances(_SlowUptakeReading)
+        # The first try reads the steps as `first_reading` and `eps` do.
+        reading = isempty(tried) ? first_reading : _built_reading(mech, r)
+        reading in tried && continue
         v = _admission_interior(mech, reading)
         if v === _WELL_POSED
-            # `eps` reads the uptakes as the first try does.
-            net = isempty(tried) ? eps : _eps_network(mech, _re_flags(m), reading)
+            net = isempty(tried) ? eps : _eps_network(mech, re, reading)
             v = _faces_verdict(mech, net)
             v === _WELL_POSED && return v
         end
         isempty(tried) && (first_verdict = v)
-        push!(tried, off)
+        push!(tried, reading)
         first_verdict.fault in (_ARC_CYCLE, _ISLAND, _PUMPED, _BRIDGE) || break
     end
     first_verdict

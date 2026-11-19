@@ -133,7 +133,9 @@ end
           (EnzymeRates.Derivation._node(law, 1, 1), EnzymeRates.Derivation._node(law, 1, 2))
     @test law.fast[9] && law.fast[10] && law.forward[9] && !law.forward[10]
     @test !any(law.vanishing)
-    eps = EnzymeRates.Derivation._eps_network(r2)
+    eps = EnzymeRates.Derivation._eps_network(
+        r2, EnzymeRates.Derivation._re_flags(r2.catalytic),
+        EnzymeRates.Derivation._built_reading(r2))
     @test (length(eps.from), eps.present) == (18, trues(8))
     _testhelper_transition(net, k, c, forward) =
         only(t for t in eachindex(net.from)
@@ -148,7 +150,8 @@ end
     @test !any(eps.fast[blocked]) && all(eps.vanishing[blocked])
     # Made rapid-equilibrium, the tagged isomerization stays fast where its group is kept
     # and turns slow where it is excluded, since it is not a plain binding.
-    eps_re = EnzymeRates.Derivation._eps_network(r2, trues(4))
+    eps_re = EnzymeRates.Derivation._eps_network(r2, trues(4),
+                                                 EnzymeRates.Derivation._built_reading(r2))
     iso_re = [_testhelper_transition(eps_re, iso, c, d) for c in 1:2, d in (true, false)]
     @test all(eps_re.fast[iso_re[1, :]]) && !any(eps_re.fast[iso_re[2, :]])
     @test !any(eps.vanishing[t] for t in eachindex(eps.from) if eps.conformation[t] == 1)
@@ -166,7 +169,8 @@ end
         end
     end
     law_mm, eps_mm = EnzymeRates.Derivation._law_network(mm),
-        EnzymeRates.Derivation._eps_network(mm)
+        EnzymeRates.Derivation._eps_network(mm, EnzymeRates.Derivation._re_flags(mm),
+                                            EnzymeRates.Derivation._built_reading(mm))
     @test (law_mm.nforms, law_mm.ncopies, length(law_mm.from)) == (2, 1, 4)
     @test all(f -> getfield(law_mm, f) == getfield(eps_mm, f),
               fieldnames(EnzymeRates.Derivation._Network))
@@ -282,7 +286,9 @@ end
     end
     fix = " Make one step of the cycle steady-state."
     for (i, m) in enumerate((beside, flip2, allre, sib))
-        net = EnzymeRates.Derivation._eps_network(m)
+        net = EnzymeRates.Derivation._eps_network(
+            m, EnzymeRates.Derivation._re_flags(EnzymeRates.Mechanisms.catalytic(m)),
+            EnzymeRates.Derivation._built_reading(m))
         cycle = EnzymeRates.Derivation._re_turnover_transitions(net)
         @test !isempty(cycle) && all(t -> net.fast[t], cycle)
         v = EnzymeRates.Derivation._guard(m)
@@ -368,7 +374,9 @@ end
         end
     end
     @test isempty(EnzymeRates.Derivation._re_turnover_transitions(
-        EnzymeRates.Derivation._eps_network(sib_fixed)))
+        EnzymeRates.Derivation._eps_network(
+            sib_fixed, EnzymeRates.Derivation._re_flags(sib_fixed),
+            EnzymeRates.Derivation._built_reading(sib_fixed))))
 end
 
 @testset "the fitted classes pass classes 1 and 2" begin
@@ -2090,11 +2098,11 @@ end
             E + P ⇌ E(P)        :: EqualAI
         end
     end
-    off = D._switch_offs(k_type, 2)
-    @test off[_testhelper_edge(k_type, "E + S ⇌ ES")] === D._LOSES_AFFINITY
+    off = D._built_reading(k_type)[:, 2]
+    @test off[_testhelper_edge(k_type, "E + S ⇌ ES")] === D._LOSES_FORWARD
     @test off[_testhelper_edge(k_type, "ES <--> EP")] === D._STOPPED
     @test off[_testhelper_edge(k_type, "E + P ⇌ EP")] === D._RUNS
-    @test all(==(D._RUNS), D._switch_offs(k_type, 1))
+    @test all(==(D._RUNS), D._built_reading(k_type)[:, 1])
     @test D._guard(k_type).fault === D._NO_FAULT
     @test all(_testhelper_admission_agreement(k_type; rng))
     # With the chemistry untagged, E(S) stays, made from P: thermodynamics pins the S
@@ -2123,7 +2131,7 @@ end
             E + P ⇌ E(P)        :: EqualAI
         end
     end
-    @test D._STOPPED in D._switch_offs(shut_door, 2)
+    @test D._STOPPED in D._built_reading(shut_door)[:, 2]
     @test D._guard(shut_door).fault === D._NO_FAULT
     @test all(_testhelper_admission_agreement(shut_door; rng))
     # A rapid-equilibrium step that binds B and reacts at once, into E(P, Q), which the
@@ -2153,11 +2161,9 @@ end
     @test D._guard(fused_ss).fault === D._NO_FAULT
     @test all(_testhelper_admission_agreement(fused_ss; rng))
     # The package's reading agrees with the test's own statement of the rule.
-    names = Dict(D._RUNS => :runs, D._LOSES_AFFINITY => :loses_affinity,
-                 D._STOPPED => :stopped, D._CANNOT_SWITCH_OFF => :cannot_switch_off)
-    for x in (k_type, pinned, shut_door, fused_re, fused_ss), c in 1:2
-        @test [names[o] for o in D._switch_offs(x, c)] ==
-              [_testhelper_switch_off(x, c, k) for k in eachindex(x.catalytic.steps)]
+    for x in (k_type, pinned, shut_door, fused_re, fused_ss)
+        @test _testhelper_reading(D._built_reading(x)) ==
+              _testhelper_reading(x, :all_lose_affinity)
     end
 end
 
@@ -2205,8 +2211,8 @@ end
         end
     end
     lost, pinned = _testhelper_edge(am, "E + A ⇌ EA"), _testhelper_edge(am, "EB + A ⇌ EPQ")
-    off = D._switch_offs(am, 2)
-    @test (off[lost], off[pinned]) == (D._LOSES_AFFINITY, D._CANNOT_SWITCH_OFF)
+    off = D._built_reading(am)[:, 2]
+    @test (off[lost], off[pinned]) == (D._LOSES_FORWARD, D._CANNOT_SWITCH_OFF)
     v = D._guard(am)
     @test (v.fault, v.conformation, v.edge) == (D._FAST_STEP_PINNED, 2, pinned)
 end
@@ -2227,9 +2233,9 @@ end
             E(Q) ⇌ E + Q            :: OnlyA
         end
     end
-    off = D._switch_offs(am, 2)
-    @test off[_testhelper_edge(am, "E + A ⇌ EA")] === D._LOSES_AFFINITY
-    @test off[_testhelper_edge(am, "EA + B ⇌ EAB")] === D._LOSES_AFFINITY
+    off = D._built_reading(am)[:, 2]
+    @test off[_testhelper_edge(am, "E + A ⇌ EA")] === D._LOSES_FORWARD
+    @test off[_testhelper_edge(am, "EA + B ⇌ EAB")] === D._LOSES_FORWARD
     @test D._guard(am).fault === D._NO_FAULT
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(2612)))
 end
@@ -2312,27 +2318,28 @@ end
     end
     # second_try_a, inactive conformation: the chemistry step joins two cut-off forms.
     k = _testhelper_edge(second_try_a, "EBD + A <--> EPQR")
-    losing, stopped = D._switch_offs(second_try_a, 2),
-                      D._switch_offs(second_try_a, 2, D._ALL_STOPPED)
-    @test losing[k] === D._LOSES_AFFINITY
+    losing, stopped = D._built_reading(second_try_a)[:, 2],
+                      D._built_reading(second_try_a, D._ALL_STOPPED)[:, 2]
+    @test losing[k] === D._LOSES_FORWARD
     @test stopped[k] === D._STOPPED
     @test [losing[j] for j in eachindex(losing) if j != k] ==
           [stopped[j] for j in eachindex(stopped) if j != k]
-    @test _testhelper_switch_off(second_try_a, 2, k) === :loses_affinity
-    @test _testhelper_switch_off(second_try_a, 2, k; reading = :all_stopped) === :stopped
+    @test _testhelper_reading(second_try_a, :all_lose_affinity)[k, 2] === :loses_forward
+    @test _testhelper_reading(second_try_a, :all_stopped)[k, 2] === :stopped
     # The two conformations are read alike.
     for r in (D._ALL_LOSE_AFFINITY, D._ALL_STOPPED)
-        @test D._switch_offs(_testhelper_mirror(second_try_a), 1, r) ==
-              D._switch_offs(second_try_a, 2, r)
+        @test D._built_reading(_testhelper_mirror(second_try_a), r)[:, 1] ==
+              D._built_reading(second_try_a, r)[:, 2]
     end
     # The first reading alone finds a bridge at zero substrates in the inactive
     # conformation.
-    v = D._admission(second_try_a)
+    v = D._admission(second_try_a, D._built_reading(second_try_a))
     @test (_testhelper_faces(second_try_a)[v.face], v.conformation, v.edge) ==
           (Set([:A, :B, :D]), 2, _testhelper_edge(second_try_a, "EDP + Q ⇌ EDPQ"))
     for am in (second_try_a, second_try_b)
-        @test D._admission(am).fault === D._BRIDGE            # the first try alone
-        @test D._admission(am, D._ALL_STOPPED) == D._WELL_POSED
+        # The first try alone.
+        @test D._admission(am, D._built_reading(am)).fault === D._BRIDGE
+        @test D._admission(am, D._built_reading(am, D._ALL_STOPPED)) == D._WELL_POSED
         @test D._guard(am) == D._WELL_POSED
         @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
         # The compiled law, derived through the guard, against the oracle's own deletion
@@ -2341,8 +2348,12 @@ end
     end
     # The outward reading admits second_try_a but not second_try_b, so each later try is
     # needed.
-    @test D._admission(second_try_a, D._OUTWARD_LOSE_AFFINITY) == D._WELL_POSED
-    @test D._admission(second_try_b, D._OUTWARD_LOSE_AFFINITY).fault === D._BRIDGE
+    @test D._admission(second_try_a,
+                       D._built_reading(second_try_a, D._OUTWARD_LOSE_AFFINITY)) ==
+          D._WELL_POSED
+    @test D._admission(second_try_b,
+                       D._built_reading(second_try_b, D._OUTWARD_LOSE_AFFINITY)).fault ===
+          D._BRIDGE
     # bridge_fast_a: its bridge, the rapid-equilibrium P binding E(D, Q) + P ⇌ E(D, P, Q),
     # loses its affinity under every reading, and stopping its steady-state uptakes
     # leaves forms that free E does not reach. At zero P the ε-path oracle finds that the
@@ -2366,11 +2377,14 @@ end
         end
     end
     v = D._guard(bridge_fast_a)
-    @test v == D._admission(bridge_fast_a)
+    @test v == D._admission(bridge_fast_a, D._built_reading(bridge_fast_a))
     @test (v.fault, v.conformation, v.edge) ==
           (D._BRIDGE, 2, _testhelper_edge(bridge_fast_a, "EDQ + P ⇌ EDPQ"))
-    @test D._admission(bridge_fast_a, D._ALL_STOPPED).fault === D._ISLAND
-    @test D._admission(bridge_fast_a, D._OUTWARD_LOSE_AFFINITY).fault === D._BRIDGE
+    @test D._admission(bridge_fast_a,
+                       D._built_reading(bridge_fast_a, D._ALL_STOPPED)).fault === D._ISLAND
+    @test D._admission(bridge_fast_a,
+                       D._built_reading(bridge_fast_a, D._OUTWARD_LOSE_AFFINITY)).fault ===
+          D._BRIDGE
     @test _testhelper_epath_verdict(bridge_fast_a; rng, face = Set([:P])) ===
           :direction_dependent
     # bridge_fast_b: every excluded uptake into a cut-off form is a rapid-equilibrium step,
@@ -2398,8 +2412,8 @@ end
     end
     @test D._guard(bridge_fast_b).fault === D._BRIDGE
     for c in 1:2
-        @test D._switch_offs(bridge_fast_b, c) ==
-              D._switch_offs(bridge_fast_b, c, D._ALL_STOPPED)
+        @test D._built_reading(bridge_fast_b)[:, c] ==
+              D._built_reading(bridge_fast_b, D._ALL_STOPPED)[:, c]
     end
     # The first try decides when it passes: with its S binding stopped, the K-type
     # uni-uni mechanism would leave E(S) out of free E's reach.
@@ -2413,7 +2427,8 @@ end
         end
     end
     @test D._guard(k_type) == D._WELL_POSED
-    @test D._admission_interior(k_type, D._ALL_STOPPED).fault === D._ISLAND
+    @test D._admission_interior(k_type, D._built_reading(k_type, D._ALL_STOPPED)).fault ===
+          D._ISLAND
 end
 
 @testset "a mechanism may need one uptake to lose its affinity and another to stop" begin
@@ -2424,8 +2439,6 @@ end
     # cut-off forms on the way to it from free E's part. The fixtures come from the gate's
     # populations.
     D = EnzymeRates.Derivation
-    names = Dict(D._RUNS => :runs, D._LOSES_AFFINITY => :loses_affinity,
-                 D._STOPPED => :stopped, D._CANNOT_SWITCH_OFF => :cannot_switch_off)
     # both_readings, inactive conformation: the steps it keeps join E(A) to E(A, P) and
     # E(P) to E(P, Q), each part one uptake from free E's. The B binding, from one part to
     # the other, must stop, or the steps that lose their affinity close a cycle with the
@@ -2446,16 +2459,16 @@ end
     p = _testhelper_edge(am, "E + P <--> EP")              # leads away: distance 0 to 1
     b = _testhelper_edge(am, "EA + B <--> EPQ")            # distance 1 to 1
     a = _testhelper_edge(am, "EP + A ⇌ EAP")               # rapid equilibrium, 1 to 1
-    L, S = D._LOSES_AFFINITY, D._STOPPED
+    L, S = D._LOSES_FORWARD, D._STOPPED
     for (reading, name, at_p, at_b) in (
             (D._ALL_LOSE_AFFINITY, :all_lose_affinity, L, L),
             (D._OUTWARD_LOSE_AFFINITY, :outward_lose_affinity, L, S),
             (D._ALL_STOPPED, :all_stopped, S, S))
-        off = D._switch_offs(am, 2, reading)
+        off = D._built_reading(am, reading)[:, 2]
         @test off[p] === at_p && off[b] === at_b
-        @test off[a] === D._LOSES_AFFINITY                    # a fast step is read one way
-        @test [names[o] for o in off] ==
-              [_testhelper_switch_off(am, 2, k; reading = name) for k in eachindex(off)]
+        @test off[a] === D._LOSES_FORWARD                     # a fast step is read one way
+        @test _testhelper_reading(D._built_reading(am, reading))[:, 2] ==
+              _testhelper_reading(am, name)[:, 2]
     end
     # The same need with the substrates' roles swapped and an :OnlyI P binding, which the
     # guard rejected before this rule.
@@ -2471,9 +2484,10 @@ end
         end
     end
     for am in (both_readings, both_readings_only_i)
-        @test D._admission(am).fault === D._ARC_CYCLE
-        @test D._admission(am, D._ALL_STOPPED).fault === D._ISLAND
-        @test D._admission(am, D._OUTWARD_LOSE_AFFINITY) == D._WELL_POSED
+        @test D._admission(am, D._built_reading(am)).fault === D._ARC_CYCLE
+        @test D._admission(am, D._built_reading(am, D._ALL_STOPPED)).fault === D._ISLAND
+        @test D._admission(am, D._built_reading(am, D._OUTWARD_LOSE_AFFINITY)) ==
+              D._WELL_POSED
         @test D._guard(am) == D._WELL_POSED
         @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
         # The compiled law, derived through the guard, against the oracle's own deletion
@@ -2493,8 +2507,10 @@ end
             E(A, B) + D <--> E(P, R) + Q                    :: EqualAI
         end
     end
-    @test D._admission(outward_pumped) == D._WELL_POSED
-    @test D._admission(outward_pumped, D._OUTWARD_LOSE_AFFINITY).fault === D._PUMPED
+    @test D._admission(outward_pumped, D._built_reading(outward_pumped)) == D._WELL_POSED
+    @test D._admission(outward_pumped,
+                       D._built_reading(outward_pumped, D._OUTWARD_LOSE_AFFINITY)).fault ===
+          D._PUMPED
     @test D._guard(outward_pumped) == D._WELL_POSED
     @test all(_testhelper_admission_agreement(outward_pumped;
                                               rng = Random.MersenneTwister(1)))
@@ -2514,19 +2530,71 @@ end
         end
     end
     k = _testhelper_edge(unreached, "E_res_plusA_minusP + B <--> EB_res_plusA_minusP")
-    @test D._switch_offs(unreached, 2)[k] === D._LOSES_AFFINITY
-    @test D._switch_offs(unreached, 2, D._OUTWARD_LOSE_AFFINITY)[k] === D._STOPPED
+    @test D._built_reading(unreached)[k, 2] === D._LOSES_FORWARD
+    @test D._built_reading(unreached, D._OUTWARD_LOSE_AFFINITY)[k, 2] === D._STOPPED
     # The package's reading agrees with the test's own statement of the rule, and the two
     # conformations are read alike.
     for x in (both_readings, both_readings_only_i, outward_pumped, unreached),
         (name, r) in pairs(_testhelper_guard_readings)
-        for c in 1:2
-            @test [names[o] for o in D._switch_offs(x, c, r)] ==
-                  [_testhelper_switch_off(x, c, k; reading = name)
-                   for k in eachindex(x.catalytic.steps)]
-        end
-        @test D._switch_offs(_testhelper_mirror(x), 1, r) == D._switch_offs(x, 2, r)
+        @test _testhelper_reading(D._built_reading(x, r)) == _testhelper_reading(x, name)
+        @test D._built_reading(_testhelper_mirror(x), r)[:, 1] ==
+              D._built_reading(x, r)[:, 2]
     end
+end
+
+@testset "a reading may lose a step in either direction" begin
+    # The ping-pong of the spec's fourth example, both chemistry steps :OnlyA. In the
+    # inactive conformation the covalent forms F, F(B) and F(P) form one cut-off group
+    # (F is E(; residual = A - P)). E(A) <--> F(P) loses its stored direction, into that
+    # group, and F(B) ⇌ E(Q) its reverse, also into that group: both point uphill from
+    # free E's group, and the cut-off group empties through both halves. No built reading
+    # loses a step in reverse.
+    D = EnzymeRates.Derivation
+    am = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            E + Q ⇌ E(Q)                                            :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: EqualAI
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: EqualAI
+            E(A) <--> E(P; residual = A - P)                        :: OnlyA
+            E(B; residual = A - P) ⇌ E(Q)                           :: OnlyA
+        end
+    end
+    chem_a = _testhelper_edge(am, "EA <--> EP_res_plusA_minusP")
+    chem_b = _testhelper_edge(am, "EB_res_plusA_minusP ⇌ EQ")
+    r = fill(D._RUNS, length(am.catalytic.steps), 2)
+    r[chem_a, 2], r[chem_b, 2] = D._LOSES_FORWARD, D._LOSES_REVERSE
+    @test D._admission_interior(am, r) == D._WELL_POSED
+    eps = D._eps_network(am, D._re_flags(am.catalytic), r)
+    fwd, rev = (only(t for t in eachindex(eps.from)
+                     if eps.edge[t] == chem_b && eps.conformation[t] == 2 &&
+                        eps.forward[t] == forward)
+                for forward in (true, false))
+    # F(B) ⇌ E(Q) in copy 2: the reverse (E(Q) → F(B)) vanishes, the forward does not,
+    # both fast.
+    @test [eps.vanishing[t] for t in (fwd, rev)] == [false, true]
+    @test eps.fast[fwd] && eps.fast[rev]
+    # Exchanged, both steps point into free E's group, below which nothing lies: no
+    # energies exist.
+    flipped = copy(r)
+    flipped[chem_a, 2], flipped[chem_b, 2] = D._LOSES_REVERSE, D._LOSES_FORWARD
+    @test D._admission_interior(am, flipped).fault === D._ARC_CYCLE
+    # The tests' own names for the reading's entries.
+    expected = fill(:runs, length(am.catalytic.steps), 2)
+    expected[chem_a, 2], expected[chem_b, 2] = :loses_forward, :loses_reverse
+    @test _testhelper_reading(r) == expected
+    # The ε-path oracle, fed the same reading, finds the limit on every face; under the
+    # guard's first built reading F(B) ⇌ E(Q) takes up nothing, so it cannot be switched
+    # off, and there is no path.
+    rng = Random.MersenneTwister(2614)
+    for face in _testhelper_faces(am)
+        @test _testhelper_epath_verdict(am; rng, face, corners = true,
+                                        reading = _testhelper_reading(r)) === :converges
+    end
+    @test _testhelper_epath_verdict(
+        am; rng, reading = _testhelper_reading(am, :all_lose_affinity)) === :no_path
 end
 
 @testset "the graph test equals the exact LP on the uni-uni grid" begin
@@ -2563,7 +2631,8 @@ end
     @test m.toward_products[chem]
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(FP, U, 0, 2, bind)
-    @test EnzymeRates.Derivation._admission_interior(am) == v
+    @test EnzymeRates.Derivation._admission_interior(
+        am, EnzymeRates.Derivation._built_reading(am)) == v
     @test _testhelper_epath_verdict(am; rng) === :no_path
     line(k) = EnzymeRates.Mechanisms.step_text(m, k)
     @test EnzymeRates.Derivation._guard_message(am, v) ==
@@ -3341,7 +3410,8 @@ const _testhelper_pinned_tag_sets = Set(["AD7b", "AD9", "BS2", "TC1"])
     rng = Random.MersenneTwister(2613)
     @testset "$name" for name in sort!(collect(keys(_testhelper_tag_sets)))
         am = _testhelper_tag_sets[name]
-        v = EnzymeRates.Derivation._admission_interior(am)
+        v = EnzymeRates.Derivation._admission_interior(
+            am, EnzymeRates.Derivation._built_reading(am))
         if name in _testhelper_pinned_tag_sets
             @test (v.fault, v.conformation) == (EnzymeRates.Derivation._FAST_STEP_PINNED, 2)
             @test _testhelper_epath_verdict(am; rng) === :no_path
@@ -3358,7 +3428,8 @@ end
     am = _testhelper_tag_sets["mixed_group_limit"]
     @test _testhelper_exclusion(am, 2).failure === :none
     @test _testhelper_lp_existence(am, 2)
-    @test EnzymeRates.Derivation._admission_interior(am) ==
+    @test EnzymeRates.Derivation._admission_interior(
+        am, EnzymeRates.Derivation._built_reading(am)) ==
           EnzymeRates.Derivation._WELL_POSED
     @test EnzymeRates.Derivation._guard(am) == EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(43)) === :converges
@@ -3379,7 +3450,8 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
     am = _testhelper_tag_sets["R2"]
     m = am.catalytic
     @test _testhelper_face_faults(am) == fill(NO, 3)
-    @test EnzymeRates.Derivation._admission_interior(am) ==
+    @test EnzymeRates.Derivation._admission_interior(
+        am, EnzymeRates.Derivation._built_reading(am)) ==
           EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_admission_faults(am) == [NO, PU, NO]
     @test _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[2]) ===
@@ -3418,7 +3490,8 @@ end
     end
     rng = Random.MersenneTwister(43)
     k = _testhelper_edge(am, "EI ⇌ FI")
-    @test EnzymeRates.Derivation._admission_interior(am) ==
+    @test EnzymeRates.Derivation._admission_interior(
+        am, EnzymeRates.Derivation._built_reading(am)) ==
           EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._FAST_STEP_PINNED,
                                           EnzymeRates.Derivation._LIMIT_UNTESTED, 0, 2, k)
     @test _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[2]) === :no_path
@@ -3427,7 +3500,10 @@ end
           (EnzymeRates.Derivation._FAST_STEP_PINNED, 0, 2)
     @test EnzymeRates.Derivation._guard_message(am, v) == _testhelper_pinned_cause(am, k, 2)
     faces = EnzymeRates.Derivation._faces(am.catalytic)
-    w = EnzymeRates.Derivation._admission_face(am, EnzymeRates.Derivation._eps_network(am),
+    eps = EnzymeRates.Derivation._eps_network(
+        am, EnzymeRates.Derivation._re_flags(am.catalytic),
+        EnzymeRates.Derivation._built_reading(am))
+    w = EnzymeRates.Derivation._admission_face(am, eps,
                                                EnzymeRates.Derivation._law_network(am),
                                                faces, 2)
     @test (w.fault, w.face, w.conformation) == (EnzymeRates.Derivation._PUMPED, 2, 2)
@@ -3451,7 +3527,8 @@ end
             F + I ⇌ F(I)        :: OnlyA
         end
     end
-    @test EnzymeRates.Derivation._admission_interior(stranded_ss) ==
+    @test EnzymeRates.Derivation._admission_interior(
+        stranded_ss, EnzymeRates.Derivation._built_reading(stranded_ss)) ==
           EnzymeRates.Derivation._WELL_POSED
     v = EnzymeRates.Derivation._guard(stranded_ss)
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._PUMPED, 2, 2)
@@ -3491,7 +3568,9 @@ end
     function _testhelper_stranded(am, i)
         face = EnzymeRates.Derivation._faces(am.catalytic)[i]
         s = EnzymeRates.Derivation._face_sets(
-            EnzymeRates.Derivation._eps_network(am),
+            EnzymeRates.Derivation._eps_network(
+                am, EnzymeRates.Derivation._re_flags(am.catalytic),
+                EnzymeRates.Derivation._built_reading(am)),
             EnzymeRates.Derivation._law_network(am).present, face)
         any(s.stranded)
     end
@@ -3576,8 +3655,10 @@ end
     @test _testhelper_admission_faults(noturn) == [NO, NO, NO, SP, SP, TR]
     @test all(_testhelper_admission_agreement(noturn; rng))
     for (x, potential) in ((am, false), (noturn, true))
-        eps, law = EnzymeRates.Derivation._eps_network(x),
-            EnzymeRates.Derivation._law_network(x)
+        eps = EnzymeRates.Derivation._eps_network(
+            x, EnzymeRates.Derivation._re_flags(x.catalytic),
+            EnzymeRates.Derivation._built_reading(x))
+        law = EnzymeRates.Derivation._law_network(x)
         row = EnzymeRates.Derivation._turnover_name(x.catalytic)
         for face in EnzymeRates.Derivation._faces(x.catalytic)[1:3]
             s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
@@ -3637,8 +3718,9 @@ end
     # With P zero its :OnlyA bindings shorten the inactive conformation's in-tree (R1
     # fails), yet the first substrate's uptake is a potential on each strongly connected
     # part of its kept and fast transitions (T0+): the census's case for T0+.
-    eps, law = EnzymeRates.Derivation._eps_network(am),
-        EnzymeRates.Derivation._law_network(am)
+    eps = EnzymeRates.Derivation._eps_network(am, EnzymeRates.Derivation._re_flags(m),
+                                              EnzymeRates.Derivation._built_reading(am))
+    law = EnzymeRates.Derivation._law_network(am)
     row = EnzymeRates.Derivation._turnover_name(m)
     faces = EnzymeRates.Derivation._faces(m)
     by_potential = map(faces) do face
@@ -3722,12 +3804,13 @@ end
     # a second closed class. The ε-network's closed-class count sees the same split, so
     # admission alone rejects those faces too; the guard reports class 3, which runs first.
     s1 = _testhelper_tag_sets["S1"]
-    @test EnzymeRates.Derivation._admission_interior(s1) ==
+    @test EnzymeRates.Derivation._admission_interior(
+        s1, EnzymeRates.Derivation._built_reading(s1)) ==
           EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_admission_faults(s1) == [NO, NO, NU, NU, NU]
     @test EnzymeRates.Derivation._guard(s1).fault === NU
     @test all(_testhelper_admission_agreement(s1; rng))
-    v = EnzymeRates.Derivation._admission(s1)
+    v = EnzymeRates.Derivation._admission(s1, EnzymeRates.Derivation._built_reading(s1))
     @test (v.fault, v.face, v.conformation) ===
           (EnzymeRates.Derivation._EPS_NONUNIQUE, 3, 2)
     @test EnzymeRates.Derivation._guard_message(s1, v) ==
@@ -3738,7 +3821,8 @@ end
     # passes and class 3 decides. Its isomerization E ⇌ F is at rapid equilibrium, and
     # the inactive conformation cannot switch it off, so admission rejects the interior.
     ad7b = _testhelper_tag_sets["AD7b"]
-    @test EnzymeRates.Derivation._admission(ad7b).fault ===
+    @test EnzymeRates.Derivation._admission(
+        ad7b, EnzymeRates.Derivation._built_reading(ad7b)).fault ===
           EnzymeRates.Derivation._FAST_STEP_PINNED
     @test _testhelper_admission_faults(ad7b) == [NO, NO, NO, NU, NU, NU]
     @test _testhelper_epath_verdict(ad7b; rng) === :no_path
@@ -3759,7 +3843,9 @@ end
             E(A) <--> E(P)                  :: EqualAI
         end
     end
-    @test EnzymeRates.Derivation._admission(ad7b_ss) == EnzymeRates.Derivation._WELL_POSED
+    @test EnzymeRates.Derivation._admission(
+        ad7b_ss, EnzymeRates.Derivation._built_reading(ad7b_ss)) ==
+          EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_admission_faults(ad7b_ss) == [NO, NO, NO, NU, NU, NU]
     v = EnzymeRates.Derivation._guard(ad7b_ss)
     @test (v.fault, v.face, v.conformation) == (NU, 4, 2)
@@ -4459,8 +4545,10 @@ end
           "AllostericMechanism: at zero P, the forms E(I) (active) hold the enzyme they " *
           "receive and are reached only through tagged steps, so the steady state " *
           "depends on where the enzyme starts."
-    eps, law = EnzymeRates.Derivation._eps_network(fz),
-        EnzymeRates.Derivation._law_network(fz)
+    eps = EnzymeRates.Derivation._eps_network(
+        fz, EnzymeRates.Derivation._re_flags(fz.catalytic),
+        EnzymeRates.Derivation._built_reading(fz))
+    law = EnzymeRates.Derivation._law_network(fz)
     s = EnzymeRates.Derivation._face_sets(eps, law.present,
                                           EnzymeRates.Derivation._faces(fz.catalytic)[2])
     named = EnzymeRates.Derivation._class_outside_law(
@@ -4895,8 +4983,7 @@ end
         if fault === D._NO_FAULT
             @test all(_testhelper_admission_agreement(am; rng))
         elseif fault === D._FAST_STEP_PINNED
-            @test any(c -> any(k -> _testhelper_switch_off(am, c, k) === :cannot_switch_off,
-                               eachindex(am.catalytic.steps)), 1:2)
+            @test :cannot_switch_off in _testhelper_reading(am, :all_lose_affinity)
             @test _testhelper_epath_verdict(am; rng) === :no_path
         end
     end
@@ -4939,8 +5026,10 @@ end
           _testhelper_pinned_cause(am, k, 2) * " Make its group steady-state."
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(95)) === :no_path
     @test _testhelper_admission_faults(am) == [[NO, BR, NO, NO, NO, BR, NO]; fill(NO, 7)]
-    eps, law = EnzymeRates.Derivation._eps_network(am),
-        EnzymeRates.Derivation._law_network(am)
+    eps = EnzymeRates.Derivation._eps_network(
+        am, EnzymeRates.Derivation._re_flags(am.catalytic),
+        EnzymeRates.Derivation._built_reading(am))
+    law = EnzymeRates.Derivation._law_network(am)
     faces = EnzymeRates.Derivation._faces(am.catalytic)
     for i in (2, 6)   # zero P and Q, zero P
         s = EnzymeRates.Derivation._face_sets(eps, law.present, faces[i])

@@ -23,15 +23,17 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
     _face_message(who, mech, v)
 end
 
-"""Whether making each step of `cycle`, transitions of `mech`'s ε-network `net`,
-steady-state with its kinetic group leaves no fast cycle that turns the reaction over: then
-class 2's fix holds whichever step of the cycle is picked."""
+"""Whether making each step of `cycle`, transitions of `mech`'s ε-network `net` under the
+first built reading (`_built_reading`), steady-state with its kinetic group leaves no fast
+cycle that turns the reaction over: then class 2's fix holds whichever step of the cycle
+is picked."""
 function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
     m = Mechanisms.catalytic(mech)
+    reading = _built_reading(mech)
     for t in cycle
         re = _re_flags(m)
         re[findall(s -> s.group == m.steps[net.edge[t]].group, m.steps)] .= false
-        isempty(_re_turnover_transitions(_eps_network(mech, re))) || return false
+        isempty(_re_turnover_transitions(_eps_network(mech, re, reading))) || return false
     end
     true
 end
@@ -42,7 +44,7 @@ vanishes, and the fix where each of those steps made steady-state leaves no fast
 that turns the reaction over (`_every_step_cures`)."""
 function _re_turnover_message(who::String, mech::_AnyMech)
     m = Mechanisms.catalytic(mech)
-    net = _eps_network(mech)
+    net = _eps_network(mech, _re_flags(m), _built_reading(mech))
     cycle = _re_turnover_transitions(net)
     c = net.conformation[cycle[1]]
     state = c == 2 ? "inactive" : "active"

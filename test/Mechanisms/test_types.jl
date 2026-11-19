@@ -2557,8 +2557,8 @@ end
     # binding it names (`nothing` when it names none).
     function _testhelper_admission_reads(am, tags)
         cm = am.catalytic
-        v = ER.Derivation._admission(
-            ER.AllostericMechanism(cm, tags, 1, ER.Mechanisms.RegulatorySite[]))
+        tagged = ER.AllostericMechanism(cm, tags, 1, ER.Mechanisms.RegulatorySite[])
+        v = ER.Derivation._admission(tagged, ER.Derivation._built_reading(tagged))
         e = v.edge == 0 ? nothing : cm.steps[v.edge]
         (v.fault, e === nothing || !ER.Mechanisms._is_binding(e) ? nothing :
                   only(e.taken_up).name)
