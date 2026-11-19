@@ -4,12 +4,12 @@
 # ─── Admission: the interior ───────────────────────────────────────────
 
 """The edges of `am`'s catalytic graph that conformation `c` excludes and that lose their
-affinity there (`_switch_offs`, each steady-state uptake into a cut-off form read as
-`slow_uptake`), in edge order: admission's arcs, each stored as its uptake, unbound side
+affinity there (`_switch_offs`, the steady-state uptakes into cut-off forms read as
+`reading` says), in edge order: admission's arcs, each stored as its uptake, unbound side
 first."""
 _arcs(am::Mechanisms.AllostericMechanism, c::Int,
-      slow_uptake::_SwitchOff = _LOSES_AFFINITY) =
-    findall(==(_LOSES_AFFINITY), _switch_offs(am, c, slow_uptake))
+      reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY) =
+    findall(==(_LOSES_AFFINITY), _switch_offs(am, c, reading))
 
 """The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
 excludes none."""
@@ -95,11 +95,11 @@ function _island_edge(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{I
 end
 
 """
-    _admission_interior(am, slow_uptake = _LOSES_AFFINITY) -> _Verdict
+    _admission_interior(am, reading = _ALL_LOSE_AFFINITY) -> _Verdict
 
 Admission's interior checks, for each conformation `c` whose tags exclude an edge
-(`Mechanisms.excludes`), each excluded edge switched off as `_switch_offs` reads it, each
-steady-state uptake into a cut-off form as `slow_uptake`, on the components of the forms
+(`Mechanisms.excludes`), each excluded edge switched off as `_switch_offs` reads it, the
+steady-state uptakes into cut-off forms as `reading` says, on the components of the forms
 its other edges join (`exclusion_components`) with the edges that lose their affinity as
 arcs (`_arcs`):
 - kind: no excluded rapid-equilibrium edge that `c` cannot switch off, since a step keeps
@@ -116,15 +116,15 @@ arcs (`_arcs`):
 The verdict carries the conformation and the edge its message leads with (face 0).
 """
 function _admission_interior(am::Mechanisms.AllostericMechanism,
-                             slow_uptake::_SwitchOff = _LOSES_AFFINITY)
+                             reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
     m = Mechanisms.catalytic(am)
     for c in 1:2
         _first_excluded(am, c) == 0 && continue
-        pinned = findfirst(==(_CANNOT_SWITCH_OFF), _switch_offs(am, c, slow_uptake))
+        pinned = findfirst(==(_CANNOT_SWITCH_OFF), _switch_offs(am, c, reading))
         pinned === nothing ||
             return _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, c, pinned)
         comp = exclusion_components(am, _CONFORMATIONS[c])
-        arcs = _arcs(am, c, slow_uptake)
+        arcs = _arcs(am, c, reading)
         cycle = _arc_cycle(m, comp, arcs)
         isempty(cycle) || return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, cycle[1])
         k = _island_edge(am, c, comp, _reached_components(m, comp, arcs))
@@ -577,17 +577,17 @@ function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law:
 end
 
 """
-    _admission(am, slow_uptake = _LOSES_AFFINITY) -> _Verdict
+    _admission(am, reading = _ALL_LOSE_AFFINITY) -> _Verdict
 
-Admission alone, each steady-state uptake into a cut-off form switched off as
-`slow_uptake` (`_switch_offs`): the interior checks (`_admission_interior`), then the face
+Admission alone, the steady-state uptakes into cut-off forms switched off as `reading`
+says (`_switch_offs`): the interior checks (`_admission_interior`), then the face
 condition on every face (`_admission_face`), class 3 not run.
 """
 function _admission(am::Mechanisms.AllostericMechanism,
-                    slow_uptake::_SwitchOff = _LOSES_AFFINITY)
-    v = _admission_interior(am, slow_uptake)
+                    reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
+    v = _admission_interior(am, reading)
     v.fault === _NO_FAULT || return v
-    eps = _eps_network(am, _re_flags(Mechanisms.catalytic(am)), slow_uptake)
+    eps = _eps_network(am, _re_flags(Mechanisms.catalytic(am)), reading)
     law = _law_network(am)
     faces = _faces(Mechanisms.catalytic(am))
     _first_face_fault(i -> _admission_face(am, eps, law, faces, i), faces)

@@ -54,28 +54,63 @@ rates vanishing (`_STOPPED`); or it cannot be switched off (`_CANNOT_SWITCH_OFF`
 @enum _SwitchOff::UInt8 _RUNS _LOSES_AFFINITY _STOPPED _CANNOT_SWITCH_OFF
 
 """
-    _switch_offs(am, c::Int, slow_uptake = _LOSES_AFFINITY) -> Vector{_SwitchOff}
+Which excluded steady-state steps that take up one metabolite into a cut-off form lose
+their affinity, the rest being stopped (`_switch_offs`): every one
+(`_ALL_LOSE_AFFINITY`); one that leads away from free E (`_OUTWARD_LOSE_AFFINITY`); or
+none (`_ALL_STOPPED`). The guard tries them in this order (`_guard`).
+
+The steps a conformation keeps join the forms into parts. A part's distance is the fewest
+excluded steps that take up one metabolite into a cut-off form, rapid-equilibrium or
+steady-state, each followed from its unbound side to its bound side, that lead to it from
+free E's part; a part they do not reach is infinitely far. Such a step leads away from
+free E when its bound side's part is farther than its unbound side's.
+"""
+@enum _SlowUptakeReading::UInt8 _ALL_LOSE_AFFINITY _OUTWARD_LOSE_AFFINITY _ALL_STOPPED
+
+"""
+    _switch_offs(am, c::Int, reading = _ALL_LOSE_AFFINITY) -> Vector{_SwitchOff}
 
 How conformation `c` (1 active, 2 inactive) of `am` switches off each catalytic step, read
 from the reaction graph alone. It keeps a step it does not exclude. An excluded step that
 takes up one metabolite and gives off none into a cut-off form, the steps `c` keeps
 (`exclusion_components`) joining neither its two sides nor its bound side to free E, loses
-its affinity at rapid equilibrium; at steady state it is switched off as `slow_uptake`
-says, `_LOSES_AFFINITY` or `_STOPPED`, the guard's two readings (`_guard`). Any other
-excluded step keeps its kind, rapid equilibrium or steady state, as every step does in
-both conformations: a steady-state one is stopped, and a rapid-equilibrium one, whose
-equilibrium constant thermodynamics pins, cannot be switched off.
+its affinity at rapid equilibrium; at steady state it loses its affinity or is stopped as
+`reading` says (`_SlowUptakeReading`). Any other excluded step keeps its kind, rapid
+equilibrium or steady state, as every step does in both conformations: a steady-state one
+is stopped, and a rapid-equilibrium one, whose equilibrium constant thermodynamics pins,
+cannot be switched off.
 """
 function _switch_offs(am::Mechanisms.AllostericMechanism, c::Int,
-                      slow_uptake::_SwitchOff = _LOSES_AFFINITY)
+                      reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
     comp = exclusion_components(am, _CONFORMATIONS[c])
     excluded = _excluded_steps(am, c)
-    off = fill(_RUNS, length(am.catalytic.steps))
-    for (k, e) in enumerate(am.catalytic.steps)
+    steps = am.catalytic.steps
+    uptake = [excluded[k] && length(e.taken_up) == 1 && isempty(e.given_off) &&
+              comp[e.from] != comp[e.to] && comp[e.to] != comp[1]
+              for (k, e) in enumerate(steps)]
+    # Each part's distance from free E's, breadth-first along the uptakes; a part's label
+    # is its smallest form index.
+    distance = fill(typemax(Int), length(comp))
+    distance[comp[1]] = 0
+    queue, head = [comp[1]], 0
+    while head < length(queue)
+        head += 1
+        u = queue[head]
+        for (k, e) in enumerate(steps)
+            uptake[k] && comp[e.from] == u && distance[comp[e.to]] == typemax(Int) ||
+                continue
+            distance[comp[e.to]] = distance[u] + 1
+            push!(queue, comp[e.to])
+        end
+    end
+    off = fill(_RUNS, length(steps))
+    for (k, e) in enumerate(steps)
         excluded[k] || continue
-        into_cut_off = length(e.taken_up) == 1 && isempty(e.given_off) &&
-                       comp[e.from] != comp[e.to] && comp[e.to] != comp[1]
-        off[k] = into_cut_off ? (e.rapid_equilibrium ? _LOSES_AFFINITY : slow_uptake) :
+        loses = uptake[k] &&
+                (e.rapid_equilibrium || reading === _ALL_LOSE_AFFINITY ||
+                 reading === _OUTWARD_LOSE_AFFINITY &&
+                 distance[comp[e.to]] > distance[comp[e.from]])
+        off[k] = loses ? _LOSES_AFFINITY :
                  e.rapid_equilibrium ? _CANNOT_SWITCH_OFF : _STOPPED
     end
     off

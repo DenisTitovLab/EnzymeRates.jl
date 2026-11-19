@@ -204,9 +204,10 @@ free E.
 
 A tagged step is switched off in the conformation that lacks it, and it keeps its kind,
 rapid equilibrium or steady state, in both. A step that takes up one metabolite into a form
-the other steps no longer reach loses its affinity; if that leaves a fault, the macro
-tries again with every such steady-state step stopped. Any other steady-state step stops.
-Any other rapid-equilibrium step cannot be switched off, and the macro rejects it (see
+the other steps no longer reach loses its affinity. If that leaves a fault, the macro tries
+again with such a steady-state step stopped unless it leads away from free E, and then
+with every such steady-state step stopped. Any other steady-state step stops. Any other
+rapid-equilibrium step cannot be switched off, and the macro rejects it (see
 [How an excluded step is switched off](@ref)). The macro also rejects a tag set whose limit
 it cannot show to exist and be unique: steps that lose their affinity and close a cycle;
 forms that free E reaches only through tagged steps other than an uptake toward them that

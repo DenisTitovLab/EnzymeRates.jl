@@ -2271,10 +2271,11 @@ end
 @testset "a steady-state uptake into a cut-off form may be stopped" begin
     # The guard first reads every excluded steady-state step that takes up one metabolite
     # into a cut-off form as losing its affinity; when that leaves an admission fault, it
-    # reads every such step as stopped and checks again. Four ter-ter mechanisms of the
-    # gate's populations, built unguarded since the first reading rejects each: two that
-    # the second reading admits, and two whose bridges are rapid-equilibrium steps, which
-    # no reading stops.
+    # checks again with such a step losing its affinity only when it leads away from free
+    # E, then with every such step stopped. Four ter-ter mechanisms of the gate's
+    # populations, built unguarded since the first reading rejects each: two that a later
+    # reading admits, and two whose bridges are rapid-equilibrium steps, which no reading
+    # stops.
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(2613)
     second_try_a = @_testhelper_unguarded @allosteric_mechanism begin
@@ -2311,16 +2312,16 @@ end
     end
     # second_try_a, inactive conformation: the chemistry step joins two cut-off forms.
     k = _testhelper_edge(second_try_a, "EBD + A <--> EPQR")
-    first_reading, second_reading = D._switch_offs(second_try_a, 2),
-                                    D._switch_offs(second_try_a, 2, D._STOPPED)
-    @test first_reading[k] === D._LOSES_AFFINITY
-    @test second_reading[k] === D._STOPPED
-    @test [first_reading[j] for j in eachindex(first_reading) if j != k] ==
-          [second_reading[j] for j in eachindex(second_reading) if j != k]
+    losing, stopped = D._switch_offs(second_try_a, 2),
+                      D._switch_offs(second_try_a, 2, D._ALL_STOPPED)
+    @test losing[k] === D._LOSES_AFFINITY
+    @test stopped[k] === D._STOPPED
+    @test [losing[j] for j in eachindex(losing) if j != k] ==
+          [stopped[j] for j in eachindex(stopped) if j != k]
     @test _testhelper_switch_off(second_try_a, 2, k) === :loses_affinity
-    @test _testhelper_switch_off(second_try_a, 2, k; slow_uptake = :stopped) === :stopped
+    @test _testhelper_switch_off(second_try_a, 2, k; reading = :all_stopped) === :stopped
     # The two conformations are read alike.
-    for r in (D._LOSES_AFFINITY, D._STOPPED)
+    for r in (D._ALL_LOSE_AFFINITY, D._ALL_STOPPED)
         @test D._switch_offs(_testhelper_mirror(second_try_a), 1, r) ==
               D._switch_offs(second_try_a, 2, r)
     end
@@ -2331,15 +2332,19 @@ end
           (Set([:A, :B, :D]), 2, _testhelper_edge(second_try_a, "EDP + Q ⇌ EDPQ"))
     for am in (second_try_a, second_try_b)
         @test D._admission(am).fault === D._BRIDGE            # the first try alone
-        @test D._admission(am, D._STOPPED) == D._WELL_POSED
+        @test D._admission(am, D._ALL_STOPPED) == D._WELL_POSED
         @test D._guard(am) == D._WELL_POSED
         @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
         # The compiled law, derived through the guard, against the oracle's own deletion
         # limit.
         _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(am))
     end
+    # The outward reading admits second_try_a but not second_try_b, so each later try is
+    # needed.
+    @test D._admission(second_try_a, D._OUTWARD_LOSE_AFFINITY) == D._WELL_POSED
+    @test D._admission(second_try_b, D._OUTWARD_LOSE_AFFINITY).fault === D._BRIDGE
     # bridge_fast_a: its bridge, the rapid-equilibrium P binding E(D, Q) + P ⇌ E(D, P, Q),
-    # loses its affinity under either reading, and stopping its steady-state uptakes
+    # loses its affinity under every reading, and stopping its steady-state uptakes
     # leaves forms that free E does not reach. At zero P the ε-path oracle finds that the
     # limit depends on the direction: the rejection is real.
     bridge_fast_a =@_testhelper_unguarded @allosteric_mechanism begin
@@ -2364,7 +2369,8 @@ end
     @test v == D._admission(bridge_fast_a)
     @test (v.fault, v.conformation, v.edge) ==
           (D._BRIDGE, 2, _testhelper_edge(bridge_fast_a, "EDQ + P ⇌ EDPQ"))
-    @test D._admission(bridge_fast_a, D._STOPPED).fault === D._ISLAND
+    @test D._admission(bridge_fast_a, D._ALL_STOPPED).fault === D._ISLAND
+    @test D._admission(bridge_fast_a, D._OUTWARD_LOSE_AFFINITY).fault === D._BRIDGE
     @test _testhelper_epath_verdict(bridge_fast_a; rng, face = Set([:P])) ===
           :direction_dependent
     # bridge_fast_b: every excluded uptake into a cut-off form is a rapid-equilibrium step,
@@ -2393,7 +2399,7 @@ end
     @test D._guard(bridge_fast_b).fault === D._BRIDGE
     for c in 1:2
         @test D._switch_offs(bridge_fast_b, c) ==
-              D._switch_offs(bridge_fast_b, c, D._STOPPED)
+              D._switch_offs(bridge_fast_b, c, D._ALL_STOPPED)
     end
     # The first try decides when it passes: with its S binding stopped, the K-type
     # uni-uni mechanism would leave E(S) out of free E's reach.
@@ -2407,7 +2413,120 @@ end
         end
     end
     @test D._guard(k_type) == D._WELL_POSED
-    @test D._admission_interior(k_type, D._STOPPED).fault === D._ISLAND
+    @test D._admission_interior(k_type, D._ALL_STOPPED).fault === D._ISLAND
+end
+
+@testset "a mechanism may need one uptake to lose its affinity and another to stop" begin
+    # The guard's second try (`_OUTWARD_LOSE_AFFINITY`): an excluded steady-state step that
+    # takes up one metabolite into a cut-off form loses its affinity only when it leads
+    # away from free E, its bound side's part farther from free E's than its unbound
+    # side's; otherwise it is stopped. A part's distance counts the excluded uptakes into
+    # cut-off forms on the way to it from free E's part. The fixtures come from the gate's
+    # populations.
+    D = EnzymeRates.Derivation
+    names = Dict(D._RUNS => :runs, D._LOSES_AFFINITY => :loses_affinity,
+                 D._STOPPED => :stopped, D._CANNOT_SWITCH_OFF => :cannot_switch_off)
+    # both_readings, inactive conformation: the steps it keeps join E(A) to E(A, P) and
+    # E(P) to E(P, Q), each part one uptake from free E's. The B binding, from one part to
+    # the other, must stop, or the steps that lose their affinity close a cycle with the
+    # A binding at E(P); the P binding at E must then lose its affinity, or no such step
+    # leads to E(P) and E(P, Q).
+    both_readings = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))  :: OnlyA
+            E + P <--> E(P)                     :: OnlyA
+            E(A) + P <--> E(A, P)               :: EqualAI
+            E(A) + B <--> E(P, Q)               :: OnlyA
+            E(P) + Q ⇌ E(P, Q)                  :: EqualAI
+        end
+    end
+    am = both_readings
+    p = _testhelper_edge(am, "E + P <--> EP")              # leads away: distance 0 to 1
+    b = _testhelper_edge(am, "EA + B <--> EPQ")            # distance 1 to 1
+    a = _testhelper_edge(am, "EP + A ⇌ EAP")               # rapid equilibrium, 1 to 1
+    L, S = D._LOSES_AFFINITY, D._STOPPED
+    for (reading, name, at_p, at_b) in (
+            (D._ALL_LOSE_AFFINITY, :all_lose_affinity, L, L),
+            (D._OUTWARD_LOSE_AFFINITY, :outward_lose_affinity, L, S),
+            (D._ALL_STOPPED, :all_stopped, S, S))
+        off = D._switch_offs(am, 2, reading)
+        @test off[p] === at_p && off[b] === at_b
+        @test off[a] === D._LOSES_AFFINITY                    # a fast step is read one way
+        @test [names[o] for o in off] ==
+              [_testhelper_switch_off(am, 2, k; reading = name) for k in eachindex(off)]
+    end
+    # The same need with the substrates' roles swapped and an :OnlyI P binding, which the
+    # guard rejected before this rule.
+    both_readings_only_i = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + B ⇌ E(B), E(P) + B ⇌ E(B, P))  :: OnlyA
+            E + P <--> E(P)                     :: OnlyA
+            E(B) + P <--> E(B, P)               :: OnlyI
+            E(B) + A <--> E(P, Q)               :: OnlyA
+            E(P) + Q ⇌ E(P, Q)                  :: EqualAI
+        end
+    end
+    for am in (both_readings, both_readings_only_i)
+        @test D._admission(am).fault === D._ARC_CYCLE
+        @test D._admission(am, D._ALL_STOPPED).fault === D._ISLAND
+        @test D._admission(am, D._OUTWARD_LOSE_AFFINITY) == D._WELL_POSED
+        @test D._guard(am) == D._WELL_POSED
+        @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
+        # The compiled law, derived through the guard, against the oracle's own deletion
+        # limit.
+        _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(am))
+    end
+    # outward_pumped: the first try admits it, and the outward reading alone would lose
+    # it.
+    outward_pumped = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            E + A ⇌ E(A)                                    :: OnlyA
+            E + R <--> E(R)                                 :: OnlyA
+            (E(A) + B <--> E(A, B), E(R) + B <--> E(B, R))  :: OnlyA
+            (E(A) + P ⇌ E(A, P), E(R) + P ⇌ E(P, R))        :: EqualAI
+            E(A, B) + D <--> E(P, R) + Q                    :: EqualAI
+        end
+    end
+    @test D._admission(outward_pumped) == D._WELL_POSED
+    @test D._admission(outward_pumped, D._OUTWARD_LOSE_AFFINITY).fault === D._PUMPED
+    @test D._guard(outward_pumped) == D._WELL_POSED
+    @test all(_testhelper_admission_agreement(outward_pumped;
+                                              rng = Random.MersenneTwister(1)))
+    # In the inactive conformation no uptake leads from free E to E(; residual = A - P),
+    # which only the chemistry and the P release reach: its B binding leaves a part no
+    # uptake reaches, so the outward reading stops it.
+    unreached = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            E(A) <--> E(P; residual = A - P)                        :: OnlyA
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P      :: OnlyA
+            E(; residual = A - P) + B <--> E(B; residual = A - P)   :: OnlyA
+            E(B; residual = A - P) <--> E(Q)                        :: OnlyA
+            E(Q) ⇌ E + Q                                            :: OnlyA
+        end
+    end
+    k = _testhelper_edge(unreached, "E_res_plusA_minusP + B <--> EB_res_plusA_minusP")
+    @test D._switch_offs(unreached, 2)[k] === D._LOSES_AFFINITY
+    @test D._switch_offs(unreached, 2, D._OUTWARD_LOSE_AFFINITY)[k] === D._STOPPED
+    # The package's reading agrees with the test's own statement of the rule, and the two
+    # conformations are read alike.
+    for x in (both_readings, both_readings_only_i, outward_pumped, unreached),
+        (name, r) in pairs(_testhelper_guard_readings)
+        for c in 1:2
+            @test [names[o] for o in D._switch_offs(x, c, r)] ==
+                  [_testhelper_switch_off(x, c, k; reading = name)
+                   for k in eachindex(x.catalytic.steps)]
+        end
+        @test D._switch_offs(_testhelper_mirror(x), 1, r) == D._switch_offs(x, 2, r)
+    end
 end
 
 @testset "the graph test equals the exact LP on the uni-uni grid" begin
