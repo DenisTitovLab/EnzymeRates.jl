@@ -435,9 +435,16 @@ Exports after the change: `Mechanism` and `compile_rate_equation` join;
   - a fixture rejected today is rejected for another fault, or with another message;
   - the constructor's `:OnlyI` error becomes the guard's verdict.
 
-  The tests of a law that is not the limit pass unchanged: a limit that depends on how
-  fast an isomerization vanishes, a pumped basin, a bridge, a second closed class, a trap,
-  a split, the conservative rejections. They did in the spike.
+  The checks that stop a law which is not the limit keep their force: a limit that depends
+  on how fast an isomerization vanishes, a pumped basin, a bridge, a second closed class,
+  a trap, a split, the conservative rejections. Several of their hand-built fixtures hold
+  an excluded rapid-equilibrium step, so the guard now rejects those fixtures earlier, for
+  that step. Each such check therefore also gets a fixture that passes the earlier checks
+  (the same mechanism with that step steady-state), on which the guard returns the
+  face-level fault and both oracles agree on every face. A check that no mechanism can
+  reach any more is reported to the maintainer, not left untested in silence.
+  (An earlier draft said these tests pass unchanged; that was measured before the
+  principle that a step keeps its kind was added.)
 - **The guard rule is a gate.** Stage 1 lands and passes before any fixture is
   translated. The work stops and returns to the maintainer if a mechanism admitted today
   is rejected for any reason but an excluded rapid-equilibrium step that would have to
