@@ -95,8 +95,9 @@ form, identify's keyword arguments.
    principle: rapid equilibrium and steady state differ more than 100-fold, and a step
    does not jump from the fastest kind in one conformation to slower than every
    steady-state step in the other. A steady-state uptake into a cut-off form keeps its
-   kind either way, so the guard may read it as stopped too (decision 2; added after the
-   gate, on the maintainer's decision).
+   kind either way, so the guard may read it as stopped too, and tries three fixed
+   choices (decision 2; added after the gate and the enumeration tests, on the
+   maintainer's decisions).
 
 ### How a mechanism is compiled
 
@@ -214,13 +215,24 @@ empty. With both rates low and the affinity unchanged, the form would keep its e
 share however slow the step, and the law that drops it would be wrong.
 
 Why a steady-state one may be stopped all the same: both readings keep it steady-state, so
-the principle allows either, and the law is the same under both, since the law drops the
-step. Stopped is safe only where other steps that lose their affinity already empty the
-cut-off form, which the guard's checks decide. So the guard tries twice. It first reads
-every such step as losing its affinity. If that finds a fault, it reads every such step as
-stopped and runs its checks again. The mechanism is admitted if either try finds no fault;
-if both find one, the error reports the first try's. The guard does not try mixtures of
-the two readings.
+the principle allows either for each such step, and the law is the same under every
+choice, since the law drops the step. Stopped is safe only where other steps that lose
+their affinity already empty the cut-off form, which the guard's checks decide. No one
+choice suits every mechanism (Evidence), so the guard tries three, in this order, and
+admits the mechanism at the first that finds no fault:
+
+1. every such step loses its affinity;
+2. such a step loses its affinity only when it leads away from free E, and the others
+   are stopped;
+3. every such step is stopped.
+
+"Leads away from free E" is read from the graph. The steps that still run join the forms
+into parts. A part's distance is the fewest excluded steps that take up one metabolite
+into a cut-off form, rapid-equilibrium or steady-state, that lead to it from free E's
+part. A step leads away when its bound side's part is farther than its unbound side's.
+
+If all three find a fault, the error reports the first try's. The guard tries no other
+mixture of the two readings.
 
 Why thermodynamics holds: each set of forms that the running steps keep joined has one
 energy level. A step that loses its affinity raises the level of its bound side, and every
@@ -306,15 +318,30 @@ taggings added:
   the limit. Of the 26, 22 have the new fault and 4 are rejected as a bridge. Each of the
   4 holds an excluded step that binds and reacts at once into a cut-off form, which the
   old guard read as stopped.
-- In 2 of the 4 that step is steady-state. The second try (above) admits both, and one
-  ter-ter mechanism more, each with a law equal to the limit on every face. It changes no
-  verdict in the other two populations.
+- In 2 of the 4 that step is steady-state. Reading every such step as stopped (the third
+  try above) admits both, and one ter-ter mechanism more, each with a law equal to the
+  limit on every face. It changes no verdict in the other two populations.
 - In the other 2 that step is rapid equilibrium, so the old guard admitted them only by
   turning a fast step slow. They stay rejected, as a bridge and not with the new fault
   (the maintainer's decision). For one of them the numerical limit does depend on the
   path.
-- Trying every mixture of the two readings would admit 7 mechanisms more of about 55,000.
-  They were not tested numerically, and the guard does not do it.
+- With those two tries alone, the enumeration tests then found 64 mechanisms, admitted
+  before and outside the gate's populations, that the guard rejected: of the 9,878 K-type
+  taggings of the bi-bi split children, the ones in which one excluded steady-state
+  binding must lose its affinity and another must stop. The second try above admits all
+  64, and 5 `:OnlyI` and 2 ter-ter mechanisms more, each of the 71 with a law equal to the
+  limit on every face (the maintainer's decision to add it).
+- No single reading replaces the three. The second alone rejects 81 ter-ter mechanisms the
+  first admits; the first and second without the third lose one of the two steady-state
+  ter-ter mechanisms.
+- With the three tries, every mechanism admitted before and now rejected, in all four
+  populations, has the new fault or is one of the two rapid-equilibrium ter-ter ones.
+- The guard does not try every mixture of the two readings: the work doubles with each
+  such step. A mechanism only another mixture would admit is rejected, never wrongly
+  admitted. One is known: ter-ter entry 54057 of the gate's populations, rejected before
+  this work too, which one mixture admits with a law equal to the limit. A search of every
+  mixture, on the gate's mechanisms with 2 to 8 such steps that the first and third tries
+  reject, found no other that the three tries miss.
 
 Not checked: an excluded rapid-equilibrium isomerization that could stay fast with its
 equilibrium pushed to the side that remains, which the rule rejects for now.
@@ -485,7 +512,8 @@ Exports after the change: `Mechanism` and `compile_rate_equation` join;
   room for a per-step flag.
 - **What counts as checked.** The comparisons of decision 2 are rerun once on the
   implemented rule and reported in the pull request, with a sample of at least 2,000
-  ter-ter mechanisms added. The suite keeps a small permanent version: a sampled
+  ter-ter mechanisms and the 9,878 K-type taggings of the bi-bi split children added. The
+  suite keeps a small permanent version: a sampled
   population test that the only mechanisms lost are the ones the rule names, and the
   oracle agreement on a sample of the newly admitted ones.
 

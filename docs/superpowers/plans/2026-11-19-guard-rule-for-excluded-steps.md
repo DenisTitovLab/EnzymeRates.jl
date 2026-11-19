@@ -29,10 +29,17 @@ before starting. Stages 2 and 3 of the spec are not in this plan.
   | Steady state, takes up one metabolite into a cut-off form | Loses its affinity (uptake rate vanishes, release keeps its rate), or is stopped: whichever gives a limit |
   | Steady state, anything else | Stopped: both rates vanish |
 
-  The guard tries twice (Task 8): first with every steady-state uptake into a cut-off form
-  losing its affinity; on an admission fault, again with every such step stopped. It
-  admits if either try finds no fault and otherwise reports the first try's verdict. No
-  mixtures of the two readings.
+  The guard tries three readings of the steady-state uptakes into cut-off forms (Tasks 8
+  and 9), in this order: every one loses its affinity; one loses its affinity only when
+  it leads away from free E, the others stopped; every one is stopped. It admits at the
+  first try that finds no fault and otherwise reports the first try's verdict. No other
+  mixture of the two readings.
+
+  "Leads away from free E": the steps the conformation keeps join the forms into parts. A
+  part's distance is the fewest excluded steps that take up one metabolite into a cut-off
+  form, rapid-equilibrium or steady-state, each followed from its unbound side to its
+  bound side, that lead to it from free E's part. A step leads away when its bound side's
+  part is farther than its unbound side's; a part no such path reaches is infinitely far.
 
   "Takes up one metabolite into a cut-off form" means: `length(e.taken_up) == 1`,
   `isempty(e.given_off)`, the steps the conformation keeps do not join `e.from` and
@@ -453,6 +460,160 @@ git add src/Derivation test/Derivation/test_admission.jl test/mechanism_definiti
 git commit -m "Let a steady-state uptake into a cut-off form be stopped on a second try"
 ```
 
+### Task 9: The third try, for a mechanism that needs both readings (runs before Task 5)
+
+Task 5 found 64 mechanisms, admitted before this work and outside the gate's populations
+(K-type taggings of the bi-bi split children), that the two tries of Task 8 reject: one
+excluded steady-state binding must lose its affinity and another must stop. The maintainer
+decided the guard also tries the reading in which such a step loses its affinity only
+when it leads away from free E (spec, decision 2). No single reading replaces the three.
+
+**Files:**
+- Modify: `src/Derivation/conformations.jl` (`_switch_offs`), `src/Derivation/guard.jl`
+  (`_guard`, `_eps_network`), `src/Derivation/admission.jl` (`_arcs`,
+  `_admission_interior`, `_admission`), and each docstring in `src/` that states the two
+  tries
+- Modify (outside the repository):
+  `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/gate/compare.jl`, `report.md`
+- Test: `test/mechanism_definitions_for_test_enzyme_derivation.jl`,
+  `test/Derivation/test_admission.jl`
+
+**Interfaces:**
+- Consumes: Task 8's `slow_uptake::_SwitchOff` argument and its test helpers, which this
+  task replaces.
+- Produces:
+  - `@enum _SlowUptakeReading::UInt8 _ALL_LOSE_AFFINITY _OUTWARD_LOSE_AFFINITY _ALL_STOPPED`
+    in `conformations.jl`: which excluded steady-state steps that take up one metabolite
+    into a cut-off form lose their affinity, the rest being stopped. Its order is the
+    order of the guard's tries.
+  - `_switch_offs(am, c::Int, reading::_SlowUptakeReading = _ALL_LOSE_AFFINITY)`, and the
+    same trailing argument, with the same default, in place of `slow_uptake` on `_arcs`,
+    `_admission_interior`, `_admission` and `_eps_network`. No `slow_uptake` argument
+    remains. A rapid-equilibrium step is read as before under every reading.
+  - `_guard(am)`: the first try as now. When its fault is one a reading can change, the
+    interior and face checks run under `_OUTWARD_LOSE_AFFINITY`, then under `_ALL_STOPPED`;
+    `_WELL_POSED` at the first try that finds no fault, else the first try's verdict
+    unchanged. A try that reads no step differently from an earlier try is not run. Task 8
+    retries on `_ARC_CYCLE`, `_ISLAND`, `_PUMPED` and `_BRIDGE` only; check against the
+    code that the faults it skips cannot change under the outward reading either, and say
+    in the report how you checked.
+  - `_testhelper_switch_off(am, c, k; reading = :all_lose_affinity)`
+    (`:outward_lose_affinity`, `:all_stopped`), in place of the `slow_uptake` keyword, with
+    its own search for the distances; it does not call `_switch_offs`. An unknown symbol
+    is an error.
+  - `_testhelper_admission_agreement(am; rng)` judges under the reading the guard admitted
+    with: the first of the three, in the guard's order, under which `D._admission(am, r)`
+    finds no fault; the first reading when none does.
+
+The fixtures, each written out in full in its testset with `@allosteric_mechanism`, built
+unguarded where the guard would refuse them. Their text is in
+`/home/denis.linux/claude-scratchpad/lean-mechanism-spike/gate/fixtures3.out` under the
+entry number given; `second_try_a`, `second_try_b`, `bridge_fast_a` and `bridge_fast_b`
+are Task 8's.
+
+- `both_readings` (split entry 5644; admitted before this work). The inactive conformation
+  keeps `E(A) + P <--> E(A, P)` and `E(P) + Q ⇌ E(P, Q)`, so its cut-off parts are
+  `{E(A), E(A, P)}` and `{E(P), E(P, Q)}`, each at distance 1.
+- `both_readings_only_i` (`:onlyI` entry 13305; not admitted before).
+- `outward_pumped` (ter-ter entry 53328; admitted before).
+
+- [ ] **Step 1: Write the failing tests**
+
+A testset `"a mechanism may need one uptake to lose its affinity and another to stop"` in
+`test/Derivation/test_admission.jl`:
+
+```julia
+am = both_readings
+p = _testhelper_edge(am, "E + P <--> E(P)")              # leads away: distance 0 to 1
+b = _testhelper_edge(am, "E(A) + B <--> E(P, Q)")        # distance 1 to 1
+a = _testhelper_edge(am, "E(P) + A ⇌ E(A, P)")           # rapid equilibrium, 1 to 1
+for (reading, name, at_p, at_b) in (
+        (D._ALL_LOSE_AFFINITY, :all_lose_affinity, D._LOSES_AFFINITY, D._LOSES_AFFINITY),
+        (D._OUTWARD_LOSE_AFFINITY, :outward_lose_affinity, D._LOSES_AFFINITY, D._STOPPED),
+        (D._ALL_STOPPED, :all_stopped, D._STOPPED, D._STOPPED))
+    off = D._switch_offs(am, 2, reading)
+    @test off[p] === at_p && off[b] === at_b
+    @test off[a] === D._LOSES_AFFINITY                    # a fast step is read one way
+    @test all(k -> Symbol(lowercase(string(off[k])[2:end])) ===
+                   _testhelper_switch_off(am, 2, k; reading = name), eachindex(off))
+end
+@test D._admission(am).fault === D._ARC_CYCLE
+@test D._admission(am, D._ALL_STOPPED).fault === D._ISLAND
+@test D._admission(am, D._OUTWARD_LOSE_AFFINITY) == D._WELL_POSED
+@test D._guard(am) == D._WELL_POSED
+@test all(_testhelper_admission_agreement(am; rng = MersenneTwister(1)))
+```
+
+and, in the same testset:
+- the law of `both_readings` equals the oracle's own deletion limit
+  (`_testhelper_check_law_against_limit`);
+- `both_readings_only_i`: the same three verdicts per reading as `both_readings`,
+  `D._guard(am) == D._WELL_POSED`, the agreement, and the law against the limit;
+- `outward_pumped`: `D._admission(am) == D._WELL_POSED`,
+  `D._admission(am, D._OUTWARD_LOSE_AFFINITY).fault === D._PUMPED`, `D._guard(am) ==
+  D._WELL_POSED`, and the agreement: the first try decides, and the outward reading alone
+  would lose this mechanism;
+- `second_try_a`: `D._admission(am, D._OUTWARD_LOSE_AFFINITY) == D._WELL_POSED`;
+  `second_try_b`: `D._admission(am, D._OUTWARD_LOSE_AFFINITY).fault === D._BRIDGE` and
+  `D._admission(am, D._ALL_STOPPED) == D._WELL_POSED`, so each later try is needed;
+- `bridge_fast_a`: rejected by all three, and `D._guard(am) == D._admission(am)` (the
+  first try's verdict);
+- the two conformations are read alike: `D._switch_offs(_testhelper_mirror(am), 1, r) ==
+  D._switch_offs(am, 2, r)` for `am = both_readings` and every reading `r`;
+- a step out of a part no path reaches is stopped under the outward reading: assert it on
+  a mechanism written in the testset, with the step named, if `both_readings` and Task 8's
+  fixtures hold none.
+
+Task 8's testset keeps every assertion, with `D._STOPPED` as a reading written
+`D._ALL_STOPPED` and `slow_uptake = :stopped` written `reading = :all_stopped`. No
+assertion is weakened or removed.
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Focused run of `test/Derivation/test_admission.jl`. Expected: `UndefVarError` on
+`_ALL_LOSE_AFFINITY`.
+
+- [ ] **Step 3: Implement**
+
+As the Interfaces block says. Update each docstring and comment that states two tries;
+the guard's error messages stay the first try's. `docs/src/` waits for Task 7.
+
+- [ ] **Step 4: Run the tests and the guards**
+
+- Focused runs: `test/Derivation/test_admission.jl`, `test/Mechanisms/test_types.jl`,
+  `test/Mechanisms/test_reaction_graph.jl`, `test/DSL/test_dsl.jl`. No existing assertion
+  may change but Task 8's renames. **If one would have to, a population pin included, stop
+  and report it.**
+- `test/Enumeration/test_mechanism_enumeration.jl` fails at this commit (32,144 pass, 41
+  fail, 16 error at 14f8513a; Tasks 5 and 6 bring it to the rule). Report the failing
+  testsets before and after this change and the wall time of both runs; a difference in
+  which fail is expected only where the guard now admits a mechanism.
+- `test/test_type_stability.jl` and `test/test_boundaries.jl` pass (the default `julia`
+  is 1.13.4; `julia +1.13` is not installed).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Derivation test/Derivation/test_admission.jl test/mechanism_definitions_for_test_enzyme_derivation.jl
+git commit -m "Let the guard read an outward steady-state uptake apart from the others"
+```
+
+- [ ] **Step 6: Rerun the gate with the split children added**
+
+In `compare.jl`, add a fourth population, `:split`: the 9,878 mechanisms whose text is in
+`gate/split_population.jls` (field `allparents`; rebuild each as `level_rule.jl`'s
+`unshow` does), with the guard's faults at the branch base in `gate/split_base_faults.jls`
+(a vector of symbols in the same order; admitted before means `:_NO_FAULT`). The checks of
+Task 4 step 1 apply to it as to `:onlyA`. Keep the last run's files as
+`*-before-third-try.*`. Rerun, and write `report.md`.
+
+Expected, from the spike (`gate/level_rule.out`, `fixtures3.out`): admitted now 7,520
+(`:onlyA`), 2,200 (`:onlyI`), 1,350 (`:terter`), 7,474 (`:split`); the only lost entries
+without the new fault are 53145 and 53246; the outward try admits 5 `:onlyI`, 2 `:terter`
+and 64 `:split` entries the other two do not, and every one must give
+`all(_testhelper_admission_agreement(am; rng))`. **If a count differs, an entry admitted
+before is lost for another reason, or an oracle disagrees, stop and report it.**
+
 ### Task 4: The gate
 
 **Files:**
@@ -560,6 +721,11 @@ failing exact-children test, compute the children lost and gained. A lost child 
 Then update the expected set and count, keeping every expected child written out. For an
 aggregate count pin, record old and new counts. Append all to `changed-tests.md`. Any
 other difference is a stop condition.
+A lost child may also be one the guard still admits and the enumerator no longer proposes
+(its tagging base is rejected or fails the filter, so the search builds on another base):
+record it with the base that replaced it. A move's raw output may lose a child the guard
+rejected before and rejects now, because its base is gone: record it as "rejected before
+and now; base gone".
 Reference from the spike: one expansion round of the census ping-pong reaction went from
 1,593 to 1,559 children, bi-bi from 2,060 to 2,048, uni-uni unchanged.
 
@@ -613,7 +779,10 @@ user's terms and in this order: the assumption (an excluded step has a very high
 dissociation constant or very low rate constants, and every thermodynamic constraint holds
 in each conformation); that a step keeps its kind in both conformations, with the
 maintainer's reason (rapid equilibrium and steady state differ more than 100-fold); the
-four-row table; the spec's three worked examples as `@allosteric_mechanism` blocks; what
+four-row table, and under it, in two or three sentences, that a steady-state step into
+a cut-off form may be switched off either way and the package accepts the mechanism when
+one of the three choices it tries gives a limit (spec, decision 2); the spec's three
+worked examples as `@allosteric_mechanism` blocks; what
 the error for a rapid-equilibrium step means and its two fixes (make the step
 steady-state, or exclude the steps that keep its bound form reachable).
 Then correct what the page says elsewhere: the paragraph at lines 66 to 70 (any group may
@@ -622,8 +791,9 @@ be `:OnlyI` while the active conformation catalyzes), the numbered "Existence" a
 (the catalytic step must be `:OnlyA` too when the substrate binding is at rapid
 equilibrium; a steady-state binding is stopped instead).
 
-- [ ] **Step 2: Rewrite the developer page's guard section** to the rule and the new
-fault, with no mention of the old one.
+- [ ] **Step 2: Rewrite the developer page's guard section** to the rule, the three
+tries in their order with what "leads away from free E" means, and the new fault, with no
+mention of the old one.
 
 - [ ] **Step 3: Update `ROADMAP.md`**
 
@@ -631,7 +801,10 @@ Re-examine "Let an allosteric ping-pong stop both half-reactions in the inactive
 conformation": build its examples, record what the guard now says of each, and rewrite the
 entry to match. Add under Planned the two things the spec leaves unchecked or rejected for
 now: an excluded rapid-equilibrium isomerization that could stay fast, and ter-ter beyond
-the gate's sample. Update any Known issue that names `_NO_LIMIT` or the plain-binding rule.
+the gate's sample. Add a Known issue: the guard tries three fixed choices of how the
+steady-state steps into cut-off forms are switched off, so it rejects a mechanism that
+only another choice would admit (one is known, ter-ter, rejected before this work too;
+its text is entry 54057 in `gate/mix54057.out`). Update any Known issue that names `_NO_LIMIT` or the plain-binding rule.
 
 - [ ] **Step 4: Bump the version and build the docs**
 
