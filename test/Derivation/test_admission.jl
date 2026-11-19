@@ -4732,6 +4732,59 @@ end
     @test _testhelper_epath_verdict(pinned_active; rng) === :no_path
 end
 
+@testset "sampled taggings: the rule agrees with the mass-action oracles" begin
+    # An aggregate check over a population: 60 taggings of the plain init mechanisms of
+    # the bi-bi and ping-pong reactions, sorted by their text so that the sample does not
+    # depend on the enumeration order, each built without the guard. 40 tag one random
+    # nonempty set of groups :OnlyA; 20 draw a state for each group, at least one :OnlyI.
+    # An admitted law agrees with both oracles on every face. A mechanism rejected for a
+    # pinned step has a step that the tests' own statement of the rule cannot switch off,
+    # and the ε-path oracle finds no path to the limit.
+    D = EnzymeRates.Derivation
+    bibi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    pingpong = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    plain = sort!(unique([m for rxn in (bibi, pingpong)
+                          for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
+                          if m isa EnzymeRates.Mechanism]); by = m -> sprint(show, m))
+    rng = Random.MersenneTwister(20261119)
+    function _testhelper_random_tagging(holds_only_i::Bool)
+        m = rand(rng, plain)
+        G = length(m.groups)
+        states = if holds_only_i
+            s = Symbol[]
+            while !(:OnlyI in s)
+                s = rand(rng, [:EqualAI, :OnlyA, :OnlyI], G)
+            end
+            s
+        else
+            bits = rand(rng, 1:(2^G - 1))
+            [isodd(bits >> (g - 1)) ? :OnlyA : :EqualAI for g in 1:G]
+        end
+        EnzymeRates.AllostericMechanism(m, states, 1,
+                                        EnzymeRates.Mechanisms.RegulatorySite[])
+    end
+    sample = [[_testhelper_random_tagging(false) for _ in 1:40];
+              [_testhelper_random_tagging(true) for _ in 1:20]]
+    faults = [D._guard(am).fault for am in sample]
+    for (am, fault) in zip(sample, faults)
+        if fault === D._NO_FAULT
+            @test all(_testhelper_admission_agreement(am; rng))
+        elseif fault === D._FAST_STEP_PINNED
+            @test any(c -> any(k -> _testhelper_switch_off(am, c, k) === :cannot_switch_off,
+                               eachindex(am.catalytic.steps)), 1:2)
+            @test _testhelper_epath_verdict(am; rng) === :no_path
+        end
+    end
+    @test count(==(D._NO_FAULT), faults) >= 10
+    @test count(==(D._FAST_STEP_PINNED), faults) >= 3
+end
+
 @testset "joint R1 rejects a mechanism whose bridges cut the tree only together" begin
     # The hand-built joint-R1 network's pattern on a mechanism. Half 2 :OnlyA strands the
     # inactive conformation's covalent forms at zero P, so no in-tree of that
