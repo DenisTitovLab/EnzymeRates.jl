@@ -798,13 +798,16 @@ mention of the old one.
 - [ ] **Step 3: Update `ROADMAP.md`**
 
 Re-examine "Let an allosteric ping-pong stop both half-reactions in the inactive
-conformation": build its examples, record what the guard now says of each, and rewrite the
-entry to match. Add under Planned the two things the spec leaves unchecked or rejected for
+conformation": build the examples under "What the search does today", record what the
+guard now says of each, and rewrite those bullets to match. Leave its "The energy-level
+rule" bullets as they are (commit 03b283cd): they record measurements for a later design. Add under Planned the two things the spec leaves unchecked or rejected for
 now: an excluded rapid-equilibrium isomerization that could stay fast, and ter-ter beyond
 the gate's sample. Add a Known issue: the guard tries three fixed choices of how the
 steady-state steps into cut-off forms are switched off, so it rejects a mechanism that
 only another choice would admit (one is known, ter-ter, rejected before this work too;
-its text is entry 54057 in `gate/mix54057.out`). Update any Known issue that names `_NO_LIMIT` or the plain-binding rule.
+its text is entry 54057 in `gate/mix54057.out`; a second, entry 54341, is in
+`gate/all_mixtures.out`), and point to the energy-level rule in the ping-pong entry, whose
+search would replace the three tries. Update any Known issue that names `_NO_LIMIT` or the plain-binding rule.
 
 - [ ] **Step 4: Bump the version and build the docs**
 
