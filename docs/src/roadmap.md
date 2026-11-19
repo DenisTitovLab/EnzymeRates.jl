@@ -27,9 +27,12 @@ them.
 one half-reaction in the inactive conformation, as phosphorylation stops pyruvate
 dehydrogenase's E1 and leaves E2 and E3 running. Stopping both strands the covalent
 intermediate between the halves: its weight, and with it the rate, then depends on how fast
-each half stops, so `@allosteric_mechanism` rejects such a mechanism. Supporting it needs
-the conformations to interconvert at the covalent intermediate as well, which will come
-with iso mechanisms.
+each half stops, so `@allosteric_mechanism` rejects such a mechanism. Two ways to support
+it are planned. In one the conformations interconvert at the covalent intermediate as
+well, which will come with iso mechanisms. In the other the covalent intermediate sits at
+higher energy in the inactive conformation, so each half's step into it vanishes while its
+step out keeps its rate and the intermediate empties; numerical tests admit most such
+mechanisms under this reading, and it needs one more check before it can be built.
 
 ## Support more measurement types
 

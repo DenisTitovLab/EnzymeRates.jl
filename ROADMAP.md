@@ -116,11 +116,78 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   (`_hyperbolic_catalysis`), as when the running half joins two segments that each hold an
   abortive complex, so the six-step ping-pong seed whose A and P groups each hold an
   abortive binding keeps no well-posed tagging child at two subunits; its descendant with
-  both abortive bindings in groups of their own, two split rounds away, keeps four. Stopping
-  both halves needs the conformations to flip at the covalent form as well, with an
-  equilibrium constant of its own, and the multi-subunit rate formula rederived for two flip
-  forms. Take it up with iso mechanisms, which add free forms of their own. Priority:
+  both abortive bindings in groups of their own, two split rounds away, keeps four. Two
+  ways to stop both halves are known. One lets the conformations flip at the covalent form
+  as well, with an equilibrium constant of its own and the multi-subunit rate formula
+  rederived for two flip forms; it belongs with iso mechanisms, which add free forms of
+  their own. The other keeps the one flip and changes how the guard reads an excluded step:
+  the energy-level rule below, measured in spikes in November 2026 and not built. Priority:
   medium.
+  The energy-level rule:
+  - **The rule.**
+    In a conformation the steps it keeps join the forms into groups, and every cut-off group
+    lies above free E's in energy. An excluded step between two groups loses its uphill rate
+    and keeps its downhill rate, in either direction, a rapid-equilibrium step staying fast;
+    a steady-state one may stop instead. An excluded step inside one group stops when
+    steady-state and is a fault when rapid-equilibrium. The guard admits a mechanism when
+    some such reading passes its checks: the uphill steps close no cycle, they lead from
+    free E's group to every group, and the face condition holds on every face. Today's rule
+    is the special case in which only a step that takes up one metabolite may lose, toward
+    its bound side, with three fixed sets of stopped steps tried. In a ping-pong the
+    covalent forms rise: each half's step into them vanishes and its step out keeps its
+    rate, so they empty, whatever the ratio of the two vanishing rates.
+  - **What it admits.**
+    Of the 25 bi-bi ping-pong `init_mechanisms` with a covalent form, each with both halves'
+    chemistry `:OnlyA` and with every step `:OnlyA`, 40 of the 50, the six-step ping-pong
+    with both chemistry steps `:OnlyA` among them; today's guard admits none. Three with
+    both chemistry steps `:OnlyA` have no limit under any reading: their covalent forms
+    empty only by binding B. Beyond today's guard, and with the two additions below, it
+    admits 180 of the 9,616 `:OnlyA` taggings of the uni-uni, bi-bi and ping-pong
+    `init_mechanisms` (7,520 admitted today), 34 of 43,311 sampled taggings with an `:OnlyI`
+    group, 254 of 2,000 sampled ter-ter taggings and 600 of the 9,878 K-type taggings of the
+    bi-bi split children. It rejects nothing today's guard admits. No mechanism rejected
+    because a rapid-equilibrium step would have to turn slow comes back: that step lies
+    inside one group.
+  - **It needs a face check the guard does not have.**
+    With the face condition as it is, the rule admits laws that are not the limit: at least
+    14 of the 253 mechanisms it then admits in the first population have a limit at zero B
+    that depends on how the steps vanish. A step that loses toward its unbound side keeps
+    its uptake, which dies on the face where its metabolite is zero; its release, which
+    vanishes, then fills a cut-off form one way. Today's rule cannot do this: the direction
+    it keeps is always a release. The check that removed every failure found: on a face,
+    refuse a rapid-equilibrium transition that vanishes and is alive while its reverse is
+    dead when alive rapid-equilibrium transitions lead from the law's forms to its source
+    and no alive rapid-equilibrium transitions that do not vanish lead from its target to a
+    law form. With it the ε-path oracle agrees on every newly admitted mechanism of 8 steps
+    or fewer under corner directions (ping-pong 38, first population 154) and on every
+    sampled larger one under standard directions. Standard directions miss the failure, so
+    corner directions are the test. No argument yet shows the face condition with this check
+    is sufficient for the new readings: write it before building.
+  - **It needs a search, with a cap.**
+    One fixed reading, levels by breadth-first distance from free E's group, admits 6,252 of
+    the 7,520. Every reading, pruned per conformation by the two graph checks, cost 0.15 to
+    1.2 s per population and at most 91 ms for one mechanism; 53 of the 644 ter-ter
+    mechanisms searched exceeded the spike's cap of 20,000 readings in a conformation.
+    Searching only whether each steady-state uptake into a cut-off form loses or stops, the
+    complete form of today's three tries, admits 2 more of the 65,000 (both ter-ter) and
+    takes 465 ms at 15 such steps, doubling with each.
+  - **Valid mechanisms the face condition rejects.**
+    Under the rule, 67 of the 505 mechanisms of 8 steps or fewer that the first population
+    loses at the face condition have a law equal to the limit under corner directions, all
+    rejected as a bridge. Deleting, before the face condition runs, each group of cut-off
+    forms that touches the law's forms only within one class that rapid-equilibrium steps
+    hold in equilibrium, whose forms all drain and none of which fills faster than it
+    empties, recovers 35 there and 23 ter-ter, every one agreeing with the oracle (corner
+    directions for 25); 2 of 120 sampled then remain valid and rejected as a bridge. The
+    filling check above also rejects mechanisms whose rate equals the law's (11 to 16 of 120
+    sampled): on the face the cut-off forms hold most of the enzyme, and the rate matches
+    because the inactive conformation's kept chemistry has the active one's constants. No
+    simple rule found separates these from the wrong ones.
+  - **Where the measurements are.**
+    Scripts and logs are on the maintainer's machine, outside the repository, in
+    `claude-scratchpad/lean-mechanism-spike/gate/`: `levels.jl` (the rule), `pingpong2.jl`,
+    `all_mixtures.jl` (the complete form of the three tries), `pump_diag.jl` and
+    `pump_probe2.jl` (the failures), `final.jl` (the rule with both additions).
   What the search does today:
   - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
     The tagging move gives the bi-bi ping-pong of six steps, whose second half-reaction
