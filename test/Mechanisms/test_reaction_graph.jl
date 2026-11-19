@@ -1157,8 +1157,9 @@ let population = _testhelper_census_population(),
                            ER.Mechanisms.EnzymeForm(:D, none, Symbol[], Symbol[])]
     @test _testhelper_graph(x).forms[1:2] == ["E", "D"]
     # The census's first populations: each graph decodes from its Sig and builds again
-    # from the nodes and steps it writes back.
-    @test length(population) == 5508 + 5505
+    # from the nodes and steps it writes back. The count: the six reactions' init
+    # mechanisms, then the bi-bi reaction's children.
+    @test length(population) == 5508 + 5597
     @test all(_testhelper_decode(x, ER.Mechanisms._sig_of(x)) == x for x in population)
     @test all(_testhelper_build(_testhelper_written(x)) == x for x in population)
 end
@@ -1180,7 +1181,8 @@ end
         @test ER.compile_mechanism(
             ER.DSL.parse_mechanism(sprint(show, spec.mechanism))) === spec.mechanism
     end
-    @test length(allosteric) == 5 + 890 + 5
+    # The allosteric children of the uni-uni, ping-pong and two-site reactions.
+    @test length(allosteric) == 5 + 856 + 5
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
     @test isempty([i for (i, x) in enumerate(allosteric) if !_testhelper_reads_back(x)])
 end
