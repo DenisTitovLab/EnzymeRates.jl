@@ -4441,6 +4441,80 @@ end
     @test _testhelper_epath_verdict(island; rng) in (:direction_dependent, :wrong_limit)
 end
 
+@testset ":OnlyI on a step that does more than bind a modifier" begin
+    # Any group may be :OnlyI while the active conformation still catalyzes the reaction.
+    # Each mechanism the macro admits has a law equal to the limit on every face, by the
+    # ε-path oracle and by the RE-speed oracle against the package's law.
+    D = EnzymeRates.Derivation
+    rng = Random.MersenneTwister(101)
+    # Two isomerization paths from E(S) to E(P); the direct one runs in the inactive
+    # conformation alone. Its mirror image, the direct path :OnlyA, is the same model
+    # with L inverted, and the guard admits it too.
+    two_paths = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)              :: EqualAI
+            E(S) <--> E(P)            :: OnlyI
+            E(S) ⇌ Estar(S)           :: EqualAI
+            Estar(S) <--> Estar(P)    :: EqualAI
+            Estar(P) ⇌ E(P)           :: EqualAI
+            E + P ⇌ E(P)              :: EqualAI
+        end
+    end)
+    @test all(_testhelper_admission_agreement(two_paths; rng))
+    @test all(==(:agree), _testhelper_respeed_verdicts(two_paths; rng))
+    mirror = _testhelper_mirror(two_paths)
+    @test D._guard(mirror) == D._WELL_POSED
+    @test all(_testhelper_admission_agreement(mirror; rng))
+    @test all(==(:agree), _testhelper_respeed_verdicts(mirror; rng))
+    # An exchange step beside a ternary-complex path, the exchange :OnlyI.
+    exchange = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)              :: EqualAI
+            E(A) + B <--> E(Q) + P    :: OnlyI
+            E(A) + B ⇌ E(A, B)        :: EqualAI
+            E(A, B) <--> E(P, Q)      :: EqualAI
+            E(Q) + P ⇌ E(P, Q)        :: EqualAI
+            E + Q ⇌ E(Q)              :: EqualAI
+        end
+    end)
+    @test all(_testhelper_admission_agreement(exchange; rng))
+    @test all(==(:agree), _testhelper_respeed_verdicts(exchange; rng))
+    # The only catalytic step :OnlyI: the active conformation cannot catalyze.
+    no_turnover = "the active conformation turns no substrate into product"
+    @test_throws no_turnover @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: OnlyI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+    # A rapid-equilibrium S binding :OnlyI whose bound form the chemistry and the P
+    # binding keep joined to free E: the active conformation cannot switch it off.
+    pinned_active = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyI
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+    k = _testhelper_edge(pinned_active, "E + S ⇌ ES")
+    v = D._guard(pinned_active)
+    @test (v.fault, v.conformation, v.edge) == (D._FAST_STEP_PINNED, 1, k)
+    msg = D._guard_message(pinned_active, v)
+    @test occursin("in the active conformation", msg)
+    @test occursin(":OnlyI", msg)
+    @test msg == _testhelper_pinned_cause(pinned_active, k, 1)
+    @test _testhelper_epath_verdict(pinned_active; rng) === :no_path
+end
+
 @testset "joint R1 rejects a mechanism whose bridges cut the tree only together" begin
     # The hand-built joint-R1 network's pattern on a mechanism. Half 2 :OnlyA strands the
     # inactive conformation's covalent forms at zero P, so no in-tree of that

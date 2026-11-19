@@ -513,7 +513,6 @@ struct AllostericMechanism
                                  catalytic_multiplicity::Int,
                                  regulatory_sites::Vector{RegulatorySite})
         _check_tags(mwc_tags, length(catalytic.groups), catalytic_multiplicity)
-        _check_onlyi_groups(catalytic, mwc_tags)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
         excluded_active = (e -> excludes(mwc_tags[e.group], :active)).(catalytic.steps)
@@ -825,27 +824,6 @@ function _check_tags(mwc_tags::Vector{Symbol}, G::Int, catalytic_multiplicity::I
     bad === nothing ||
         error("AllostericMechanism: catalytic group $bad has invalid " *
               "MWC tag $(mwc_tags[bad]) (must be one of $_TAG_CODES)")
-    nothing
-end
-
-"""Error when a kinetic group of `catalytic` tagged `:OnlyI` (`mwc_tags`) holds a
-step that does more than take up or give off modifiers, or whose two nodes differ in
-anything but their modifiers and label: only the active conformation catalyzes, so a
-group it lacks binds modifiers alone (spec section 7)."""
-function _check_onlyi_groups(catalytic::Mechanism, mwc_tags::Vector{Symbol})
-    reactants(list::Vector{Metabolite}) = filter(x -> !x.modifier, list)
-    for (k, e) in enumerate(catalytic.steps)
-        mwc_tags[e.group] === :OnlyI || continue
-        f, t = catalytic.nodes[e.from], catalytic.nodes[e.to]
-        !_is_iso(e) && all(x -> x.modifier, e.taken_up) &&
-            all(x -> x.modifier, e.given_off) &&
-            (reactants(f.bound), f.added, f.subtracted) ==
-            (reactants(t.bound), t.added, t.subtracted) && continue
-        error("AllostericMechanism: $(step_text(catalytic, k)) is tagged :OnlyI but " *
-              "does more than bind a modifier. Only the active conformation " *
-              "catalyzes, so :OnlyI fits only a group whose steps take up or give off " *
-              "modifiers alone. Tag its group :NonequalAI.")
-    end
     nothing
 end
 

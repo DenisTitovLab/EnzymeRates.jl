@@ -1067,6 +1067,15 @@ function _testhelper_switch_off(am, c::Int, k::Int)
     e.rapid_equilibrium ? :cannot_switch_off : :stopped
 end
 
+"""The mirror image of the allosteric mechanism `am`, built without the guard: the same
+catalytic graph, multiplicity and sites, with every `:OnlyA` and `:OnlyI` group state
+swapped."""
+function _testhelper_mirror(am)
+    swapped = [t === :OnlyA ? :OnlyI : t === :OnlyI ? :OnlyA : t for t in am.mwc_tags]
+    EnzymeRates.AllostericMechanism(am.catalytic, swapped, am.catalytic_multiplicity,
+                                    am.regulatory_sites)
+end
+
 """One reversible step of an oracle network between nodes `i` and `j`: forward rate `f`
 and reverse rate `r`, concentrations included, `w` copies of the first substrate taken up
 from `i` to `j`; a `fast` link runs at Λ times its rates."""

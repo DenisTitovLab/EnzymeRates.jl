@@ -194,9 +194,10 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             end
         end))
 
-        # Reject :OnlyI on a catalytic step: only the active conformation catalyzes.
-        @test_throws ("AllostericMechanism: E(F6P) <--> E(F16BP) is tagged :OnlyI but " *
-                      "does more than bind a modifier.") eval(
+        # Reject :OnlyI on the only catalytic step: the active conformation must catalyze.
+        @test_throws ("AllostericMechanism: without its :OnlyI steps E(F6P) <--> " *
+                      "E(F16BP) the active conformation turns no substrate into " *
+                      "product") eval(
             :(@allosteric_mechanism begin
                 substrates: F6P
                 products:   F16BP
@@ -293,9 +294,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                 end
             end))
         end
-        # So is :OnlyI on a step that does more than bind a modifier.
-        @test_throws ("AllostericMechanism: E + P ⇌ E(P) is tagged :OnlyI but does " *
-                      "more than bind a modifier.") eval(:(@allosteric_mechanism begin
+        # The guard rejects a rapid-equilibrium :OnlyI binding whose bound form the
+        # active conformation's other steps still reach.
+        @test_throws ("AllostericMechanism: in the active conformation the " *
+                      "rapid-equilibrium step E + P ⇌ E(P) is tagged :OnlyI but cannot " *
+                      "be switched off.") eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             steps: begin
@@ -1613,23 +1616,36 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         end)))
     end
 
-    @testset "the :OnlyI rule rejects every step that does more than bind a modifier" begin
-        # Three shapes: a reactant binding, an isomerization of an inhibitor complex, and
-        # a Theorell–Chance step that takes up a modifier and gives off a product. Each
-        # fix, the group tagged :NonequalAI, passes the guard.
-        lead = "is tagged :OnlyI but does more than bind a modifier."
-        for (text, line) in (
-                ("E + S ⇌ E(S) :: OnlyI\nE(S) <--> E + P :: EqualAI\n" *
-                 "E + I ⇌ E(I) :: EqualAI", "E + S ⇌ E(S)"),
-                ("E + S ⇌ E(S) :: EqualAI\nE(S) <--> E + P :: EqualAI\n" *
-                 "E + I ⇌ E(I) :: EqualAI\nE(I) <--> F(I) :: OnlyI", "E(I) <--> F(I)"),
-                ("E + S ⇌ E(S) :: EqualAI\nE(S) <--> E + P :: EqualAI\n" *
-                 "E + I ⇌ E(I) :: EqualAI\nE(S) + I <--> E(I) + P :: OnlyI",
-                 "E(S) + I <--> E(I) + P"))
-            _testhelper_block(steps) = Meta.parse(
-                "@allosteric_mechanism begin\nsubstrates: S\nproducts: P\n" *
-                "modifiers: I\nsteps: begin\n$steps\nend\nend")
-            @test_throws "AllostericMechanism: $line $lead" eval(_testhelper_block(text))
+    @testset "the guard judges :OnlyI on a step that does more than bind a modifier" begin
+        # Three shapes, each :OnlyI: a reactant binding, an isomerization of an inhibitor
+        # complex, and a Theorell–Chance step that takes up a modifier and gives off a
+        # product. The active conformation cannot switch off the rapid-equilibrium S
+        # binding, whose bound form the product release still reaches; it stops the
+        # isomerization, which leaves F(I) an island; and it stops the Theorell–Chance
+        # step, with a law equal to the limit on every face. Each group tagged
+        # :NonequalAI passes the guard.
+        D = EnzymeRates.Derivation
+        rng = Random.MersenneTwister(31)
+        _testhelper_block(steps; guarded = true) = Meta.parse(
+            (guarded ? "" : "@_testhelper_unguarded ") * "@allosteric_mechanism begin\n" *
+            "substrates: S\nproducts: P\nmodifiers: I\nsteps: begin\n$steps\nend\nend")
+        rest = "E(S) <--> E + P :: EqualAI\nE + I ⇌ E(I) :: EqualAI"
+        binding = "E + S ⇌ E(S) :: OnlyI\n$rest"
+        isomerization = "E + S ⇌ E(S) :: EqualAI\n$rest\nE(I) <--> F(I) :: OnlyI"
+        exchange = "E + S ⇌ E(S) :: EqualAI\n$rest\nE(S) + I <--> E(I) + P :: OnlyI"
+        for (text, fault, line) in ((binding, D._FAST_STEP_PINNED, "E + S ⇌ E(S)"),
+                                    (isomerization, D._ISLAND, "E(I) <--> F(I)"))
+            am = eval(_testhelper_block(text; guarded = false))
+            v = D._guard(am)
+            @test (v.fault, v.conformation) == (fault, 1)
+            @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == line
+            @test_throws(ErrorException(D._guard_message(am, v)),
+                         eval(_testhelper_block(text)))
+        end
+        admitted = EnzymeRates.AllostericMechanism(eval(_testhelper_block(exchange)))
+        @test all(_testhelper_admission_agreement(admitted; rng))
+        @test all(==(:agree), _testhelper_respeed_verdicts(admitted; rng))
+        for text in (binding, isomerization, exchange)
             @test eval(_testhelper_block(replace(text, ":: OnlyI" => ":: NonequalAI"))) isa
                   EnzymeRates.AllostericEnzymeMechanism
         end
@@ -2206,10 +2222,11 @@ end
     end
 
     @testset "constructor errors throw when the expanded code runs" begin
-        # The walker reads the block at expansion; the constructors check the mechanism
-        # when the macro's code runs, so these throw outside `eval`.
-        @test_throws ("AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does " *
-                      "more than bind a modifier.") @allosteric_mechanism begin
+        # The walker reads the block at expansion; the constructors and the guard check
+        # the mechanism when the macro's code runs, so these throw outside `eval`.
+        no_turnover = "AllostericMechanism: without its :OnlyI steps E(S) <--> E(P) the " *
+                      "active conformation turns no substrate into product"
+        @test_throws no_turnover @allosteric_mechanism begin
             substrates: S
             products:   P
             steps: begin

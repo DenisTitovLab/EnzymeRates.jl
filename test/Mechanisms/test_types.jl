@@ -185,9 +185,15 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): I::EqualAI
         end) isa ER.AllostericEnzymeMechanism
 
-        # A catalytic group may be :OnlyI only when its steps bind modifiers alone.
-        @test_throws ("AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more " *
-                      "than bind a modifier.") @allosteric_mechanism begin
+        # Any catalytic group may be :OnlyI, but the active conformation cannot switch
+        # off a rapid-equilibrium step whose bound form its other steps still reach.
+        why = " is tagged :OnlyI but cannot be switched off. A step keeps its kind in " *
+              "both conformations, so a rapid-equilibrium step can only lose its " *
+              "affinity, and it can do that only when it takes up one metabolite into a " *
+              "form the other steps no longer reach."
+        lead = "AllostericMechanism: in the active conformation the rapid-equilibrium step "
+        pinned(step) = lead * step * why
+        @test_throws pinned("E + S ⇌ E(S)") @allosteric_mechanism begin
             substrates: S
             products:   P
             catalytic_multiplicity: 2
@@ -197,11 +203,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P      :: NonequalAI
             end
         end
-        # Nor when they change what else their forms hold: that is catalysis.
-        why = " Only the active conformation catalyzes, so :OnlyI fits only a group " *
-              "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."
-        @test_throws ("AllostericMechanism: E(S) + X ⇌ E(P, X) is tagged :OnlyI but does " *
-                      "more than bind a modifier." * why) @allosteric_mechanism begin
+        # So is a step that changes what else its forms hold.
+        @test_throws pinned("E(S) + X ⇌ E(P, X)") @allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: X
@@ -213,9 +216,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) + X <--> E(P, X)    :: EqualAI
             end
         end
-        copy_msg = "AllostericMechanism: E(S) + S::Mod ⇌ E(P, S::Mod) is tagged :OnlyI " *
-                   "but does more than bind a modifier." * why
-        @test_throws copy_msg @allosteric_mechanism begin
+        @test_throws pinned("E(S) + S::Mod ⇌ E(P, S::Mod)") @allosteric_mechanism begin
             substrates: S
             products:   P
             modifiers: S
@@ -1660,8 +1661,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             "AllostericMechanism: catalytic group 1 has invalid MWC tag $tag (must be " *
             "one of (:OnlyA, :OnlyI, :EqualAI, :NonequalAI))")
 
-        # :OnlyI fits only a group that binds modifiers alone: the active conformation
-        # is the one that catalyzes.
+        # The constructor takes :OnlyI on any group and leaves the verdict to the guard:
+        # the active conformation cannot switch off the rapid-equilibrium S binding,
+        # whose bound form the chemistry and the P binding still reach.
         uni = ER.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
@@ -1671,14 +1673,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P
             end
         end)
+        k = _testhelper_edge(uni, "E + S ⇌ ES")
         onlyi_tags = fill(:EqualAI, length(uni.groups))
-        onlyi_tags[uni.steps[_testhelper_edge(uni, "E + S ⇌ ES")].group] = :OnlyI
-        @test_throws ErrorException(
-            "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than " *
-            "bind a modifier. Only the active conformation catalyzes, so :OnlyI fits " *
-            "only a group whose steps take up or give off modifiers alone. Tag its " *
-            "group :NonequalAI.") ER.AllostericMechanism(uni, onlyi_tags, 1,
-                                                          ER.Mechanisms.RegulatorySite[])
+        onlyi_tags[uni.steps[k].group] = :OnlyI
+        onlyi = ER.AllostericMechanism(uni, onlyi_tags, 1, ER.Mechanisms.RegulatorySite[])
+        v = ER.Derivation._guard(onlyi)
+        @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, k)
+        @test ER.Derivation._guard_message(onlyi, v) ==
+              _testhelper_pinned_cause(onlyi, k, 1)
 
         # Length mismatch
         @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *

@@ -626,9 +626,9 @@ A group whose tied edges share no such direction is rejected. The `RegulatorySit
 constructor sorts a site's ligands by name, and the `AllostericMechanism` constructor
 sorts the sites.
 
-The constructors check representation and the `:OnlyI` rule only (`_check_declarations`,
-`_check_representation`, and for an allosteric mechanism `_check_tags`,
-`_check_onlyi_groups` and `_check_ligands`): names a metabolite can take and conformation
+The constructors check representation only (`_check_declarations`, `_check_representation`,
+and for an allosteric mechanism `_check_tags` and `_check_ligands`): names a metabolite can
+take and conformation
 labels shaped as labels, none a metabolite's name; every name the steps hold declared, and
 every declared name taken up, given off or bound by some step; residuals that add substrates
 and subtract products; the free form E (nothing bound, no residual), and edges that join

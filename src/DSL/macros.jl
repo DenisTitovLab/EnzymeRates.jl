@@ -198,18 +198,20 @@ It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
 A tag says how a statement's constants, or a ligand's binding, differ between the
 conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
 and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
-one only. A catalytic statement takes `EqualAI`, `NonequalAI` or `OnlyA`, or `OnlyI` when
-its steps bind only modifiers (`modifiers:` names or `::Mod` copies); a ligand takes any of
-the four. The conformations interconvert only at free E.
+one only. A catalytic statement or a ligand takes any of the four, as long as the active
+conformation still turns substrate into product. The conformations interconvert only at
+free E.
 
-A tagged step's constants vanish in the conformation that lacks it, and the macro rejects a
-tag set whose limit it cannot show to exist and be unique: an `:OnlyA` or `:OnlyI` binding
-whose two sides the steps that conformation keeps still join; tagged bindings that close a
-cycle; forms that free E reaches only through tagged steps other than a binding toward
-them; `:OnlyI` groups without which the active conformation turns nothing over; a face
-where the steady state depends on where the enzyme starts; or a face where it cannot show
-that the limit does not depend on how fast the tagged constants vanish. The checks of
-[`@enzyme_mechanism`](@ref) apply as well.
+A tagged step is switched off in the conformation that lacks it, and it keeps its kind,
+rapid equilibrium or steady state, in both. A step that takes up one metabolite into a form
+the other steps no longer reach loses its affinity, and any other steady-state step stops.
+Any other rapid-equilibrium step cannot be switched off, and the macro rejects it (see
+[How an excluded step is switched off](@ref)). The macro also rejects a tag set whose limit
+it cannot show to exist and be unique: steps that lose their affinity and close a cycle;
+forms that free E reaches only through tagged steps other than an uptake toward them that
+loses its affinity; a face where the steady state depends on where the enzyme starts; or a
+face where it cannot show that the limit does not depend on how fast the tagged constants
+vanish. The checks of [`@enzyme_mechanism`](@ref) apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

@@ -204,11 +204,13 @@ end
     @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
                                 "1, got 0"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
-    @test_throws(ErrorException(
-        "AllostericMechanism: E + S ⇌ E(S) is tagged :OnlyI but does more than bind a " *
-        "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
-        "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
-        ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites))
+    # Any group may be :OnlyI, and the guard judges the mechanism: the active
+    # conformation cannot switch off the rapid-equilibrium S binding (step 2), whose bound
+    # form the chemistry and the P binding still reach.
+    onlyi = ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites)
+    v = ER.Derivation._guard(onlyi)
+    @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, 2)
+    @test ER.Derivation._guard_message(onlyi, v) == _testhelper_pinned_cause(onlyi, 2, 1)
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
         "rendered regulator parameter names would collide. " *
@@ -509,12 +511,14 @@ end
     @test_throws MethodError _testhelper_allosteric(tags, true, M.RegulatorySite[])
     @test_throws MethodError ER.AllostericMechanism(_testhelper_uniuni(), tags, true,
                                                     M.RegulatorySite[])
-    @test_throws(ErrorException(
-        "AllostericMechanism: E(S) <--> E(P) is tagged :OnlyI but does more than bind a " *
-        "modifier. Only the active conformation catalyzes, so :OnlyI fits only a group " *
-        "whose steps take up or give off modifiers alone. Tag its group :NonequalAI."),
-                 _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2,
-                                        M.RegulatorySite[]))
+    # Any group may be :OnlyI: the constructor builds the chemistry :OnlyI, and the guard
+    # rejects it, since the active conformation then turns nothing over.
+    onlyi = _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2, M.RegulatorySite[])
+    v = ER.Derivation._guard(onlyi)
+    @test (v.fault, v.conformation) == (ER.Derivation._NO_ACTIVE_TURNOVER, 1)
+    @test startswith(ER.Derivation._guard_message(onlyi, v),
+                     "AllostericMechanism: without its :OnlyI steps E(S) <--> E(P) the " *
+                     "active conformation turns no substrate into product")
     # Declarations and group labels.
     @test_throws(ErrorException("Mechanism: substrates must not be empty"),
                  _testhelper_uniuni(substrates = Symbol[]))
