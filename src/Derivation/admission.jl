@@ -240,16 +240,20 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
               "kind in both conformations, so a rapid-equilibrium step can only lose its " *
               "affinity, and it can do that only when it takes up one metabolite into a " *
               "form the other steps no longer reach."
-        found = String[]
+        # These names stay apart from those the closures above and the island branch's
+        # comprehension use: a name a closure shares with this function is boxed, and every
+        # call on it then dispatches at run time.
+        offered = String[]
         if c == 2
             from, to = m.steps[k].from, m.steps[k].to
-            comp = exclusion_components(am, :inactive)
+            components = exclusion_components(am, :inactive)
             # When no kept steps join the two sides, there are none to tag :OnlyA.
-            joins = comp[from] == comp[to] ? _kept_path(am, c, from, to) : Int[]
-            found = fixes([k], "its group", joins, "its sides")
+            joins = components[from] == components[to] ? _kept_path(am, c, from, to) :
+                    Int[]
+            offered = fixes([k], "its group", joins, "its sides")
         end
-        _steady_state_passes(am, k) && push!(found, "make its group steady-state")
-        return msg * offer(found)
+        _steady_state_passes(am, k) && push!(offered, "make its group steady-state")
+        return msg * offer(offered)
     elseif v.fault === _ARC_CYCLE
         cycle = _arc_cycle(m, exclusion_components(am, _CONFORMATIONS[c]),
                            _arcs(am, c))
