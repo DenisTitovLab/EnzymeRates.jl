@@ -848,9 +848,11 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # steady-state step is an ordinary form, whatever its label (R1, and its twin
         # labelled D, which sorts before E). Where tags strand it, admission decides:
         # every step at E :OnlyA leaves F fed at zero product with a dead way back
-        # (`_PUMPED`); a tagged isomerization alone joining F to E makes F an island
-        # (`_ISLAND`). Each rejection has an admitted variant: the S binding untagged
-        # (AD2d), or the catalysis tagged in place of the isomerization.
+        # (`_PUMPED`); a tagged steady-state isomerization alone joining F to E makes F an
+        # island (`_ISLAND`), and the inactive conformation cannot switch off a tagged
+        # rapid-equilibrium one (`_FAST_STEP_PINNED`). Each rejection has an admitted
+        # variant: the S binding untagged (AD2d), or the catalysis tagged in place of the
+        # isomerization.
         r1 = @allosteric_mechanism begin
             substrates: S
             products: P
@@ -944,12 +946,13 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 F ⇌ E             :: OnlyA
             end
         end
-        for (i, m) in enumerate((r3, r4))
-            v = ER.Derivation._guard(m)
-            @test v.fault === ER.Derivation._ISLAND
-            @test _testhelper_epath_verdict(m; rng = Random.MersenneTwister(25 + i)) in
-                  (:direction_dependent, :wrong_limit)
-        end
+        @test ER.Derivation._guard(r3).fault === ER.Derivation._ISLAND
+        @test _testhelper_epath_verdict(r3; rng = Random.MersenneTwister(26)) in
+              (:direction_dependent, :wrong_limit)
+        v = ER.Derivation._guard(r4)
+        @test (v.fault, v.conformation) == (ER.Derivation._FAST_STEP_PINNED, 2)
+        @test ER.Mechanisms.step_text(r4.catalytic, v.edge) == "E ⇌ F"
+        @test _testhelper_epath_verdict(r4; rng = Random.MersenneTwister(27)) === :no_path
         msg = ER.Derivation._guard_message(r3, ER.Derivation._guard(r3))
         @test_throws ErrorException(msg) @allosteric_mechanism begin
             substrates: S
@@ -1027,8 +1030,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # the steady-state chemistry and the steady-state Q binding at E, so its segment
         # {E(P), E(P, Q), E(Q)} holds a product in every form: class 3 finds it bottomless
         # at zero products. The same untagged steps join the two sides of the tagged
-        # binding E + P ⇌ E(P), so its affinity cannot vanish there: admission rejects the
-        # tag set first (`_NO_LIMIT`), and the ε-path oracle finds no path.
+        # rapid-equilibrium binding E + P ⇌ E(P), so the inactive conformation cannot
+        # switch it off: admission rejects the tag set first (`_FAST_STEP_PINNED`), and the
+        # ε-path oracle finds no path.
         am = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: S
             products: P, Q
@@ -1043,7 +1047,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         end
         @test _testhelper_face_faults(am)[2] === ER.Derivation._BOTTOMLESS
         v = ER.Derivation._guard(am)
-        @test v.fault === ER.Derivation._NO_LIMIT
+        @test v.fault === ER.Derivation._FAST_STEP_PINNED
         @test ER.Mechanisms.step_text(am.catalytic, v.edge) == "E + P ⇌ E(P)"
         @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(5)) === :no_path
         @test_throws ErrorException(
@@ -2554,10 +2558,12 @@ end
         (v.fault, e === nothing || !ER.Mechanisms._is_binding(e) ? nothing :
                   only(e.taken_up).name)
     end
-    NO, NL = ER.Derivation._NO_FAULT, ER.Derivation._NO_LIMIT
+    NO, FP = ER.Derivation._NO_FAULT, ER.Derivation._FAST_STEP_PINNED
 
     # Uni-uni S -> P. Tags: (S binding, chemical step, P binding). Admission's fault,
-    # and the metabolite of the binding it names.
+    # and the metabolite of the binding it names. Each binding is at rapid equilibrium,
+    # so the inactive conformation can switch off an :OnlyA binding only by its affinity,
+    # which needs its two sides apart.
     function _testhelper_uni(s_tag, cat_tag, p_tag)
         m = @allosteric_mechanism begin
             substrates: S
@@ -2580,10 +2586,11 @@ end
     # no :OnlyA anywhere -> admitted
     @test _testhelper_uni(:EqualAI, :EqualAI, :EqualAI) == (NO, nothing)
     # :OnlyA on the substrate only, catalysis :EqualAI: catalysis and the P binding
-    # join E to E(S) in the inactive conformation -> no limit, by the S binding
-    @test _testhelper_uni(:OnlyA, :EqualAI, :EqualAI) == (NL, :S)
-    # :OnlyA on the product only, catalysis :EqualAI -> no limit, by the P binding
-    @test _testhelper_uni(:EqualAI, :EqualAI, :OnlyA) == (NL, :P)
+    # join E to E(S) in the inactive conformation -> the S binding cannot be switched off
+    @test _testhelper_uni(:OnlyA, :EqualAI, :EqualAI) == (FP, :S)
+    # :OnlyA on the product only, catalysis :EqualAI -> the P binding cannot be switched
+    # off
+    @test _testhelper_uni(:EqualAI, :EqualAI, :OnlyA) == (FP, :P)
     # :OnlyA on the substrate and the catalysis: E(S) lies behind the binding
     @test _testhelper_uni(:OnlyA, :OnlyA, :EqualAI) == (NO, nothing)
     # balanced: :OnlyA on both bindings, catalysis :EqualAI -> admitted
@@ -2591,7 +2598,7 @@ end
     # V-system: :OnlyA chemical step only -> admitted
     @test _testhelper_uni(:EqualAI, :OnlyA, :EqualAI) == (NO, nothing)
     # :NonequalAI catalysis joins E to E(S) too -> same verdict
-    @test _testhelper_uni(:OnlyA, :NonequalAI, :EqualAI) == (NL, :S)
+    @test _testhelper_uni(:OnlyA, :NonequalAI, :EqualAI) == (FP, :S)
 
     # Whether a binding is rapid-equilibrium or steady-state does not change
     # admission's verdict: with both bindings :OnlyA, E(S) and E(P) lie behind them.
@@ -2627,8 +2634,8 @@ end
     @test _testhelper_both_bindings_onlya(mixed_uni_ss_re) == (NO, nothing)
 
     # A random-order binding square: E binds A and B, and each of E(A) and E(B) binds
-    # the other. A lone :OnlyA edge has both sides joined by the other three, so
-    # admission finds no limit; tagging P's binding too separates them.
+    # the other. A lone :OnlyA edge has both sides joined by the other three, so the
+    # inactive conformation cannot switch it off; tagging P's binding too separates them.
     @testset "random-order binding square" begin
         biuni = @allosteric_mechanism begin
             substrates: A, B
@@ -2659,9 +2666,10 @@ end
         # the square alone trips nothing: no :OnlyA anywhere -> admitted
         @test _testhelper_verdict(_testhelper_tags()) == (NO, nothing)
         # one square edge :OnlyA: the square's other three bindings join its sides
-        @test _testhelper_verdict(_testhelper_tags((:E, :A))) == (NL, :A)
+        @test _testhelper_verdict(_testhelper_tags((:E, :A))) == (FP, :A)
         # ...and the macro rejects that tagging: untagged steps join the two sides of the
-        # :OnlyA binding of A, so its affinity has no limit (`_NO_LIMIT`).
+        # rapid-equilibrium :OnlyA binding of A, so the inactive conformation cannot
+        # switch it off (`_FAST_STEP_PINNED`).
         lone = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: A, B
             products:   P
@@ -2676,7 +2684,7 @@ end
             end
         end
         v = ER.Derivation._guard(lone)
-        @test v.fault === ER.Derivation._NO_LIMIT
+        @test v.fault === ER.Derivation._FAST_STEP_PINNED
         @test ER.Mechanisms.step_text(lone.catalytic, v.edge) == "E + A ⇌ E(A)"
         @test_throws ErrorException(
             ER.Derivation._guard_message(lone, v)) @allosteric_mechanism begin
@@ -2693,15 +2701,15 @@ end
             end
         end
         # both A-side bindings :OnlyA: the B bindings, the catalysis and the P binding
-        # still join E to E(A) -> no limit
-        @test _testhelper_verdict(_testhelper_tags((:E, :A), (:EB, :A)))[1] === NL
+        # still join E to E(A) -> they cannot be switched off
+        @test _testhelper_verdict(_testhelper_tags((:E, :A), (:EB, :A)))[1] === FP
         # ...and :OnlyA on P cuts the last join -> admitted
         @test _testhelper_verdict(
             _testhelper_tags((:E, :A), (:EB, :A), (:E, :P))) == (NO, nothing)
         # :OnlyA on the chemical step leaves the square, whose lone :OnlyA edge still
-        # has its sides joined -> no limit, by that edge
+        # has its sides joined -> that edge cannot be switched off
         @test _testhelper_verdict(_testhelper_tags((:EAB, nothing), (:E, :A))) ==
-              (NL, :A)
+              (FP, :A)
     end
 end
 
@@ -2709,8 +2717,9 @@ end
     # A full random-order ter binding cube with seven :OnlyA edges and the cross bindings
     # :EqualAI. In the inactive conformation the untagged bindings join forms across the
     # cube, so a tagged binding's two sides share a component: no path takes its affinity to
-    # zero. Admission finds untagged steps that join the two sides of an :OnlyA binding
-    # (`_NO_LIMIT`).
+    # zero. Admission finds untagged steps that join the two sides of an :OnlyA binding at
+    # rapid equilibrium, which the inactive conformation cannot switch off
+    # (`_FAST_STEP_PINNED`).
     cube = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
@@ -2733,7 +2742,7 @@ end
         end
     end
     v = ER.Derivation._guard(cube)
-    @test v.fault === ER.Derivation._NO_LIMIT
+    @test v.fault === ER.Derivation._FAST_STEP_PINNED
     @test_throws ErrorException(
         ER.Derivation._guard_message(cube, v)) @allosteric_mechanism begin
         substrates: A, B, C
@@ -2807,14 +2816,16 @@ end
     @test ordered isa ER.AllostericEnzymeMechanism
 end
 
-@testset "a ping-pong with both fused releases :OnlyA is an island; one half passes" begin
+@testset "a ping-pong with both fused releases :OnlyA is pumped; one half passes" begin
     # E(A) → E(; residual = A - P) + P runs the first half-reaction and releases P in
-    # one step, E(B; residual = A - P) → E + Q the second and releases Q: chemistry
-    # (`step_kind` `:chemistry`), though each gives off one metabolite and takes up none.
-    # Admission reads each edge: in the inactive conformation the covalent forms join
-    # free E only through the tagged chemistry, an island (`_ISLAND`) whose weight depends
-    # on how fast the tagged constants vanish. Either half alone :OnlyA is admitted, and
-    # both oracles agree on every face.
+    # one step, E(B; residual = A - P) → E + Q the second and releases Q. In the inactive
+    # conformation the covalent forms are cut off: the second half, read as Q taken up
+    # into E(B; residual = A - P), loses its affinity, and the first half, whose far side
+    # E(A) stays, is stopped. At zero A and B the B binding feeds E(; residual = A - P),
+    # which leaves only through the vanishing first half, so admission cannot show that
+    # its weight does not depend on how fast that step vanishes (`_PUMPED`), and the
+    # ε-path oracle finds a limit that depends on the direction there. Either half alone
+    # :OnlyA is admitted, and both oracles agree on every face.
     both = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
@@ -2825,9 +2836,11 @@ end
         end
     end
     v = ER.Derivation._guard(both)
-    @test v.fault === ER.Derivation._ISLAND
-    @test _testhelper_epath_verdict(both; rng = Random.MersenneTwister(6)) in
+    @test (v.fault, v.face, v.conformation) == (ER.Derivation._PUMPED, 3, 2)
+    @test _testhelper_epath_verdict(both; rng = Random.MersenneTwister(6),
+                                    face = Set([:A, :B])) in
           (:direction_dependent, :wrong_limit)
+    @test all(_testhelper_admission_agreement(both; rng = Random.MersenneTwister(9)))
     @test_throws ErrorException(
         ER.Derivation._guard_message(both, v)) @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
@@ -2864,12 +2877,14 @@ end
     end
 end
 
-@testset "admission admits an abortive segment an :OnlyA chemistry group strands" begin
+@testset "admission admits an abortive segment an :OnlyA group strands" begin
     # The A group mixes the fused binding into E(P, Q) with A's abortive bindings at
-    # E(P) and E(Q), so it is chemistry. Tagged :OnlyA, it strands
-    # {E(A, P), E(A, Q), E(A, P, Q)} in the inactive conformation: a rapid-equilibrium
-    # segment whose every form holds a product, which a mechanism may not have.
-    am = @allosteric_mechanism begin
+    # E(P) and E(Q). Tagged :OnlyA, it strands {E(A, P), E(A, Q), E(A, P, Q)} in the
+    # inactive conformation: a rapid-equilibrium segment whose every form holds a
+    # product, which a mechanism may not have. The product releases still make E(P, Q)
+    # there, so the inactive conformation cannot switch off the rapid-equilibrium fused
+    # binding (`_FAST_STEP_PINNED`).
+    am = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
             E + B <--> E(B)                                              :: OnlyA
@@ -2880,10 +2895,31 @@ end
             (E + Q ⇌ E(Q), E(A, P) + Q ⇌ E(A, P, Q))                     :: EqualAI
         end
     end
-    @test am isa ER.AllostericEnzymeMechanism
-    # Admission reads each edge: the abortive bindings reach {E(A, P), E(A, Q),
-    # E(A, P, Q)} from the product forms on their unbound side only, so the inactive
-    # conformation holds no enzyme there and every face passes (the macro accepted it).
+    k = _testhelper_edge(am, "EB + A ⇌ EPQ")
+    v = ER.Derivation._guard(am)
+    @test v == ER.Derivation._Verdict(ER.Derivation._FAST_STEP_PINNED,
+                                      ER.Derivation._LIMIT_UNTESTED, 0, 2, k)
+    @test ER.Derivation._guard_message(am, v) ==
+          _testhelper_pinned_cause(am, k, 2) * " Tag its group :EqualAI or :NonequalAI."
+    @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(3)) === :no_path
+    # With the fused binding steady-state in a group of its own, the inactive
+    # conformation stops it, and admission reads each edge: the abortive bindings reach
+    # {E(A, P), E(A, Q), E(A, P, Q)} from the product forms on their unbound side only,
+    # so they lose their affinity, the inactive conformation holds no enzyme there, and
+    # every face passes. Both oracles agree on every face.
+    fused_ss = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        steps: begin
+            E + B <--> E(B)                                              :: OnlyA
+            E(B) + A <--> E(P, Q)                                        :: OnlyA
+            (E(P) + A ⇌ E(A, P), E(Q) + A ⇌ E(A, Q))                     :: OnlyA
+            E(P, Q) <--> E(P) + Q                                        :: EqualAI
+            E(P, Q) <--> E(Q) + P                                        :: EqualAI
+            (E + P ⇌ E(P), E(A, Q) + P ⇌ E(A, P, Q))                     :: EqualAI
+            (E + Q ⇌ E(Q), E(A, P) + Q ⇌ E(A, P, Q))                     :: EqualAI
+        end
+    end)
+    @test all(_testhelper_admission_agreement(fused_ss; rng = Random.MersenneTwister(4)))
 end
 
 @testset "the rational nullspace helper" begin
