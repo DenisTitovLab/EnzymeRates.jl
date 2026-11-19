@@ -1351,6 +1351,27 @@ end
           "limit differs from the rate law."
     @test _testhelper_respeed_verdicts(differ; rng = Random.MersenneTwister(1),
                                        law = :limit)[2] === :mismatch
+    # With that binding steady-state it is stopped, the interior passes, and the guard
+    # itself reaches the law chain at zero P and Q; both oracles agree on every face.
+    differ_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(P; residual = A - P)                          :: EqualAI
+            E + Q <--> E(Q)                                         :: NonequalAI
+            E(; residual = A - P) + P <--> E(P; residual = A - P)   :: NonequalAI
+            E(; residual = A - P) + B <--> E(Q)                     :: OnlyA
+            E(P; residual = A - P) + B ⇌ E(B, P; residual = A - P)  :: NonequalAI
+            E(Q) + P ⇌ E(B, P; residual = A - P)                    :: NonequalAI
+        end
+    end
+    v = EnzymeRates.Derivation._guard(differ_ss)
+    @test v == EnzymeRates.Derivation._Verdict(
+        EnzymeRates.Derivation._LAW_MULTI, EnzymeRates.Derivation._LIMIT_DIFFER, 2, 0, 0)
+    @test EnzymeRates.Derivation._guard_message(differ_ss, v) ==
+          "AllostericMechanism: at zero P and Q, the steady state's fast-equilibrium " *
+          "limit differs from the rate law."
+    @test all(_testhelper_admission_agreement(differ_ss; rng = Random.MersenneTwister(2)))
 end
 
 @testset "a bridge's message names the tagged steps it needs" begin
@@ -3154,6 +3175,32 @@ end
           "the inactive conformation, which leave only through the vanishing steps " *
           "E(I) ⇌ F(I); F <--> E while nothing runs back the way it came, so admission " *
           "cannot show that their weight does not depend on how fast those steps vanish."
+    # With E(I) <--> F(I) steady-state it is stopped, the interior passes, and the guard
+    # itself rejects the pumped basin at zero P; both oracles agree on every face.
+    stranded_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + I ⇌ E(I)        :: NonequalAI
+            E + S ⇌ E(S)        :: OnlyA
+            E(I) <--> F(I)      :: OnlyA
+            F <--> E            :: OnlyA
+            F + P <--> E(S)     :: NonequalAI
+            F + I ⇌ F(I)        :: OnlyA
+        end
+    end
+    @test EnzymeRates.Derivation._admission_interior(stranded_ss) ==
+          EnzymeRates.Derivation._WELL_POSED
+    v = EnzymeRates.Derivation._guard(stranded_ss)
+    @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._PUMPED, 2, 2)
+    @test EnzymeRates.Derivation._guard_message(stranded_ss, v) ==
+          "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, F(I) of " *
+          "the inactive conformation, which leave only through the vanishing steps " *
+          "E(I) <--> F(I); F <--> E while nothing runs back the way it came, so " *
+          "admission cannot show that their weight does not depend on how fast those " *
+          "steps vanish."
+    @test all(_testhelper_admission_agreement(stranded_ss; rng))
 end
 
 @testset "admitted tag sets converge on every face" begin
@@ -3209,6 +3256,22 @@ end
     @test EnzymeRates.Derivation._guard(bs2).fault ===
           EnzymeRates.Derivation._FAST_STEP_PINNED
     @test _testhelper_epath_verdict(bs2; rng) === :no_path
+    # With F <--> E steady-state (R2's graph) it is stopped, the interior passes, and the
+    # guard itself rejects the pumped basin at zero P; both oracles agree on every face.
+    bs2_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)        :: OnlyA
+            E(S) <--> E(P)      :: EqualAI
+            F + P ⇌ E(P)        :: EqualAI
+            F <--> E            :: OnlyA
+        end
+    end
+    v = EnzymeRates.Derivation._guard(bs2_ss)
+    @test (v.fault, v.face, v.conformation) == (PU, 2, 2)
+    @test _testhelper_admission_faults(bs2_ss) == [NO, PU, NO]
+    @test all(_testhelper_admission_agreement(bs2_ss; rng))
 end
 
 @testset "a tagged binding that bridges two basins is rejected" begin
@@ -3420,6 +3483,26 @@ end
     @test _testhelper_epath_verdict(ad7b; rng) === :no_path
     # Class 3's faces agree with the RE-speed oracle.
     @test all(_testhelper_admission_agreement(ad7b; rng)[4:6])
+    # With E <--> F steady-state it is stopped: admission passes every face, and the guard
+    # itself reaches class 3's second closed class with I zero; both oracles agree on
+    # every face.
+    ad7b_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A
+        products: P
+        modifiers: I
+        steps: begin
+            E + A <--> E(A)                 :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ E(I))    :: EqualAI
+            E + P <--> E(P)                 :: EqualAI
+            E <--> F                        :: OnlyA
+            E(A) <--> E(P)                  :: EqualAI
+        end
+    end
+    @test EnzymeRates.Derivation._admission(ad7b_ss) == EnzymeRates.Derivation._WELL_POSED
+    @test _testhelper_admission_faults(ad7b_ss) == [NO, NO, NO, NU, NU, NU]
+    v = EnzymeRates.Derivation._guard(ad7b_ss)
+    @test (v.fault, v.face, v.conformation) == (NU, 4, 2)
+    @test all(_testhelper_admission_agreement(ad7b_ss; rng))
 end
 
 @testset "joint R1 catches a tree that only both conformations' bridges shorten" begin
@@ -4005,6 +4088,27 @@ end
     @test _testhelper_respeed_verdicts(ssbind; rng = Random.MersenneTwister(64),
                                        law = :limit) ==
           [:agree, :pattern, :agree, :agree, :agree, :agree]
+    # With F(I) <--> E(I) steady-state as well it is stopped, the interior passes, and the
+    # guard itself rejects zero products, where the steady state depends on the speeds;
+    # both oracles agree on every face.
+    ssbind_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                          :: EqualAI
+            E(S) ⇌ F + P                          :: EqualAI
+            F <--> E                              :: EqualAI
+            (E + I <--> E(I), F + I <--> F(I))    :: OnlyI
+            F(I) <--> E(I)                        :: OnlyA
+        end
+    end
+    v = EnzymeRates.Derivation._guard(ssbind_ss)
+    @test v.face == 2 && v.limit === EnzymeRates.Derivation._LIMIT_SPEED
+    @test _testhelper_respeed_verdicts(ssbind_ss; rng = Random.MersenneTwister(65),
+                                       law = :limit) ==
+          [:agree, :pattern, :agree, :agree, :agree, :agree]
+    @test all(_testhelper_admission_agreement(ssbind_ss; rng = Random.MersenneTwister(66)))
 end
 
 @testset "a fast cycle that only the inactive conformation keeps is named there" begin
