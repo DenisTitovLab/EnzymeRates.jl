@@ -2206,15 +2206,18 @@ Whether the guard's fault on each face of the allosteric mechanism `am`
 with the RE-speed oracle (`_testhelper_agrees`), an admission fault with the ε-path oracle
 (`_testhelper_admission_agrees`, along the corner directions when `corners`), and an
 accepted face with both. The RE-speed oracle compares with its own deletion limit (`law =
-:limit`): the package cannot derive the law of a mechanism the guard rejects. Both the
-faults and the ε-path oracle read the excluded steps as the guard admitted `am` with
-(`_admitting_reading`), once the tests' own rule finds that reading consistent
-(`_testhelper_reading_is_consistent`, asserted); as the guard's first built reading when it
-rejects `am`. One `Bool` per face.
+:limit`): the package cannot derive the law of a mechanism the guard rejects, so on a
+rejected mechanism a face class 3 refuses as `_BOTTOMLESS` reads as a disagreement when its
+0/0 is removable, as the oracle's own limit exists there. Both the faults and the ε-path
+oracle read the excluded steps as the guard admitted `am` with (`_admitting_reading`),
+once the tests' own rule finds that reading consistent (`_testhelper_reading_is_consistent`,
+asserted) and every check of the guard passes under it (`_verdict_under`, asserted); as the
+guard's first built reading when it rejects `am`. One `Bool` per face.
 """
 function _testhelper_admission_agreement(am; rng, corners::Bool = false)
     D = EnzymeRates.Derivation
     admitting = D._admitting_reading(am)
+    admitting === nothing || @test D._verdict_under(am, admitting) === D._WELL_POSED
     reading = admitting === nothing ? :all_lose_affinity : _testhelper_reading(admitting)
     reading isa Matrix && @test _testhelper_reading_is_consistent(am, reading)
     faults = _testhelper_admission_faults(am; reading)
