@@ -289,13 +289,13 @@ guard accepts it (admission included; see [Mechanisms with allosteric regulators
 it is the only base. Otherwise the bases are the smallest sets of chemistry groups, tagged
 `:OnlyA` with every other group `:EqualAI`, that stop every catalytic cycle of the inactive
 conformation and pass the guard; a set the guard rejects leaves its supersets in the
-search. A ping-pong mechanism is the common case: tagging both half-reactions strands the
-covalent forms between them, whose weight then depends on how fast each half stops, so it
-usually gets one base per half-reaction, the other half running in both conformations, as
-phosphorylation stops PDH's E1 and leaves E2 and E3 running. A half whose chemistry groups
+search. On a ping-pong mechanism the first candidate cuts the covalent forms off in the
+inactive conformation, which then runs neither half-reaction (see
+[How an excluded step is switched off](@ref)). When the guard rejects it, a half-reaction's
+chemistry groups can be a base alone, the other half running in both conformations, as
+phosphorylation stops PDH's E1 and leaves E2 and E3 running; a half whose chemistry groups
 fail the guard gives no base, and a half spread over several chemistry groups can give
-several. Stopping both halves needs the conformations to flip at the covalent form too,
-with a constant of its own, which waits for iso mechanisms.
+several.
 
 On its bases the engine emits, per multiplicity:
 
@@ -312,8 +312,8 @@ Tag sets whose laws agree up to renaming the constants share one key, so identif
 law once.
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
 would cancel). The guard at the exits drops a child it rejects, as for every move. A
-ping-pong parent with no declared regulator can end with no child, when every K-type
-strands a form or a basin.
+ping-pong parent with no declared regulator can end with no child, when the exits drop
+every K-type.
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already allosteric
 input.
 

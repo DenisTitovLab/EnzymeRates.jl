@@ -24,15 +24,12 @@ does not yet generate iso mechanisms, so `identify_rate_equation` cannot reach
 them.
 
 **Allosteric ping-pong that stops both half-reactions.** An allosteric ping-pong may stop
-one half-reaction in the inactive conformation, as phosphorylation stops pyruvate
-dehydrogenase's E1 and leaves E2 and E3 running. Stopping both strands the covalent
-intermediate between the halves: its weight, and with it the rate, then depends on how fast
-each half stops, so `@allosteric_mechanism` rejects such a mechanism. Two ways to support
-it are planned. In one the conformations interconvert at the covalent intermediate as
-well, which will come with iso mechanisms. In the other the covalent intermediate sits at
-higher energy in the inactive conformation, so each half's step into it vanishes while its
-step out keeps its rate and the intermediate empties; numerical tests admit most such
-mechanisms under this reading, and it needs one more check before it can be built.
+both half-reactions in the inactive conformation when its covalent intermediate can lie
+higher in energy there: each half's step into it vanishes while its step out keeps its
+rate, so the intermediate empties ([How an excluded step is switched off](@ref)). Where
+the intermediate empties only by binding the second substrate, no choice of energies gives
+the limit, and `@allosteric_mechanism` rejects the mechanism. Supporting it needs the conformations to
+interconvert at the covalent intermediate as well, which will come with iso mechanisms.
 
 ## Support more measurement types
 

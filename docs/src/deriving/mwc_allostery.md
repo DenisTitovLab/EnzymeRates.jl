@@ -63,11 +63,9 @@ independent `k_A_ES_to_EP` and `k_I_ES_to_EP`; the activator `A` is `:OnlyA`
 (`K_A_Areg`, active state only) and the inhibitor `I` is `:OnlyI` (`K_I_Ireg`,
 inactive state only). An `:EqualAI` regulator `R` would take one bare constant, `K_Rreg`,
 in both states. `L` is the free-enzyme coupling constant.
-A catalytic group takes `:OnlyI` only when its steps bind modifiers and nothing else (a
-name under `modifiers:` or a reactant's `::Mod` copy), such as an inhibitor that binds only
-the inactive conformation. The active conformation must still catalyze, so the
-constructor rejects `:OnlyI` on a step that takes up or gives off a substrate or product,
-or changes what else its form holds.
+Any catalytic group may be `:OnlyI`, such as an inhibitor's binding that only the inactive
+conformation has, or one of two reaction paths, as long as the active conformation still
+turns substrate into product.
 
 The mechanism also declares **multiplicities**, which capture the enzyme's
 oligomeric state. `catalytic_multiplicity` is the number of identical catalytic
@@ -158,39 +156,166 @@ the same sum.
 
 ## Tags as limits, and admission
 
-An `:OnlyA` tag says what the inactive conformation lacks, as the limit of ordinary
-constants; `:OnlyI` says the same of the active conformation:
+An `:OnlyA` tag excludes a group's steps from the inactive conformation, and `:OnlyI`
+excludes them from the active one. The derivation reads each conformation's law by deleting
+the steps it excludes and the forms that the deletion cuts off from free E. **Admission**
+decides whether that law is the limit of ordinary mass-action kinetics as the excluded steps
+vanish, each at its own rate, and rejects the tag set with an error that names the step when
+it is not.
 
-- a plain binding loses its affinity: its dissociation constant grows without bound, or, for
-  a steady-state binding, its binding rate constant falls to zero with its release rate
-  fixed;
-- any other step (an isomerization, a fused binding, a Theorell–Chance step) is blocked:
-  both rate constants fall to zero with their ratio held by the thermodynamic cycles, and a
-  rapid-equilibrium step keeps the constant the cycles set while its speed vanishes;
-- each step of a tagged group vanishes at its own rate, and a group may mix a plain and a
-  fused binding of one metabolite.
+### How an excluded step is switched off
 
-The derivation reads each conformation's law by deleting the steps it lacks (the `:OnlyA`
-groups in the inactive conformation, the `:OnlyI` groups in the active one) and the forms
-that the deletion cuts off from free E. **Admission** decides when that is the limit,
-whatever the rates at which the tagged constants vanish:
+The package reads an excluded step as nearly absent, not absent: in the conformation that
+excludes it, the step has a very high dissociation constant or very low rate constants, and
+every thermodynamic constraint, each Haldane and Wegscheider relation, still holds in each
+conformation.
 
-1. **Existence.** Join the forms by the steps the conformation keeps (outside the groups it
-   lacks), and draw each tagged plain binding as an arrow from its unbound side's component
-   to its bound side's. A path to the limit exists exactly when no arrow stays inside one
-   component and the arrows close no cycle.
-2. **Uniqueness.** Every form that free E reaches only through tagged steps lies behind a
-   tagged plain binding, on its bound side, and the limit is the same on every face where
-   data sit (below).
+A step keeps its kind in both conformations: a rapid-equilibrium step stays at rapid
+equilibrium where it is excluded, and a steady-state step stays at steady state. Rapid
+equilibrium and steady state differ more than 100-fold in speed, and turning a fast step
+into the slowest step of the other conformation is not a reasonable approximation. A
+mechanism that needs it is written with that step steady-state.
+
+The picture is one of energies. In each conformation the steps it keeps join the forms into
+groups. Free E's group holds the forms of that conformation's law. Every other group is cut
+off: it lies higher in energy than free E's group and holds no enzyme. An excluded step is
+switched off according to where it lies:
+
+| Excluded step | How it is switched off |
+|:--|:--|
+| Between two groups | It loses its rate uphill, into the higher group, and keeps its rate downhill. A binding whose bound side lies higher loses its affinity: its dissociation constant grows without bound. A rapid-equilibrium step stays fast. |
+| Between two groups, steady state | It may stop instead: both rate constants fall to zero. |
+| Inside one group, steady state | It stops: both rate constants fall to zero, their ratio fixed by thermodynamics. |
+| Inside one group, rapid equilibrium | Error. Its two sides lie at one energy, so thermodynamics fixes its equilibrium constant, and it could be switched off only by turning slow. |
+
+The mechanism fixes the groups but not which lies above which. The package looks for a
+choice of energies, and of the steady-state steps that stop, under which the law is the
+limit, and accepts the mechanism when it finds one; when the excluded steps allow too many
+choices to search, it tries three and rejects the mechanism if none gives the limit. The
+choice does not change the law, which leaves the excluded steps out. The law is the limit
+under a choice when:
+
+1. **Existence.** The steps that lose a rate, each drawn uphill, close no cycle and never
+   point into free E's group, so the energies exist and no group lies below free E's.
+2. **Uniqueness.** They lead from free E's group to every cut-off group, so each cut-off
+   group empties. On every face where data sit (below), the steady state does not depend
+   on where the enzyme starts, no cut-off form fills faster than it empties, and no
+   excluded step opens a faster route between two forms of the law, unless the cut-off
+   forms on that route cannot change the limit.
 3. **Turnover.** With `:OnlyI` groups, the active conformation still turns the reaction
    over.
 
-A tag set that fails is rejected with an error that names the step. Tagging `E + S ⇌ E(S)`
-`:OnlyA` while the catalytic step and the product binding stay `:EqualAI` fails existence:
-in the inactive conformation those steps still join E to E(S), so no path takes that
-affinity to zero. Admission is sound but not exact. It also rejects two rare shapes whose
-limit exists, equilibrium bridges and stranded basins fed only through vanishing steps,
-which the repository's `ROADMAP.md` lists.
+Four examples follow, each excluding steps from the inactive conformation. In the first,
+the substrate binding and the catalytic step are excluded:
+
+```@example mwc
+both_excluded = @allosteric_mechanism begin
+    substrates: S
+    products:   P
+    steps: begin
+        E + S ⇌ E(S)      :: OnlyA
+        E(S) <--> E(P)    :: OnlyA
+        E(P) ⇌ E + P      :: EqualAI
+    end
+end
+print(rate_equation_string(both_excluded))
+```
+
+In the inactive conformation only the product binding runs, so E and E(P) form free E's
+group and E(S) is cut off. The substrate binding loses its affinity, and the catalytic step
+stops or loses its rate into E(S). The inactive conformation binds P and turns nothing
+over: the law has `D_I` and no `Q_I`.
+
+With the substrate binding excluded alone, the package rejects the mechanism:
+
+```jldoctest; filter = r"\s+" => " "
+julia> using EnzymeRates
+
+julia> @allosteric_mechanism begin
+           substrates: S
+           products:   P
+           steps: begin
+               E + S ⇌ E(S)      :: OnlyA
+               E(S) <--> E(P)    :: EqualAI
+               E(P) ⇌ E + P      :: EqualAI
+           end
+       end
+ERROR: AllostericMechanism: in the inactive conformation the rapid-equilibrium step
+E + S ⇌ E(S) is tagged :OnlyA, but the steps that conformation keeps still join its two
+sides. Thermodynamics then fixes its equilibrium constant, and a step keeps its kind in
+both conformations, so it cannot be switched off. Make its group steady-state, or tag
+:OnlyA the steps that join its sides: E + P ⇌ E(P); E(S) <--> E(P).
+```
+
+The catalytic step and the product binding still join E(S) to free E, so E(S) stays in free
+E's group, made from P, and the substrate binding lies inside one group. `Keq` and the other
+steps' constants fix its dissociation constant, which cannot grow.
+
+The same binding at steady state is accepted:
+
+```@example mwc
+ss_excluded = @allosteric_mechanism begin
+    substrates: S
+    products:   P
+    steps: begin
+        E + S <--> E(S)   :: OnlyA
+        E(S) <--> E(P)    :: EqualAI
+        E(P) ⇌ E + P      :: EqualAI
+    end
+end;
+```
+
+The substrate binding again lies inside free E's group, and at steady state it stops. The
+inactive conformation keeps E(S), made from P, and turns nothing over.
+`identify_rate_equation` never proposes such a mechanism, in which a conformation keeps a
+form that only excluded bindings enter, but you may write one.
+
+The last example is a ping-pong whose inactive conformation runs neither half-reaction.
+Write F for the modified enzyme `E(; residual = A - P)`:
+
+```@example mwc
+pingpong = @allosteric_mechanism begin
+    substrates: A, B
+    products:   P, Q
+    steps: begin
+        E + A ⇌ E(A)                                        :: EqualAI
+        E(A) <--> E(P; residual = A - P)                    :: OnlyA
+        E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
+        E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
+        E(B; residual = A - P) ⇌ E(Q)                       :: OnlyA
+        E(Q) ⇌ E + Q                                        :: EqualAI
+    end
+end;
+```
+
+In the inactive conformation E, E(A) and E(Q) form free E's group, and F, F(P) and F(B) form
+one cut-off group. Each half-reaction runs between the two groups: the first loses its rate
+from E(A) into F(P), the second its rate from E(Q) into F(B), and each keeps its rate back.
+The modified enzyme then empties through both halves, whatever the ratio of the two
+vanishing rates, and the inactive conformation binds A and Q and turns nothing over.
+
+Two of the face checks, that no cut-off form fills faster than it empties and that the
+cut-off forms on a faster route cannot change the limit, rest on numerical tests, not on a
+proof. Two numerical oracles follow the two-conformation mass-action steady state as the
+rapid-equilibrium steps speed up and the excluded steps vanish, along many paths. They were
+run on 78,554 mechanisms in ten populations: taggings of uni-uni, bi-bi, ping-pong, ter-bi,
+bi-ter and ter-ter mechanisms, with and without an inhibitor or an `:OnlyI` group, one
+expansion round of the search, and the test suite's allosteric mechanisms. Of the 1,575
+among them whose acceptance rests on the search for energies or on cut-off forms that cannot
+change the limit, all 591 of 8 steps or fewer agree with both oracles along the harshest
+paths, as do 598 larger ones sampled along standard paths and a spaced 100 ter-ter ones
+along the harshest; at two catalytic subunits the steady state equals the law for 40 of 40
+sampled. With the first of the two checks switched off, the package accepts 250 small
+mechanisms more in one population, and 18 of them fail the harshest test. Admission is not
+exact: it rejects some mechanisms whose law is the limit, which the repository's
+`ROADMAP.md` lists.
+
+When the steps a conformation keeps join the two sides of an excluded rapid-equilibrium
+step, as in the second example, the error says so and offers each fix that the package
+accepts: make the step's group steady-state, so that it stops (the third example), or
+exclude the steps that keep its two sides joined, here the product binding and the
+catalytic step, so that one side is cut off. In the active conformation that fix tags them
+`:OnlyI`.
 
 ### What the package rejects
 
@@ -210,7 +335,7 @@ package rejects:
    segment whose lowest forms are joined only through other forms, a trap that the face
    feeds and its fast exits cannot drain, a second closed set of forms, or a law with no
    value (0/0) there;
-4. tags with no limit (admission, above).
+4. tags under which no choice of energies gives the limit (admission, above).
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so `rate_equation`
@@ -278,16 +403,19 @@ ratio fixed. This is the thermodynamically consistent form of a **K-system**, an
 it needs two coupled `:NonequalAI` bindings, not one.
 
 Often a K-system uses exclusive `:OnlyA` binding: the substrate binds the active
-state alone, and the inactive cycle is pruned (no `Q_I`). Its catalytic step
-**must** be `:OnlyA` too. This is a thermodynamic requirement, not a convention: with
-`:EqualAI` or `:NonequalAI` catalysis and an `:EqualAI` product binding, the inactive
-conformation still joins E to E(S) through catalysis and product release, so no path takes
-the substrate affinity to zero while every cycle keeps `Keq`. Admission's existence test
-rejects the combination.
+state alone, and the inactive cycle is pruned (no `Q_I`). When that binding is at rapid
+equilibrium, its catalytic step **must** be `:OnlyA` too. This is a thermodynamic
+requirement, not a convention: with `:EqualAI` or `:NonequalAI` catalysis and an `:EqualAI`
+product binding, the inactive conformation still joins E to E(S) through catalysis and
+product release, so thermodynamics fixes the substrate affinity there, and the package
+rejects the combination ([How an excluded step is switched off](@ref)). A steady-state
+substrate binding is stopped instead: the inactive conformation keeps E(S), made from the
+product, and turns nothing over.
 
 The exception is a balanced K-system. When `:OnlyA` binds both a substrate and a
-product, the two `K_I → ∞` limits cancel in the Haldane relation: the affinities
-diverge together and their ratio stays free, so `:EqualAI` catalysis is legal.
+product, E(S) and E(P) form one cut-off group in the inactive conformation, which rises as
+a whole: the two `K_I → ∞` limits cancel in the Haldane relation, the affinities diverge
+together and their ratio stays free, so `:EqualAI` catalysis is legal.
 
 A steady-state binding splits the constraint further, carrying an affinity (a
 ratio of its two rate constants) the cycles constrain and a speed (their
