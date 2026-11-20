@@ -573,8 +573,9 @@ it admits at the first that passes. Each searched pair runs admission's face con
 alone: under every consistent reading class 2 sees the same fast steps, every
 rapid-equilibrium one, and class 3 and the active conformation's turnover read no reading,
 so the guard checks them before the search, under the first consistent reading it tries,
-and a rejection reports that reading's verdict. `_admitting_reading` returns the reading
-the guard admits with.
+and a rejection reports that reading's verdict. Past the cap, with no built reading
+consistent, it reports an active conformation that turns nothing over before
+`_TOO_MANY_READINGS`. `_admitting_reading` returns the reading the guard admits with.
 
 The macros, the parser and the
 derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and

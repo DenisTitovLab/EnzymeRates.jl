@@ -65,7 +65,8 @@ vanishing direction fills one way faster than it empties (`_FILLED`), a stranded
 entered by, or holding, an alive step whose reverse is dead, or entered from outside it
 and the law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest
 spanning in-tree where no potential absorbs their turnover (`_BRIDGE`); or, no reading the
-guard tried being consistent, more readings than it searches (`_TOO_MANY_READINGS`). A
+guard tried being consistent and the active conformation turning the reaction over, more
+readings than it searches (`_TOO_MANY_READINGS`). A
 reading is consistent when admission's interior finds none of its first three faults, so
 the guard reports neither `_ARC_CYCLE` nor `_ISLAND` (`_guard_with_reading`).
 """
@@ -434,7 +435,8 @@ it searches none of them, so its verdict depends on no order. A rejection report
 order: a fast cycle that turns the reaction over under the first built reading
 (`_RE_TURNOVER`), fast under every consistent reading too; an excluded rapid-equilibrium
 step inside one group (`_FAST_STEP_PINNED`), which no reading switches off; the verdict of
-the first consistent reading tried; or, when it tried none, that there are too many to
+the first consistent reading tried; or, when it tried none, an active conformation that
+turns nothing over (`_NO_ACTIVE_TURNOVER`), else that there are too many readings to
 search (`_TOO_MANY_READINGS`).
 """
 function _guard_with_reading(m::Mechanisms.Mechanism)
@@ -482,6 +484,11 @@ function _guard_with_reading(am::Mechanisms.AllostericMechanism)
     if active.too_many || inactive.too_many ||
        length(active.columns) * length(inactive.columns) > _MAX_READING_PAIRS
         isempty(reported) || return (; verdict, reading = reported)
+        # No reading lets an active conformation without turnover catalyze, so that fault
+        # is the one to report: the user can fix it, while too many readings to search
+        # would only say the guard did not look.
+        v = _active_turnover_verdict(am)
+        v === _WELL_POSED || return (; verdict = v, reading = first_reading)
         c = active.too_many ? 1 : inactive.too_many ? 2 : 0
         return (; verdict = _Verdict(_TOO_MANY_READINGS, _LIMIT_UNTESTED, 0, c, 0),
                 reading = first_reading)

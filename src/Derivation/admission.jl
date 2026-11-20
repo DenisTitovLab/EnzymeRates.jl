@@ -122,10 +122,9 @@ end
 
 Admission's interior checks, each excluded edge switched off as `reading` says: for each
 conformation whose tags exclude an edge (`Mechanisms.excludes`), the checks of
-`_interior_verdict`; then, when tags exclude edges of the active conformation, its law
-network still holds a cycle that turns the reaction over (`_NO_ACTIVE_TURNOVER`). A
-reading is consistent when none of `_interior_verdict`'s faults arises. A plain mechanism
-excludes no edge, so its interior passes.
+`_interior_verdict`; then the active conformation's turnover (`_active_turnover_verdict`).
+A reading is consistent when none of `_interior_verdict`'s faults arises. A plain
+mechanism excludes no edge, so its interior passes.
 """
 function _admission_interior(am::Mechanisms.AllostericMechanism, reading::_Reading)
     for c in 1:2
@@ -133,6 +132,13 @@ function _admission_interior(am::Mechanisms.AllostericMechanism, reading::_Readi
         v = _interior_verdict(am, c, exclusion_components(am, _CONFORMATIONS[c]), reading)
         v === _WELL_POSED || return v
     end
+    _active_turnover_verdict(am)
+end
+
+"""Admission's turnover check, which reads no reading: when tags exclude edges of the
+active conformation of `am`, its law network still holds a cycle that turns the reaction
+over (`_NO_ACTIVE_TURNOVER`, led by the first edge it excludes); `_WELL_POSED` otherwise."""
+function _active_turnover_verdict(am::Mechanisms.AllostericMechanism)
     k = _first_excluded(am, 1)
     k != 0 &&
         !Mechanisms.has_turnover_cycle(Mechanisms.catalytic(am), am.active_steps) &&

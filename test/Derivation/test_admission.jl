@@ -3362,14 +3362,14 @@ end
         @test D._admitting_reading(am) === nothing
     end
 
-    # The two other ways a search can be too large, in ter-ter taggings that mix :OnlyA
-    # and :OnlyI, found by sampling the gate's ter-ter init mechanisms. In
+    # The two other ways a search can be too large, each first in a ter-ter tagging that
+    # mixes :OnlyA and :OnlyI, found by sampling the gate's ter-ter init mechanisms. In
     # `too_many_pairs` each conformation stays within `_MAX_CHOICES_PER_CONFORMATION`, but
     # its consistent columns, counted by the tests' own rule and equal to the package's,
     # pair up more than `_MAX_READING_PAIRS` times; in `too_many_active` it is the active
-    # conformation that has too many choices. No built reading of either is consistent,
-    # so the guard reports that there are too many readings. (Neither active conformation
-    # turns the reaction over; the guard meets the cap before it reads that.)
+    # conformation that has too many choices. No built reading of either is consistent.
+    # Neither active conformation turns the reaction over, which no reading changes, so
+    # the guard reports that and not the cap: the cap does not hide it.
     function _testhelper_consistent_column_count(am, c)
         n = length(am.catalytic.steps)
         group = _testhelper_kept_components(am, c)
@@ -3435,20 +3435,117 @@ end
         @test !any(r -> _testhelper_reading_is_consistent(
                        am, _testhelper_reading(am, r)), keys(_testhelper_guard_readings))
     end
-    @test D._guard(too_many_pairs) ==
-          D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 0, 0)
+    for am in (too_many_pairs, too_many_active)
+        @test !EnzymeRates.Mechanisms.has_turnover_cycle(am.catalytic, am.active_steps)
+        @test D._guard(am) == D._Verdict(D._NO_ACTIVE_TURNOVER, D._LIMIT_UNTESTED, 0, 1, 1)
+    end
     @test D._guard_message(too_many_pairs, D._guard(too_many_pairs)) ==
-          "AllostericMechanism: the two conformations together can switch off the tagged " *
-          "steps in more than 5000 ways, too many for the guard to search, and none of " *
-          "the three ways it tries first fits the rule for switching them off, so it " *
-          "cannot show that the rate law is the limit."
-    @test D._guard(too_many_active) ==
-          D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 1, 0)
+          "AllostericMechanism: without its :OnlyI steps E + A <--> E(A); " *
+          "E + D <--> E(D); E + Q <--> E(Q); E(A) + Q <--> E(A, Q); " *
+          "E(A) + D <--> E(P; residual = A + D - P); " *
+          "E(D) + A <--> E(P; residual = A + D - P); E(Q) + A <--> E(A, Q); " *
+          "E(Q, R) + Q <--> E(B, Q; residual = A + D - P); E(R) + D <--> E(D, R); " *
+          "E(R) + Q <--> E(Q, R) the active conformation turns no substrate into " *
+          "product, but it must catalyze the reaction."
     @test D._guard_message(too_many_active, D._guard(too_many_active)) ==
+          "AllostericMechanism: without its :OnlyI steps E + A ⇌ E(A); E + R <--> E(R); " *
+          "E(; residual = A + B - Q) + D <--> E(P, R); " *
+          "E(; residual = A + B - Q) + Q ⇌ E(Q; residual = A + B - Q); " *
+          "E(A) + R <--> E(A, R); E(A) + B <--> E(Q; residual = A + B - Q); " *
+          "E(A, R) + B <--> E(A, B, R); E(B, R) + A ⇌ E(A, B, R); " *
+          "E(Q; residual = A + B - Q) + R <--> E(A, B, R); E(R) + A ⇌ E(A, R); " *
+          "E(R) + B <--> E(B, R); E(R) + P ⇌ E(P, R) the active conformation turns no " *
+          "substrate into product, but it must catalyze the reaction. Tag their groups " *
+          ":EqualAI or :NonequalAI."
+
+    # The same two ways with an active conformation that turns the reaction over, built
+    # on random-order ter-ter: one full path of bindings, chemistry and releases kept by
+    # both conformations; the other nine bindings, a second chemistry through Estar(A, B, D)
+    # and a second release order of Q and R tagged. In `cap_active` all three are :OnlyI,
+    # which leaves the active conformation more than `_MAX_CHOICES_PER_CONFORMATION` ways;
+    # in `cap_pairs` the bindings are :OnlyI and the rest :OnlyA, and the two
+    # conformations' consistent columns pair up more than `_MAX_READING_PAIRS` times. Each
+    # built reading leaves a group that no switched-off step reaches (Estar(A, B, D) under
+    # the two that lose affinity, E(B) or E(Q) when all stop), so none is consistent, and
+    # the guard reports the cap.
+    cap_active = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            E + A <--> E(A)                 :: EqualAI
+            E(A) + B <--> E(A, B)           :: EqualAI
+            E(A, B) + D <--> E(A, B, D)     :: EqualAI
+            E + B <--> E(B)                 :: OnlyI
+            E + D <--> E(D)                 :: OnlyI
+            E(A) + D <--> E(A, D)           :: OnlyI
+            E(B) + A <--> E(A, B)           :: OnlyI
+            E(B) + D <--> E(B, D)           :: OnlyI
+            E(D) + A <--> E(A, D)           :: OnlyI
+            E(D) + B <--> E(B, D)           :: OnlyI
+            E(A, D) + B <--> E(A, B, D)     :: OnlyI
+            E(B, D) + A <--> E(A, B, D)     :: OnlyI
+            E(A, B, D) <--> E(P, Q, R)      :: EqualAI
+            E(A, B, D) <--> Estar(A, B, D)  :: OnlyI
+            Estar(A, B, D) <--> E(P, Q, R)  :: OnlyI
+            E(P, Q, R) <--> E(Q, R) + P     :: EqualAI
+            E(Q, R) <--> E(R) + Q           :: EqualAI
+            E(R) <--> E + R                 :: EqualAI
+            E(Q, R) <--> E(Q) + R           :: OnlyI
+            E(Q) <--> E + Q                 :: OnlyI
+        end
+    end
+    cap_pairs = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            E + A <--> E(A)                 :: EqualAI
+            E(A) + B <--> E(A, B)           :: EqualAI
+            E(A, B) + D <--> E(A, B, D)     :: EqualAI
+            E + B <--> E(B)                 :: OnlyI
+            E + D <--> E(D)                 :: OnlyI
+            E(A) + D <--> E(A, D)           :: OnlyI
+            E(B) + A <--> E(A, B)           :: OnlyI
+            E(B) + D <--> E(B, D)           :: OnlyI
+            E(D) + A <--> E(A, D)           :: OnlyI
+            E(D) + B <--> E(B, D)           :: OnlyI
+            E(A, D) + B <--> E(A, B, D)     :: OnlyI
+            E(B, D) + A <--> E(A, B, D)     :: OnlyI
+            E(A, B, D) <--> E(P, Q, R)      :: EqualAI
+            E(A, B, D) <--> Estar(A, B, D)  :: OnlyA
+            Estar(A, B, D) <--> E(P, Q, R)  :: OnlyA
+            E(P, Q, R) <--> E(Q, R) + P     :: EqualAI
+            E(Q, R) <--> E(R) + Q           :: EqualAI
+            E(R) <--> E + R                 :: EqualAI
+            E(Q, R) <--> E(Q) + R           :: OnlyA
+            E(Q) <--> E + Q                 :: OnlyA
+        end
+    end
+    @test _testhelper_choice_count(cap_active, 1) > D._MAX_CHOICES_PER_CONFORMATION
+    cap_columns = [_testhelper_consistent_column_count(cap_pairs, c) for c in 1:2]
+    @test cap_columns ==
+          [length(D._consistent_columns(cap_pairs, c).columns) for c in 1:2]
+    @test all(c -> _testhelper_choice_count(cap_pairs, c) <=
+                   D._MAX_CHOICES_PER_CONFORMATION, 1:2)
+    @test prod(cap_columns) > D._MAX_READING_PAIRS
+    for am in (cap_active, cap_pairs)
+        @test EnzymeRates.Mechanisms.has_turnover_cycle(am.catalytic, am.active_steps)
+        @test !any(r -> _testhelper_reading_is_consistent(
+                       am, _testhelper_reading(am, r)), keys(_testhelper_guard_readings))
+    end
+    @test D._guard(cap_active) ==
+          D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 1, 0)
+    @test D._guard_message(cap_active, D._guard(cap_active)) ==
           "AllostericMechanism: the active conformation can switch off the tagged steps " *
           "in more than 20000 ways, too many for the guard to search, and none of the " *
           "three ways it tries first fits the rule for switching them off, so it cannot " *
           "show that the rate law is the limit."
+    @test D._guard(cap_pairs) ==
+          D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 0, 0)
+    @test D._guard_message(cap_pairs, D._guard(cap_pairs)) ==
+          "AllostericMechanism: the two conformations together can switch off the tagged " *
+          "steps in more than 5000 ways, too many for the guard to search, and none of " *
+          "the three ways it tries first fits the rule for switching them off, so it " *
+          "cannot show that the rate law is the limit."
 end
 
 @testset "the graph test equals the exact LP on the uni-uni grid" begin
