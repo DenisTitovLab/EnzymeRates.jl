@@ -3024,21 +3024,6 @@ end
 @testset "the guard searches for a reading" begin
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(2652)
-    # Every reading of the excluded steps of `am` that the tests' own rule finds consistent.
-    function _testhelper_consistent_readings(am)
-        n = length(am.catalytic.steps)
-        excluded = [(k, c) for c in 1:2 for k in 1:n if _testhelper_excludes(am, k, c)]
-        found = Matrix{Symbol}[]
-        for choice in Iterators.product(
-                fill((:loses_forward, :loses_reverse, :stopped), length(excluded))...)
-            r = fill(:runs, n, 2)
-            for ((k, c), o) in zip(excluded, choice)
-                r[k, c] = o
-            end
-            _testhelper_reading_is_consistent(am, r) && push!(found, r)
-        end
-        found
-    end
     # The six-step ping-pong of the spec's fourth example, both chemistry steps :OnlyA (F is
     # E(; residual = A - P)). No built reading switches off F(B) ⇌ E(Q), a
     # rapid-equilibrium step that takes up nothing, so the guard searches. The first

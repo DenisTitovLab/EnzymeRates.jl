@@ -1166,6 +1166,25 @@ function _testhelper_reading_is_consistent(am, reading::Matrix{Symbol})
     true
 end
 
+"""Every reading of the excluded steps of the allosteric mechanism `am`, in the names of
+`_testhelper_reading`, that the tests' own rule finds consistent
+(`_testhelper_reading_is_consistent`), out of every way of letting each excluded step lose
+its stored direction, lose its reverse or stop."""
+function _testhelper_consistent_readings(am)
+    n = length(am.catalytic.steps)
+    excluded = [(k, c) for c in 1:2 for k in 1:n if _testhelper_excludes(am, k, c)]
+    found = Matrix{Symbol}[]
+    for choice in Iterators.product(
+            fill((:loses_forward, :loses_reverse, :stopped), length(excluded))...)
+        r = fill(:runs, n, 2)
+        for ((k, c), o) in zip(excluded, choice)
+            r[k, c] = o
+        end
+        _testhelper_reading_is_consistent(am, r) && push!(found, r)
+    end
+    found
+end
+
 """The mirror image of the allosteric mechanism `am`, built without the guard: the same
 catalytic graph, multiplicity and sites, with every `:OnlyA` and `:OnlyI` group state
 swapped."""
@@ -1893,9 +1912,12 @@ decade, `p` a positive multiple of ½, with exact rapid-equilibrium limits
 (`_testhelper_re_limit`) in 512-bit BigFloat; an error below 1e-60 throughout passes. Only
 σ = 1: at σ = ½ the error runs in powers of ε^½, and a correction whose size depends on the
 point can delay the onset past ε = 1e-9; σ = 2 is left out because the window was measured
-only at σ = 1.
+only at σ = 1. Each excluded edge is switched off as `reading` says (a matrix or a built
+name, `_testhelper_reading`).
 """
-function _testhelper_in_epath_window(m; rng)
+function _testhelper_in_epath_window(m; rng,
+                                     reading::Union{Symbol, Matrix{Symbol}} =
+                                         :all_lose_affinity)
     setprecision(BigFloat, 512) do
         am = _testhelper_single_subunit(_testhelper_lift(m))
         point = _testhelper_consistent_point(am, rng)
@@ -1905,11 +1927,12 @@ function _testhelper_in_epath_window(m; rng)
         vdel = _testhelper_re_limit(_testhelper_network(am, point, concs; speeds))
         scale = max(abs(vdel), big(10)^-30)
         eps = [big(10.0)^-j for j in 9:18]
-        all(filter(d -> all(isone, d.sigma), _testhelper_standard_directions(am))) do d
+        directions = _testhelper_standard_directions(am; reading)
+        all(filter(d -> all(isone, d.sigma), directions)) do d
             errors = [abs(_testhelper_re_limit(_testhelper_network(
                           am, point, concs; speeds, mode = :vanish, ε,
                           potentials = d.potentials, sigma = d.sigma,
-                          theta = d.theta)) - vdel) / scale for ε in eps]
+                          theta = d.theta, reading)) - vdel) / scale for ε in eps]
             all(<(big(10)^-60), errors) && return true
             any(iszero, errors) && return false
             slopes = sort([log10(errors[j] / errors[j + 1]) for j in 1:(length(eps) - 1)])

@@ -665,15 +665,17 @@ end
 # gives free E the weight B (F sits at Q/B relative to E), so the inactive term must
 # carry the same factor beside L.
 @testset "ping-pong MWC derivation with free E and F in one RE segment" begin
-    # Both half-reactions :OnlyA strand the covalent forms between the halves in the
-    # inactive conformation: they join free E only through tagged chemistry, an island
-    # (`_ISLAND`) whose weight depends on how fast the tagged constants vanish, so the
-    # macro rejects it and the ε-path oracle finds the limit direction-dependent. With the
-    # second half alone :OnlyA, the inactive conformation runs the first half both ways,
-    # its active rapid-equilibrium segment still holds free E and F = E(; residual = A - P),
-    # and the law equals the exact two-conformation steady state. (Half 1 alone fails
-    # class 3 at zero substrates and at B = 0.)
-    both = @_testhelper_unguarded @allosteric_mechanism begin
+    # Both half-reactions :OnlyA: in the inactive conformation the covalent forms between
+    # the halves join free E only through the tagged chemistry. The guard admits the
+    # mechanism under a reading in which E(A) <--> E(P; residual = A - P) loses its stored
+    # direction and E(B; residual = A - P) ⇌ E(Q) its reverse, both into the covalent forms,
+    # and both oracles find the law the limit on every face. Its active rapid-equilibrium
+    # segment holds free E and F = E(; residual = A - P), and the law equals the exact
+    # two-conformation steady state. With the second half alone :OnlyA, the inactive
+    # conformation's other steps join the two sides of E(B; residual = A - P) ⇌ E(Q), a
+    # rapid-equilibrium step no reading switches off. (Half 1 alone fails class 3 at zero
+    # substrates and at B = 0.)
+    both = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -684,23 +686,16 @@ end
             E + Q ⇌ E(Q)                                          :: EqualAI
         end
     end
-    v = ER.Derivation._guard(both)
-    @test v.fault === ER.Derivation._ISLAND
-    @test _testhelper_epath_verdict(both; rng = MersenneTwister(663)) in
-          (:direction_dependent, :wrong_limit)
-    @test_throws ErrorException(
-        ER.Derivation._guard_message(both, v)) @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
-        steps: begin
-            E + A ⇌ E(A)                                          :: EqualAI
-            E(A) <--> E(P; residual = A - P)                      :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
-            E + Q ⇌ E(Q)                                          :: EqualAI
-        end
-    end
-    half2 = @allosteric_mechanism begin
+    @test all(_testhelper_admission_agreement(ER.AllostericMechanism(both);
+                                              rng = MersenneTwister(663), corners = true))
+    _testhelper_check_law_against_limit(both)
+    _testhelper_check_law_against_oracle(both)
+    @test parameters(both, FittedParameters()) ==
+          (:K_A_EB_res_plusA_minusP_to_EQ, :K_EA_to_E_A,
+           :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B,
+           :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
+           :k_A_EA_to_EP_res_plusA_minusP, :L)
+    half2 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -711,12 +706,10 @@ end
             E + Q ⇌ E(Q)                                          :: EqualAI
         end
     end
-    _testhelper_check_law_against_oracle(half2)
-    @test parameters(half2, FittedParameters()) ==
-          (:K_A_EB_res_plusA_minusP_to_EQ, :K_EA_to_E_A,
-           :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B,
-           :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
-           :k_EA_to_EP_res_plusA_minusP, :L)
+    @test ER.Derivation._guard(half2) ==
+          ER.Derivation._Verdict(ER.Derivation._FAST_STEP_PINNED,
+                                 ER.Derivation._LIMIT_UNTESTED, 0, 2,
+                                 _testhelper_edge(half2, "EB_res_plusA_minusP ⇌ EQ"))
 end
 
 # ── Fully-inert inactive network (both substrate and product bind :OnlyA) ─────
@@ -782,9 +775,14 @@ end
 # enzyme flips, so a component free E cannot reach holds no inactive mass and
 # must be stranded. With the F6P binding and the first half-reaction :OnlyA, the covalent
 # forms E(; residual) and E(F16BP; residual) join free E in the inactive conformation only
-# through tagged chemistry: an island (`_ISLAND`), which the macro rejects. With the F6P
-# binding and the second half :OnlyA, the inactive conformation keeps its free-enzyme root
-# and every face passes; the derivation must handle it.
+# through tagged chemistry: under each consistent reading the F6P binding runs one way
+# into E(; residual) at zero substrates, which fills faster than it empties (`_FILLED`),
+# the ε-path oracle finding no limit there, and the macro rejects it. With the F6P
+# binding and the second half :OnlyA, the rapid-equilibrium E(F6P; residual) ⇌ E(ADP)
+# bridges two groups of the inactive conformation (`_BRIDGE`), the ε-path oracle finding
+# no limit under its one consistent reading. With that step steady-state, the inactive
+# conformation keeps its free-enzyme root and every face passes; the derivation must
+# handle it.
 @testset "ping-pong :OnlyA I-state keeps a reachable free-enzyme root" begin
     err1 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
@@ -800,9 +798,14 @@ end
         end
     end
     v = ER.Derivation._guard(err1)
-    @test v.fault === ER.Derivation._ISLAND
-    @test _testhelper_epath_verdict(err1; rng = MersenneTwister(761)) in
-          (:direction_dependent, :wrong_limit)
+    @test (v.fault, v.face, v.conformation) == (ER.Derivation._FILLED, 3, 2)
+    readings = _testhelper_consistent_readings(err1)
+    @test length(readings) == 2
+    for reading in readings
+        @test any(face -> _testhelper_epath_verdict(err1; rng = MersenneTwister(761), face,
+                                                    corners = true, reading) !==
+                          :converges, _testhelper_faces(err1))
+    end
     @test_throws ErrorException(
         ER.Derivation._guard_message(err1, v)) @allosteric_mechanism begin
         substrates: ATP, F6P
@@ -817,7 +820,7 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    half2 = @allosteric_mechanism begin
+    half2 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
@@ -830,23 +833,43 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    _testhelper_check_law_against_oracle(half2)
-    am = ER.AllostericMechanism(half2)
+    @test ER.Derivation._guard(half2).fault === ER.Derivation._BRIDGE
+    readings = _testhelper_consistent_readings(half2)
+    @test length(readings) == 1
+    @test any(face -> _testhelper_epath_verdict(half2; rng = MersenneTwister(762), face,
+                                                reading = only(readings)) !== :converges,
+              _testhelper_faces(half2))
+    half2_ss = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) <--> E(ADP)                            :: OnlyA
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    _testhelper_check_law_against_oracle(half2_ss)
+    am = ER.AllostericMechanism(half2_ss)
 
     inactive = ER.Derivation._law(am).inactive
     @test !iszero(inactive.trees[1] * inactive.shift)
 
-    fp = parameters(half2, FittedParameters())
+    fp = parameters(half2_ss, FittedParameters())
     prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
     concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
-    @test isfinite(real(ER.rate_equation(half2, concs, prm)))
+    @test isfinite(real(ER.rate_equation(half2_ss, concs, prm)))
     # With both products at zero the inactive conformation holds its enzyme in the
     # covalent forms: half 2 cannot run there, and half 1 runs back only with F16BP. The
     # rate is then 0, as the mass-action limit is.
-    @test real(ER.rate_equation(half2, merge(concs, (ADP = 0.0, F16BP = 0.0)), prm)) == 0
+    @test real(ER.rate_equation(half2_ss, merge(concs, (ADP = 0.0, F16BP = 0.0)), prm)) ==
+          0
     # Far from equilibrium, with a trace of each product, the law runs forward.
     forward = (ATP = 10.0, F6P = 10.0, ADP = 1e-3, F16BP = 1e-3)
-    @test real(ER.rate_equation(half2, forward, prm)) > 0
+    @test real(ER.rate_equation(half2_ss, forward, prm)) > 0
 end
 
 # ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
@@ -1046,18 +1069,22 @@ end
 
 # ── The gate: a dead-inactive ping-pong is rejected; its half-2 variant derives ──────
 # With the F6P binding and both chemical steps :OnlyA the inactive conformation runs
-# neither half-reaction, which waits for iso mechanisms (ROADMAP). The half-2 variant
-# derives: a finite rate as a product goes to zero, a rate of 0 with both products at
-# zero (its inactive conformation holds the enzyme in the covalent forms there), a
-# forward rate far from equilibrium, and the non-allosteric twin's rate at L = 0.
+# neither half-reaction. The half-2 variant, its last step steady-state, derives: a finite
+# rate as a product goes to zero, a rate of 0 with both products at zero (its inactive
+# conformation holds the enzyme in the covalent forms there), a forward rate far from
+# equilibrium, and the non-allosteric twin's rate at L = 0.
 @testset "a dead-inactive ping-pong is rejected; its half-2 variant is its L = 0 twin" begin
     # With the F6P binding and both half-reactions :OnlyA, the inactive conformation runs
     # neither half: the covalent forms between the halves join free E only through tagged
-    # chemistry (`_ISLAND`), and the message points at the roadmap, which lists the flip at
-    # the covalent form that would hold them (ROADMAP "Let an allosteric ping-pong stop
-    # both half-reactions in the inactive conformation"). With the second half alone
-    # :OnlyA (half 1 alone fails class 3, as it does for the ping-pong above), the
-    # mechanism is admitted.
+    # chemistry. Under the reading the guard reports, at zero products F16BP's release
+    # feeds E(; residual = ATP - F16BP), which leaves only through the vanishing F6P
+    # binding (`_PUMPED`), and the ε-path oracle finds the limit direction-dependent there.
+    # The guard finds no consistent reading that passes; under one of them it refuses a
+    # filling at zero substrates on which the ε-path oracle converges, a conservative
+    # rejection. With the second half alone :OnlyA, E(F6P; residual = ATP - F16BP) ⇌
+    # E(ADP) is a rapid-equilibrium step whose sides the inactive conformation's other
+    # steps join, which no reading switches off; with that step steady-state the mechanism
+    # is admitted (half 1 alone fails class 3, as it does for the ping-pong above).
     dead = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
@@ -1071,13 +1098,18 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    v = ER.Derivation._guard(dead)
-    @test v.fault === ER.Derivation._ISLAND
+    reported = ER.Derivation._guard_with_reading(dead)
+    v = reported.verdict
+    @test (v.fault, v.face, v.conformation) == (ER.Derivation._PUMPED, 2, 2)
     msg = ER.Derivation._guard_message(dead, v)
-    @test occursin("runs neither half-reaction of a ping-pong is not supported yet " *
-                   "(see the Roadmap page)", msg)
-    @test _testhelper_epath_verdict(dead; rng = MersenneTwister(997)) in
-          (:direction_dependent, :wrong_limit)
+    @test occursin("feeds the forms E(; residual = ATP - F16BP) of the inactive " *
+                   "conformation, which leave only through the vanishing step " *
+                   "E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)",
+                   msg)
+    @test _testhelper_epath_verdict(dead; rng = MersenneTwister(997),
+                                    face = _testhelper_faces(dead)[v.face], corners = true,
+                                    reading = _testhelper_reading(reported.reading)) ===
+          :direction_dependent
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
@@ -1091,7 +1123,7 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    half2 = @allosteric_mechanism begin
+    pinned = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
@@ -1101,6 +1133,24 @@ end
             E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
             E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: EqualAI
             E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    @test ER.Derivation._guard(pinned) ==
+          ER.Derivation._Verdict(ER.Derivation._FAST_STEP_PINNED,
+                                 ER.Derivation._LIMIT_UNTESTED, 0, 2,
+                                 _testhelper_edge(pinned,
+                                                  "EF6P_res_plusATP_minusF16BP ⇌ EADP"))
+    half2 = @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        catalytic_multiplicity: 1
+        steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: EqualAI
+            E(F6P; residual = ATP - F16BP) <--> E(ADP)                            :: OnlyA
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
@@ -1117,7 +1167,7 @@ end
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)
             E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
             E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)
+            E(F6P; residual = ATP - F16BP) <--> E(ADP)
             E + ADP ⇌ E(ADP)
         end
     end

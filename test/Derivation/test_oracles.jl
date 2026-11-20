@@ -549,9 +549,44 @@ const _testhelper_sample_regroupings =
 end
 
 @testset "the unguarded macro builds what the guard refuses" begin
-    # R2 (spec section 7), which the macro refuses: at zero product its inactive limit
-    # depends on how fast the isomerization vanishes. The unguarded macro builds it, as
-    # the constructors do from the walker's raw value.
+    # S binds :OnlyA at rapid equilibrium while E(S) <--> E(P) and E + P ⇌ E(P) keep its
+    # two sides joined in the inactive conformation: thermodynamics pins the step's
+    # equilibrium constant, and a step keeps its kind, so no reading switches it off and
+    # the macro refuses the mechanism. The unguarded macro builds it, as the constructors
+    # do from the walker's raw value.
+    pinned = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+    @test pinned isa EnzymeRates.AllostericMechanism
+    @test pinned == EnzymeRates.DSL._construct(
+        EnzymeRates.DSL.raw_mechanism(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end), true))
+    @test_throws ErrorException @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end
+    # R2 (spec section 7): under the guard's built readings, which stop F <--> E, its
+    # inactive limit at zero product depends on how fast that step vanishes. The guard
+    # admits it under a reading in which F <--> E loses its rate into F instead, and both
+    # oracles find the law the limit on every face.
     r2 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -562,28 +597,10 @@ end
             F <--> E          :: OnlyA
         end
     end
-    @test r2 isa EnzymeRates.AllostericMechanism
-    @test r2 == EnzymeRates.DSL._construct(
-        EnzymeRates.DSL.raw_mechanism(:(begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            F + P ⇌ E(P)      :: EqualAI
-            F <--> E          :: OnlyA
-        end
-    end), true))
-    @test_throws ErrorException @allosteric_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            F + P ⇌ E(P)      :: EqualAI
-            F <--> E          :: OnlyA
-        end
-    end
+    @test EnzymeRates.Derivation._guard(r2) == EnzymeRates.Derivation._WELL_POSED
+    @test all(_testhelper_admission_agreement(r2; rng = Random.MersenneTwister(551),
+                                              corners = true))
+    _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(r2))
     mm = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -775,9 +792,11 @@ end
 end
 
 @testset "the ε-path oracle rejects islands, and R2 only at P = 0" begin
-    # R3 and R4 strand F behind tagged chemistry in the inactive conformation, an island:
-    # its weight follows the potential the path gives it, so along the oracle's five
-    # orders of the two limits an island may read direction-dependent or a wrong limit.
+    # Read as the guard's built readings read it, stopped, a steady-state :OnlyA
+    # isomerization strands F in the inactive conformation of R3 and of R4 with F <--> E
+    # steady-state, an island: its weight follows the potential the path gives it, so along
+    # the oracle's five orders of the two limits an island may read direction-dependent or
+    # a wrong limit.
     r3 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -790,6 +809,23 @@ end
             F + I ⇌ F(I)      :: EqualAI
         end
     end
+    r4_ss = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: NonequalAI
+            E + P ⇌ E(P)      :: EqualAI
+            F <--> E          :: OnlyA
+        end
+    end
+    @test _testhelper_epath_verdict(r3; rng = Random.MersenneTwister(31)) in
+          (:direction_dependent, :wrong_limit)
+    @test _testhelper_epath_verdict(r4_ss; rng = Random.MersenneTwister(32)) in
+          (:direction_dependent, :wrong_limit)
+    # R4 itself strands nothing: a step keeps its kind, so no reading stops its
+    # rapid-equilibrium F ⇌ E, which loses its rate into F and keeps the fast way back.
+    # The guard admits it so, both oracles agreeing on every face.
     r4 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -800,10 +836,10 @@ end
             F ⇌ E             :: OnlyA
         end
     end
-    @test _testhelper_epath_verdict(r3; rng = Random.MersenneTwister(31)) in
-          (:direction_dependent, :wrong_limit)
-    @test _testhelper_epath_verdict(r4; rng = Random.MersenneTwister(32)) in
-          (:direction_dependent, :wrong_limit)
+    @test EnzymeRates.Derivation._guard(r4) == EnzymeRates.Derivation._WELL_POSED
+    @test all(_testhelper_admission_agreement(r4; rng = Random.MersenneTwister(32),
+                                              corners = true))
+    _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(r4))
     r2 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -819,7 +855,8 @@ end
                                     face = Set([:P])) === :direction_dependent
     @test _testhelper_epath_verdict(r2; rng = Random.MersenneTwister(35),
                                     face = Set([:S])) === :converges
-    # An exclusion that no direction can reach: no path.
+    # A rapid-equilibrium :OnlyA binding whose sides the other steps keep joined, which no
+    # reading switches off: no path.
     no_path = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -872,15 +909,22 @@ end
         @test _testhelper_certified(am, 2) == (ex.failure === :none)
         certified += ex.failure === :none
     end
-    # 44 tag sets with an :OnlyA group have a direction, and the 32 without one.
-    @test certified == 76
+    # 60 tag sets with an :OnlyA group have a direction, and the 32 without one. The other
+    # 16 tag a rapid-equilibrium binding whose sides the other steps keep joined, a step
+    # no reading switches off.
+    @test certified == 92
 end
 
 @testset "the exact LP agrees with the test's graph test on the uni-uni grid" begin
+    # A limit exists exactly when no excluded rapid-equilibrium step is pinned, which the
+    # LP does not read, and the LP is feasible. Under the first built reading every grid
+    # member's LP is feasible: a binding whose sides stay joined is stopped at steady state
+    # and pinned at rapid equilibrium, and neither adds a row.
     grid = _testhelper_uniuni_grid()
-    @test count(am -> _testhelper_lp_existence(am, 2) ==
+    @test count(am -> (_testhelper_exclusion(am, 2).failure !== :fast &&
+                       _testhelper_lp_existence(am, 2)) ==
                       (_testhelper_exclusion(am, 2).failure === :none), grid) == 108
-    @test count(am -> _testhelper_lp_existence(am, 2), grid) == 76
+    @test count(am -> _testhelper_lp_existence(am, 2), grid) == 108
 end
 
 @testset "the corner set holds every corner up to 128" begin
@@ -1081,11 +1125,11 @@ end
     end
 end
 
-@testset "a 512-bit ε-path of bridge_REcycle2 converges at zero modifiers" begin
-    # bridge_REcycle2: at zero modifiers the I bindings vanish with I, and every path of
-    # the ε-network tends to the law. At 256 bits the paths lose the limit to rounding, so
-    # the check runs at 512. Class 2 rejects the mechanism on the interior ("an RE binding
-    # whose affinity vanishes still closes a fast cycle").
+@testset "bridge_REcycle2 has no ε-path; slowed, it converges at zero modifiers" begin
+    # bridge_REcycle2: the steps the inactive conformation keeps join the two sides of
+    # each rapid-equilibrium :OnlyA step, and a step keeps its kind, so no reading switches
+    # them off and the ε-path oracle finds no path. Class 2 rejects the mechanism on the
+    # interior ("an RE binding whose affinity vanishes still closes a fast cycle").
     m = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -1098,7 +1142,26 @@ end
             F(I) ⇌ E(I)                       :: OnlyA
         end
     end
+    @test EnzymeRates.Derivation._guard(m).fault === EnzymeRates.Derivation._RE_TURNOVER
     @test _testhelper_epath_verdict(m; rng = Random.MersenneTwister(91),
+                                    face = Set([:I]), precision = 512) === :no_path
+    # With both :OnlyA steps steady-state the inactive conformation stops them, the guard
+    # admits the mechanism, and at zero modifiers, where the I bindings vanish with I,
+    # every path of the ε-network tends to the law at 512 bits.
+    slow = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)                      :: EqualAI
+            E(S) <--> F + P                   :: OnlyA
+            F <--> E                          :: EqualAI
+            (E + I ⇌ E(I), F + I ⇌ F(I))      :: OnlyI
+            F(I) <--> E(I)                    :: OnlyA
+        end
+    end
+    @test EnzymeRates.Derivation._guard(slow) == EnzymeRates.Derivation._WELL_POSED
+    @test _testhelper_epath_verdict(slow; rng = Random.MersenneTwister(91),
                                     face = Set([:I]), precision = 512) === :converges
 end
 
@@ -1116,14 +1179,13 @@ end
 @testset "ping-pong seeds' tagging children are admitted, distinct and oracle-checked" begin
     # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
     # form) of the census ping-pong reaction. Each seed's bases stop the inactive
-    # conformation's catalysis, pass the guard, and tag disjoint sets of chemistry
-    # groups, one half-reaction each: 9 seeds get two bases and 9 get one. The move
-    # emits 176 children and the guard keeps 46: the 66 that admission alone accepts, as
-    # a separate implementation of its rules counts them, less the 20 class 3 rejects.
-    # Every kept child is distinct, its verdict matches the one its tags get at one
-    # subunit, on every face its guard verdict agrees with the RE-speed oracle, and it
-    # converges along the ε-path at the interior, the one face the suite's time budget
-    # allows it.
+    # conformation's catalysis, pass the guard, and tag disjoint sets of chemistry groups;
+    # each seed gets one base. The move emits 94 children and the guard keeps 53; class 3
+    # rejects none of the other 41, admission rejects them all. Every kept child is
+    # distinct, its verdict matches the one its tags get at one subunit, on every face its
+    # guard verdict agrees with the RE-speed oracle, and, under the reading the guard
+    # admits it with, it converges along the ε-path at the interior, the one face the
+    # suite's time budget allows it.
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
     seeds = [m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
@@ -1150,12 +1212,15 @@ end
             verdicts = _testhelper_respeed_verdicts(c; rng,
                                                     law = admitted ? :package : :limit)
             @test all(_testhelper_agrees.(faults, verdicts))
-            admitted && @test _testhelper_epath_verdict(c; rng) === :converges
+            admitted || continue
+            reading = _testhelper_reading(EnzymeRates.Derivation._admitting_reading(c))
+            @test _testhelper_reading_is_consistent(c, reading)
+            @test _testhelper_epath_verdict(c; rng, reading) === :converges
         end
     end
-    @test nbases == Dict(1 => 9, 2 => 9)
-    @test n_moved == 176
-    @test n_kids == 46
+    @test nbases == Dict(1 => 18)
+    @test n_moved == 94
+    @test n_kids == 53
 end
 
 # ── Population tests of the well-posedness guard ────────────────────────────
@@ -1225,18 +1290,21 @@ _testhelper_written_backwards(m) =
 end
 
 @testset "the population's allosteric members converge along the ε-path on every face" begin
-    # Along the standard directions and every order of the two limits, each allosteric
-    # member of the sample tends to its deletion law on every face, and at the interior,
-    # along the σ = 1 standard directions, its error falls as a power of ε
-    # (`_testhelper_in_epath_window`).
+    # Its excluded steps switched off as the guard's admitting reading says, a reading the
+    # tests' own rule finds consistent, each allosteric member of the sample tends to its
+    # deletion law on every face along the standard directions and every order of the two
+    # limits, and at the interior, along the σ = 1 standard directions, its error falls as
+    # a power of ε (`_testhelper_in_epath_window`).
     rng = Random.MersenneTwister(402)
     allo = [m for m in _testhelper_population_sample
             if m isa EnzymeRates.AllostericMechanism]
     @test length(allo) >= 30
     for am in allo
-        @test all(face -> _testhelper_epath_verdict(am; rng, face) === :converges,
+        reading = _testhelper_reading(EnzymeRates.Derivation._admitting_reading(am))
+        @test _testhelper_reading_is_consistent(am, reading)
+        @test all(face -> _testhelper_epath_verdict(am; rng, face, reading) === :converges,
                   _testhelper_faces(am))
-        @test _testhelper_in_epath_window(am; rng)
+        @test _testhelper_in_epath_window(am; rng, reading)
     end
 end
 
@@ -1267,13 +1335,20 @@ end
 let children = [c
                 for m in EnzymeRates.Enumeration.init_mechanisms(_testhelper_inhibitor_rxn)
                 for c in _testhelper_plain_moves(m, _testhelper_inhibitor_rxn)]
-@testset "bi-bi inhibitor children pass the guard and no move tags catalysis :OnlyI" begin
+@testset "all but 34 inhibitor children pass the guard; none tags catalysis :OnlyI" begin
     # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
-    # guard, so expand_mechanisms drops none of them, and no allosteric child tags a
-    # catalytic group :OnlyI (spec section 13). An aggregate regression pin over the
-    # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
+    # guard but 34, which expand_mechanisms drops, and no allosteric child tags a catalytic
+    # group :OnlyI (spec section 13). Each of the 34 tags :OnlyA a fused rapid-equilibrium
+    # binding into E(P, Q), E(A) + B ⇌ E(P, Q) or E(B) + A ⇌ E(P, Q), which the inactive
+    # conformation's other steps leave between two groups: at zero A and B it runs one
+    # way into a cut-off form that fills faster than it empties (`_FILLED`). An aggregate
+    # regression pin over the declaration's whole seed set (CLAUDE.md enumeration rule 1's
+    # exception).
     @test length(children) == 5505
-    @test count(!_testhelper_is_valid, children) == 0
+    rejected = filter(!_testhelper_is_valid, children)
+    @test length(rejected) == 34
+    @test all(c -> EnzymeRates.Derivation._guard(c).fault ===
+                   EnzymeRates.Derivation._FILLED, rejected)
     allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
     @test all(c -> :OnlyI ∉ c.mwc_tags, allo)
@@ -1336,12 +1411,14 @@ end
 end
 
 @testset "the guard's verdict survives reordering, reversal, regrouping and renames" begin
-    # The sample, plus four mechanisms the guard rejects: a lumpable split rejected at Q
-    # zero only (limit test `differ`), an unfed trap rejected at Q zero only (`speed`),
-    # R2's pumped inactive basin at zero product, and S1's second closed class at zero
+    # The sample, R2, which the guard admits under a reading it finds by search, and four
+    # mechanisms the guard rejects: a lumpable split rejected at Q zero only (limit test
+    # `differ`), an unfed trap rejected at Q zero only (`speed`), F3 with A's binding and
+    # its rapid-equilibrium Theorell–Chance step :OnlyA, whose E(A) fills faster than it
+    # empties at zero substrates (`_FILLED`), and S1's second closed class at zero
     # substrates. Reversing the step order and every step's direction gives the same
-    # mechanism. A same-model regrouping (a split the cycles tie back, the count
-    # unchanged) keeps the fault. A renaming that reverses the name order moves the faces'
+    # mechanism. A same-model regrouping (a split the cycles tie back, the count unchanged)
+    # keeps the fault. A renaming that reverses the name order moves the faces'
     # indices and the first substrate, and keeps the fault, the limit verdict, the
     # conformation and the zeroed names.
     lumpable_732 = @_testhelper_unguarded @enzyme_mechanism begin
@@ -1378,6 +1455,18 @@ end
             F <--> E          :: OnlyA
         end
     end
+    @test EnzymeRates.Derivation._guard(r2) == EnzymeRates.Derivation._WELL_POSED
+    @test all(_testhelper_admission_agreement(r2; rng = Random.MersenneTwister(1338),
+                                              corners = true))
+    tc = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A <--> E(A)            :: OnlyA
+            E(A) + B ⇌ E(Q) + P        :: OnlyA
+            E(Q) <--> E + Q            :: EqualAI
+        end
+    end
     s1 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P
@@ -1393,20 +1482,20 @@ end
             F + B <--> E(B)                 :: EqualAI
         end
     end
-    rejected = [lumpable_732, unfed_trap, r2, s1]
+    rejected = [lumpable_732, unfed_trap, tc, s1]
     verdicts = EnzymeRates.Derivation._guard.(rejected)
     @test all(v -> v.fault !== EnzymeRates.Derivation._NO_FAULT, verdicts)
     @test [(v.fault, v.limit, v.face) for v in verdicts[1:2]] ==
           [(EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_DIFFER, 7),
            (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 7)]
     @test (verdicts[3].fault, verdicts[3].face, verdicts[3].conformation) ==
-          (EnzymeRates.Derivation._PUMPED, 2, 2)
+          (EnzymeRates.Derivation._FILLED, 3, 2)
     @test (verdicts[4].fault, verdicts[4].face) == (EnzymeRates.Derivation._NONUNIQUE, 3)
     _testhelper_zeroed(m, v) = v.face == 0 ? Set{Symbol}() :
         Set(EnzymeRates.Derivation._face_names(
             EnzymeRates.Mechanisms.catalytic(m),
             EnzymeRates.Derivation._faces(EnzymeRates.Mechanisms.catalytic(m))[v.face]))
-    for m in [_testhelper_population_sample; rejected]
+    for m in [_testhelper_population_sample; r2; rejected]
         v = EnzymeRates.Derivation._guard(m)
         rewritten = _testhelper_written_backwards(m)
         @test rewritten == m && EnzymeRates.Derivation._guard(rewritten) == v
@@ -1517,7 +1606,7 @@ end
     @test length(kids) == 200
     flagged = [am for am in kids
                if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))]
-    @test length(flagged) == 69
+    @test length(flagged) == 76
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
     for am in first(flagged, 4)
@@ -1526,13 +1615,15 @@ end
     end
 end
 
-@testset "no one-subunit ping-pong tagging child is an L phantom" begin
+@testset "every flagged one-subunit ping-pong tagging child is its L→0 law's family" begin
     # The tagging children at one catalytic subunit of 30 ping-pong parents,
     # the covalent init mechanisms and their well-posed covalent flips, spaced through
-    # their content order. Every child keeps a step in the inactive conformation, and
-    # none has a certificate, so none is an L phantom. The counts are aggregate
-    # regression pins over the declaration's seed set (CLAUDE.md enumeration rule 1's
-    # exception).
+    # their content order. In 93 children the inactive conformation keeps no step, and 111
+    # children, kept steps or not, have a certificate. Each of these reproduces its law at
+    # L = 0 under the certificate's rescaling, so its family is that law's and no flagged
+    # child gains rank; the rank oracle confirms it on the first four. The counts are
+    # aggregate regression pins over the declaration's seed set (CLAUDE.md enumeration
+    # rule 1's exception).
     rxn = _testhelper_phantom_pingpong_rxn
     covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.nodes)
     inits = filter(covalent, collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
@@ -1541,8 +1632,15 @@ end
     parents = _testhelper_spaced(unique!([inits; flips]), 30)
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
-    @test length(kids) == 172
-    @test all(am -> any(am.inactive_steps), kids)
-    @test all(am -> isempty(EnzymeRates.Derivation._phantom_weights(
-                  EnzymeRates.Derivation._law(am))), kids)
+    @test length(kids) == 247
+    @test count(am -> !any(am.inactive_steps), kids) == 93
+    flagged = [am for am in kids
+               if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))]
+    @test length(flagged) == 111
+    rng = Random.MersenneTwister(505)
+    @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
+    for am in first(flagged, 4)
+        @test _testhelper_identifiable_rank(am) ==
+              _testhelper_identifiable_rank(EnzymeRates.Mechanisms.catalytic(am))
+    end
 end
