@@ -12,8 +12,9 @@ enumeration's. Each parent must satisfy the two emission rules
 (`_assert_emission_rules`): every steady-state group carries flux and no
 competitive-inhibitor group is redundant (`_redundant_copy_groups`). Every child that
 passes the regulator-type filter must conserve atoms (`_assert_atom_conserving`), which
-errors on the first child that does not; a child whose rate law the guard rejects
-(`_guard_accepts`) is dropped.
+errors on the first child that does not; a child that `_enumerator_keeps` refuses (the
+guard rejects it, or a conformation keeps a form that only bindings it excludes enter) is
+dropped.
 """
 function expand_mechanisms(
     mechs::Vector{<:Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}},
@@ -35,6 +36,6 @@ function expand_mechanisms(
     end
     filter!(c -> _respects_reg_type(c, rxn), result)
     foreach(child -> _assert_atom_conserving(child, rxn), result)
-    filter!(_guard_accepts, result)
+    filter!(_enumerator_keeps, result)
     result
 end

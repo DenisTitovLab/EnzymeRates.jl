@@ -82,7 +82,7 @@ function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechani
 end
 
 """
-    _kept_forms_can_be_made(m) -> Bool
+    _kept_forms_keep_a_binding(m) -> Bool
 
 Whether, in each conformation of `m`, every form but free E that the conformation's law
 keeps (a form of a step in `active_steps` or `inactive_steps`) and that some binding enters
@@ -91,8 +91,8 @@ conformation does not exclude (`excluded_active`, `excluded_inactive`). True for
 mechanism. The guard admits a mechanism that fails this when its law is the limit, so a
 user may write one; the enumerator does not build it.
 """
-_kept_forms_can_be_made(::Mechanisms.Mechanism) = true
-function _kept_forms_can_be_made(am::Mechanisms.AllostericMechanism)
+_kept_forms_keep_a_binding(::Mechanisms.Mechanism) = true
+function _kept_forms_keep_a_binding(am::Mechanisms.AllostericMechanism)
     steps, n = am.catalytic.steps, length(am.catalytic.nodes)
     for (law, excluded) in ((am.active_steps, am.excluded_active),
                             (am.inactive_steps, am.excluded_inactive))

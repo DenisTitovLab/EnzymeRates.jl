@@ -91,8 +91,9 @@ cuts a segment on its own, several groups when each alone is bridged by an RE
 route through the others — as happens once a split has separated a
 metabolite's binding steps, or a catalytic step from its inhibitor-bound
 mirror. A flip that leaves the segment count unchanged adds an SS step whose
-endpoints share a segment, which the rate equation never sees. A flip set whose child the
-guard rejects (`_guard_accepts`) also counts as failed, so the minimal-set search
+endpoints share a segment, which the rate equation never sees. A flip set whose child
+`_enumerator_keeps` refuses (the guard rejects it, or a conformation keeps a form that only
+bindings it excludes enter) also counts as failed, so the minimal-set search
 extends it instead of emitting it; so does
 a set one of whose flipped groups carries no flux in the child
 (`_flux_carrying_groups` on the flipped groups): the child is its parent plus
@@ -171,8 +172,8 @@ every inclusion-minimal flip to steady state that passes, one flag per edge for 
 set. A unit is a rapid-equilibrium kinetic group that carries flux with every edge steady
 state (`_flux_carrying_groups`) and passes `eligible`. A candidate turns its units' edges
 steady state and keeps every other flag. It passes when `admissible` holds on its flags,
-every flipped group carries flux in it, and the guard accepts the mechanism it builds
-(`_guard_accepts`). The first two tests read the flags, so only a candidate that
+every flipped group carries flux in it, and `_enumerator_keeps` accepts the mechanism it
+builds. The first two tests read the flags, so only a candidate that
 passes them is built. The sets come from `_minimal_gaining_sets`, so a failing set is
 extended and a passing one is not.
 """
@@ -194,7 +195,7 @@ function _minimal_flips(admissible,
     end
     passes(sel) = (re = flipped(sel);
                    admissible(re) && all(_flux_carrying_groups(cm, re)[units[sel]]) &&
-                   _guard_accepts(_with_flags(m, re)))
+                   _enumerator_keeps(_with_flags(m, re)))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
 end
 
@@ -375,7 +376,7 @@ Kinetic-group split move. A unit is one context bipartition of one group
 (`_context_bipartitions`: the affinity for a metabolite may depend on which
 other ligand is already bound). One child is produced per minimal set of units,
 at most one per group, whose joint application raises the independent-parameter
-count and gives a child the guard accepts (`_minimal_gaining_sets`). A single
+count and gives a child `_enumerator_keeps` accepts (`_minimal_gaining_sets`). A single
 bipartition whose new constant a Wegscheider cycle ties straight back is not a model:
 the cycle ties the new constant to the others, so the child's rate function is the
 parent's. Such a bipartition
@@ -386,8 +387,8 @@ rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
 step of the split groups: a tie needs an RE cycle through the carve, and every
 group on that cycle lies in that segment. The count is the joint solve's on the built
 child (`fitted_parameter_count`), which derives no rate polynomial, and a set whose
-child the guard rejects (`_guard_accepts`) also counts as failed, so the search extends it
-instead of emitting it.
+child `_enumerator_keeps` refuses also counts as failed, so the search extends it instead
+of emitting it.
 A part of a steady-state group none of whose edges carries flux
 (`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
 is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
@@ -431,7 +432,7 @@ function _expand_split_kinetic_group(m::Union{Mechanisms.Mechanism,
     accepted = Dict{Vector{Int}, typeof(m)}()
     function gains(sel)
         c = _apply_bipartitions(m, units[sel], flags_of(sel))
-        Derivation.fitted_parameter_count(c) > base && _guard_accepts(c) ||
+        Derivation.fitted_parameter_count(c) > base && _enumerator_keeps(c) ||
             return false
         accepted[sel] = c
         true
@@ -728,14 +729,15 @@ end
 """
     _valid_tagging(m::Mechanism, tags::Vector{Symbol}) -> Bool
 
-Whether the guard (`_guard_accepts`) accepts `m` with the tags `tags`, one per
-kinetic group, over one catalytic subunit with no regulatory site. The guard's checks read
-neither the multiplicity nor the sites, so every child the tagging move builds on these
-tags gets the same verdict at the exits, up to the limit test's random draw, whose seed
-hashes the mechanism.
+Whether `_enumerator_keeps` accepts `m` with the tags `tags`, one per kinetic group, over
+one catalytic subunit with no regulatory site: tagging bases pass the test every other
+candidate passes. Neither the guard's checks nor `_kept_forms_keep_a_binding` read the
+multiplicity or the sites, so every child the tagging move builds on these tags gets the
+same verdict at the exits, up to the limit test's random draw, whose seed hashes the
+mechanism.
 """
 _valid_tagging(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
-    _guard_accepts(Mechanisms.AllostericMechanism(
+    _enumerator_keeps(Mechanisms.AllostericMechanism(
         m, tags, 1, Mechanisms.RegulatorySite[]))
 
 """
@@ -756,15 +758,14 @@ end
 The tag sets the tagging move (`_expand_to_allosteric`) builds on, one tag per kinetic
 group of `m` (spec section 7, "Allosteric ping-pong"). The first candidate tags every
 chemistry group (`_chemistry_groups`) `:OnlyA` and every binding group `:EqualAI`; when
-the guard accepts it (`_valid_tagging`) it is the only base. Otherwise the bases are the
-smallest sets of chemistry groups, by inclusion, that stop every catalytic cycle of the
-inactive conformation (`_stops_inactive_turnover`) and pass the guard, each tagged
-`:OnlyA` with every other group `:EqualAI`; a set the guard rejects leaves its supersets in
-the search. On a ping-pong mechanism the first candidate cuts the covalent forms off in the
-inactive conformation. When the guard rejects that, a half-reaction's chemistry groups can
-be a base alone, the other half running in both conformations, and a half spread over
-several chemistry groups can give several bases. The bases come by size, each size in
-`_subsets` order.
+it passes `_valid_tagging` it is the only base. Otherwise the bases are the smallest sets
+of chemistry groups, by inclusion, that stop every catalytic cycle of the inactive
+conformation (`_stops_inactive_turnover`) and pass `_valid_tagging`, each tagged `:OnlyA`
+with every other group `:EqualAI`; a set that fails leaves its supersets in the search. On
+a ping-pong mechanism the first candidate cuts the covalent forms off in the inactive
+conformation. When it fails, a half-reaction's chemistry groups can be a base alone, the
+other half running in both conformations, and a half spread over several chemistry groups
+can give several bases. The bases come by size, each size in `_subsets` order.
 """
 function _tagging_bases(m::Mechanisms.Mechanism)
     chem = _chemistry_groups(m)
@@ -787,12 +788,12 @@ end
 
 Convert a non-allosteric `Mechanism` into allosteric variants, each built on a base of
 `_tagging_bases`: the tag set with every chemistry group `:OnlyA` and every binding group
-`:EqualAI` when the guard accepts it, else each smallest set of chemistry groups that stops
-the inactive conformation's catalysis and passes the guard. A chemistry group is one
+`:EqualAI` when it passes `_valid_tagging`, else each smallest set of chemistry groups that
+stops the inactive conformation's catalysis and passes. A chemistry group is one
 holding a chemistry step (`_chemistry_groups`): an isomerization, a fused binding or a
 Theorell–Chance step; every other group is a binding group. On a ping-pong mechanism,
 tagging both half-reactions cuts the covalent forms off in the inactive conformation; when
-the guard rejects that, a base can tag one half alone, the other half running in both
+that fails, a base can tag one half alone, the other half running in both
 conformations, and a half spread over several chemistry groups can give several (spec
 section 7, "Allosteric ping-pong"). Two kinds are not enumerated:
 the all-`:EqualAI` baseline and a V-type variant without a regulator.
@@ -801,10 +802,10 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     are identical, `L` cancels, and the mechanism is indistinguishable
     from `m`.
   * K-type: a nonempty set of binding groups set `:OnlyA` on top of a base, and on top
-    of the every-chemistry set when the guard rejects that set, since a tagged binding
-    can restore its limit; each is emitted bare, and the exits drop those the guard
-    rejects. Over more than one catalytic subunit the conformational equilibrium
-    enters the rate with the multiplicity's power. Over one subunit the inactive
+    of the every-chemistry set when that set is no base, since a tagged binding can
+    restore its limit; each is emitted bare, and the exits drop those
+    `_enumerator_keeps` refuses. Over more than one catalytic subunit the conformational
+    equilibrium enters the rate with the multiplicity's power. Over one subunit the inactive
     conformation is a dead-end branch of the free enzyme, and `L` is a phantom in some
     K-type variants and not in others. In every K-type variant of the rapid-equilibrium
     ordered bi-bi seed a rescaling of the active state's constants absorbs it, whatever
@@ -826,7 +827,7 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     emits no V-type.
 
 A ping-pong parent with no declared regulator can end with no child at the exits, when
-the guard rejects every K-type.
+`_enumerator_keeps` refuses every K-type.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the move emits
 the K-types, then the V-types, at that `catalytic_multiplicity`. Every variant
@@ -853,7 +854,8 @@ function _expand_to_allosteric(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeRe
     regs = [reg.name for reg in rxn.regulators if reg.kind === :allosteric]
     bases = _tagging_bases(m)
     # K-type: a nonempty set of binding groups :OnlyA on top of a base, and on top of the
-    # every-chemistry set when the guard rejects it; the exits drop those it rejects.
+    # every-chemistry set when it is no base; the exits drop those `_enumerator_keeps`
+    # refuses.
     kbases = vtags in bases ? bases : [bases; [vtags]]
     ktags = Vector{Symbol}[]
     for base in kbases, sel in _subsets(findall(!, chem))[2:end]
@@ -975,7 +977,7 @@ conformation and leave its affinity no path to zero; where the inactive conforma
 binds nothing (every binding `:OnlyA`), the skipped variant is rate-equivalent to the
 form emitted directly, so no observable hypothesis is lost.
 
-The guard at the enumerator's exits (`_guard_accepts`) judges each child:
+The test at the enumerator's exits (`_enumerator_keeps`) judges each child:
 relaxing an `:OnlyA` binding joins its two sides, which can leave another tagged binding
 inside one component or close a cycle of tagged bindings, and a face can fail. A
 regulatory ligand's tag does not enter the guard — a regulator site completes no catalytic
