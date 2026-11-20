@@ -464,11 +464,16 @@ directions, misses the failure below.
   slow step the flow vanishes. The form above is the second.
 - Of the three ping-pongs with both chemistry steps `:OnlyA` that stay rejected, none has
   a limit under any reading: their covalent forms empty only by binding B.
-- None of the mechanisms the guard as first built dropped on purpose comes back (the 258,
-  26, 22 and 234 above that were admitted before this work and now hold a rapid-equilibrium
-  step that cannot be switched off): in each that step lies inside one group. Other
-  mechanisms with such a step between two groups, never admitted before, are admitted now,
-  the six-step ping-pong among them. An observation, reported by the gate, not a condition.
+- None of the mechanisms the guard as first built dropped on purpose comes back (the 542
+  of the gate's first four populations that were admitted before this work and held a
+  rapid-equilibrium step the three readings could not switch off). In 126 that step lies
+  inside one group. In the other 416 it lies between two groups, so the rule lets it lose
+  a direction: 392 are bindings that react at once, which lose the release, 23 are
+  isomerizations, and the face checks refuse every consistent reading (383 by the filling
+  check, 33 as a bridge). They refuse rightly: of 80 sampled, none has a limit under any
+  consistent reading. Other mechanisms with such a step between two groups, never admitted
+  before, are admitted now, the six-step ping-pong among them. An observation, reported by
+  the gate, not a condition.
 - One fixed reading (levels by breadth-first distance) admits 6,252 of the 7,520, so a
   search is needed. Every reading cost 0.15 to 1.2 s per population and at most 91 ms for
   one mechanism; 53 of 644 ter-ter mechanisms searched exceeded the spike's cap.
@@ -497,9 +502,50 @@ directions, misses the failure below.
   form that runs one way along its vanishing direction because its uptake is dead on the
   face. Of the twelve smallest, the harsh test finds a limit that depends on the direction
   in 4 and a limit equal to the law in 8, which stay rejected.
-- Not yet measured: reactions with inhibitors in the `:OnlyA` populations, ter-bi and
-  bi-ter, the enumerator's own expansion rounds, ter-ter under the harsh test, and more
-  than one catalytic subunit. The gate covers them.
+
+The gate ran on the guard as built, against the guard as first built with its three
+readings. It added five populations to the five of the table: `:OnlyA` taggings of bi-bi
+with a competitive inhibitor, of ter-bi and of bi-ter (3,000 each), the allosteric
+children of one expansion round of the census reactions (1,990), and the 2,709 distinct
+allosteric mechanisms `test/Derivation/test_admission.jl` puts through the guard.
+
+| Population | Admitted before | Newly admitted | Lost |
+|:--|--:|--:|--:|
+| Ping-pong taggings (50) | 0 | 40 | 0 |
+| `:OnlyA` taggings of uni-uni, bi-bi and ping-pong inits (9,616) | 7,520 | 180 | 0 |
+| Taggings with an `:OnlyI` group (43,311) | 2,200 | 34 | 0 |
+| Ter-ter taggings (2,000) | 1,350 | 253 | 0 |
+| K-type taggings of the bi-bi split children (9,878) | 7,474 | 600 | 0 |
+| Bi-bi with a competitive inhibitor (3,000) | 2,503 | 0 | 0 |
+| Ter-bi (3,000) | 2,126 | 160 | 0 |
+| Bi-ter (3,000) | 2,145 | 158 | 0 |
+| One expansion round (1,990) | 1,939 | 51 | 0 |
+| The admission tests' mechanisms (2,709) | 2,260 | 99 | 0 |
+
+- Every newly admitted mechanism of 8 steps or fewer agrees with both oracles under the
+  harsh test: 591 of 591. Of the larger ones, 598 of 598 sampled agree under the mild
+  test, and a spaced 100 of the ter-ter ones agree under the harsh test.
+- With the filling check switched off, 18 of 250 mechanisms of the second population fail
+  the harsh test. With the set-aside rule switched off the guard admits 125 fewer and no
+  other mechanism changes sides.
+- At two catalytic subunits, the concerted network's steady state equals the law for 40 of
+  40 sampled newly admitted mechanisms.
+- The ter-ter count is one below the spike's. The spike set aside a form no step feeds when
+  any of its alive transitions led into a set-aside group; the rule as stated wants all of
+  them to. The entry concerned, one of the two accepted bridges, converges under the mild
+  test and stays rejected.
+- The third built reading changes no verdict in any population once the search exists: the
+  search finds a reading for each of the 4 mechanisms it admits, and it decides nothing for
+  the 441 too large to search.
+- The slowest guard call is 0.3 s (a ter-bi mechanism of 25 steps with 2,157 pairs), above
+  the spike's 0.1 s; every population still takes under 2 s. 33 mechanisms are too large to
+  search and have no consistent built reading.
+- What stays rejected though valid, from 40 sampled per population of the mechanisms of 8
+  steps or fewer refused by a face check: 9 of 40 in the second population (an estimated
+  127 of 566), 7 of 40 ter-bi, 1 of 40 bi-ter, 4 of 8 ping-pong taggings, none in the
+  `:OnlyI`, ter-ter, split and inhibitor populations. Nearly all are ping-pongs that the
+  filling check refuses under the reading the oracles accept, at the second substrate's
+  binding to the covalent form; none is a bridge.
 
 The spike scripts and logs are kept at
 `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/`, outside the repository. They
