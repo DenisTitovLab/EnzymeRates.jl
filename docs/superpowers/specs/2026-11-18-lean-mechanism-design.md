@@ -174,9 +174,8 @@ end
 
 Removed: `AllostericMechanism`, `EnzymeMechanism`, `AllostericEnzymeMechanism`,
 `AbstractEnzymeMechanism`, `EnzymeForm`, `Metabolite`, `catalytic`, `compile_mechanism`,
-`check_conformation_label`, `excludes`, the stored facts (`modifiers`, `groups`,
-`step_kinds`, `toward_products`, `step_sides`, the four step masks) and the integer
-encoding of names.
+`check_conformation_label`, the stored facts (`modifiers`, `groups`, `step_kinds`,
+`toward_products`, `step_sides`, the four step masks) and the integer encoding of names.
 
 ### 2. The guard's rule for excluded steps
 
@@ -282,8 +281,9 @@ later stages must not change a verdict (see "Tests").
   way to evaluate a law, and no slow path. Users who want the law in other code copy
   `rate_equation_string`.
 - `FittingProblem(m, data)` compiles inside and keeps both the mechanism and `eq`. Fitting
-  reads the parameter names as a compile-time constant from `eq` (`parameters(eq)`);
-  `parameters(m)` on a mechanism is an ordinary function.
+  reads the parameter names and the metabolite names as compile-time constants from `eq`
+  (`parameters(eq)`, `metabolites(eq)`), as `loss!` needs; `parameters(m)` and
+  `metabolites(m)` on a mechanism are ordinary functions.
 - Plotting compiles once per plot. Tests evaluate a law through `compile_rate_equation`.
 - The speed, allocation, compile-budget and type-stability tests move to `eq`.
 
@@ -356,8 +356,14 @@ end
   has bindings into it has one that still runs.
 - **How Enumeration gets form contents.** It keeps its own record of them beside each
   mechanism it builds (decision 6). Nothing in `src/` reads a form name back.
-- **`Mechanisms`** keeps only what two modules use. `segment_walk` and `present_species`,
-  which only `Derivation` calls, move into `Derivation`.
+- **`Mechanisms`** keeps only what two modules use. `present_species` becomes private:
+  it is five lines, and `Derivation` writes its own. `segment_walk` stays public, since
+  `rapid_equilibrium_segments` in `Mechanisms` and the guard in `Derivation` both call
+  it.
+- **Which state excludes a step in which conformation** has one owner,
+  `Mechanisms.excludes(state, conformation)`, which stays public. `Derivation` and
+  `Enumeration` both need the steps a conformation excludes by their state, beside the
+  steps that still run, and each builds that mask from `excludes`.
 - **Enumeration predicts the rate law from the graph itself** (the maintainer's decision,
   2026-11-20; decision 7). It calls `steps_in_active_conformation`,
   `steps_in_inactive_conformation`, `rapid_equilibrium_segments` and `has_turnover_cycle`
@@ -367,8 +373,8 @@ Public names of `Mechanisms` after the change, from 25: `Mechanism`, `CatalyticS
 `Allostery`, `Step`, `RegulatorySite`, `EnzymeReaction`, `Reactant`, `Regulator`,
 `metabolites`, `step_text`, `steps_in_active_conformation`,
 `steps_in_inactive_conformation`, `rapid_equilibrium_segments`, `has_turnover_cycle`,
-`has_unbalanced_cycle`: 15. The builder removes `has_unbalanced_cycle` if each module can
-own its use.
+`has_unbalanced_cycle`, `segment_walk`, `excludes`: 17. The builder removes
+`has_unbalanced_cycle` if each module can own its use.
 
 Exports after the change: `Mechanism` and `compile_rate_equation` join;
 `EnzymeMechanism`, `AllostericEnzymeMechanism`, `@allosteric_mechanism`, `rate_equation`,
@@ -466,7 +472,8 @@ Interface compared, as `.claude/CLAUDE.md` asks:
   `_form_name`: `E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`). A name is for display and
   identity. Enumeration also owns the check that a reaction's metabolite names cannot
   give two forms one name (today's `check_decodable_names`), run when the first method is
-  called, not in `@enzyme_reaction`.
+  called. The check leaves the `EnzymeReaction` constructor and the mechanism macro,
+  which run it today: a written mechanism needs only distinct form names.
 - **Modifier copies.** In the lean graph a step that binds a reactant's modifier copy
   takes up the reactant; that it is a copy is in the record of the form it makes.
 - **Step kinds and kinetic groups** (a plain binding, a binding that also does the
@@ -661,10 +668,11 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
 1. Stage 1, the guard's rule on today's data model: built.
 2. The Enumeration design (decision 6) and the Derivation-interface design with `Keq` and
    `E_total` (decision 7): decided on 2026-11-20.
-3. Stage 2 is planned and built: the lean graph, the one type, the one macro with the
-   fixtures, and candidates in `Enumeration`.
-4. Stage 3: compiling inside `FittingProblem`, `Keq` as an argument, no `E_total`, the
-   parameter interface.
+3. The rest is planned and built: the lean graph, the one type, the one macro with the
+   fixtures, candidates in `Enumeration`, compiling inside `FittingProblem`, `Keq` as an
+   argument, no `E_total`, the parameter interface. The plan chooses the order. Decision
+   1 removes the compiled mechanism types and decision 3 supplies their replacement, so
+   the two cannot be built apart; every commit passes the suite.
 
 ## Consequences for the maintainer to know
 
