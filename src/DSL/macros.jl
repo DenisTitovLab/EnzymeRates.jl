@@ -203,17 +203,16 @@ conformation still turns substrate into product. The conformations interconvert 
 free E.
 
 A tagged step is switched off in the conformation that lacks it, and it keeps its kind,
-rapid equilibrium or steady state, in both. A step that takes up one metabolite into a form
-the other steps no longer reach loses its affinity. If that leaves a fault, the macro tries
-again with such a steady-state step stopped unless it leads away from free E, and then
-with every such steady-state step stopped. Any other steady-state step stops. Any other
-rapid-equilibrium step cannot be switched off, and the macro rejects it (see
-[How an excluded step is switched off](@ref)). The macro also rejects a tag set whose limit
-it cannot show to exist and be unique: steps that lose their affinity and close a cycle;
-forms that free E reaches only through tagged steps other than an uptake toward them that
-loses its affinity; a face where the steady state depends on where the enzyme starts; or a
-face where it cannot show that the limit does not depend on how fast the tagged constants
-vanish. The checks of [`@enzyme_mechanism`](@ref) apply as well.
+rapid equilibrium or steady state, in both. The steps that conformation keeps join the
+forms into groups, and every group but free E's lies higher in energy and holds no enzyme:
+a tagged step between two groups loses its rate uphill and keeps its rate downhill, or, at
+steady state, may stop; one inside a group stops at steady state, and at rapid equilibrium
+cannot be switched off, so the macro rejects it. The macro looks for energies of the groups
+under which the rate law is the limit, and rejects the tag set when it finds none: under
+each, a face's steady state depends on where the enzyme starts, or the macro cannot show
+that the limit does not depend on how fast the tagged constants vanish (see
+[How an excluded step is switched off](@ref)). The checks of [`@enzyme_mechanism`](@ref)
+apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

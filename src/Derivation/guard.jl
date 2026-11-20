@@ -53,18 +53,21 @@ turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed cl
 the limit test rejects where procedure A stopped at a trap fed on the face (`_TRAP`), a
 segment whose lowest forms split (`_SPLIT`), a law segment chain with several closed
 classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
-interior (class 4), each excluded step switched off as a reading says (`_Reading`; the
-guard reports its first try's, `_guard`), a rapid-equilibrium step that a conformation
-excludes and cannot switch off (`_FAST_STEP_PINNED`), steps that lose a direction and,
-each pointing uphill, close a directed cycle or point into free E's component
-(`_ARC_CYCLE`), forms free E's component does not reach along those steps (`_ISLAND`), or
-an active conformation that no longer turns the reaction over (`_NO_ACTIVE_TURNOVER`); on
-a face, in admission's face condition, a second closed class of the ε-network
-(`_EPS_NONUNIQUE`), a form that a fast step's vanishing direction fills one way faster
-than it empties (`_FILLED`), a stranded basin entered by, or holding, an alive step whose
-reverse is dead, or entered from outside it and the law's forms (`_PUMPED`), or tagged
-steps that shorten the fed forms' cheapest spanning in-tree where no potential absorbs
-their turnover (`_BRIDGE`).
+interior (class 4), each excluded step switched off as a reading says (`_Reading`), a
+rapid-equilibrium step that a conformation excludes and the reading cannot switch off
+(`_FAST_STEP_PINNED`; the guard reports it only for a step inside one group, which no
+reading switches off), steps that lose a direction and, each pointing uphill, close a
+directed cycle or point into free E's component (`_ARC_CYCLE`), forms free E's component
+does not reach along those steps (`_ISLAND`), or an active conformation that no longer
+turns the reaction over (`_NO_ACTIVE_TURNOVER`); on a face, in admission's face condition,
+a second closed class of the ε-network (`_EPS_NONUNIQUE`), a form that a fast step's
+vanishing direction fills one way faster than it empties (`_FILLED`), a stranded basin
+entered by, or holding, an alive step whose reverse is dead, or entered from outside it
+and the law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest
+spanning in-tree where no potential absorbs their turnover (`_BRIDGE`); or, no reading the
+guard tried being consistent, more readings than it searches (`_TOO_MANY_READINGS`). A
+reading is consistent when admission's interior finds none of its first three faults, so
+the guard reports neither `_ARC_CYCLE` nor `_ISLAND` (`_guard_with_reading`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -84,11 +87,28 @@ their turnover (`_BRIDGE`).
     _PUMPED
     _BRIDGE
     _NO_ACTIVE_TURNOVER
+    _TOO_MANY_READINGS
 end
 
-"""The faults admission reports; `_admission_message` writes their text."""
-const _ADMISSION_FAULTS = (_FAST_STEP_PINNED, _ARC_CYCLE, _ISLAND, _NO_ACTIVE_TURNOVER,
-                           _EPS_NONUNIQUE, _FILLED, _PUMPED, _BRIDGE)
+"""The faults of admission the guard reports; `_admission_message` writes their text."""
+const _ADMISSION_FAULTS = (_FAST_STEP_PINNED, _NO_ACTIVE_TURNOVER, _EPS_NONUNIQUE, _FILLED,
+                           _PUMPED, _BRIDGE, _TOO_MANY_READINGS)
+
+"""The faults under one consistent reading that another may avoid: the face condition's,
+which read which transitions vanish. Every other fault holds under every consistent
+reading: classes 1 and 3 and the active conformation's turnover read no reading, the
+ε-network's closed classes read no rate, and class 2 reads the fast transitions, which are
+every rapid-equilibrium step's under every consistent reading."""
+const _FAULTS_A_READING_CHANGES = (_FILLED, _PUMPED, _BRIDGE)
+
+"""The most ways of switching off the steps one conformation excludes that the guard
+searches (`_consistent_columns`); when a conformation has more, it tries its built
+readings alone."""
+const _MAX_CHOICES_PER_CONFORMATION = 20_000
+
+"""The most pairs of consistent ways, one per conformation, that the guard searches
+(`_guard_with_reading`); when there are more, it tries its built readings alone."""
+const _MAX_READING_PAIRS = 5_000
 
 """
 The limit test's verdict on a face (class 3): not run (`_LIMIT_UNTESTED`); the fast-RE
@@ -378,50 +398,136 @@ end
 """
     _guard(m) -> _Verdict
 
-The well-posedness guard (spec section 8) on `m`, plain or allosteric: class 1 (a cycle
-turns the reaction over, `Mechanisms.has_turnover_cycle`); class 2 (no cycle of fast
-transitions does, `_re_turnover_transitions`, on the ε-network of the first built
-reading, `_built_reading`, where an excluded rapid-equilibrium step that loses a direction
-stays fast); for an allosteric mechanism, admission's interior (`_admission_interior`);
-then on every face class 3 and, for an allosteric mechanism, admission's face condition
-(`_faces_verdict`), the first fault winning. `_WELL_POSED` when every check passes.
-
-Admission tries the built readings of the excluded steady-state steps that take up one
-metabolite into a cut-off form (`_SlowUptakeReading`) in turn: every one loses its
-affinity; only one that leads away from free E does; none does. The guard passes at the
-first try that finds no fault, and otherwise reports the first try's verdict.
+The well-posedness guard (spec section 8) on `m`, plain or allosteric: its verdict
+(`_guard_with_reading`), `_WELL_POSED` when every check passes.
 """
-function _guard(mech::_AnyMech)
-    m = Mechanisms.catalytic(mech)
+_guard(mech::_AnyMech) = _guard_with_reading(mech).verdict
+
+"""
+    _admitting_reading(m) -> Union{_Reading, Nothing}
+
+The reading of how the conformations of `m` switch off its excluded steps with which the
+guard admits `m` (`_guard_with_reading`), `nothing` when it rejects `m`.
+"""
+function _admitting_reading(mech::_AnyMech)
+    g = _guard_with_reading(mech)
+    g.verdict === _WELL_POSED ? g.reading : nothing
+end
+
+"""
+    _guard_with_reading(m) -> (; verdict, reading)
+
+The well-posedness guard (spec section 8) on `m`, plain or allosteric, and the reading of
+how its conformations switch off its excluded steps (`_Reading`) that its `verdict` was
+judged under. Class 1 first (a cycle turns the reaction over,
+`Mechanisms.has_turnover_cycle`); then, under a reading (`_verdict_under`), class 2,
+admission's interior, and on every face class 3 and admission's face condition. A plain
+mechanism's one reading runs every step.
+
+An allosteric mechanism's verdict follows the energy-level rule. A reading is consistent
+when admission's interior accepts it. The guard admits the mechanism under the first
+consistent reading that passes every check: its three built readings first
+(`_built_reading`), then every other pair of consistent columns (`_consistent_columns`),
+conformation 1's outer, each in its order. When a conformation has more than
+`_MAX_CHOICES_PER_CONFORMATION` ways, or the pairs number more than `_MAX_READING_PAIRS`,
+it searches none of them, so its verdict depends on no order. A rejection reports, in
+order: a fast cycle that turns the reaction over under the first built reading
+(`_RE_TURNOVER`), fast under every consistent reading too; an excluded rapid-equilibrium
+step inside one group (`_FAST_STEP_PINNED`), which no reading switches off; the verdict of
+the first consistent reading tried; or, when it tried none, that there are too many to
+search (`_TOO_MANY_READINGS`).
+"""
+function _guard_with_reading(m::Mechanisms.Mechanism)
+    reading = _built_reading(m)
     Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
-        return _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0)
-    re, first_reading = _re_flags(m), _built_reading(mech)
-    eps = _eps_network(mech, re, first_reading)
+        return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0), reading)
+    (; verdict = _verdict_under(m, reading), reading)
+end
+function _guard_with_reading(am::Mechanisms.AllostericMechanism)
+    m = am.catalytic
+    first_reading = _built_reading(am)
+    Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
+        return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0),
+                reading = first_reading)
+    # The built readings, in order. The first consistent reading tried, and its verdict,
+    # are the ones a rejection reports.
+    tried = _Reading[]
+    reported, verdict = _Reading(undef, 0, 0), _WELL_POSED
+    for r in instances(_SlowUptakeReading)
+        reading = _built_reading(am, r)
+        reading in tried && continue
+        v = _verdict_under(am, reading)
+        v === _WELL_POSED && return (; verdict = v, reading)
+        # The built readings keep fast every rapid-equilibrium step but those they cannot
+        # switch off, so a cycle fast under them is fast under every consistent reading.
+        v.fault === _RE_TURNOVER && return (; verdict = v, reading)
+        push!(tried, reading)
+        if isempty(reported) &&
+           _admission_interior(am, reading).fault ∉ (_FAST_STEP_PINNED, _ARC_CYCLE, _ISLAND)
+            reported, verdict = reading, v
+            verdict.fault in _FAULTS_A_READING_CHANGES ||
+                return (; verdict, reading = reported)
+        end
+    end
+    active = _consistent_columns(am, 1)
+    active.pinned == 0 ||
+        return (; verdict = _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, 1,
+                                     active.pinned), reading = first_reading)
+    inactive = _consistent_columns(am, 2)
+    inactive.pinned == 0 ||
+        return (; verdict = _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, 2,
+                                     inactive.pinned), reading = first_reading)
+    if active.too_many || inactive.too_many ||
+       length(active.columns) * length(inactive.columns) > _MAX_READING_PAIRS
+        isempty(reported) || return (; verdict, reading = reported)
+        c = active.too_many ? 1 : inactive.too_many ? 2 : 0
+        return (; verdict = _Verdict(_TOO_MANY_READINGS, _LIMIT_UNTESTED, 0, c, 0),
+                reading = first_reading)
+    end
+    # With no built reading consistent, the search's first reading is the one to report.
+    # Each conformation has a consistent column: rank its groups by their distance from
+    # free E's, ties by label, and let each excluded step between two groups lose toward
+    # the later one.
+    if isempty(reported)
+        reported = hcat(active.columns[1], inactive.columns[1])
+        verdict = _verdict_under(am, reported)
+        verdict === _WELL_POSED && return (; verdict, reading = reported)
+        verdict.fault in _FAULTS_A_READING_CHANGES || return (; verdict, reading = reported)
+        push!(tried, reported)
+    end
+    # Every consistent reading passes class 2 and the active conformation's turnover, as
+    # the reported one does. Class 3 reads no reading: a face it rejects rejects them all.
+    law, faces = _law_network(am), _faces(m)
+    _first_face_fault(i -> _check_face(am, law, faces, i), faces) === _WELL_POSED ||
+        return (; verdict, reading = reported)
+    re = _re_flags(m)
+    pair = similar(first_reading)
+    for column1 in active.columns, column2 in inactive.columns
+        pair[:, 1] .= column1
+        pair[:, 2] .= column2
+        pair in tried && continue
+        eps = _eps_network(am, re, pair)
+        _first_face_fault(i -> _admission_face(am, eps, law, faces, i), faces) ===
+            _WELL_POSED && return (; verdict = _WELL_POSED, reading = pair)
+    end
+    (; verdict, reading = reported)
+end
+
+"""
+    _verdict_under(m, reading) -> _Verdict
+
+The guard's verdict on `m` but class 1, its excluded steps switched off as `reading` says:
+class 2 on the ε-network of that reading (`_re_turnover_verdict`), admission's interior
+(`_admission_interior`), then class 3 and admission's face condition on every face
+(`_faces_verdict`), the first fault winning; `_WELL_POSED` when every check passes.
+"""
+function _verdict_under(mech::_AnyMech, reading::_Reading)
+    eps = _eps_network(mech, _re_flags(Mechanisms.catalytic(mech)), reading)
     v = _re_turnover_verdict(eps)
     v === _WELL_POSED || return v
-    # A plain mechanism's ε-network is its law network, and admission reads no tag of it.
-    mech isa Mechanisms.AllostericMechanism || return _faces_verdict(mech, eps)
-    # The built readings differ only in the arcs (`_ARC_CYCLE`, `_ISLAND`) and which
-    # transitions vanish (`_PUMPED`, `_BRIDGE`): classes 1 to 3, a pinned fast step, the
-    # ε-network's closed classes and the active conformation's turnover recur in every
-    # try. So the guard tries again only after one of those four faults, and skips a
-    # reading that switches off every step as an earlier try did.
-    first_verdict, tried = _WELL_POSED, _Reading[]
-    for r in instances(_SlowUptakeReading)
-        # The first try reads the steps as `first_reading` and `eps` do.
-        reading = isempty(tried) ? first_reading : _built_reading(mech, r)
-        reading in tried && continue
-        v = _admission_interior(mech, reading)
-        if v === _WELL_POSED
-            net = isempty(tried) ? eps : _eps_network(mech, re, reading)
-            v = _faces_verdict(mech, net)
-            v === _WELL_POSED && return v
-        end
-        isempty(tried) && (first_verdict = v)
-        push!(tried, reading)
-        first_verdict.fault in (_ARC_CYCLE, _ISLAND, _PUMPED, _BRIDGE) || break
-    end
-    first_verdict
+    v = _admission_interior(mech, reading)
+    v === _WELL_POSED || return v
+    _faces_verdict(mech, eps)
 end
 
 """Class 2's verdict on the ε-network `net`: `_RE_TURNOVER` in the conformation of the

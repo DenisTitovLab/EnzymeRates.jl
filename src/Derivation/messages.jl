@@ -6,9 +6,10 @@
 """
     _guard_message(mech, v) -> String
 
-The error for the guard's verdict `v` on `mech`:
-`<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.` Class 2's
-fix is printed when each step's variant leaves no fast turnover cycle
+The error for the guard's verdict `v` on `mech` (`_guard`):
+`<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.`, the
+cause read under the reading the verdict was judged under (`_guard_with_reading`). Class
+2's fix is printed when each step's variant leaves no fast turnover cycle
 (`_every_step_cures`); every other fix only when its variant passes `_guard`.
 """
 function _guard_message(mech::_AnyMech, v::_Verdict)
@@ -16,21 +17,20 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
     v.fault === _NO_CYCLE &&
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."
-    v.fault === _RE_TURNOVER && return _re_turnover_message(who, mech)
-    # The guard reports its first try's verdict, judged under the first built reading.
+    v.fault === _RE_TURNOVER &&
+        return _re_turnover_message(who, mech, _guard_with_reading(mech).reading)
     mech isa Mechanisms.AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
-        return _admission_message(mech, v, _built_reading(mech))
+        return _admission_message(mech, v, _guard_with_reading(mech).reading)
     v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
     _face_message(who, mech, v)
 end
 
-"""Whether making each step of `cycle`, transitions of `mech`'s ε-network `net` under the
-first built reading (`_built_reading`), steady-state with its kinetic group leaves no fast
-cycle that turns the reaction over: then class 2's fix holds whichever step of the cycle
-is picked."""
-function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
+"""Whether making each step of `cycle`, transitions of `mech`'s ε-network `net` under
+`reading`, steady-state with its kinetic group leaves no fast cycle that turns the
+reaction over: then class 2's fix holds whichever step of the cycle is picked."""
+function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int},
+                           reading::_Reading)
     m = Mechanisms.catalytic(mech)
-    reading = _built_reading(mech)
     for t in cycle
         re = _re_flags(m)
         re[findall(s -> s.group == m.steps[net.edge[t]].group, m.steps)] .= false
@@ -39,13 +39,14 @@ function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int})
     true
 end
 
-"""Class 2's message: the steps of the first fast cycle that turns the reaction over,
-each tagged binding among them marked with the conformation where its affinity
-vanishes, and the fix where each of those steps made steady-state leaves no fast cycle
-that turns the reaction over (`_every_step_cures`)."""
-function _re_turnover_message(who::String, mech::_AnyMech)
+"""Class 2's message, the excluded steps switched off as `reading` says: the steps of the
+first fast cycle that turns the reaction over, each excluded step among them marked with
+the conformation where it loses a direction (its affinity, when it takes up one
+metabolite and loses that uptake), and the fix where each of those steps made
+steady-state leaves no fast cycle that turns the reaction over (`_every_step_cures`)."""
+function _re_turnover_message(who::String, mech::_AnyMech, reading::_Reading)
     m = Mechanisms.catalytic(mech)
-    net = _eps_network(mech, _re_flags(m), _built_reading(mech))
+    net = _eps_network(mech, _re_flags(m), reading)
     cycle = _re_turnover_transitions(net)
     c = net.conformation[cycle[1]]
     state = c == 2 ? "inactive" : "active"
@@ -53,8 +54,13 @@ function _re_turnover_message(who::String, mech::_AnyMech)
     for t in cycle
         k = net.edge[t]
         line = Mechanisms.step_text(m, k)
-        _excluded_steps(mech, c)[k] &&
-            (line *= " (whose affinity vanishes in the $state conformation)")
+        if _excluded_steps(mech, c)[k]
+            e = m.steps[k]
+            affinity = reading[k, c] === _LOSES_FORWARD && length(e.taken_up) == 1 &&
+                       isempty(e.given_off)
+            line *= affinity ? " (whose affinity vanishes in the $state conformation)" :
+                    " (whose rate one way vanishes in the $state conformation)"
+        end
         push!(lines, line)
     end
     place = mech isa Mechanisms.AllostericMechanism && c == 2 ?
@@ -62,7 +68,7 @@ function _re_turnover_message(who::String, mech::_AnyMech)
     msg = "$who: the rapid-equilibrium steps $(join(lines, ", ", " and ")) close a " *
           "cycle$place that turns the reaction over, so the mechanism has no finite rate."
     fix = " Make one step of the cycle steady-state."
-    _every_step_cures(mech, net, cycle) ? msg * fix : msg
+    _every_step_cures(mech, net, cycle, reading) ? msg * fix : msg
 end
 
 """The suffix a message writes after the form of node `u` of the two-copy network `net`:

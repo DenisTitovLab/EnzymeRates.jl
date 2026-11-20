@@ -544,19 +544,39 @@ enumerator's drop test.
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
 reaches through them (`active_steps`, `inactive_steps`), and the **ε-network**, every step of both
-conformations, each excluded step marked vanishing and an excluded rapid-equilibrium plain
-binding kept fast (`_eps_network`). The faces (`_faces`) are bit masks over the metabolite
-names. In order it checks class 1, a cycle that turns the reaction over
-(`has_turnover_cycle`); class 2, no fast cycle of the ε-network that takes up a name net;
-admission's interior (`_admission_interior`: existence by components and arcs, islands,
-the active conformation's turnover); then on each face class 3 (`_check_face`: closed
-classes, bottomless segments, the aggregated chains, and a limit test modulo 2^61 − 1 where
-structure decides nothing) and admission's face condition (`_admission_face`: the
-ε-network's closed classes, a form that a fast vanishing transition fills one way faster
-than it empties, stranded basins, and the fewest-slow-transitions in-tree test per
-excluding conformation and for both together; a face it refuses for a bridge passes when
-the condition passes once more without the cut-off groups that cannot matter,
-`_without_set_aside_groups`). The macros, the parser and the
+conformations, each excluded step switched off as a **reading** says (`_Reading`,
+`_eps_network`): it loses the rate of one direction and keeps the other and its kind, or it
+is stopped. The faces (`_faces`) are bit masks over the metabolite names. In order it
+checks class 1, a cycle that turns the reaction over (`has_turnover_cycle`); then, under a
+reading (`_verdict_under`), class 2, no fast cycle of the ε-network that takes up a name
+net; admission's interior (`_admission_interior`: existence by components and arcs,
+islands, the active conformation's turnover); then on each face class 3 (`_check_face`:
+closed classes, bottomless segments, the aggregated chains, and a limit test modulo
+2^61 − 1 where structure decides nothing) and admission's face condition
+(`_admission_face`: the ε-network's closed classes, a form that a fast vanishing transition
+fills one way faster than it empties, stranded basins, and the fewest-slow-transitions
+in-tree test per excluding conformation and for both together; a face it refuses for a
+bridge passes when the condition passes once more without the cut-off groups that cannot
+matter, `_without_set_aside_groups`).
+
+An allosteric mechanism's excluded steps follow the energy-level rule. The steps a
+conformation keeps join the forms into groups, and every group but free E's lies higher.
+An excluded step inside one group is stopped at steady state, and at rapid equilibrium no
+reading switches it off (`_FAST_STEP_PINNED`). One between two groups loses its uphill
+direction, or, at steady state, may stop. A reading is consistent when admission's
+interior accepts it: the steps that lose, each pointing uphill, close no cycle, never point
+into free E's group, and lead from it to every group. `_guard_with_reading` tries the three
+built readings (`_built_reading`), then every other pair of consistent columns, one per
+conformation (`_consistent_columns`), unless a conformation has more than
+`_MAX_CHOICES_PER_CONFORMATION` ways or the pairs number more than `_MAX_READING_PAIRS`;
+it admits at the first that passes. Each searched pair runs admission's face condition
+alone: under every consistent reading class 2 sees the same fast steps, every
+rapid-equilibrium one, and class 3 and the active conformation's turnover read no reading,
+so the guard checks them before the search, under the first consistent reading it tries,
+and a rejection reports that reading's verdict. `_admitting_reading` returns the reading
+the guard admits with.
+
+The macros, the parser and the
 derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and
 `Enumeration.starting_mechanisms` drop. The flip move runs it on each candidate it builds,
 the split move on each candidate whose count rises, and the tagging move on each tag set

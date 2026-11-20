@@ -1074,7 +1074,8 @@ const _testhelper_switch_off_names = Dict(
 How each conformation `c` (1 active, 2 inactive) of `am` switches off each edge `k` of its
 catalytic graph, entry `[k, c]`, in the guard's built reading `name` (one of
 `_testhelper_guard_readings`; an unknown one is an error), read from the graph alone:
-`:runs` when `c` does not exclude the edge. An excluded edge that takes up one metabolite
+`:runs` when `c` does not exclude the edge. A plain mechanism has one conformation, which
+runs every edge. An excluded edge that takes up one metabolite
 and gives off none into a cut-off form, the edges `c` keeps
 (`_testhelper_kept_components`) joining neither its two sides nor its bound side to free
 E, is an uptake: it loses its stored direction (`:loses_forward`) at rapid equilibrium,
@@ -1095,8 +1096,9 @@ function _testhelper_reading(am, name::Symbol)
     haskey(_testhelper_guard_readings, name) ||
         throw(ArgumentError("no built reading :$name"))
     steps = EnzymeRates.Mechanisms.catalytic(am).steps
-    reading = fill(:runs, length(steps), 2)
-    for c in 1:2
+    nc = am isa EnzymeRates.AllostericMechanism ? 2 : 1
+    reading = fill(:runs, length(steps), nc)
+    for c in 1:nc
         component = _testhelper_kept_components(am, c)
         uptake = [_testhelper_excludes(am, j, c) && length(s.taken_up) == 1 &&
                   isempty(s.given_off) && component[s.from] != component[s.to] &&
@@ -1129,6 +1131,40 @@ end
 _testhelper_reading(am, reading::Matrix{Symbol}) = reading
 _testhelper_reading(reading::EnzymeRates.Derivation._Reading) =
     map(o -> _testhelper_switch_off_names[o], reading)
+
+"""
+    _testhelper_reading_is_consistent(am, reading::Matrix{Symbol}) -> Bool
+
+Whether `reading` (in the names of `_testhelper_reading`) is a consistent reading of the
+allosteric mechanism `am` under the energy-level rule, by the tests' own statement of it.
+In each conformation `c` the edges it keeps (`_testhelper_kept_components`) join the forms
+into groups. An edge `c` keeps runs. An excluded edge inside one group is stopped at
+steady state, and at rapid equilibrium no reading switches it off. An excluded edge
+between two groups loses one direction, its stored one (`:loses_forward`) or its reverse
+(`:loses_reverse`), toward the side that lies higher, or, at steady state, is stopped. The
+edges that lose a direction, each pointing uphill, must close no cycle, never point into
+free E's group and lead from free E's group to every group (`_testhelper_exclusion`).
+"""
+function _testhelper_reading_is_consistent(am, reading::Matrix{Symbol})
+    steps = EnzymeRates.Mechanisms.catalytic(am).steps
+    for c in 1:2
+        group = _testhelper_kept_components(am, c)
+        for (k, e) in enumerate(steps)
+            r = reading[k, c]
+            stopped = r === :stopped && !e.rapid_equilibrium
+            if !_testhelper_excludes(am, k, c)
+                r === :runs || return false
+            elseif group[e.from] == group[e.to]
+                stopped || return false
+            else
+                stopped || r in (:loses_forward, :loses_reverse) || return false
+            end
+        end
+        ex = _testhelper_exclusion(am, c; reading)
+        ex.failure === :none && isempty(ex.lost) || return false
+    end
+    true
+end
 
 """The mirror image of the allosteric mechanism `am`, built without the guard: the same
 catalytic graph, multiplicity and sites, with every `:OnlyA` and `:OnlyI` group state
@@ -1908,24 +1944,63 @@ function _testhelper_feasible(M::Matrix{Rational{BigInt}}, b::Vector{Rational{Bi
 end
 
 """
-Admission's existence test as an exact LP: whether conformation `c` of `am` has a
-direction of vanishing exponents for its excluded constants that keeps every cycle row of
-the catalytic graph (`_testhelper_cycle_basis`) with every other constant fixed. The
-equilibrium constant of an edge that loses its affinity in the guard's first built reading
-(`_testhelper_reading`) must fall (exponent at least 1, after scaling); any other excluded
-edge's exponent is free.
+Admission's existence test as an exact LP: whether conformation `c` of `am`, its excluded
+edges switched off as `reading` says (a matrix or a built name, `_testhelper_reading`), has
+a direction of vanishing exponents for its excluded constants that keeps every cycle row of
+the catalytic graph (`_testhelper_cycle_basis`) with every other constant fixed. Each
+excluded edge's exponent is the rise in energy along its stored direction, after scaling:
+at least 1 for an edge that loses its stored direction, at most -1 for one that loses its
+reverse, and free for any other. Every component that the edges `c` keeps
+(`_testhelper_kept_components`) cut off from free E lies higher than free E's: along a
+path from free E to its first form the exponents sum to at least 1, since a cut-off form
+holds no enzyme, and a form lower than free E would hold it all.
 """
-function _testhelper_lp_existence(am, c::Int)
+function _testhelper_lp_existence(am, c::Int;
+                                  reading::Union{Symbol, Matrix{Symbol}} =
+                                      :all_lose_affinity)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    excluded = [k for k in eachindex(cm.steps) if _testhelper_excludes(am, k, c)]
-    reading = _testhelper_reading(am, :all_lose_affinity)
-    losing = [k for k in excluded if reading[k, c] === :loses_forward]
-    isempty(losing) && return true
-    rows = _testhelper_cycle_basis((forms = cm.nodes, steps = cm.steps))
-    isempty(rows) && return true
-    Z = Rational{BigInt}.(permutedims(reduce(hcat, rows)))
-    AP, AF = Z[:, losing], Z[:, setdiff(excluded, losing)]
-    _testhelper_feasible([AP AF -AF], -AP * ones(Rational{BigInt}, length(losing)))
+    n = length(cm.steps)
+    excluded = [k for k in 1:n if _testhelper_excludes(am, k, c)]
+    off = _testhelper_reading(am, reading)[:, c]
+    rise = Dict(:loses_forward => 1, :loses_reverse => -1)
+    # Each form's path from free E over every edge, breadth-first: `path[f][k]` is +1 or -1
+    # where the path runs edge `k` along or against its stored direction.
+    path = Dict(1 => zeros(Int, n))
+    todo = [1]
+    while !isempty(todo)
+        u = popfirst!(todo)
+        for (k, e) in enumerate(cm.steps),
+            (a, b, s) in ((e.from, e.to, 1), (e.to, e.from, -1))
+            a == u && !haskey(path, b) || continue
+            path[b] = copy(path[u])
+            path[b][k] += s
+            push!(todo, b)
+        end
+    end
+    component = _testhelper_kept_components(am, c)
+    # The inequalities, each `row ⋅ a >= 1` over every edge's exponent `a`.
+    rows = Vector{Int}[]
+    for k in excluded
+        haskey(rise, off[k]) || continue
+        row = zeros(Int, n)
+        row[k] = rise[off[k]]
+        push!(rows, row)
+    end
+    for x in unique(component)
+        x == component[1] && continue
+        push!(rows, path[findfirst(==(x), component)])
+    end
+    cycles = _testhelper_cycle_basis((forms = cm.nodes, steps = cm.steps))
+    # Unknowns: each excluded edge's exponent as a difference of two nonnegative parts, then
+    # one surplus per inequality. A kept edge's exponent is 0.
+    m = length(rows)
+    G = Rational{BigInt}[r[k] for r in rows, k in excluded]
+    Z = Rational{BigInt}[z[k] for z in cycles, k in excluded]
+    M = [Z -Z zeros(Rational{BigInt}, length(cycles), m);
+         G -G -Matrix{Rational{BigInt}}(LinearAlgebra.I, m, m)]
+    size(M, 1) == 0 && return true
+    _testhelper_feasible(M, [zeros(Rational{BigInt}, length(cycles));
+                             ones(Rational{BigInt}, m)])
 end
 
 """
@@ -2102,18 +2177,19 @@ _testhelper_admission_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symb
 Whether the guard's fault on each face of the allosteric mechanism `am`
 (`_testhelper_admission_faults`) agrees with the oracle that judges it: a class-3 fault
 with the RE-speed oracle (`_testhelper_agrees`), an admission fault with the ε-path oracle
-(`_testhelper_admission_agrees`), and an accepted face with both. The RE-speed oracle
-compares with its own deletion limit (`law = :limit`): the package cannot derive the law
-of a mechanism the guard rejects. Both the faults and the ε-path oracle read each
-steady-state uptake into a cut-off form as the guard admitted with: the first of its
-readings (`_testhelper_guard_readings`), in the order it tries them, under which admission
-alone (`_admission`) finds no fault; the first reading when none does. One `Bool` per
-face.
+(`_testhelper_admission_agrees`, along the corner directions when `corners`), and an
+accepted face with both. The RE-speed oracle compares with its own deletion limit (`law =
+:limit`): the package cannot derive the law of a mechanism the guard rejects. Both the
+faults and the ε-path oracle read the excluded steps as the guard admitted `am` with
+(`_admitting_reading`), once the tests' own rule finds that reading consistent
+(`_testhelper_reading_is_consistent`, asserted); as the guard's first built reading when it
+rejects `am`. One `Bool` per face.
 """
-function _testhelper_admission_agreement(am; rng)
+function _testhelper_admission_agreement(am; rng, corners::Bool = false)
     D = EnzymeRates.Derivation
-    admits(r) = D._admission(am, D._built_reading(am, r)) == D._WELL_POSED
-    reading = something(findfirst(admits, _testhelper_guard_readings), :all_lose_affinity)
+    admitting = D._admitting_reading(am)
+    reading = admitting === nothing ? :all_lose_affinity : _testhelper_reading(admitting)
+    reading isa Matrix && @test _testhelper_reading_is_consistent(am, reading)
     faults = _testhelper_admission_faults(am; reading)
     faces = _testhelper_faces(am)
     respeed = _testhelper_respeed_verdicts(am; rng, law = :limit)
@@ -2121,21 +2197,21 @@ function _testhelper_admission_agreement(am; rng)
         f = faults[i]
         f in _testhelper_class3_faults && return _testhelper_agrees(f, respeed[i])
         epath = _testhelper_admission_agrees(
-            f, _testhelper_epath_verdict(am; rng, face = faces[i], reading))
+            f, _testhelper_epath_verdict(am; rng, face = faces[i], corners, reading))
         f === D._NO_FAULT ? epath && respeed[i] === :agree : epath
     end
 end
 
 """The cause the guard's message gives when conformation `c` (1 active, 2 inactive) of the
-allosteric mechanism `am` cannot switch off its rapid-equilibrium edge `k`
-(`_FAST_STEP_PINNED`), before any fix."""
+allosteric mechanism `am` excludes its rapid-equilibrium edge `k` while the edges it keeps
+join the edge's two sides (`_FAST_STEP_PINNED`), before any fix."""
 function _testhelper_pinned_cause(am, k::Int, c::Int)
     conf, tag = c == 1 ? ("active", ":OnlyI") : ("inactive", ":OnlyA")
     "AllostericMechanism: in the $conf conformation the rapid-equilibrium step " *
-    "$(EnzymeRates.Mechanisms.step_text(am.catalytic, k)) is tagged $tag but cannot be " *
-    "switched off. A step keeps its kind in both conformations, so a rapid-equilibrium " *
-    "step can only lose its affinity, and it can do that only when it takes up one " *
-    "metabolite into a form the other steps no longer reach."
+    "$(EnzymeRates.Mechanisms.step_text(am.catalytic, k)) is tagged $tag, but the steps " *
+    "that conformation keeps still join its two sides. Thermodynamics then fixes its " *
+    "equilibrium constant, and a step keeps its kind in both conformations, so it cannot " *
+    "be switched off."
 end
 
 """
@@ -2332,22 +2408,29 @@ _testhelper_plain_moves(m, rxn) =
 
 """
 Whether admission's existence test in the inactive conformation (`_admission_interior`:
-no excluded rapid-equilibrium step that cannot be switched off, no cycle of steps that
-lose their affinity) agrees with the test's own rule on `am`, a mechanism with no `:OnlyI`
-group, on which admission's active-conformation and turnover checks do not run: its
-fault with the test's exclusion structure (`_testhelper_exclusion`: a step it cannot
-switch off, a cycle, an island, or none), and a limit exists exactly when no step is
-pinned and the exact LP (`_testhelper_lp_existence`) is feasible.
+no excluded rapid-equilibrium step that cannot be switched off; steps that lose a
+direction, each pointing uphill, that close no cycle and never point into free E's
+component) agrees with the test's own rule on `am`, a mechanism with no `:OnlyI` group, on
+which admission's active-conformation and turnover checks do not run, its excluded steps
+switched off as `reading` says (a matrix or a built name, `_testhelper_reading`): its fault
+with the test's exclusion structure (`_testhelper_exclusion`: a step it cannot switch off,
+a cycle, an island, or none), and a limit exists exactly when no step is pinned and the
+exact LP (`_testhelper_lp_existence`) is feasible.
 """
-function _testhelper_existence_agrees(am)
+function _testhelper_existence_agrees(am;
+                                      reading::Union{Symbol, Matrix{Symbol}} =
+                                          :all_lose_affinity)
     D = EnzymeRates.Derivation
-    v = D._admission_interior(am, D._built_reading(am))
-    ex = _testhelper_exclusion(am, 2)
+    names = _testhelper_reading(am, reading)
+    switch_off = Dict(name => o for (o, name) in _testhelper_switch_off_names)
+    v = D._admission_interior(am, map(name -> switch_off[name], names))
+    ex = _testhelper_exclusion(am, 2; reading = names)
     fault = ex.failure === :fast ? D._FAST_STEP_PINNED :
             ex.failure === :cycle ? D._ARC_CYCLE :
             isempty(ex.lost) ? D._NO_FAULT : D._ISLAND
     exists = v.fault ∉ (D._FAST_STEP_PINNED, D._ARC_CYCLE)
-    exists == (ex.failure !== :fast && _testhelper_lp_existence(am, 2)) && v.fault === fault
+    exists == (ex.failure !== :fast && _testhelper_lp_existence(am, 2; reading = names)) &&
+        v.fault === fault
 end
 
 # ── Rate-law oracles ────────────────────────────────────────────────────────

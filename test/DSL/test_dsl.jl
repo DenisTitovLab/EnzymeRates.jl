@@ -294,11 +294,12 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                 end
             end))
         end
-        # The guard rejects a rapid-equilibrium :OnlyI binding whose bound form the
-        # active conformation's other steps still reach.
-        @test_throws ("AllostericMechanism: in the active conformation the " *
-                      "rapid-equilibrium step E + P ⇌ E(P) is tagged :OnlyI but cannot " *
-                      "be switched off.") eval(:(@allosteric_mechanism begin
+        # The guard rejects a rapid-equilibrium :OnlyI binding whose two sides the active
+        # conformation's other steps still join.
+        joined = "AllostericMechanism: in the active conformation the rapid-equilibrium " *
+                 "step E + P ⇌ E(P) is tagged :OnlyI, but the steps that conformation " *
+                 "keeps still join its two sides."
+        @test_throws joined eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             steps: begin
@@ -1620,10 +1621,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         # Three shapes, each :OnlyI: a reactant binding, an isomerization of an inhibitor
         # complex, and a Theorell–Chance step that takes up a modifier and gives off a
         # product. The active conformation cannot switch off the rapid-equilibrium S
-        # binding, whose bound form the product release still reaches; it stops the
-        # isomerization, which leaves F(I) an island; and it stops the Theorell–Chance
-        # step, with a law equal to the limit on every face. Each group tagged
-        # :NonequalAI passes the guard.
+        # binding, whose two sides the product release still joins. The guard's built
+        # readings stop the isomerization, which leaves F(I) an island; the search lets
+        # it lose its rate into F(I) instead and admits the mechanism. The Theorell–Chance
+        # step is stopped. Each admitted shape has a law equal to the limit on every face,
+        # and each group tagged :NonequalAI passes the guard.
         D = EnzymeRates.Derivation
         rng = Random.MersenneTwister(31)
         _testhelper_block(steps; guarded = true) = Meta.parse(
@@ -1633,15 +1635,20 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         binding = "E + S ⇌ E(S) :: OnlyI\n$rest"
         isomerization = "E + S ⇌ E(S) :: EqualAI\n$rest\nE(I) <--> F(I) :: OnlyI"
         exchange = "E + S ⇌ E(S) :: EqualAI\n$rest\nE(S) + I <--> E(I) + P :: OnlyI"
-        for (text, fault, line) in ((binding, D._FAST_STEP_PINNED, "E + S ⇌ E(S)"),
-                                    (isomerization, D._ISLAND, "E(I) <--> F(I)"))
-            am = eval(_testhelper_block(text; guarded = false))
-            v = D._guard(am)
-            @test (v.fault, v.conformation) == (fault, 1)
-            @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == line
-            @test_throws(ErrorException(D._guard_message(am, v)),
-                         eval(_testhelper_block(text)))
-        end
+        am = eval(_testhelper_block(binding; guarded = false))
+        v = D._guard(am)
+        @test (v.fault, v.conformation) == (D._FAST_STEP_PINNED, 1)
+        @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E + S ⇌ E(S)"
+        @test_throws(ErrorException(D._guard_message(am, v)),
+                     eval(_testhelper_block(binding)))
+        am = eval(_testhelper_block(isomerization; guarded = false))
+        v = D._admission_interior(am, D._built_reading(am))
+        @test (v.fault, v.conformation) == (D._ISLAND, 1)
+        @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E(I) <--> F(I)"
+        @test EnzymeRates.AllostericMechanism(eval(_testhelper_block(isomerization))) == am
+        @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(32),
+                                                  corners = true))
+        _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(am))
         admitted = EnzymeRates.AllostericMechanism(eval(_testhelper_block(exchange)))
         @test all(_testhelper_admission_agreement(admitted; rng))
         @test all(==(:agree), _testhelper_respeed_verdicts(admitted; rng))

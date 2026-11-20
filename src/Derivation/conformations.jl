@@ -65,8 +65,8 @@ const _Reading = Matrix{_SwitchOff}
 Which excluded steady-state steps that take up one metabolite into a cut-off form lose
 their affinity, the rest being stopped, in the guard's built readings (`_built_reading`):
 every one (`_ALL_LOSE_AFFINITY`); one that leads away from free E
-(`_OUTWARD_LOSE_AFFINITY`); or none (`_ALL_STOPPED`). The guard tries them in this order
-(`_guard`).
+(`_OUTWARD_LOSE_AFFINITY`); or none (`_ALL_STOPPED`). The guard tries them in this order,
+before it searches the other readings (`_guard_with_reading`).
 
 The steps a conformation keeps join the forms into parts. A part's distance is the fewest
 excluded steps that take up one metabolite into a cut-off form, rapid-equilibrium or

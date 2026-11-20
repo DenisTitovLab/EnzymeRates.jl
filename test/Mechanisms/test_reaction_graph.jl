@@ -205,14 +205,14 @@ end
                                 "1, got 0"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
     # Any group may be :OnlyI, and the guard judges the mechanism: the active
-    # conformation cannot switch off the rapid-equilibrium S binding (step 2), whose bound
-    # form the chemistry and the P binding still reach. The message offers untagging it,
-    # whose variants pass.
+    # conformation cannot switch off the rapid-equilibrium S binding (step 2), whose two
+    # sides the chemistry and the P binding still join. Neither fix the message offers
+    # passes: each leaves the active conformation no turnover. Untagging the binding
+    # passes, but is not one of them.
     onlyi = ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites)
     v = ER.Derivation._guard(onlyi)
     @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, 2)
-    @test ER.Derivation._guard_message(onlyi, v) ==
-          _testhelper_pinned_cause(onlyi, 2, 1) * " Tag its group :EqualAI or :NonequalAI."
+    @test ER.Derivation._guard_message(onlyi, v) == _testhelper_pinned_cause(onlyi, 2, 1)
     @test all(t -> ER.Derivation._retag_passes(onlyi, [2], t), (:EqualAI, :NonequalAI))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
@@ -1185,7 +1185,7 @@ end
             ER.DSL.parse_mechanism(sprint(show, spec.mechanism))) === spec.mechanism
     end
     # The allosteric children of the uni-uni, ping-pong and two-site reactions.
-    @test length(allosteric) == 5 + 856 + 5
+    @test length(allosteric) == 5 + 885 + 5
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
     @test isempty([i for (i, x) in enumerate(allosteric) if !_testhelper_reads_back(x)])
 end
