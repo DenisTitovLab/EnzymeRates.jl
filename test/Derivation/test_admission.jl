@@ -6211,7 +6211,10 @@ end
     built(am) = [D._built_reading(am, r) for r in instances(D._SlowUptakeReading)]
     rng = Random.MersenneTwister(20261120)
     sample = EnzymeRates.AllostericMechanism[]
-    while length(sample) < 40
+    # The 40 take 1,448 draws; the bound only stops a guard that admits fewer from
+    # drawing forever.
+    for _ in 1:10_000
+        length(sample) == 40 && break
         m = rand(rng, plain)
         G = length(m.groups)
         bits = rand(rng, 1:(2^G - 1))
@@ -6222,6 +6225,7 @@ end
         searched = reading !== nothing && !(reading in built(am))
         searched && !(am in sample) && push!(sample, am)
     end
+    @test length(sample) == 40
     for am in sample
         @test all(_testhelper_admission_agreement(am; rng, corners = true))
     end
