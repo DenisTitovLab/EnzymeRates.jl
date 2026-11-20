@@ -1,6 +1,7 @@
 # One lean `Mechanism`: design
 
-Date: 2026-11-18. Status: approved by the maintainer on 2026-11-19. Nothing is built yet.
+Date: 2026-11-18. Status: approved by the maintainer on 2026-11-19. Stage 1, the guard's
+rule (Sequence, item 1), is built in 0.11.0; the later stages are not.
 
 ## Why
 
