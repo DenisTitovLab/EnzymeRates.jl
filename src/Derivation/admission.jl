@@ -215,13 +215,15 @@ _with_steps(am::Mechanisms.AllostericMechanism, steps::Vector{Mechanisms.Step}) 
                                    am.catalytic_multiplicity, am.regulatory_sites)
 
 """
-The message of admission's verdict `v` on `am`: the cause, naming each step by its DSL
-line (`step_text`), and each fix only when its variant passes the guard: a retag through
-`_retag_passes`, a steady-state fix through `_steady_state_passes`. A fault of the active
-conformation is offered the fixes of the same fault in the inactive conformation, with
-`:OnlyI` in place of `:OnlyA`.
+The message of admission's verdict `v` on `am`, judged with its excluded steps switched
+off as `reading` says: the cause, naming each step by its DSL line (`step_text`), and each
+fix only when its variant passes the guard: a retag through `_retag_passes`, a
+steady-state fix through `_steady_state_passes`. A fault of the active conformation is
+offered the fixes of the same fault in the inactive conformation, with `:OnlyI` in place
+of `:OnlyA`.
 """
-function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
+function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
+                            reading::_Reading)
     m = Mechanisms.catalytic(am)
     c, k = v.conformation, v.edge
     conf = c == 1 ? "active" : "inactive"
@@ -263,7 +265,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         return msg * offer(offered)
     elseif v.fault === _ARC_CYCLE
         cycle = _arc_cycle(exclusion_components(am, _CONFORMATIONS[c]),
-                           _arcs(am, c, _built_reading(am)))
+                           _arcs(am, c, reading))
         edges = [a[3] for a in cycle]
         msg = "AllostericMechanism: the $tag bindings $(lines(edges)) close a cycle in " *
               "the $conf conformation: steps outside $tag groups join each one's bound " *
@@ -277,7 +279,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
         return msg * offer(fixes(edges, "them", unique!(joins), "them"))
     elseif v.fault === _ISLAND
         comp = exclusion_components(am, _CONFORMATIONS[c])
-        reached = _reached_components(comp, _arcs(am, c, _built_reading(am)))
+        reached = _reached_components(comp, _arcs(am, c, reading))
         from, to = m.steps[k].from, m.steps[k].to
         lost = reached[comp[from]] ? comp[to] : comp[from]
         msg = "AllostericMechanism: in the $conf conformation the forms " *
@@ -287,8 +289,8 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
               "such as $(line(k)), so their weight depends on how fast those steps vanish."
         return untag_passes([k]) ?
                msg * " Tag the group of $(line(k)) :EqualAI or :NonequalAI." : msg
-    elseif v.fault in (_EPS_NONUNIQUE, _PUMPED, _BRIDGE)
-        eps = _eps_network(am, _re_flags(m), _built_reading(am))
+    elseif v.fault in (_EPS_NONUNIQUE, _FILLED, _PUMPED, _BRIDGE)
+        eps = _eps_network(am, _re_flags(m), reading)
         law = _law_network(am)
         faces = _faces(m)
         face = faces[v.face]
@@ -301,6 +303,28 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict)
             return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
                    "steps, so the steady state depends on where the enzyme starts."
+        elseif v.fault === _FILLED
+            # The step's vanishing direction fills its target; the forms the target reaches
+            # along fast transitions that do not vanish leave only through slower ones.
+            filling = only(t for t in eachindex(eps.from)
+                           if eps.edge[t] == k && eps.conformation[t] == c &&
+                              eps.vanishing[t])
+            filled = eps.to[filling]
+            pool = _reached(_successors(eps, s.alive .& eps.fast .& .!eps.vanishing),
+                            [filled])
+            ways = unique!([eps.edge[t] for t in eachindex(eps.from)
+                            if s.alive[t] && pool[eps.from[t]] && !pool[eps.to[t]]])
+            name = Mechanisms.form_text(m, _form_of(eps, filled))
+            pooled = [Mechanisms.form_text(m, _form_of(eps, u)) for u in findall(pool)]
+            leave = length(pooled) == 1 ? "$name leaves" :
+                    "the forms $(join(pooled, ", ")) leave"
+            msg = "AllostericMechanism: $(phrase)in the $conf conformation the $tag " *
+                  "rapid-equilibrium step $(line(k)) runs one way into $name, at a rate " *
+                  "that vanishes yet grows with the rapid-equilibrium speed, and $leave " *
+                  "only through the slower $(steps(ways)), so $name fills faster than it " *
+                  "empties and its weight depends on how fast the tagged step vanishes."
+            return _steady_state_passes(am, k) ?
+                   msg * " Make the group of $(line(k)) steady-state." : msg
         elseif v.fault === _PUMPED
             basin = [u for u in findall(s.stranded) if _copy_of(eps, u) == c]
             exits = unique!([eps.edge[t] for t in eachindex(eps.from)
@@ -525,6 +549,12 @@ first substrate (`_turnover_name`). In order:
 - `_EPS_NONUNIQUE`: the alive transitions leave two closed classes, so at every ε the
   steady state depends on where the enzyme starts; the verdict names the closed class
   outside the law network (`_class_outside_law`);
+- `_FILLED`: a rapid-equilibrium transition that vanishes is alive while its reverse,
+  which does not vanish, is dead, its source is fed and reached from the law network along
+  alive rapid-equilibrium transitions, vanishing or not, and its target reaches the law
+  network along no alive rapid-equilibrium transitions that do not vanish: the target
+  fills faster than it empties; the verdict names that transition's step and
+  conformation;
 - `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive transition
   whose reverse is dead, or is entered from outside it and the law network, so admission
   cannot show that its weight does not depend on how fast its exits vanish; a basin
@@ -545,6 +575,28 @@ function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::I
     length(closed) > 1 &&
         return _Verdict(_EPS_NONUNIQUE, _LIMIT_UNTESTED, 0,
                         _copy_of(net, _class_outside_law(closed, law_nodes)[1]), 0)
+    # A form's weight is its inflow over its outflow. Past a slow transition the inflow is
+    # bounded by a rate that vanishes; through fast ones alone it grows with their speed,
+    # and then only an outflow that grows as fast keeps the target empty in every order of
+    # the two limits. A step that loses a direction can keep its uptake, which dies where
+    # its metabolite is zero, leaving the vanishing direction to fill its target one way.
+    # This argument is not a proof that the face condition with this check suffices for
+    # every reading: the evidence is numerical (the ε-path oracle). No built reading has
+    # such a transition, since the direction it keeps is a release, alive on every face, so
+    # under them the two searches below never run.
+    one_way(t) = (r = isodd(t) ? t + 1 : t - 1;
+                  s.alive[t] && !s.alive[r] && net.vanishing[t] && !net.vanishing[r] &&
+                  net.fast[t] && s.fed[net.from[t]])
+    if any(one_way, eachindex(net.from))
+        law = findall(law_nodes .& net.present)
+        fast_from_law = _reached(_successors(net, s.alive .& net.fast), law)
+        fast_to_law = _reached(_successors(net, s.n0 .& net.fast; backward = true), law)
+        for t in eachindex(net.from)
+            one_way(t) && fast_from_law[net.from[t]] && !fast_to_law[net.to[t]] &&
+                return _Verdict(_FILLED, _LIMIT_UNTESTED, 0, net.conformation[t],
+                                net.edge[t])
+        end
+    end
     for t in eachindex(net.from)
         u, w = net.from[t], net.to[t]
         s.alive[t] && s.fed[u] && s.stranded[w] || continue

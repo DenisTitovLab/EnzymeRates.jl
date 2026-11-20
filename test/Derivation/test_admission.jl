@@ -2580,7 +2580,16 @@ end
     # energies exist.
     flipped = copy(r)
     flipped[chem_a, 2], flipped[chem_b, 2] = D._LOSES_REVERSE, D._LOSES_FORWARD
-    @test D._admission_interior(am, flipped).fault === D._ARC_CYCLE
+    # The verdict names the first of them in edge order.
+    @test D._admission_interior(am, flipped) ==
+          D._Verdict(D._ARC_CYCLE, D._LIMIT_UNTESTED, 0, 2, chem_a)
+    # A step the conformation keeps joins its two sides into one group, so a direction it
+    # loses points uphill inside that group and closes a cycle alone.
+    b_binding = _testhelper_edge(am, "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP")
+    inside = copy(r)
+    inside[b_binding, 2] = D._LOSES_FORWARD
+    @test D._admission_interior(am, inside) ==
+          D._Verdict(D._ARC_CYCLE, D._LIMIT_UNTESTED, 0, 2, b_binding)
     # The tests' own names for the reading's entries.
     expected = fill(:runs, length(am.catalytic.steps), 2)
     expected[chem_a, 2], expected[chem_b, 2] = :loses_forward, :loses_reverse
@@ -2595,6 +2604,134 @@ end
     end
     @test _testhelper_epath_verdict(
         am; rng, reading = _testhelper_reading(am, :all_lose_affinity)) === :no_path
+end
+
+@testset "no form fills faster than it empties" begin
+    D = EnzymeRates.Derivation
+    NO, FI, U = D._NO_FAULT, D._FILLED, D._LIMIT_UNTESTED
+    rng = Random.MersenneTwister(2650)
+    # `filled`: a ping-pong whose B binding at the covalent form F (E(; residual = A - P))
+    # and first chemistry step are :OnlyA. In the inactive conformation F and F(P) form a
+    # cut-off group: E(A) <--> F(P) loses its stored direction, into it, and F + B ⇌ F(B)
+    # its reverse, the release of B, also into it. With B zero the uptake of B dies, and
+    # the release, fast though it vanishes, runs one way from the law's form F(B) into F,
+    # whose group empties only through the slow chemistry F(P) → E(A): F fills faster
+    # than it empties.
+    filled = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            E + Q ⇌ E(Q)                                            :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: EqualAI
+            E(A) <--> E(P; residual = A - P)                        :: OnlyA
+            E(B; residual = A - P) ⇌ E(Q)                           :: EqualAI
+        end
+    end
+    chem_a = _testhelper_edge(filled, "EA <--> EP_res_plusA_minusP")
+    b_binding = _testhelper_edge(filled, "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP")
+    r = fill(D._RUNS, length(filled.catalytic.steps), 2)
+    r[chem_a, 2], r[b_binding, 2] = D._LOSES_FORWARD, D._LOSES_REVERSE
+    faces = _testhelper_faces(filled)
+    # The first face with B zero zeroes A as well; B alone is refused the same way.
+    v = D._admission(filled, r)
+    @test v == D._Verdict(FI, U, 3, 2, b_binding)
+    @test faces[3] == Set([:A, :B])
+    @test _testhelper_admission_faults(filled; reading = _testhelper_reading(r)) ==
+          [NO, NO, FI, NO, FI, NO, NO]
+    # The message names the face, the step, the form it fills and the group's slow way
+    # out. The guard rejects the variant with F + B ⇌ F(B) steady-state, so no fix.
+    @test !D._steady_state_passes(filled, b_binding)
+    @test D._admission_message(filled, v, r) ==
+          "AllostericMechanism: at zero A and B, in the inactive conformation the :OnlyA " *
+          "rapid-equilibrium step E(; residual = A - P) + B ⇌ E(B; residual = A - P) " *
+          "runs one way into E(; residual = A - P), at a rate that vanishes yet grows " *
+          "with the rapid-equilibrium speed, and the forms E(; residual = A - P), " *
+          "E(P; residual = A - P) leave only through the slower step " *
+          "E(A) <--> E(P; residual = A - P), so E(; residual = A - P) fills faster than " *
+          "it empties and its weight depends on how fast the tagged step vanishes."
+    # The harsh ε-path oracle under the same reading: the limit depends on the direction
+    # on both faces with B zero, and exists on the interior.
+    for i in (3, 5)
+        @test _testhelper_epath_verdict(filled; rng, face = faces[i], corners = true,
+                                        reading = _testhelper_reading(r)) !== :converges
+    end
+    @test _testhelper_epath_verdict(filled; rng, corners = true,
+                                    reading = _testhelper_reading(r)) === :converges
+    # No built reading raises the fault: the direction a built reading keeps is always a
+    # release, which no face kills.
+    law, built_faces = D._law_network(filled), D._faces(filled.catalytic)
+    for b in instances(D._SlowUptakeReading)
+        eps = D._eps_network(filled, D._re_flags(filled.catalytic),
+                             D._built_reading(filled, b))
+        @test all(i -> D._admission_face(filled, eps, law, built_faces, i).fault !== FI,
+                  eachindex(built_faces))
+    end
+
+    # The six-step ping-pong with both chemistry steps :OnlyA, under the reading that
+    # admits it: neither excluded step takes up a metabolite, so no face kills the
+    # direction it keeps, and nothing fills one way.
+    pingpong = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: EqualAI
+            E + Q ⇌ E(Q)                                            :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: EqualAI
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: EqualAI
+            E(A) <--> E(P; residual = A - P)                        :: OnlyA
+            E(B; residual = A - P) ⇌ E(Q)                           :: OnlyA
+        end
+    end
+    p = fill(D._RUNS, length(pingpong.catalytic.steps), 2)
+    p[_testhelper_edge(pingpong, "EA <--> EP_res_plusA_minusP"), 2] = D._LOSES_FORWARD
+    p[_testhelper_edge(pingpong, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
+    @test D._admission(pingpong, p) == D._WELL_POSED
+
+    # `slow_source`: a ping-pong whose B binding at F gives E(Q) at once, every step
+    # :OnlyA but F + P ⇌ F(P). In the inactive conformation free E stands alone and the
+    # steps that leave it are steady-state uptakes, which lose their uptake. With B zero
+    # F + B ⇌ E(Q) runs one way, fast though it vanishes, from E(Q) into F; but enzyme
+    # reaches E(Q) only through steady-state steps, so the flow into F vanishes, and the
+    # faces with B zero pass.
+    slow_source = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(P; residual = A - P), E(Q) + A <--> E(A, Q))    :: OnlyA
+            (E + Q <--> E(Q), E(P; residual = A - P) + Q <--> E(A, Q))    :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)            :: EqualAI
+            E(; residual = A - P) + B ⇌ E(Q)                              :: OnlyA
+        end
+    end
+    b_step = _testhelper_edge(slow_source, "E_res_plusA_minusP + B ⇌ EQ")
+    s = fill(D._RUNS, length(slow_source.catalytic.steps), 2)
+    for text in ("E + A <--> EP_res_plusA_minusP", "E + Q <--> EQ",
+                 "EP_res_plusA_minusP + Q <--> EAQ", "EQ + A <--> EAQ")
+        s[_testhelper_edge(slow_source, text), 2] = D._LOSES_FORWARD
+    end
+    s[b_step, 2] = D._LOSES_REVERSE
+    @test D._admission(slow_source, s) == D._WELL_POSED
+    eps = D._eps_network(slow_source, D._re_flags(slow_source.catalytic), s)
+    law_nodes = D._law_network(slow_source).present
+    sets = D._face_sets(eps, law_nodes, D._faces(slow_source.catalytic)[3])
+    fast_from_law = D._reached(D._successors(eps, sets.alive .& eps.fast),
+                               findall(law_nodes))
+    uptake, release = (only(t for t in eachindex(eps.from)
+                            if eps.edge[t] == b_step && eps.conformation[t] == 2 &&
+                               eps.forward[t] == forward)
+                       for forward in (true, false))
+    # At zero A and B, the release E(Q) → F + B is fast, vanishing and alive while the
+    # uptake is dead; its source is fed, but not along fast transitions from the law's
+    # forms.
+    @test eps.fast[release] && eps.vanishing[release] && !eps.vanishing[uptake]
+    @test sets.alive[release] && !sets.alive[uptake]
+    @test sets.fed[eps.from[release]] && !fast_from_law[eps.from[release]]
+    for face in _testhelper_faces(slow_source)
+        @test _testhelper_epath_verdict(slow_source; rng, face, corners = true,
+                                        reading = _testhelper_reading(s)) === :converges
+    end
 end
 
 @testset "the graph test equals the exact LP on the uni-uni grid" begin

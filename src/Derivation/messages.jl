@@ -17,8 +17,9 @@ function _guard_message(mech::_AnyMech, v::_Verdict)
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."
     v.fault === _RE_TURNOVER && return _re_turnover_message(who, mech)
+    # The guard reports its first try's verdict, judged under the first built reading.
     mech isa Mechanisms.AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
-        return _admission_message(mech, v)
+        return _admission_message(mech, v, _built_reading(mech))
     v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
     _face_message(who, mech, v)
 end

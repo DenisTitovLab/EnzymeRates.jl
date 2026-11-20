@@ -60,10 +60,11 @@ each pointing uphill, close a directed cycle or point into free E's component
 (`_ARC_CYCLE`), forms free E's component does not reach along those steps (`_ISLAND`), or
 an active conformation that no longer turns the reaction over (`_NO_ACTIVE_TURNOVER`); on
 a face, in admission's face condition, a second closed class of the ε-network
-(`_EPS_NONUNIQUE`), a stranded basin entered by, or holding, an alive step whose reverse
-is dead, or entered from outside it and the law's forms (`_PUMPED`), or tagged steps that
-shorten the fed forms' cheapest spanning in-tree where no potential absorbs their
-turnover (`_BRIDGE`).
+(`_EPS_NONUNIQUE`), a form that a fast step's vanishing direction fills one way faster
+than it empties (`_FILLED`), a stranded basin entered by, or holding, an alive step whose
+reverse is dead, or entered from outside it and the law's forms (`_PUMPED`), or tagged
+steps that shorten the fed forms' cheapest spanning in-tree where no potential absorbs
+their turnover (`_BRIDGE`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -79,6 +80,7 @@ turnover (`_BRIDGE`).
     _ARC_CYCLE
     _ISLAND
     _EPS_NONUNIQUE
+    _FILLED
     _PUMPED
     _BRIDGE
     _NO_ACTIVE_TURNOVER
@@ -86,7 +88,7 @@ end
 
 """The faults admission reports; `_admission_message` writes their text."""
 const _ADMISSION_FAULTS = (_FAST_STEP_PINNED, _ARC_CYCLE, _ISLAND, _NO_ACTIVE_TURNOVER,
-                           _EPS_NONUNIQUE, _PUMPED, _BRIDGE)
+                           _EPS_NONUNIQUE, _FILLED, _PUMPED, _BRIDGE)
 
 """
 The limit test's verdict on a face (class 3): not run (`_LIMIT_UNTESTED`); the fast-RE
@@ -235,16 +237,15 @@ function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
 end
 
 """
-The law network L of `m`: a plain mechanism's forms and edges as they are, its
-rapid-equilibrium flags overridden by `re`; an allosteric mechanism's two copies, copy `c`
-holding the steps of its conformation (`active_steps`, `inactive_steps`) and the forms
-they touch (`Mechanisms.present_species`), free E always, joined by the flip at free E.
+The law network L of `m`: a plain mechanism's forms and edges as they are; an allosteric
+mechanism's two copies, copy `c` holding the steps of its conformation (`active_steps`,
+`inactive_steps`) and the forms they touch (`Mechanisms.present_species`), free E always,
+joined by the flip at free E.
 """
-function _law_network(m::Mechanisms.Mechanism,
-                      re::BitVector = _re_flags(m))
+function _law_network(m::Mechanisms.Mechanism)
     n = length(m.steps)
     fast = falses(n, 1)
-    fast[:, 1] .= re
+    fast[:, 1] .= _re_flags(m)
     _network(m, trues(length(m.nodes)), trues(n, 1), fast, falses(n, 1),
              falses(n, 1))
 end
