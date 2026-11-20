@@ -760,10 +760,11 @@ the guard accepts it (`_valid_tagging`) it is the only base. Otherwise the bases
 smallest sets of chemistry groups, by inclusion, that stop every catalytic cycle of the
 inactive conformation (`_stops_inactive_turnover`) and pass the guard, each tagged
 `:OnlyA` with every other group `:EqualAI`; a set the guard rejects leaves its supersets in
-the search. A ping-pong mechanism thus usually gets one base per half-reaction, the other
-half running in both conformations: a half whose chemistry groups fail the guard gives
-none, and a half spread over several chemistry groups can give several. The bases come by
-size, each size in `_subsets` order.
+the search. On a ping-pong mechanism the first candidate cuts the covalent forms off in the
+inactive conformation. When the guard rejects that, a half-reaction's chemistry groups can
+be a base alone, the other half running in both conformations, and a half spread over
+several chemistry groups can give several bases. The bases come by size, each size in
+`_subsets` order.
 """
 function _tagging_bases(m::Mechanisms.Mechanism)
     chem = _chemistry_groups(m)
@@ -790,10 +791,10 @@ Convert a non-allosteric `Mechanism` into allosteric variants, each built on a b
 the inactive conformation's catalysis and passes the guard. A chemistry group is one
 holding a chemistry step (`_chemistry_groups`): an isomerization, a fused binding or a
 Theorell–Chance step; every other group is a binding group. On a ping-pong mechanism,
-tagging both half-reactions strands the covalent forms between them, so a base usually
-tags one half alone and the other half runs in both conformations (spec section 7,
-"Allosteric ping-pong"); a half whose chemistry groups fail the guard gives no base, and a
-half spread over several chemistry groups can give several. Two kinds are not enumerated:
+tagging both half-reactions cuts the covalent forms off in the inactive conformation; when
+the guard rejects that, a base can tag one half alone, the other half running in both
+conformations, and a half spread over several chemistry groups can give several (spec
+section 7, "Allosteric ping-pong"). Two kinds are not enumerated:
 the all-`:EqualAI` baseline and a V-type variant without a regulator.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
@@ -825,7 +826,7 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     emits no V-type.
 
 A ping-pong parent with no declared regulator can end with no child at the exits, when
-every K-type strands a form or a basin.
+the guard rejects every K-type.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the move emits
 the K-types, then the V-types, at that `catalytic_multiplicity`. Every variant

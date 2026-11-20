@@ -671,7 +671,10 @@ defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
 mechanism it rejects (`check_valid_rate_equation`), and identify's base tier, the
 enumerator's exits and its flip, split and tagging searches drop one
 (`check_valid_rate_equation(Bool, m)`). The constructors and the Sig decoder do
-not run it.
+not run it. Those exits and searches (`_guard_accepts`) also drop an allosteric mechanism
+the guard admits in which a conformation keeps a form, other than free E, that only
+bindings it excludes enter (`_kept_forms_can_be_made`): its law is the limit, so a user may
+write it, but the enumerator does not propose it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration
 builds, expands, and deduplicates many thousands of candidate mechanisms (see

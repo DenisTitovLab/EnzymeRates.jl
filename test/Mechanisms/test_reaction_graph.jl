@@ -1162,7 +1162,7 @@ let population = _testhelper_census_population(),
     # The census's first populations: each graph decodes from its Sig and builds again
     # from the nodes and steps it writes back. The count: the six reactions' init
     # mechanisms, then the bi-bi reaction's children.
-    @test length(population) == 5508 + 5597
+    @test length(population) == 5508 + 5471
     @test all(_testhelper_decode(x, ER.Mechanisms._sig_of(x)) == x for x in population)
     @test all(_testhelper_build(_testhelper_written(x)) == x for x in population)
 end

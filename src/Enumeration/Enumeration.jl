@@ -9,9 +9,12 @@ using Distributed: pmap
 
 public starting_mechanisms, expand_mechanisms
 
-"""Whether the guard (`Derivation.check_valid_rate_equation`) accepts `m`: the test the
-enumerator's exits and its flip, split and tagging searches apply to a candidate."""
-_guard_accepts(m) = Derivation.check_valid_rate_equation(Bool, m)
+"""Whether the enumerator keeps `m`: the guard (`Derivation.check_valid_rate_equation`)
+accepts it, and no conformation keeps a form that only bindings it excludes enter
+(`_kept_forms_can_be_made`). The test the enumerator's exits and its flip, split and
+tagging searches apply to a candidate."""
+_guard_accepts(m) =
+    Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_can_be_made(m)
 
 """The number of entries named `name` in the metabolite list `v`, a reactant's modifier
 copies included."""

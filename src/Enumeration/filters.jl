@@ -82,6 +82,36 @@ function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechani
 end
 
 """
+    _kept_forms_can_be_made(m) -> Bool
+
+Whether, in each conformation of `m`, every form but free E that the conformation's law
+keeps (a form of a step in `active_steps` or `inactive_steps`) and that some binding enters
+(a step that takes up one metabolite and gives off none) is entered by a binding the
+conformation does not exclude (`excluded_active`, `excluded_inactive`). True for a plain
+mechanism. The guard admits a mechanism that fails this when its law is the limit, so a
+user may write one; the enumerator does not build it.
+"""
+_kept_forms_can_be_made(::Mechanisms.Mechanism) = true
+function _kept_forms_can_be_made(am::Mechanisms.AllostericMechanism)
+    steps, n = am.catalytic.steps, length(am.catalytic.nodes)
+    for (law, excluded) in ((am.active_steps, am.excluded_active),
+                            (am.inactive_steps, am.excluded_inactive))
+        # Per form: some binding enters it; some binding the conformation runs does. A
+        # step with one metabolite is stored as its uptake, so it enters its `to` form.
+        entered, made = falses(n), falses(n)
+        for (k, e) in enumerate(steps)
+            length(e.taken_up) == 1 && isempty(e.given_off) || continue
+            entered[e.to] = true
+            excluded[k] || (made[e.to] = true)
+        end
+        for (k, e) in enumerate(steps), f in (e.from, e.to)
+            law[k] && f != 1 && entered[f] && !made[f] && return false
+        end
+    end
+    true
+end
+
+"""
 Whether the enumerator may only give this mechanism a catalytic scheme that
 passes `_hyperbolic_catalysis`. True when a conformational equilibrium sits over
 a catalytic site with more than one subunit: the equilibrium then raises every
