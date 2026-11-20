@@ -933,27 +933,35 @@ end
         end
     end
     # E(B) + A ⇌ E(P, Q) takes up A into E(P, Q), which the inactive conformation cuts
-    # off, so it loses its affinity there and stays fast: before class 3 reaches the trap,
-    # admission rejects the interior face for a bridge of the inactive conformation.
+    # off, so it loses its affinity there and stays fast. The bridge its cut-off forms
+    # open at the interior is set aside, and the harsh ε-path oracle converges there, so
+    # the guard reports class 3's verdict at zero P and Q: the trap.
     v = EnzymeRates.Derivation._guard(am)
+    @test v == _testhelper_face_verdicts(am)[2]
     @test (v.fault, v.limit, v.face, v.conformation, v.edge) ==
-          (EnzymeRates.Derivation._BRIDGE, EnzymeRates.Derivation._LIMIT_UNTESTED, 1, 2,
-           _testhelper_edge(am, "EB + P ⇌ EBP"))
-    @test EnzymeRates.Derivation._guard_message(am, v) ==
-          "AllostericMechanism: the :OnlyA steps E(B) + P ⇌ E(B, P); E(Q) + P ⇌ E(P, Q) " *
-          "bridge forms of the inactive conformation that its other steps keep apart, so " *
-          "admission cannot show that the limit does not depend on how fast those steps " *
-          "vanish. Make the group of E(B) + P ⇌ E(B, P) steady-state."
-    # Class 3's verdict at zero P and Q: the trap.
-    trap = _testhelper_face_verdicts(am)[2]
-    @test (trap.fault, trap.limit, trap.face, trap.conformation, trap.edge) ==
           (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_DIFFER, 2, 0,
            _testhelper_edge(am, "E + P ⇌ EP"))
-    @test EnzymeRates.Derivation._guard_message(am, trap) ==
+    @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(33),
+                                    corners = true) === :converges
+    @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(33)))
+    @test EnzymeRates.Derivation._guard_message(am, v) ==
           "AllostericMechanism: at zero P and Q, the forms {E (active), E (inactive)} " *
           "hold enzyme, but the rapid-equilibrium step E + P ⇌ E(P) that joins them to " *
           "the rest of their segment takes up a zeroed metabolite, so the rate law " *
           "misweights them. Make that step's kinetic group steady-state."
+    # The face condition alone refuses the interior for that bridge; its message names
+    # both tagged steps the cheapest tree needs.
+    D = EnzymeRates.Derivation
+    eps = D._eps_network(am, D._re_flags(am.catalytic), D._built_reading(am))
+    w = D._face_condition(eps, D._law_network(am).present, UInt64(0),
+                          D._turnover_name(am.catalytic))
+    @test (w.fault, w.conformation, w.edge) ==
+          (D._BRIDGE, 2, _testhelper_edge(am, "EB + P ⇌ EBP"))
+    @test D._guard_message(am, D._Verdict(w.fault, w.limit, 1, w.conformation, w.edge)) ==
+          "AllostericMechanism: the :OnlyA steps E(B) + P ⇌ E(B, P); E(Q) + P ⇌ E(P, Q) " *
+          "bridge forms of the inactive conformation that its other steps keep apart, so " *
+          "admission cannot show that the limit does not depend on how fast those steps " *
+          "vanish. Make the group of E(B) + P ⇌ E(B, P) steady-state."
     faults = _testhelper_face_faults(am)
     verdicts = _testhelper_respeed_verdicts(am; rng = Random.MersenneTwister(33))
     @test verdicts[[2, 6]] == [:mismatch, :mismatch]
@@ -2279,9 +2287,9 @@ end
     # into a cut-off form as losing its affinity; when that leaves an admission fault, it
     # checks again with such a step losing its affinity only when it leads away from free
     # E, then with every such step stopped. Four ter-ter mechanisms of the gate's
-    # populations, built unguarded since the first reading rejects each: two that a later
-    # reading admits, and two whose bridges are rapid-equilibrium steps, which no reading
-    # stops.
+    # populations, built unguarded since the first reading rejects each: one that the
+    # second reading admits, one that only the third admits, and two whose bridges are
+    # rapid-equilibrium steps, which no reading stops.
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(2613)
     second_try_a = @_testhelper_unguarded @allosteric_mechanism begin
@@ -2299,21 +2307,19 @@ end
             (E(P, Q) + R ⇌ E(P, Q, R), E(Q) + R ⇌ E(Q, R)) :: EqualAI
         end
     end
-    second_try_b = @_testhelper_unguarded @allosteric_mechanism begin
+    third_try = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, D
         products: P, Q, R
         steps: begin
-            (E + A ⇌ E(A), E(D, P) + A ⇌ E(A, D, P), E(P) + A ⇌ E(A, P),
-             E(P, R) + A ⇌ E(A, P, R)) :: OnlyA
-            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, D) + P ⇌ E(A, D, P),
-             E(A, R) + P ⇌ E(A, P, R)) :: OnlyA
-            (E(A) + D ⇌ E(A, D), E(A, P) + D ⇌ E(A, D, P), E(A, R) + D ⇌ E(A, D, R),
-             E(P) + D ⇌ E(D, P), E(P, R) + D ⇌ E(D, P, R)) :: EqualAI
-            (E(A) + R <--> E(A, R), E(A, D) + R <--> E(A, D, R),
-             E(A, P) + R <--> E(A, P, R), E(D, P) + R <--> E(D, P, R),
-             E(P) + R <--> E(P, R)) :: EqualAI
-            E(A, D) + B <--> E(P, Q, R) :: OnlyA
-            E(P, R) + Q ⇌ E(P, Q, R) :: OnlyA
+            (E + D ⇌ E(D), E(A, Q) + D ⇌ E(A, D, Q), E(P, Q) + D ⇌ E(D, P, Q),
+             E(Q) + D ⇌ E(D, Q)) :: OnlyA
+            (E + Q ⇌ E(Q), E(A, D) + Q ⇌ E(A, D, Q), E(D) + Q ⇌ E(D, Q),
+             E(D, P) + Q ⇌ E(D, P, Q)) :: EqualAI
+            (E(A, D) + B ⇌ E(P, Q, R), E(D) + B ⇌ E(B, D)) :: OnlyA
+            (E(B, D) + A <--> E(P, Q, R), E(D) + A <--> E(A, D),
+             E(D, Q) + A <--> E(A, D, Q), E(Q) + A <--> E(A, Q)) :: EqualAI
+            (E(D) + P ⇌ E(D, P), E(D, Q) + P ⇌ E(D, P, Q), E(Q) + P ⇌ E(P, Q)) :: EqualAI
+            E(P, Q) + R <--> E(P, Q, R) :: OnlyA
         end
     end
     # second_try_a, inactive conformation: the chemistry step joins two cut-off forms.
@@ -2336,7 +2342,7 @@ end
     v = D._admission(second_try_a, D._built_reading(second_try_a))
     @test (_testhelper_faces(second_try_a)[v.face], v.conformation, v.edge) ==
           (Set([:A, :B, :D]), 2, _testhelper_edge(second_try_a, "EDP + Q ⇌ EDPQ"))
-    for am in (second_try_a, second_try_b)
+    for am in (second_try_a, third_try)
         # The first try alone.
         @test D._admission(am, D._built_reading(am)).fault === D._BRIDGE
         @test D._admission(am, D._built_reading(am, D._ALL_STOPPED)) == D._WELL_POSED
@@ -2346,13 +2352,13 @@ end
         # limit.
         _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(am))
     end
-    # The outward reading admits second_try_a but not second_try_b, so each later try is
+    # The outward reading admits second_try_a but not third_try, so each later try is
     # needed.
     @test D._admission(second_try_a,
                        D._built_reading(second_try_a, D._OUTWARD_LOSE_AFFINITY)) ==
           D._WELL_POSED
-    @test D._admission(second_try_b,
-                       D._built_reading(second_try_b, D._OUTWARD_LOSE_AFFINITY)).fault ===
+    @test D._admission(third_try,
+                       D._built_reading(third_try, D._OUTWARD_LOSE_AFFINITY)).fault ===
           D._BRIDGE
     # bridge_fast_a: its bridge, the rapid-equilibrium P binding E(D, Q) + P ⇌ E(D, P, Q),
     # loses its affinity under every reading, and stopping its steady-state uptakes
@@ -2638,6 +2644,7 @@ end
     v = D._admission(filled, r)
     @test v == D._Verdict(FI, U, 3, 2, b_binding)
     @test faces[3] == Set([:A, :B])
+    @test faces[5] == Set([:B])
     @test _testhelper_admission_faults(filled; reading = _testhelper_reading(r)) ==
           [NO, NO, FI, NO, FI, NO, NO]
     # The message names the face, the step, the form it fills and the group's slow way
@@ -2655,19 +2662,11 @@ end
     # on both faces with B zero, and exists on the interior.
     for i in (3, 5)
         @test _testhelper_epath_verdict(filled; rng, face = faces[i], corners = true,
-                                        reading = _testhelper_reading(r)) !== :converges
+                                        reading = _testhelper_reading(r)) ===
+              :direction_dependent
     end
     @test _testhelper_epath_verdict(filled; rng, corners = true,
                                     reading = _testhelper_reading(r)) === :converges
-    # No built reading raises the fault: the direction a built reading keeps is always a
-    # release, which no face kills.
-    law, built_faces = D._law_network(filled), D._faces(filled.catalytic)
-    for b in instances(D._SlowUptakeReading)
-        eps = D._eps_network(filled, D._re_flags(filled.catalytic),
-                             D._built_reading(filled, b))
-        @test all(i -> D._admission_face(filled, eps, law, built_faces, i).fault !== FI,
-                  eachindex(built_faces))
-    end
 
     # The six-step ping-pong with both chemistry steps :OnlyA, under the reading that
     # admits it: neither excluded step takes up a metabolite, so no face kills the
@@ -2732,6 +2731,186 @@ end
         @test _testhelper_epath_verdict(slow_source; rng, face, corners = true,
                                         reading = _testhelper_reading(s)) === :converges
     end
+
+    # No built reading raises the fault. Under each of them `filled`'s excluded steps are
+    # stopped or cannot be switched off, so none keeps a direction; `slow_source`'s
+    # F + B ⇌ E(Q) loses its affinity, and the direction it keeps is the release of B,
+    # which takes up nothing, so no face kills it.
+    for am in (filled, slow_source)
+        law, built_faces = D._law_network(am), D._faces(am.catalytic)
+        for b in instances(D._SlowUptakeReading)
+            eps = D._eps_network(am, D._re_flags(am.catalytic), D._built_reading(am, b))
+            @test all(i -> D._admission_face(am, eps, law, built_faces, i).fault !== FI,
+                      eachindex(built_faces))
+        end
+    end
+    @test D._built_reading(slow_source)[b_step, 2] === D._LOSES_FORWARD
+end
+
+@testset "cut-off forms that cannot matter are set aside" begin
+    D = EnzymeRates.Derivation
+    NO, BR, U = D._NO_FAULT, D._BRIDGE, D._LIMIT_UNTESTED
+    rng = Random.MersenneTwister(2651)
+    # Whether face `i` of `am` under reading `r` is refused by the face condition alone and
+    # passed by admission's face check, which sets groups aside.
+    function _testhelper_passes_only_set_aside(am, r, i)
+        eps = D._eps_network(am, D._re_flags(am.catalytic), r)
+        law, faces = D._law_network(am), D._faces(am.catalytic)
+        v = D._face_condition(eps, law.present, faces[i], D._turnover_name(am.catalytic))
+        v.fault === BR && D._admission_face(am, eps, law, faces, i) == D._WELL_POSED
+    end
+    # `set_aside`: a ping-pong whose chemistry steps and the bindings of A and of P are
+    # :OnlyA. In the inactive conformation the law's forms are free E and E(Q), and the
+    # cut-off forms E(A), F(P), F and F(B) (F is E(; residual = A - P)), which the excluded
+    # steps join, are entered from free E by the A binding and from E(Q) by
+    # F(B) ⇌ E(Q), both losing their direction into them. Their vanishing steps open a
+    # route from free E to E(Q) on which the reaction turns over, so the face condition
+    # refuses the interior as a bridge. But the law's own rapid-equilibrium step
+    # E + Q ⇌ E(Q) holds the two forms they touch in equilibrium, their fast classes drain,
+    # and none fills faster than it empties: they are set aside.
+    set_aside = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: OnlyA
+            E + Q ⇌ E(Q)                                            :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: EqualAI
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: OnlyA
+            E(A) <--> E(P; residual = A - P)                        :: OnlyA
+            E(B; residual = A - P) ⇌ E(Q)                           :: OnlyA
+        end
+    end
+    r = fill(D._RUNS, length(set_aside.catalytic.steps), 2)
+    r[_testhelper_edge(set_aside, "E + A ⇌ EA"), 2] = D._LOSES_FORWARD
+    r[_testhelper_edge(set_aside, "EA <--> EP_res_plusA_minusP"), 2] = D._LOSES_FORWARD
+    r[_testhelper_edge(set_aside, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
+        D._LOSES_REVERSE
+    r[_testhelper_edge(set_aside, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
+    @test D._admission(set_aside, r) == D._WELL_POSED
+    @test _testhelper_passes_only_set_aside(set_aside, r, 1)
+    for face in _testhelper_faces(set_aside)
+        @test _testhelper_epath_verdict(set_aside; rng, face, corners = true,
+                                        reading = _testhelper_reading(r)) === :converges
+    end
+    # `kept`: the same ping-pong with E + Q <--> E(Q) steady-state, so free E and E(Q) are
+    # no longer held in equilibrium, and E(A) ⇌ F(P) at rapid equilibrium, so the route
+    # through the cut-off forms runs fast, its rates vanishing only as the reading says.
+    # In the interior every transition at the cut-off forms runs both ways, and each of
+    # them empties into the law's forms along fast steps that do not vanish, so none lies
+    # in a fast class that could fail to drain; but the route joins two law forms whose
+    # ratio the law sets otherwise: nothing is set aside, the interior stays a bridge, and
+    # the limit there depends on how the two limits are taken.
+    kept = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: EqualAI
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: OnlyA
+            E(A) ⇌ E(P; residual = A - P)                           :: OnlyA
+            E(B; residual = A - P) ⇌ E(Q)                           :: OnlyA
+        end
+    end
+    k = fill(D._RUNS, length(kept.catalytic.steps), 2)
+    k[_testhelper_edge(kept, "E + A ⇌ EA"), 2] = D._LOSES_FORWARD
+    k[_testhelper_edge(kept, "EA ⇌ EP_res_plusA_minusP"), 2] = D._LOSES_FORWARD
+    k[_testhelper_edge(kept, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
+        D._LOSES_REVERSE
+    k[_testhelper_edge(kept, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
+    eps = D._eps_network(kept, D._re_flags(kept.catalytic), k)
+    law = D._law_network(kept)
+    sets = D._face_sets(eps, law.present, UInt64(0))
+    @test all(D._fast_law_reach(eps, law.present, sets).to_law[.!law.present])
+    @test D._without_set_aside_groups(eps, law.present, UInt64(0)) === eps
+    @test D._admission(kept, k) ==
+          D._Verdict(BR, U, 1, 2, _testhelper_edge(kept, "EB_res_plusA_minusP ⇌ EQ"))
+    @test _testhelper_epath_verdict(kept; rng, corners = true,
+                                    reading = _testhelper_reading(k)) !== :converges
+
+    # One touching law form counts: in this ping-pong's inactive conformation free E stands
+    # alone, and the cut-off forms E(A), F(P), F, F(B) and E(Q) touch nothing else.
+    one_touch = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: OnlyA
+            E + Q ⇌ E(Q)                                            :: OnlyA
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: EqualAI
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: OnlyA
+            E(A) <--> E(P; residual = A - P)                        :: EqualAI
+            E(B; residual = A - P) ⇌ E(Q)                           :: EqualAI
+        end
+    end
+    o = fill(D._RUNS, length(one_touch.catalytic.steps), 2)
+    o[_testhelper_edge(one_touch, "E + A ⇌ EA"), 2] = D._LOSES_FORWARD
+    o[_testhelper_edge(one_touch, "E + Q ⇌ EQ"), 2] = D._LOSES_FORWARD
+    o[_testhelper_edge(one_touch, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
+        D._LOSES_REVERSE
+    @test D._admission(one_touch, o) == D._WELL_POSED
+    @test _testhelper_passes_only_set_aside(one_touch, o, 1)
+    for face in _testhelper_faces(one_touch)
+        @test _testhelper_epath_verdict(one_touch; rng, face, corners = true,
+                                        reading = _testhelper_reading(o)) === :converges
+    end
+
+    # `first_try`, a ter-ter mechanism of the gate's populations that needed the third
+    # reading before groups were set aside: under the first reading the face condition alone
+    # refuses five faces as bridges of the inactive conformation, and admission passes
+    # every one by setting cut-off forms aside. The first try now admits it, and the
+    # oracles agree on every face under that reading.
+    first_try = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + A ⇌ E(A), E(D, P) + A ⇌ E(A, D, P), E(P) + A ⇌ E(A, P),
+             E(P, R) + A ⇌ E(A, P, R)) :: OnlyA
+            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, D) + P ⇌ E(A, D, P),
+             E(A, R) + P ⇌ E(A, P, R)) :: OnlyA
+            (E(A) + D ⇌ E(A, D), E(A, P) + D ⇌ E(A, D, P), E(A, R) + D ⇌ E(A, D, R),
+             E(P) + D ⇌ E(D, P), E(P, R) + D ⇌ E(D, P, R)) :: EqualAI
+            (E(A) + R <--> E(A, R), E(A, D) + R <--> E(A, D, R),
+             E(A, P) + R <--> E(A, P, R), E(D, P) + R <--> E(D, P, R),
+             E(P) + R <--> E(P, R)) :: EqualAI
+            E(A, D) + B <--> E(P, Q, R) :: OnlyA
+            E(P, R) + Q ⇌ E(P, Q, R) :: OnlyA
+        end
+    end
+    let reading = D._built_reading(first_try)
+        eps = D._eps_network(first_try, D._re_flags(first_try.catalytic), reading)
+        law, faces = D._law_network(first_try), D._faces(first_try.catalytic)
+        x = D._turnover_name(first_try.catalytic)
+        @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
+              [BR, NO, BR, BR, BR, BR, NO, NO, NO]
+        @test D._admission(first_try, reading) == D._WELL_POSED
+    end
+    @test D._guard(first_try) == D._WELL_POSED
+    @test all(_testhelper_admission_agreement(first_try; rng = Random.MersenneTwister(1)))
+
+    # R2funnel and R2funnel_SS under the guard's first built reading, at zero P. Their
+    # cut-off forms touch free E alone, and each reaches it along transitions that do not
+    # vanish; but F and F(S) form a fast class whose one slow way out, to F(P), leads back
+    # into it along fast steps, while the slow E(P) <--> E(S) leaves E(P), which a fast
+    # step empties into F. The class does not drain, nothing is set aside, the face stays
+    # a bridge, and the limit there depends on the direction.
+    for name in ("R2funnel", "R2funnel_SS")
+        am = _testhelper_tag_sets[name]
+        eps = D._eps_network(am, D._re_flags(am.catalytic), D._built_reading(am))
+        law, faces = D._law_network(am), D._faces(am.catalytic)
+        @test !any(D._face_sets(eps, law.present, faces[2]).stranded)
+        @test D._without_set_aside_groups(eps, law.present, faces[2]) === eps
+        @test D._admission_face(am, eps, law, faces, 2).fault === BR
+        @test _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[2],
+                                        corners = true) === :direction_dependent
+    end
+
+    # The conservative rejections the suite pins stay rejected. R-B1's cut-off forms E(I)
+    # and E(I, J) touch free E and the dead end E(J), which only the steady-state
+    # E + J <--> E(J) joins; R-B2's basins reach the law's forms only through vanishing
+    # steps, so they are stranded.
+    @test D._guard(_testhelper_tag_sets["bridge_deadend"]).fault === BR
+    @test D._guard(_testhelper_tag_sets["BS1"]).fault === D._PUMPED
+    @test D._guard(_testhelper_tag_sets["fz101_10232"]).fault === D._PUMPED
 end
 
 @testset "the graph test equals the exact LP on the uni-uni grid" begin
@@ -3932,6 +4111,36 @@ end
     # The faces with I zero as well come last, so the earlier draws of `rng` stay put.
     @test _testhelper_corner_verdict(fz, 5) !== :converges
     @test _testhelper_corner_verdict(fz, 6) === :converges
+    # R-B3, the set-aside rule's equilibrium condition. In this ping-pong's inactive
+    # conformation the cut-off forms E(A), F(P), F and F(B) (F is E(; residual = A - P))
+    # touch free E and E(Q), which only the steady-state E + Q <--> E(Q) joins, so they are
+    # not set aside and the interior stays a bridge. Yet the route through them crosses the
+    # slow chemistry E(A) <--> F(P), and every corner direction converges there: a
+    # conservative rejection.
+    D = EnzymeRates.Derivation
+    rb3 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)                                            :: OnlyA
+            E + Q <--> E(Q)                                         :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)      :: EqualAI
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)      :: OnlyA
+            E(A) <--> E(P; residual = A - P)                        :: OnlyA
+            E(B; residual = A - P) ⇌ E(Q)                           :: OnlyA
+        end
+    end
+    r = fill(D._RUNS, length(rb3.catalytic.steps), 2)
+    r[_testhelper_edge(rb3, "E + A ⇌ EA"), 2] = D._LOSES_FORWARD
+    r[_testhelper_edge(rb3, "EA <--> EP_res_plusA_minusP"), 2] = D._LOSES_FORWARD
+    r[_testhelper_edge(rb3, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
+        D._LOSES_REVERSE
+    r[_testhelper_edge(rb3, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
+    @test D._admission(rb3, r) ==
+          D._Verdict(BR, D._LIMIT_UNTESTED, 1, 2,
+                     _testhelper_edge(rb3, "EB_res_plusA_minusP ⇌ EQ"))
+    @test _testhelper_epath_verdict(rb3; rng, corners = true,
+                                    reading = _testhelper_reading(r)) === :converges
 end
 
 @testset "S1 passes admission's interior and fails class 3, as AD7b's faces do" begin

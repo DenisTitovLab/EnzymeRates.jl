@@ -310,8 +310,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
                            if eps.edge[t] == k && eps.conformation[t] == c &&
                               eps.vanishing[t])
             filled = eps.to[filling]
-            pool = _reached(_successors(eps, s.alive .& eps.fast .& .!eps.vanishing),
-                            [filled])
+            pool = _reached(_successors(eps, s.n0 .& eps.fast), [filled])
             ways = unique!([eps.edge[t] for t in eachindex(eps.from)
                             if s.alive[t] && pool[eps.from[t]] && !pool[eps.to[t]]])
             name = Mechanisms.form_text(m, _form_of(eps, filled))
@@ -541,6 +540,22 @@ _face_phrase(m::Mechanisms.Mechanism, face::UInt64, place::String = "") =
     "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * place * ", "
 
 """
+    _fast_law_reach(net, law_nodes, s) -> (; from_law, to_law)
+
+On the face whose sets `s` (`_face_sets`) admission's face condition reads, of the
+ε-network `net` whose law network holds the nodes `law_nodes`: the nodes the law network
+reaches along alive rapid-equilibrium transitions, vanishing or not, so the flow into them
+can grow with the speed of the fast steps (`from_law`); and the nodes that reach it along
+alive rapid-equilibrium transitions that do not vanish, so they empty as fast as that
+(`to_law`).
+"""
+function _fast_law_reach(net::_Network, law_nodes::BitVector, s)
+    law = findall(law_nodes .& net.present)
+    (; from_law = _reached(_successors(net, s.alive .& net.fast), law),
+     to_law = _reached(_successors(net, s.n0 .& net.fast; backward = true), law))
+end
+
+"""
     _face_condition(net, law_nodes, face, x) -> _Verdict
 
 Admission's face condition, on face `face` of the ε-network `net` of an allosteric
@@ -577,22 +592,20 @@ function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::I
                         _copy_of(net, _class_outside_law(closed, law_nodes)[1]), 0)
     # A form's weight is its inflow over its outflow. Past a slow transition the inflow is
     # bounded by a rate that vanishes; through fast ones alone it grows with their speed,
-    # and then only an outflow that grows as fast keeps the target empty in every order of
+    # and then only an outflow that grows as fast keeps the form empty in every order of
     # the two limits. A step that loses a direction can keep its uptake, which dies where
-    # its metabolite is zero, leaving the vanishing direction to fill its target one way.
+    # its metabolite is zero, leaving the vanishing direction to fill the form one way.
     # This argument is not a proof that the face condition with this check suffices for
     # every reading: the evidence is numerical (the ε-path oracle). No built reading has
     # such a transition, since the direction it keeps is a release, alive on every face, so
-    # under them the two searches below never run.
+    # under them the searches of `_fast_law_reach` never run here.
     one_way(t) = (r = isodd(t) ? t + 1 : t - 1;
                   s.alive[t] && !s.alive[r] && net.vanishing[t] && !net.vanishing[r] &&
                   net.fast[t] && s.fed[net.from[t]])
     if any(one_way, eachindex(net.from))
-        law = findall(law_nodes .& net.present)
-        fast_from_law = _reached(_successors(net, s.alive .& net.fast), law)
-        fast_to_law = _reached(_successors(net, s.n0 .& net.fast; backward = true), law)
+        reach = _fast_law_reach(net, law_nodes, s)
         for t in eachindex(net.from)
-            one_way(t) && fast_from_law[net.from[t]] && !fast_to_law[net.to[t]] &&
+            one_way(t) && reach.from_law[net.from[t]] && !reach.to_law[net.to[t]] &&
                 return _Verdict(_FILLED, _LIMIT_UNTESTED, 0, net.conformation[t],
                                 net.edge[t])
         end
@@ -622,15 +635,126 @@ function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::I
 end
 
 """
+    _without_set_aside_groups(net, law_nodes, face) -> _Network
+
+The ε-network `net`, whose law network holds the nodes `law_nodes`, without the groups
+that cannot matter on face `face` and every transition at them; `net` itself when no group
+qualifies. A group is the fed nodes outside the law network (`_face_sets`) that alive
+transitions join to one another, with every pair of transitions at them that has an alive
+direction. It is set aside when
+- the law nodes its pairs touch lie in one set that the law network's rapid-equilibrium
+  pairs, alive both ways, join (one touching node counts);
+- its fast classes drain: in the aggregated chain of the alive transitions that do not
+  vanish (`_aggregated_chain`), each of its fast classes leads to a class that holds a law
+  node;
+- each of its pairs is safe: both directions are alive; or only one that does not vanish
+  is, so it only empties its source; or it joins two nodes outside the law network and
+  only its vanishing direction is alive, which is slow, or leaves a node the law network
+  does not reach along alive rapid-equilibrium transitions, or enters one that reaches the
+  law network along alive rapid-equilibrium transitions that do not vanish
+  (`_fast_law_reach`).
+A node outside the law network that free E's active copy does not reach on the face and
+whose alive transitions all lead to nodes set aside goes with them: left alone it would
+read as a second closed class.
+"""
+function _without_set_aside_groups(net::_Network, law_nodes::BitVector, face::UInt64)
+    s = _face_sets(net, law_nodes, face)
+    reach = _fast_law_reach(net, law_nodes, s)
+    nn, npairs = length(net.present), length(net.from) ÷ 2
+    cut = s.fed .& .!law_nodes
+    function join!(parent, a, b)
+        ra, rb = _union_find_root(parent, a), _union_find_root(parent, b)
+        ra == rb || (parent[max(ra, rb)] = min(ra, rb))
+        nothing
+    end
+    # Each node's group, and each law node's set of nodes that the law network's
+    # rapid-equilibrium pairs hold in equilibrium, as union–find parents.
+    group, held = collect(1:nn), collect(1:nn)
+    for j in 1:npairs
+        t, r = 2j - 1, 2j
+        a, b = net.from[t], net.to[t]
+        cut[a] && cut[b] && (s.alive[t] || s.alive[r]) && join!(group, a, b)
+        law_nodes[a] && law_nodes[b] && s.alive[t] && s.alive[r] && net.fast[t] &&
+            !net.vanishing[t] && !net.vanishing[r] && join!(held, a, b)
+    end
+    # The fast classes that drain: those that lead, in the aggregated chain, to a class
+    # holding a law node. A slow way out of a node that a fast step empties elsewhere does
+    # not count, or a fast trap inside a group would read as draining.
+    chain = _aggregated_chain(net, s.n0)
+    back = [Int[] for _ in chain.fast_classes]
+    for (q, ks) in enumerate(chain.next), k in ks
+        push!(back[k], q)
+    end
+    drained = _reached(back, [q for (q, C) in enumerate(chain.fast_classes)
+                              if any(u -> law_nodes[u], C)])
+    # Per group root: whether it may be set aside, and the equilibrium set of the law nodes
+    # its pairs touch (0 none yet, -1 more than one).
+    qualifies, touched = trues(nn), zeros(Int, nn)
+    for u in 1:nn
+        q = chain.class_of[u]
+        cut[u] && q > 0 && !drained[q] && (qualifies[_union_find_root(group, u)] = false)
+    end
+    for j in 1:npairs
+        t, r = 2j - 1, 2j
+        a, b = net.from[t], net.to[t]
+        (s.alive[t] || s.alive[r]) && (cut[a] || cut[b]) || continue
+        g = _union_find_root(group, cut[a] ? a : b)
+        for u in (a, b)
+            law_nodes[u] || continue
+            h = _union_find_root(held, u)
+            touched[g] = touched[g] in (0, h) ? h : -1
+        end
+        k = s.alive[t] ? t : r
+        safe = s.alive[t] && s.alive[r] || !net.vanishing[k] ||
+               !law_nodes[a] && !law_nodes[b] &&
+               (!net.fast[k] || !reach.from_law[net.from[k]] || reach.to_law[net.to[k]])
+        safe || (qualifies[g] = false)
+    end
+    gone = falses(nn)
+    for u in 1:nn
+        g = _union_find_root(group, u)
+        gone[u] = cut[u] && qualifies[g] && touched[g] != -1
+    end
+    any(gone) || return net
+    out = _out_transitions(net, s.alive)
+    grew = true
+    while grew
+        grew = false
+        for u in 1:nn
+            !gone[u] && !s.fed[u] && !law_nodes[u] && !isempty(out[u]) &&
+                all(t -> gone[net.to[t]], out[u]) && (gone[u] = grew = true)
+        end
+    end
+    keep = BitVector([!gone[net.from[t]] && !gone[net.to[t]] for t in eachindex(net.from)])
+    _Network(net.nforms, net.ncopies, net.present .& .!gone, net.from[keep], net.to[keep],
+             net.edge[keep], net.conformation[keep], net.forward[keep], net.fast[keep],
+             net.vanishing[keep], net.change[:, keep], net.takes[keep])
+end
+
+"""
     _admission_face(am, eps, law, faces, i) -> _Verdict
 
 Admission's face condition (`_face_condition`) on face `faces[i]` of `am`, from its
-ε-network `eps` and law network `law`; a rejection carries the face index `i`.
+ε-network `eps` and law network `law`; a rejection carries the face index `i`. A face the
+condition refuses with `_PUMPED` or `_BRIDGE` passes when the condition finds no fault
+once more on `eps` without the groups that cannot matter there
+(`_without_set_aside_groups`).
 """
 function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law::_Network,
                          faces::Vector{UInt64}, i::Int)
-    v = _face_condition(eps, law.present, faces[i],
-                        _turnover_name(Mechanisms.catalytic(am)))
+    x = _turnover_name(Mechanisms.catalytic(am))
+    v = _face_condition(eps, law.present, faces[i], x)
+    if v.fault === _PUMPED || v.fault === _BRIDGE
+        # A second route between two forms already in equilibrium changes nothing, and with
+        # one touching form there is none. A group set aside holds a vanishing share of the
+        # enzyme: its forms drain at rates that do not shrink as the fast steps speed up,
+        # none is filled faster than it empties, and class 2 has refused a fast cycle in it
+        # that turns the reaction over. This argument is not a proof: the evidence is
+        # numerical (the ε-path oracle).
+        rest = _without_set_aside_groups(eps, law.present, faces[i])
+        rest !== eps && _face_condition(rest, law.present, faces[i], x) === _WELL_POSED &&
+            return _WELL_POSED
+    end
     v.fault === _NO_FAULT ? v : _Verdict(v.fault, v.limit, i, v.conformation, v.edge)
 end
 

@@ -554,7 +554,9 @@ classes, bottomless segments, the aggregated chains, and a limit test modulo 2^6
 structure decides nothing) and admission's face condition (`_admission_face`: the
 ε-network's closed classes, a form that a fast vanishing transition fills one way faster
 than it empties, stranded basins, and the fewest-slow-transitions in-tree test per
-excluding conformation and for both together). The macros, the parser and the
+excluding conformation and for both together; a face it refuses for a stranded basin or a
+bridge passes when the condition passes once more without the cut-off groups that cannot
+matter, `_without_set_aside_groups`). The macros, the parser and the
 derivation entry throw; `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and
 `Enumeration.starting_mechanisms` drop. The flip move runs it on each candidate it builds,
 the split move on each candidate whose count rises, and the tagging move on each tag set

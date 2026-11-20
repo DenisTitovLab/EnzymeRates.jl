@@ -505,8 +505,8 @@ nodes."""
 _closed_classes(net::_Network, keep::BitVector) =
     _bottom_sccs(_successors(net, keep), net.present)
 
-"""The fast classes (`class_of`) that the alive fast transitions (`fast_next`) reach from
-node `w`, its own included."""
+"""The fast classes (`class_of`) that the fast transitions (`fast_next`) reach from node
+`w`, its own included."""
 function _classes_reached(fast_next::Vector{Vector{Int}}, class_of::Vector{Int}, w::Int)
     seen = falses(length(fast_next))
     seen[w] = true
@@ -522,6 +522,36 @@ function _classes_reached(fast_next::Vector{Vector{Int}}, class_of::Vector{Int},
 end
 
 """
+    _aggregated_chain(net, keep) -> (; fast_classes, class_of, next)
+
+The chain over the fast classes of the transitions of `net` that `keep` flags:
+`fast_classes`, the closed classes of the fast ones among them (`_closed_classes`; a node
+with no fast way out is a class of its own); `class_of`, each node's class (0 for a node
+with a fast way out); and `next`, for each class the other classes that a slow transition
+out of it reaches, followed along the fast ones (`_classes_reached`). A slow transition out
+of a node with a fast way out does not count: its share vanishes as the fast steps speed
+up.
+"""
+function _aggregated_chain(net::_Network, keep::BitVector)
+    fast_keep = keep .& net.fast
+    fast_classes = _closed_classes(net, fast_keep)
+    class_of = zeros(Int, net.nforms * net.ncopies)
+    for (k, C) in enumerate(fast_classes), u in C
+        class_of[u] = k
+    end
+    fast_next = _successors(net, fast_keep)
+    next = [Int[] for _ in fast_classes]
+    for t in eachindex(net.from)
+        q = class_of[net.from[t]]
+        keep[t] && !net.fast[t] && q > 0 || continue
+        for k in _classes_reached(fast_next, class_of, net.to[t])
+            k == q || push!(next[q], k)
+        end
+    end
+    (; fast_classes, class_of, next)
+end
+
+"""
     _face_structure(net, face) -> NamedTuple
 
 The structure procedure A reads on face `face` of the law network
@@ -530,12 +560,11 @@ of the alive ones; the rapid-equilibrium segments (`segment` per node, `segments
 breadth-first) and each node's uptake of every name from its segment's first node
 (`offset`, `_fast_segments`); `bottomless`, the first segment with no lowest node (0 when
 none), a lowest node being one at the segment's componentwise least uptake of the zeroed
-names, whose weight stays positive on the face; the fast classes (closed classes of the
-alive fast transitions, a node with no alive fast exit its own), `class_of` each node's
-(0 for a node that drains elsewhere) and `trap`, the classes of no lowest node;
-`aggregated`, the closed classes of the chain over fast classes that an alive slow
-transition and then alive fast paths make; and `law_classes`, the closed classes of the
-law's segment chain, its alive slow transitions out of lowest nodes.
+names, whose weight stays positive on the face; the fast classes of the alive transitions
+(`_aggregated_chain`), `class_of` each node's (0 for a node that drains elsewhere) and
+`trap`, the classes of no lowest node; `aggregated`, the closed classes of their
+aggregated chain; and `law_classes`, the closed classes of the law's segment chain, its
+alive slow transitions out of lowest nodes.
 """
 function _face_structure(net::_Network, face::UInt64)
     nn, nt = net.nforms * net.ncopies, length(net.from)
@@ -551,29 +580,17 @@ function _face_structure(net::_Network, face::UInt64)
         end
         bottomless == 0 && !any(u -> lowest[u], members) && (bottomless = g)
     end
-    fast_alive = alive .& net.fast
-    fast_classes = _closed_classes(net, fast_alive)
-    class_of = zeros(Int, nn)
-    for (k, C) in enumerate(fast_classes), u in C
-        class_of[u] = k
-    end
+    (; fast_classes, class_of, next) = _aggregated_chain(net, alive)
     all(C -> all(u -> lowest[u] == lowest[C[1]], C), fast_classes) ||
         error("_face_structure: a fast class holds lowest and other forms")
     trap = BitVector([!lowest[C[1]] for C in fast_classes])
-    fast_next = _successors(net, fast_alive)
-    aggregated_next = [Int[] for _ in fast_classes]
     law_next = [Int[] for _ in segments]
     for t in 1:nt
-        alive[t] && !net.fast[t] || continue
         u, v = net.from[t], net.to[t]
-        if class_of[u] > 0
-            for k in _classes_reached(fast_next, class_of, v)
-                k == class_of[u] || push!(aggregated_next[class_of[u]], k)
-            end
-        end
-        lowest[u] && segment[u] != segment[v] && push!(law_next[segment[u]], segment[v])
+        alive[t] && !net.fast[t] && lowest[u] && segment[u] != segment[v] &&
+            push!(law_next[segment[u]], segment[v])
     end
-    aggregated = _bottom_sccs(aggregated_next, trues(length(fast_classes)))
+    aggregated = _bottom_sccs(next, trues(length(fast_classes)))
     law_classes = _bottom_sccs(law_next, trues(length(segments)))
     (; alive, closed, segment, segments, offset, bottomless, fast_classes, class_of, trap,
      aggregated, law_classes)
