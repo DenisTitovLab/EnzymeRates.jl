@@ -600,8 +600,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
               "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
               "{E(P), E(P, Q), E(Q)} has no form whose weight keeps the segment's lowest " *
               "power of each zeroed metabolite, so the forms' shares depend on how those " *
-              "concentrations vanish and the rate is 0/0 there. Make the group of " *
-              "E(P) + Q ⇌ E(P, Q) steady-state."
+              "concentrations vanish and the rate is 0/0 there. Make the kinetic group " *
+              "of E(P) + Q ⇌ E(P, Q) steady-state."
         # The printed fix passes the guard.
         @test ER.Derivation._guard(@_testhelper_unguarded @enzyme_mechanism begin
             substrates: S

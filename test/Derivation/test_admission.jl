@@ -972,7 +972,7 @@ end
           "AllostericMechanism: the :OnlyA steps E(B) + P ⇌ E(B, P); E(Q) + P ⇌ E(P, Q) " *
           "bridge forms of the inactive conformation that its other steps keep apart, so " *
           "admission cannot show that the limit does not depend on how fast those steps " *
-          "vanish. Make the group of E(B) + P ⇌ E(B, P) steady-state."
+          "vanish. Make the kinetic group of E(B) + P ⇌ E(B, P) steady-state."
     faults = _testhelper_face_faults(am)
     verdicts = _testhelper_respeed_verdicts(am; rng = Random.MersenneTwister(33))
     @test verdicts[[2, 6]] == [:mismatch, :mismatch]
@@ -1073,7 +1073,7 @@ end
           "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
           "{E(P), E(P, Q), E(Q)} has no form whose weight keeps the segment's lowest " *
           "power of each zeroed metabolite, so the forms' shares depend on how those " *
-          "concentrations vanish and the rate is 0/0 there. Make the group of " *
+          "concentrations vanish and the rate is 0/0 there. Make the kinetic group of " *
           "E(P) + Q ⇌ E(P, Q) steady-state."
     verdicts = _testhelper_respeed_verdicts(entered; rng = Random.MersenneTwister(6),
                                             law = :limit)
@@ -1426,7 +1426,7 @@ end
           "AllostericMechanism: the :OnlyA step E(Q) + A ⇌ E(A, Q) bridges forms of the " *
           "inactive conformation that its other steps keep apart, so admission cannot " *
           "show that the limit does not depend on how fast that step vanishes. Make the " *
-          "group of E(Q) + A ⇌ E(A, Q) steady-state."
+          "kinetic group of E(Q) + A ⇌ E(A, Q) steady-state."
     @test _testhelper_epath_verdict(bridge2; rng = Random.MersenneTwister(2),
                                     face = Set([:P, :Q])) === :converges
     # With the binding of A into E(P; residual = A - P) steady-state, the guard's first
@@ -2683,7 +2683,8 @@ end
           "E(P; residual = A - P) leave only through the slower step " *
           "E(A) <--> E(P; residual = A - P), so E(; residual = A - P) fills faster than " *
           "it empties and its weight depends on how fast the tagged step vanishes. Make " *
-          "the group of E(; residual = A - P) + B ⇌ E(B; residual = A - P) steady-state."
+          "the kinetic group of E(; residual = A - P) + B ⇌ E(B; residual = A - P) " *
+          "steady-state."
     filled_ss = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3204,7 +3205,7 @@ end
           "E + S ⇌ E(S) is tagged :OnlyA, but the steps that conformation keeps still " *
           "join its two sides. Thermodynamics then fixes its equilibrium constant, and a " *
           "step keeps its kind in both conformations, so it cannot be switched off. Make " *
-          "its group steady-state, or tag :OnlyA the steps that join its sides: " *
+          "its kinetic group steady-state, or tag :OnlyA the steps that join its sides: " *
           "E + P ⇌ E(P); E(S) <--> E(P)."
     @test _testhelper_consistent_readings(pinned) == Matrix{Symbol}[]
 
@@ -3451,8 +3452,8 @@ end
           "E(A, R) + B <--> E(A, B, R); E(B, R) + A ⇌ E(A, B, R); " *
           "E(Q; residual = A + B - Q) + R <--> E(A, B, R); E(R) + A ⇌ E(A, R); " *
           "E(R) + B <--> E(B, R); E(R) + P ⇌ E(P, R) the active conformation turns no " *
-          "substrate into product, but it must catalyze the reaction. Tag their groups " *
-          ":EqualAI or :NonequalAI."
+          "substrate into product, but it must catalyze the reaction. Tag their kinetic " *
+          "groups :EqualAI or :NonequalAI."
 
     # The same two ways with an active conformation that turns the reaction over, built
     # on random-order ter-ter: one full path of bindings, chemistry and releases kept by
@@ -3595,8 +3596,8 @@ end
     @test _testhelper_epath_verdict(am; rng) === :no_path
     line(k) = EnzymeRates.Mechanisms.step_text(m, k)
     @test EnzymeRates.Derivation._guard_message(am) ==
-          _testhelper_pinned_cause(am, bind, 2) * " Make its group steady-state, or tag " *
-          ":OnlyA the steps that join its sides: $(line(release)); $(line(chem))."
+          _testhelper_pinned_cause(am, bind, 2) * " Make its kinetic group steady-state, " *
+          "or tag :OnlyA the steps that join its sides: $(line(release)); $(line(chem))."
     # The fixes pass the guard: the steps that join its sides tagged, and the binding
     # steady-state ("how an excluded step is switched off"); so does the binding untagged,
     # which the message does not offer.
@@ -3696,8 +3697,8 @@ end
     ad1_re_joins = join((EnzymeRates.Mechanisms.step_text(ad1_re.catalytic,
                                                          _testhelper_edge(ad1_re, t))
                          for t in ("E + A ⇌ EA", "E + Q ⇌ EQ", "EQ + P <--> EPQ")), "; ")
-    @test endswith(message(ad1_re), "Make its group steady-state, or tag :OnlyA the " *
-                                    "steps that join its sides: $ad1_re_joins.")
+    @test endswith(message(ad1_re), "Make its kinetic group steady-state, or tag :OnlyA " *
+                                    "the steps that join its sides: $ad1_re_joins.")
     ad1_untagged = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -4000,8 +4001,8 @@ end
                             "EB + C ⇌ EBC", "EB + A ⇌ EAB")), "; ")
     @test endswith(
         EnzymeRates.Derivation._guard_message(cube),
-        "Make its group steady-state, or tag :OnlyA the steps that join its sides: " *
-        "$joins.")
+        "Make its kinetic group steady-state, or tag :OnlyA the steps that join its " *
+        "sides: $joins.")
     # Both bindings of the ordered bi-uni :OnlyA: the chemistry and the P binding join
     # E(A, B) back to E, so E(A) alone is cut off. No built reading switches off the B
     # binding, which takes up B into a form free E's group holds; the one consistent
@@ -4034,7 +4035,7 @@ end
           "AllostericMechanism: the :OnlyA step E(A) + B ⇌ E(A, B) bridges forms of the " *
           "inactive conformation that its other steps keep apart, so admission cannot " *
           "show that the limit does not depend on how fast that step vanishes. Make the " *
-          "group of E(A) + B ⇌ E(A, B) steady-state."
+          "kinetic group of E(A) + B ⇌ E(A, B) steady-state."
     # Both bindings untagged, or the chemistry and the P binding tagged too, the mechanism
     # passes the guard; untagging the B binding alone leaves the A binding's sides joined.
     untagged = @_testhelper_unguarded @allosteric_mechanism begin
@@ -4353,8 +4354,8 @@ end
           "rapid-equilibrium step F + P ⇌ E(P) runs one way into F, at a rate that " *
           "vanishes yet grows with the rapid-equilibrium speed, and F leaves only " *
           "through the slower step F <--> E, so F fills faster than it empties and its " *
-          "weight depends on how fast the tagged step vanishes. Make the group of " *
-          "F + P ⇌ E(P) steady-state."
+          "weight depends on how fast the tagged step vanishes. Make the kinetic group " *
+          "of F + P ⇌ E(P) steady-state."
     _testhelper_admitted_by_search(ad2b_ss)
     half1 = _testhelper_edge(bbind, "E_res_plusA_minusP + P <--> EA")
     @test D._admission_interior(bbind, D._built_reading(bbind)) ==
@@ -4705,8 +4706,8 @@ end
     @test EnzymeRates.Derivation._guard_message(am) ==
           "AllostericMechanism: the :OnlyA step $line bridges forms of the inactive " *
           "conformation that its other steps keep apart, so admission cannot show that " *
-          "the limit does not depend on how fast that step vanishes. Make the group of " *
-          "$line steady-state."
+          "the limit does not depend on how fast that step vanishes. Make the kinetic " *
+          "group of $line steady-state."
     fixed = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -4752,7 +4753,7 @@ end
           "AllostericMechanism: the :OnlyA step F + I ⇌ F(I) bridges forms of the " *
           "inactive conformation that its other steps keep apart, so admission cannot " *
           "show that the limit does not depend on how fast that step vanishes. Make the " *
-          "group of F + I ⇌ F(I) steady-state."
+          "kinetic group of F + I ⇌ F(I) steady-state."
     drain_fixed = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -4828,7 +4829,7 @@ end
     @test v == EnzymeRates.Derivation._Verdict(
         BR, EnzymeRates.Derivation._LIMIT_UNTESTED, 1, 2, k)
     @test endswith(EnzymeRates.Derivation._guard_message(am),
-                   "Make the group of " *
+                   "Make the kinetic group of " *
                    "$(EnzymeRates.Mechanisms.step_text(am.catalytic, k)) steady-state.")
     fixed = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
@@ -5768,7 +5769,7 @@ end
     @test startswith(msg, "AllostericMechanism: the :OnlyI step ") &&
           occursin(" bridges forms of the active conformation that its other steps " *
                    "keep apart, so admission cannot show that the limit does not depend " *
-                   "on how fast that step vanishes. Make the group of ", msg) &&
+                   "on how fast that step vanishes. Make the kinetic group of ", msg) &&
           endswith(msg, " steady-state.")
     # Along the oracle's five orders the ε-path settles on another value or depends on
     # the order.
@@ -5821,7 +5822,7 @@ end
     @test EnzymeRates.Derivation._guard_message(ea) ==
           "AllostericMechanism: without its :OnlyI steps E + X ⇌ E(X) the active " *
           "conformation turns no substrate into product, but it must catalyze the " *
-          "reaction. Tag their groups :EqualAI or :NonequalAI."
+          "reaction. Tag their kinetic groups :EqualAI or :NonequalAI."
     for (i, tag) in enumerate((:EqualAI, :NonequalAI))
         fixed = EnzymeRates.AllostericMechanism(eval(:(@allosteric_mechanism begin
             substrates: S
@@ -6262,7 +6263,7 @@ end
     @test v == EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._FAST_STEP_PINNED, U,
                                                0, 2, k)
     @test EnzymeRates.Derivation._guard_message(am) ==
-          _testhelper_pinned_cause(am, k, 2) * " Make its group steady-state."
+          _testhelper_pinned_cause(am, k, 2) * " Make its kinetic group steady-state."
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(95)) === :no_path
     @test _testhelper_admission_faults(am) == [[NO, BR, NO, NO, NO, BR, NO]; fill(NO, 7)]
     eps = EnzymeRates.Derivation._eps_network(

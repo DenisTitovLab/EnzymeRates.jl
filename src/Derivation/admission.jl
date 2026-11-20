@@ -310,7 +310,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
               "and a step keeps its kind in both conformations, so it cannot be switched " *
               "off."
         offered = String[]
-        _steady_state_passes(am, k) && push!(offered, "make its group steady-state")
+        _steady_state_passes(am, k) && push!(offered, "make its kinetic group steady-state")
         _retag_passes(am, joins, excluding) &&
             push!(offered, "tag $tag the steps that join its sides: $(lines(joins))")
         return msg * offer(offered)
@@ -355,7 +355,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
                   "only through the slower $(steps(ways)), so $name fills faster than it " *
                   "empties and its weight depends on how fast the tagged step vanishes."
             return _steady_state_passes(am, k) ?
-                   msg * " Make the group of $(line(k)) steady-state." : msg
+                   msg * " Make the kinetic group of $(line(k)) steady-state." : msg
         elseif v.fault === _PUMPED
             basin = [u for u in findall(s.stranded) if _copy_of(eps, u) == c]
             exits = unique!([eps.edge[t] for t in eachindex(eps.from)
@@ -388,7 +388,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
         # Offer the steady-state fix only where its variant passes the guard: R2funnel
         # keeps its bridge with its tagged S binding steady-state (R2funnel_SS).
         return _steady_state_passes(am, k) ?
-               msg * " Make the group of $(line(k)) steady-state." : msg
+               msg * " Make the kinetic group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER
         ks = [j for j in eachindex(m.steps) if am.excluded_active[j]]
         msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
@@ -396,7 +396,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
               "reaction."
         # A closure over `ks`, which other branches assign too, would box it.
         untag = _retag_passes(am, ks, :EqualAI) && _retag_passes(am, ks, :NonequalAI)
-        return untag ? msg * " Tag their groups :EqualAI or :NonequalAI." : msg
+        return untag ? msg * " Tag their kinetic groups :EqualAI or :NonequalAI." : msg
     else
         error("_admission_message: $(v.fault) is no admission fault")
     end

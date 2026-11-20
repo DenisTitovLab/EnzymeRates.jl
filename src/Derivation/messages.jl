@@ -87,8 +87,8 @@ _place(::Mechanisms.AllostericMechanism, c::Int) =
 The message of a class-3 verdict `v` on `mech`: the face, the forms and steps at fault,
 and a fix only where its variant passes the guard (`_steady_state_passes`): for a trap,
 the kinetic group of the step that feeds it or joins it to its segment made steady-state;
-for a bottomless segment, the group of the first of its rapid-equilibrium bindings whose
-variant passes. A verdict in no one conformation labels each form with its own
+for a bottomless segment, the kinetic group of the first of its rapid-equilibrium bindings
+whose variant passes. A verdict in no one conformation labels each form with its own
 (`_conformation_suffix`).
 """
 function _face_message(who::String, mech::_AnyMech, v::_Verdict)
@@ -116,7 +116,8 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                                   (:binding, :fused_binding)])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :
-              " Make the group of $(Mechanisms.step_text(m, bindings[k])) steady-state."
+              " Make the kinetic group of $(Mechanisms.step_text(m, bindings[k])) " *
+              "steady-state."
         return "$who: $(at)the rapid-equilibrium segment " *
                "$(forms(s.segments[s.bottomless])) has no form whose weight keeps the " *
                "segment's lowest power of each zeroed metabolite, so the forms' shares " *

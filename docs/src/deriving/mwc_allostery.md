@@ -243,8 +243,8 @@ julia> @allosteric_mechanism begin
 ERROR: AllostericMechanism: in the inactive conformation the rapid-equilibrium step
 E + S ⇌ E(S) is tagged :OnlyA, but the steps that conformation keeps still join its two
 sides. Thermodynamics then fixes its equilibrium constant, and a step keeps its kind in
-both conformations, so it cannot be switched off. Make its group steady-state, or tag
-:OnlyA the steps that join its sides: E + P ⇌ E(P); E(S) <--> E(P).
+both conformations, so it cannot be switched off. Make its kinetic group steady-state, or
+tag :OnlyA the steps that join its sides: E + P ⇌ E(P); E(S) <--> E(P).
 ```
 
 The catalytic step and the product binding still join E(S) to free E, so E(S) stays in free
@@ -312,8 +312,8 @@ whose law is the limit, which the repository's `ROADMAP.md` lists.
 
 When the steps a conformation keeps join the two sides of an excluded rapid-equilibrium
 step, as in the second example, the error says so and offers each fix that the package
-accepts: make the step's group steady-state, so that it stops (the third example), or
-exclude the steps that keep its two sides joined, here the product binding and the
+accepts: make the step's kinetic group steady-state, so that it stops (the third example),
+or exclude the steps that keep its two sides joined, here the product binding and the
 catalytic step, so that one side is cut off. In the active conformation that fix tags them
 `:OnlyI`.
 
