@@ -385,8 +385,6 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
         msg = "AllostericMechanism: $(phrase)the $tag $bridge forms of the $conf " *
               "conformation that its other steps keep apart, so admission cannot show " *
               "that the limit does not depend on how fast $(vanish(ks))."
-        # Offer the steady-state fix only where its variant passes the guard: R2funnel
-        # keeps its bridge with its tagged S binding steady-state (R2funnel_SS).
         return _steady_state_passes(am, k) ?
                msg * " Make the kinetic group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER

@@ -1,5 +1,5 @@
 # ABOUTME: The well-posedness guard the macros, parser, exits and derivation entries run:
-# ABOUTME: its verdicts, reaction networks and faces, classes 1 and 2, and class 3 per face.
+# ABOUTME: its verdicts, networks and faces, its search for a reading, and classes 1 to 3.
 
 """
     check_valid_rate_equation(m) -> true

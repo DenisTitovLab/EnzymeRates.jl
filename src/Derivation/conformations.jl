@@ -64,7 +64,7 @@ const _Reading = Matrix{_SwitchOff}
 """
 Which excluded steady-state steps that take up one metabolite into a cut-off form lose
 their affinity, the rest being stopped, in the guard's built readings (`_built_reading`):
-every one (`_ALL_LOSE_AFFINITY`); one that leads away from free E
+every one (`_ALL_LOSE_AFFINITY`); those that lead away from free E
 (`_OUTWARD_LOSE_AFFINITY`); or none (`_ALL_STOPPED`). The guard tries them in this order,
 before it searches the other readings (`_guard_with_reading`).
 
@@ -88,9 +88,11 @@ its bound side to free E, loses its affinity at rapid equilibrium: its stored di
 the uptake, vanishes (`_LOSES_FORWARD`). At steady state it loses its affinity or is
 stopped as `r` says (`_SlowUptakeReading`). Any other excluded step keeps its kind, rapid
 equilibrium or steady state, as every step does in both conformations: a steady-state one
-is stopped, and a rapid-equilibrium one, whose equilibrium constant thermodynamics pins,
-cannot be switched off. A plain mechanism `m` has one conformation, which runs every
-step.
+is stopped, and a rapid-equilibrium one is not switched off (`_CANNOT_SWITCH_OFF`).
+Thermodynamics pins the equilibrium constant only of such a step inside one group; one
+between two groups could lose a direction, as the search tries (`_consistent_columns`),
+but the built readings let only an uptake lose. A plain mechanism `m` has one conformation,
+which runs every step.
 """
 function _built_reading(am::Mechanisms.AllostericMechanism,
                         r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)

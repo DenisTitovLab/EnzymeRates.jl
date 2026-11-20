@@ -826,8 +826,8 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
     shows without a regulator too. Yet every base is emitted only with one. A reaction with
     no declared allosteric regulators emits no V-type.
 
-A ping-pong parent with no declared regulator can end with no child at the exits, when
-`_enumerator_keeps` refuses every K-type.
+A parent with no declared regulator ends with no child at the exits when it has no binding
+group, and so no K-type, or when `_enumerator_keeps` refuses every K-type.
 
 For each value in `rxn`'s `allowed_catalytic_multiplicities`, the move emits
 the K-types, then the V-types, at that `catalytic_multiplicity`. Every variant

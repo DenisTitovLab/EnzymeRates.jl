@@ -2492,8 +2492,7 @@ end
         @test _testhelper_reading(D._built_reading(am, reading))[:, 2] ==
               _testhelper_reading(am, name)[:, 2]
     end
-    # The same need with the substrates' roles swapped and an :OnlyI P binding, which the
-    # guard rejected before this rule.
+    # The same need with the substrates' roles swapped and the P binding at E(B) :OnlyI.
     both_readings_only_i = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q

@@ -202,7 +202,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E(P) ⇌ E + P      :: NonequalAI
             end
         end
-        # So is a step that changes what else its forms hold.
+        # Nor one that binds X and turns S into P at once: the chemistry and the X binding
+        # at E(P) still join its sides.
         @test_throws pinned("E(S) + X ⇌ E(P, X)") @allosteric_mechanism begin
             substrates: S
             products:   P
