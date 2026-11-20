@@ -651,11 +651,11 @@ Neither argument proves that the face condition with these checks suffices under
 reading; the evidence is numerical. A gate ran the guard on 78,554 mechanisms in ten
 populations, and the ε-path and RE-speed oracles on those that only the search or the
 set-aside rule admits: each of the 591 of 8 steps or fewer agrees along corner directions,
-and samples of the larger ones agree too. With the filling check off, the guard admits 250
-such mechanisms among the `:OnlyA` taggings of the uni-uni, bi-bi and ping-pong starting
-mechanisms, and 18 of them fail. `test/Derivation/test_admission.jl` keeps a sampled
-population test with corner directions ("sampled taggings: the energy-level rule agrees with
-the oracles").
+and samples of the larger ones agree too. With the filling check off, the guard admits 96
+more mechanisms of 8 steps or fewer among the `:OnlyA` taggings of the uni-uni, bi-bi and
+ping-pong starting mechanisms, and 18 of them fail. `test/Derivation/test_admission.jl`
+keeps a sampled population test with corner directions ("sampled taggings: the
+energy-level rule agrees with the oracles").
 
 **Faults.** A verdict's fault is one of: no cycle turns the reaction over (`_NO_CYCLE`); a
 fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`,

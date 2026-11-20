@@ -72,7 +72,9 @@ on the candidate built as a mechanism, once it passes the others:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
   (`has_turnover_cycle`), and the guard accepts the candidate
-  (`check_valid_rate_equation`).
+  (`check_valid_rate_equation`). Wherever the engine applies the guard, it also applies the
+  *binding test*, which drops an allosteric candidate in which a conformation keeps a form
+  that only bindings it excludes enter, though the guard may accept it.
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some
   substrate or grows without bound as the substrates grow, or the same holds for
@@ -144,8 +146,8 @@ move is applied in every applicable way, so one input mechanism yields many
 children — every set of rapid-equilibrium groups that can flip to steady state,
 every way a group can be split by binding context, every way an inhibitor can
 bind, and so on.
-Every child is checked to conserve atoms, and a child the well-posedness guard rejects
-(see [What the package rejects](@ref)) is dropped.
+Every child is checked to conserve atoms, and a child that the well-posedness guard rejects
+(see [What the package rejects](@ref)) or that fails the binding test is dropped.
 
 The seven moves:
 
@@ -215,7 +217,7 @@ separated from the catalytic binding whose constants it shared, is emitted at
 rapid equilibrium: its two rates would enter the equation only as their ratio, and
 the equilibrium form is the same family with one constant fewer. The count test
 runs on that form, so a constant the thermodynamic ties pull back is still
-rejected. A set whose child the well-posedness guard rejects counts as failed too,
+rejected. A set whose child fails the guard or the binding test counts as failed too,
 so the move extends it rather than emitting it. No split child holds a redundant
 copy (see move 3). The move judges each child whole: splitting one group can
 complete a copy's dwell gauge, and splitting a group that forms the productive
@@ -284,25 +286,24 @@ Converts a `Mechanism` to `AllostericMechanism` variants, each built on a **base
 (`_tagging_bases`). A chemistry group holds an isomerization, a fused binding or a
 Theorell–Chance step (`_chemistry_groups`); every other group is a binding group. The first
 candidate base tags every chemistry group `:OnlyA` and every binding group `:EqualAI`: an
-inactive conformation that binds ligands but runs no chemistry. When the well-posedness
-guard accepts it (admission included; see [Mechanisms with allosteric regulators](@ref)),
-it is the only base. Otherwise the bases are the smallest sets of chemistry groups, tagged
-`:OnlyA` with every other group `:EqualAI`, that stop every catalytic cycle of the inactive
-conformation and pass the guard; a set the guard rejects leaves its supersets in the
-search. On a ping-pong mechanism the first candidate cuts the covalent forms off in the
-inactive conformation, which then runs neither half-reaction (see
-[How an excluded step is switched off](@ref)). When the guard rejects it, a half-reaction's
-chemistry groups can be a base alone, the other half running in both conformations, as
+inactive conformation that binds ligands but runs no chemistry. When it passes the
+well-posedness guard (admission included; see [Mechanisms with allosteric regulators](@ref))
+and the binding test, it is the only base. Otherwise the bases are the smallest sets of
+chemistry groups, tagged `:OnlyA` with every other group `:EqualAI`, that stop every
+catalytic cycle of the inactive conformation and pass both tests; a set that fails leaves
+its supersets in the search. On a ping-pong mechanism the first candidate cuts the covalent
+forms off in the inactive conformation, which then runs neither half-reaction (see
+[How an excluded step is switched off](@ref)). When it fails, a half-reaction's chemistry
+groups can be a base alone, the other half running in both conformations, as
 phosphorylation stops PDH's E1 and leaves E2 and E3 running; a half whose chemistry groups
-fail the guard gives no base, and a half spread over several chemistry groups can give
-several.
+fail gives no base, and a half spread over several chemistry groups can give several.
 
 On its bases the engine emits, per multiplicity:
 
 - **K-types:** every nonempty set of binding groups tagged `:OnlyA` on top of a base, and,
-  when the guard rejects the every-chemistry set, on top of that set too, since a tagged
-  binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
-  fused one); each is emitted bare, and the exits drop those the guard rejects;
+  when the every-chemistry set is no base, on top of that set too, since a tagged binding
+  can restore the limit (as in a bi-bi whose group mixes a plain binding with a fused one);
+  each is emitted bare, and the exits drop those that fail the guard or the binding test;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
   variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. Over one subunit the
   regulator reveals `L` on the every-chemistry base; above one subunit, and on a one-half
@@ -312,10 +313,10 @@ On its bases the engine emits, per multiplicity:
 Tag sets whose laws agree up to renaming the constants share one key, so identify fits the
 law once.
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
-would cancel). The guard at the exits drops a child it rejects, as for every move. A
-parent with no declared regulator gets no allosteric child when it has no binding group,
-and so no K-type, or when the exits drop every K-type; among the census parents the second
-happens only where the guard finds the K-type too large to search.
+would cancel). The exits drop a child that fails the guard or the binding test, as for
+every move. A parent with no declared regulator gets no allosteric child when it has no
+binding group, and so no K-type, or when the exits drop every K-type; among the census
+parents the second happens only where the guard finds the K-type too large to search.
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already allosteric
 input.
 
@@ -372,7 +373,8 @@ Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
 `:NonequalAI`, giving the active-state and inactive-state versions of the
 group independent parameters. No-op on a non-allosteric input.
 The chemistry groups relax together, and only while no binding group is `:OnlyA`. A
-child the well-posedness guard rejects is dropped where `expand_mechanisms` returns it.
+child that fails the well-posedness guard or the binding test is dropped where
+`expand_mechanisms` returns it.
 
 **Parameter delta:**
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).

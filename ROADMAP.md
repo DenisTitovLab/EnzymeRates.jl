@@ -93,14 +93,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     the ε-path oracle converges on every face along standard directions. A wider set-aside
     rule would admit it: one that takes a cut-off form the enzyme does not reach on the face
     along with a group set aside when any of its alive transitions leads into it, where the
-    rule as built wants all of them to. The wider rule was not built. Entry 53145, of the
-    same kind and refused as a bridge too, is not shown valid: under the one reading tested,
-    the ε-path oracle finds a limit that depends on the path at zero products and at zero P.
+    rule as built wants all of them to (`_without_set_aside_groups`,
+    `src/Derivation/admission.jl`). It would also set aside unfed forms that empty into a
+    set-aside group only through one another, which the rule as built keeps. One argument
+    makes it sound: the face has one closed class, which free E reaches, so a form free E
+    does not reach holds no enzyme at any ε and any speed. The wider rule was not built; it
+    changes verdicts, so it needs the gate. Entry 53145, of the same kind and refused as a
+    bridge too, is not shown valid: under the one reading tested, the ε-path oracle finds a
+    limit that depends on the path at zero products and at zero P.
     The suite pins two more, `bridge_deadend` and R-B3 (`test/Derivation/test_admission.jl`,
     "conservative rejections the oracle admits stay rejected under their reading"). A rule
     that also set aside groups touching forms in equilibrium for another reason, such as a
     dead-end branch, admitted nothing in any population.
-  - **Refused by the filling check though the rate equals the law's.** Of the mechanisms of
+  - **Refused by a face check though the rate equals the law's.** Of the mechanisms of
     8 steps or fewer that a face check refuses, sampled 40 per population, these have a
     limit along corner directions under some consistent reading: 9 of 40 `:OnlyA` taggings
     of the uni-uni, bi-bi and ping-pong starting mechanisms (an estimated 127 of 566), 16 of
@@ -132,7 +137,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   filling check off, the guard admits 96 small `:OnlyA` taggings more (138 in all), and 18
   of them fail; standard directions miss these, so corner directions are the test.
   `test/Derivation/test_admission.jl` keeps a sampled population test with corner
-  directions. The gate's scripts, logs and report (`report.md`) are on the maintainer's
+  directions. No hand-written test shows a one-way fast vanishing transition that passes
+  the filling check because its target drains fast, along rapid-equilibrium steps that do
+  not vanish, into the law's forms (the check's third clause); only the sampled test covers
+  it. The gate's scripts, logs and report (`report.md`) are on the maintainer's
   machine, outside the repository, in `claude-scratchpad/lean-mechanism-spike/gate/`.
 - **An allosteric ping-pong whose covalent forms empty only by binding B cannot stop both
   half-reactions.**
@@ -225,7 +233,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Shrink the module interfaces.**
   The package aims at deep modules: few public names, simple arguments, the complexity
-  inside (`.claude/CLAUDE.md`). Three places fall short. Priority: high.
+  inside (`.claude/CLAUDE.md`). Four places fall short. Priority: high.
   - **`Mechanisms` has 25 public names.**
     Some serve one caller and expose how it works: `segment_walk` and `present_species`
     are used only by `Derivation`, `check_conformation_label` and `check_decodable_names`
@@ -236,6 +244,28 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     real reason to change it, as they do for optimizer settings.
   - **`DSL.parse_mechanism` is public and no other module in `src/` uses it.** Make it
     private if nothing needs it.
+  - **The guard's internals carry names and arguments nothing needs.**
+    `_ARC_CYCLE` and `_ISLAND` are never reported, so `_interior_verdict` could return one
+    "inconsistent" outcome from a Boolean acyclicity test, and `_Fault`'s docstring could
+    become a list. `exclusion_components(am, c::Symbol)` takes a Symbol that its three
+    callers make from an Int, and lacks the leading underscore. `_admitting_reading` and
+    `_admission` are called only by tests. Of `_eps_network`'s callers, only
+    `_every_step_cures` passes a `re` other than `_re_flags(m)`, and it could build its
+    variant with `_with_steps` instead. Three words, component, group and part, name the
+    forms a conformation's kept steps join.
+- **Decide what the guard keeps that no measured mechanism needs.**
+  Whether each part below goes is the maintainer's decision: he chose the three built
+  readings, and guard code does not go on a search alone. Priority: medium.
+  - **The second and third built readings.** Once the guard searches the readings,
+    `_ALL_STOPPED` changes no verdict in any of the gate's ten populations, and
+    `_OUTWARD_LOSE_AFFINITY` was not measured. Measure both against the mechanisms the
+    guard before 0.11.0 admits, those too large to search in particular, and remove what
+    changes nothing: about 45 lines of `src/Derivation/conformations.jl` and their mirror
+    in `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
+  - **Joint R1.** The branch of `_face_condition` (`src/Derivation/admission.jl`) that
+    refuses a bridge the two conformations' vanishing transitions open only together is
+    reached through `_guard` by no mechanism searched: 20,096 variants of its fixture and
+    the 54,927 taggings of the gate's `:OnlyA`, `:OnlyI` and ter-ter populations.
 - **Log the time of each search phase.**
   `progress.log` carries no timestamps, so a cluster run cannot say where its wall time goes.
   In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of PGK's
