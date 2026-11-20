@@ -37,9 +37,9 @@ constants. This design makes that graph the whole mechanism.
 
 ## Non-goals
 
-Each of these gets its own design (see "Sequence"):
+Each of these gets its own design (see "Sequence"). The first of them, what Enumeration
+needs to know about a form, is now decision 6.
 
-- What Enumeration needs to know about a form, and whether it can read it from the graph.
 - Derivation's interface to its callers: identify's questions, an Identification module,
   a units function for Fitting, and whether Enumeration should ask `Derivation` about the
   rate law instead of predicting it from the graph.
@@ -644,14 +644,8 @@ end
   third example of decision 2: it is correct, so a user may write it. Enumeration does not
   propose it. It keeps a child only if, in each conformation, every form that stays and
   has bindings into it has one that still runs.
-- **Provisional: how Enumeration gets form contents.** Until the Enumeration design says
-  otherwise, Enumeration owns the naming rule for the forms it builds (today's
-  `_form_name`: `E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`) and the check that names
-  decode one way (`check_decodable_names`, run when enumeration starts, not in
-  `@enzyme_reaction`), and reads contents back from form names where its public functions
-  take a `Mechanism`. A mechanism whose form names are not the enumerator's then cannot be
-  expanded. If that design finds that the moves can read what they need from the graph,
-  the naming rule, the check and the limit all go.
+- **How Enumeration gets form contents.** It keeps its own record of them beside each
+  mechanism it builds (decision 6). Nothing in `src/` reads a form name back.
 - **`Mechanisms`** keeps only what two modules use. `segment_walk` and `present_species`,
   which only `Derivation` calls, move into `Derivation`.
 - **Deferred to the Derivation-interface design.** Enumeration calls
@@ -673,6 +667,117 @@ Exports after the change: `Mechanism` and `compile_rate_equation` join;
 `EnzymeMechanism`, `AllostericEnzymeMechanism`, `@allosteric_mechanism` and
 `rate_equation` leave.
 
+### 6. Enumeration's interface: candidates
+
+Decided with the maintainer on 2026-11-20. His principle: the enumerator relies only on
+the arguments of `identify_rate_equation`, and everything else about it is internal.
+`identify_rate_equation` is its only caller, and it expands only mechanisms the
+enumerator built.
+
+#### What the moves read from a form
+
+| Where | What it reads |
+|:--|:--|
+| Seeds | Builds every form from its bound metabolites and covalent residual |
+| Dead-end move | Which metabolites a form holds, to decide where an inhibitor binds |
+| Split move | Divides a kinetic group by what else the form holds, and by its residual |
+| Redundant-inhibitor filter | Pairs an inhibitor complex with a productive form of the same composition |
+| Atom-conservation check | Bound metabolites plus residual |
+
+The moves also read whether a metabolite binds as a reactant's modifier copy. The lean
+graph holds none of this.
+
+#### Approaches considered
+
+1. **Candidates carry their contents (chosen).** The enumerator returns its own value: the
+   lean `Mechanism` plus its record of each form. The search proposes exactly what it
+   proposes today. Costs one public type and a test helper.
+2. **Form names carry the contents.** The enumerator returns plain mechanisms and parses
+   names such as `EB_res_plusA_minusP`. Rejected: names then carry meaning inside
+   `Enumeration`, a parser and a decodability check stay in `src/`, and a misnamed form
+   silently changes what a move does.
+3. **A table from mechanism to contents inside the enumerator.** Rejected: hidden state,
+   and identify expands parents on worker processes.
+4. **Recompute the contents from the graph.** Rejected: the graph does not always give
+   them. A merged complex is reached by binding A then B and by binding Q then P, so the
+   graph says it holds both pairs, while the enumerator places inhibitors by the product
+   pair. The populations would change, for a generality nobody needs.
+
+#### The interface
+
+```julia
+struct CandidateMechanism
+    mechanism::Mechanism       # the only field a caller reads
+    # the enumerator's record of each form: private
+end
+
+candidate_mechanisms(reaction; optional_allosteric_regulators,
+                     optional_competitive_inhibitors) -> Vector{CandidateMechanism}
+candidate_mechanisms(reaction, parent::CandidateMechanism) -> Vector{CandidateMechanism}
+```
+
+- The first method returns the mechanisms the search fits first (today's
+  `starting_mechanisms`). It works out which regulators are required from the reaction
+  and the two optional lists, which identify does today (`_required_regulators`).
+- The second returns every child of `parent` by the expansion moves (today's
+  `expand_mechanisms` on a one-element vector).
+- Two candidates are `==` and hash alike when their mechanisms are. Form names are built
+  from the contents, so equal mechanisms hold equal records.
+- Errors: the reaction has no catalytic cycle; no mechanism binds every required
+  regulator; an internal check fails (atom conservation, the emission rules). Identify
+  catches the error of one parent's expansion and records it, as today.
+- These two names replace `starting_mechanisms` and `expand_mechanisms` as the public
+  names of `Enumeration`. Both names need the maintainer's approval; this section is the
+  request. `init_mechanisms`, `seed_mechanisms` and the moves stay internal, and the
+  tests call them qualified as they do today.
+
+Interface compared, as `.claude/CLAUDE.md` asks:
+
+| Sketch | Caller writes | Trade-off |
+|:--|:--|:--|
+| One function, two methods (chosen) | `candidate_mechanisms(rxn; optional…)`, then `candidate_mechanisms(rxn, parent)` | One name. Identify passes the user's keyword arguments through and knows nothing of seeds, tiers or moves. |
+| Two functions on candidates | `starting_mechanisms(rxn, required_allo, required_comp)`, `expand_mechanisms(parents, rxn)` | Today's shape. Identify computes the required sets and wraps each parent in a vector. |
+| A candidate that holds its reaction | `candidate_mechanisms(rxn; optional…)`, then `children(parent)` | A shorter second call, but two names, and every candidate sent to a worker carries the reaction. |
+
+#### Inside Enumeration
+
+- **The record of a form:** the metabolites it binds productively, those it binds as
+  modifier copies, and its covalent residual (substrates added, products subtracted).
+  The type that holds it is private.
+- **Names.** Enumeration owns the naming rule for the forms it builds (today's
+  `_form_name`: `E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`). A name is for display and
+  identity. Enumeration also owns the check that a reaction's metabolite names cannot
+  give two forms one name (today's `check_decodable_names`), run when the first method is
+  called, not in `@enzyme_reaction`.
+- **Modifier copies.** In the lean graph a step that binds a reactant's modifier copy
+  takes up the reactant; that it is a copy is in the record of the form it makes.
+- **Step kinds and kinetic groups** (a plain binding, a binding that also does the
+  chemistry, an isomerization, an exchange; the steps of each group) are computed inside
+  Enumeration from the graph and its record.
+- Its reads of the rate law's properties from the graph stay as decision 5 has them until
+  the Derivation-interface design.
+
+#### Identify
+
+Identify holds candidates. It fits, deduplicates and reports `candidate.mechanism`, hands
+a candidate back to get its children, and returns plain mechanisms to the user.
+`_required_regulators` moves into Enumeration.
+
+#### Calls made by the designer, for the maintainer to check
+
+- **The starting call throws on an enumerator bug.** Today `starting_mechanisms` returns
+  `(mechanisms, failures)`, and a degenerate seed whose flip expansion throws becomes a
+  failure row while the search goes on without it. With one return shape for both
+  methods, such an error stops the run at its start, seconds in. A parent's expansion
+  error mid-search is still recorded and the run goes on. If wrong: the first method
+  returns the pair again.
+- **The conformation label leaves the record.** The enumerator builds one label only. The
+  design for iso mechanisms adds it back when a move needs it.
+- **`docs/src/identify/enumeration_engine.md`** keeps describing what the search
+  proposes, organized by the starting set and the moves. It stops presenting
+  `init_mechanisms`, `seed_mechanisms` and `expand_mechanisms` as functions to call, and
+  shows `candidate_mechanisms` as the way to list what the search would propose.
+
 ## Tests
 
 - **Pin first.** Before the data model moves, pin what must not change: the law of every
@@ -681,6 +786,13 @@ Exports after the change: `Mechanism` and `compile_rate_equation` join;
   applies today's `_form_name` (`E(B; residual = A - P)` becomes `EB_res_plusA_minusP`).
   The enumeration rule in `.claude/CLAUDE.md` ("write chemistry the enumerator's way") is
   rewritten in form names.
+- **Enumeration tests keep their rules** (the maintainer's decision, 2026-11-20): every
+  parent and every expected child is written inline with the macro, and the children are
+  asserted exactly. A test helper, `_testhelper_candidate(mechanism)`, turns a written
+  parent into a candidate by reading its form names under the enumerator's naming rule,
+  and errors on a name it cannot read. It states the rule itself and does not call the
+  package's. Children are compared by their mechanisms:
+  `Set(c.mechanism for c in children) == Set(expected)`.
 - **The oracles stay independent.** The test helpers that model an excluded step
   (`_testhelper_network`, `_testhelper_exclusion`, `_testhelper_epsilon_span`,
   `_testhelper_corner_directions`, `_testhelper_lp_existence`) get their own statement of
@@ -789,7 +901,8 @@ maintainer's request). It lands with stage 1, when the rule changes:
    no Enumeration internals, and is the gate. Stage 1 was built first with three fixed
    readings (reviewed, gate clean); the energy-level rule is then built on top of it, in
    the same branch, before the enumeration tests are brought to the rule.
-2. The Enumeration design: what its moves need to know about a form.
+2. The Enumeration design: what its moves need to know about a form. Done on 2026-11-20:
+   decision 6.
 3. The Derivation-interface design.
 4. The rest of this design is planned and built: the lean graph, the one type and the one
    macro with the fixtures, then compiling inside `FittingProblem`.
@@ -822,7 +935,9 @@ The `E_total` design can come anywhere in that list.
 - **Fitted-parameter names** change for some mechanisms (decision 5).
 - **Saved mechanism text** from earlier versions does not parse (decision 4).
 - **The decodability check** moves from `@enzyme_reaction` to the start of enumeration
-  (decision 5, provisional).
+  (decision 6).
+- **All of the refactor lands in one pull request** (the maintainer's decision,
+  2026-11-20): stage 1, the three later designs, and stages 2 and 3.
 - **Version.** The change is breaking: 0.11.0, bumped once.
 - **`ROADMAP.md`.** The stored-facts known issue is measured again and retired or updated;
   "Shrink the module interfaces" is updated for `Mechanisms`.
