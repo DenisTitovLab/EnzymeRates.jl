@@ -537,7 +537,7 @@ the reaction graph through masks and never constructs a mechanism. It returns an
 `_Verdict` (fault, limit-test verdict, face, conformation, edge), never a `Union` that a
 loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop
 without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
-`_guard_message(m, v)`, which names each step by its DSL line (`step_text`) and the face;
+`_guard_message(m)`, which names each step by its DSL line (`step_text`) and the face;
 `check_valid_rate_equation(Bool, m)` returns the verdict instead.
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E

@@ -1312,7 +1312,7 @@ end
     @test _testhelper_respeed_verdicts(trap; rng = Random.MersenneTwister(1),
                                        law = :limit) ==
           [:agree, :pattern, :agree, :agree, :agree, :pattern, :agree]
-    msg = EnzymeRates.Derivation._guard_message(trap, v)
+    msg = EnzymeRates.Derivation._guard_message(trap)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD

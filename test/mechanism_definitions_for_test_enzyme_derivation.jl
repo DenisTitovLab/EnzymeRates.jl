@@ -2126,11 +2126,12 @@ _testhelper_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symbol) =
     fault === EnzymeRates.Derivation._NO_FAULT ? verdict === :agree :
         verdict in (:pattern, :nonunique, :diverges, :law_nan, :mismatch)
 
-"""Whether the guard's message for the class-3 verdict `v` on `m` names the face and, when
-`v` leads with an edge, that edge's step line."""
+"""Whether class 3's message for its verdict `v` on `m` (`_face_message`) names the face
+and, when `v` leads with an edge, that edge's step line."""
 function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
     mech = _testhelper_lift(m)
-    msg = EnzymeRates.Derivation._guard_message(mech, v)
+    who = mech isa EnzymeRates.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
+    msg = EnzymeRates.Derivation._face_message(who, mech, v)
     line = v.edge == 0 ? "" : EnzymeRates.Mechanisms.step_text(
         EnzymeRates.Mechanisms.catalytic(mech), v.edge)
     occursin(": at zero ", msg) && occursin(line, msg)

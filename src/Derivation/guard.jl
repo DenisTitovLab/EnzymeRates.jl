@@ -27,7 +27,7 @@ check_valid_rate_equation(::Type{Bool}, m::_AnyMech) = _memo_verdict(m).fault ==
 """Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
 fault."""
 function _check_verdict(m::_AnyMech, v)
-    v.fault === _NO_FAULT || error(_guard_message(m, v))
+    v.fault === _NO_FAULT || error(_guard_message(m))
     nothing
 end
 

@@ -808,7 +808,7 @@ end
               :direction_dependent
     end
     @test_throws ErrorException(
-        ER.Derivation._guard_message(err1, v)) @allosteric_mechanism begin
+        ER.Derivation._guard_message(err1)) @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         catalytic_multiplicity: 1
@@ -1102,7 +1102,7 @@ end
     reported = ER.Derivation._guard_with_reading(dead)
     v = reported.verdict
     @test (v.fault, v.face, v.conformation) == (ER.Derivation._PUMPED, 2, 2)
-    msg = ER.Derivation._guard_message(dead, v)
+    msg = ER.Derivation._guard_message(dead)
     @test occursin("feeds the forms E(; residual = ATP - F16BP) of the inactive " *
                    "conformation, which leave only through the vanishing step " *
                    "E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)",

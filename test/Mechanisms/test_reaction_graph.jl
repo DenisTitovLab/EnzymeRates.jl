@@ -212,7 +212,7 @@ end
     onlyi = ER.AllostericMechanism(m, [:EqualAI, :OnlyI, :OnlyA], 2, sites)
     v = ER.Derivation._guard(onlyi)
     @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, 2)
-    @test ER.Derivation._guard_message(onlyi, v) == _testhelper_pinned_cause(onlyi, 2, 1)
+    @test ER.Derivation._guard_message(onlyi) == _testhelper_pinned_cause(onlyi, 2, 1)
     @test all(t -> ER.Derivation._retag_passes(onlyi, [2], t), (:EqualAI, :NonequalAI))
     @test_throws(ErrorException(
         "AllostericMechanism: ligand X appears in two distinct regulatory sites; " *
@@ -519,7 +519,7 @@ end
     onlyi = _testhelper_allosteric([:EqualAI, :OnlyI, :EqualAI], 2, M.RegulatorySite[])
     v = ER.Derivation._guard(onlyi)
     @test (v.fault, v.conformation) == (ER.Derivation._NO_ACTIVE_TURNOVER, 1)
-    @test startswith(ER.Derivation._guard_message(onlyi, v),
+    @test startswith(ER.Derivation._guard_message(onlyi),
                      "AllostericMechanism: without its :OnlyI steps E(S) <--> E(P) the " *
                      "active conformation turns no substrate into product")
     # Declarations and group labels.

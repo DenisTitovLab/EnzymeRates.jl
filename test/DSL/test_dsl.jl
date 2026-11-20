@@ -1639,7 +1639,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         v = D._guard(am)
         @test (v.fault, v.conformation) == (D._FAST_STEP_PINNED, 1)
         @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E + S ⇌ E(S)"
-        @test_throws(ErrorException(D._guard_message(am, v)),
+        @test_throws(ErrorException(D._guard_message(am)),
                      eval(_testhelper_block(binding)))
         am = eval(_testhelper_block(isomerization; guarded = false))
         v = D._admission_interior(am, D._built_reading(am))

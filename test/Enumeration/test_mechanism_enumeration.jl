@@ -3027,7 +3027,7 @@ end
     @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E(A) + Q <--> E(A, Q)"
     @test D._face_names(am.catalytic, D._faces(am.catalytic)[v.face]) == [:P, :Q]
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(2922)))
-    msg = D._guard_message(am, v)
+    msg = D._guard_message(am)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3117,7 +3117,7 @@ end
     @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E(A) + P <--> E(A, P)"
     @test D._face_names(am.catalytic, D._faces(am.catalytic)[v.face]) == [:P, :Q]
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(95)))
-    msg = D._guard_message(am, v)
+    msg = D._guard_message(am)
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -16985,7 +16985,7 @@ end
         @test (v.fault, D._face_names(c.catalytic, D._faces(c.catalytic)[v.face])) ==
               (D._PUMPED, [:P, :Q])
     end
-    @test D._guard_message(d_flip, D._guard(d_flip)) ==
+    @test D._guard_message(d_flip) ==
           "AllostericMechanism: at zero P and Q, E(; residual = B + D - Q) + Q ⇌ " *
           "E(Q; residual = B + D - Q) feeds the forms E(; residual = B + D - Q), " *
           "E(A; residual = B + D - Q) of the inactive conformation, which leave only " *

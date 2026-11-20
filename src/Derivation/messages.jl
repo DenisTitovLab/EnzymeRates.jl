@@ -4,26 +4,26 @@
 # ─── Guard messages ────────────────────────────────────────────────────
 
 """
-    _guard_message(mech, v) -> String
+    _guard_message(mech) -> String
 
-The error for the guard's verdict `v` on `mech` (`_guard`):
+The error for the guard's verdict on `mech`:
 `<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.`, the
 cause read under the reading the verdict was judged under (`_guard_with_reading`). Class
 2's fix is printed when each step's variant leaves no fast turnover cycle
-(`_every_step_cures`); every other fix only when its variant passes `_guard`. `v` must be
-`_guard(mech)`, since the message runs the guard again to recover that reading.
+(`_every_step_cures`); every other fix only when its variant passes `_guard`. An error
+when the guard admits `mech`.
 """
-function _guard_message(mech::_AnyMech, v::_Verdict)
+function _guard_message(mech::_AnyMech)
+    (; verdict, reading) = _guard_with_reading(mech)
     who = mech isa Mechanisms.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
-    v.fault === _NO_CYCLE &&
+    verdict.fault === _NO_FAULT && error("_guard_message: verdict $verdict holds no fault")
+    verdict.fault === _NO_CYCLE &&
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."
-    v.fault === _RE_TURNOVER &&
-        return _re_turnover_message(who, mech, _guard_with_reading(mech).reading)
-    mech isa Mechanisms.AllostericMechanism && v.fault in _ADMISSION_FAULTS &&
-        return _admission_message(mech, v, _guard_with_reading(mech).reading)
-    v.fault === _NO_FAULT && error("_guard_message: verdict $v holds no fault")
-    _face_message(who, mech, v)
+    verdict.fault === _RE_TURNOVER && return _re_turnover_message(who, mech, reading)
+    mech isa Mechanisms.AllostericMechanism && verdict.fault in _ADMISSION_FAULTS &&
+        return _admission_message(mech, verdict, reading)
+    _face_message(who, mech, verdict)
 end
 
 """Whether making each step of `cycle`, transitions of `mech`'s ε-network `net` under

@@ -593,7 +593,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         end
         v = ER.Derivation._guard(random_release)
         @test (v.fault, v.face) == (ER.Derivation._BOTTOMLESS, 2)
-        msg = ER.Derivation._guard_message(random_release, v)
+        msg = ER.Derivation._guard_message(random_release)
         @test occursin("has no form whose weight keeps the segment's lowest power of " *
                        "each zeroed metabolite", msg)
         @test msg ==
@@ -649,7 +649,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test _testhelper_respeed_verdicts(mirror; rng = Random.MersenneTwister(2),
                                            law = :limit)[3] === :pattern
         @test_throws ErrorException(
-            ER.Derivation._guard_message(mirror, v)) @enzyme_mechanism begin
+            ER.Derivation._guard_message(mirror)) @enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
@@ -705,7 +705,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                   ["EA", "EAB", "EB", "EAmodB"]
         end
         @test_throws ErrorException(
-            ER.Derivation._guard_message(copy_last, v)) @enzyme_mechanism begin
+            ER.Derivation._guard_message(copy_last)) @enzyme_mechanism begin
             substrates: A, B
             products: P
             modifiers: A
@@ -785,7 +785,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test _testhelper_respeed_verdicts(s1; rng = Random.MersenneTwister(12),
                                            law = :limit)[3:5] == fill(:nonunique, 3)
         @test_throws ErrorException(
-            ER.Derivation._guard_message(s1, v)) @allosteric_mechanism begin
+            ER.Derivation._guard_message(s1)) @allosteric_mechanism begin
             substrates: A, B
             products: P
             modifiers: A
@@ -1058,7 +1058,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test ER.Mechanisms.step_text(am.catalytic, v.edge) == "E + P ⇌ E(P)"
         @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(5)) === :no_path
         @test_throws ErrorException(
-            ER.Derivation._guard_message(am, v)) @allosteric_mechanism begin
+            ER.Derivation._guard_message(am)) @allosteric_mechanism begin
             substrates: S
             products: P, Q
             steps: begin
@@ -1687,7 +1687,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         onlyi = ER.AllostericMechanism(uni, onlyi_tags, 1, ER.Mechanisms.RegulatorySite[])
         v = ER.Derivation._guard(onlyi)
         @test (v.fault, v.conformation, v.edge) == (ER.Derivation._FAST_STEP_PINNED, 1, k)
-        @test ER.Derivation._guard_message(onlyi, v) ==
+        @test ER.Derivation._guard_message(onlyi) ==
               _testhelper_pinned_cause(onlyi, k, 1)
         @test all(t -> ER.Derivation._retag_passes(onlyi, [k], t), (:EqualAI, :NonequalAI))
 
@@ -2698,7 +2698,7 @@ end
         @test v.fault === ER.Derivation._FAST_STEP_PINNED
         @test ER.Mechanisms.step_text(lone.catalytic, v.edge) == "E + A ⇌ E(A)"
         @test_throws ErrorException(
-            ER.Derivation._guard_message(lone, v)) @allosteric_mechanism begin
+            ER.Derivation._guard_message(lone)) @allosteric_mechanism begin
             substrates: A, B
             products:   P
             catalytic_multiplicity: 2
@@ -2755,7 +2755,7 @@ end
     v = ER.Derivation._guard(cube)
     @test v.fault === ER.Derivation._FAST_STEP_PINNED
     @test_throws ErrorException(
-        ER.Derivation._guard_message(cube, v)) @allosteric_mechanism begin
+        ER.Derivation._guard_message(cube)) @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
         catalytic_multiplicity: 2
@@ -2925,7 +2925,7 @@ end
     @test _testhelper_admission_agrees(
         v.fault, _testhelper_epath_verdict(am; rng = Random.MersenneTwister(4),
                                            face = Set([:A, :B]), reading = reported))
-    @test ER.Derivation._guard_message(am, v) ==
+    @test ER.Derivation._guard_message(am) ==
           "AllostericMechanism: at zero A and B, in the inactive conformation the :OnlyA " *
           "rapid-equilibrium step E(B) + A ⇌ E(P, Q) runs one way into E(B), at a rate " *
           "that vanishes yet grows with the rapid-equilibrium speed, and E(B) leaves " *
@@ -3094,7 +3094,7 @@ end
     m = EnzymeRates.DSL._construct(raw)
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.face) == (EnzymeRates.Derivation._BOTTOMLESS, 2)
-    msg = ErrorException(EnzymeRates.Derivation._guard_message(m, v))
+    msg = ErrorException(EnzymeRates.Derivation._guard_message(m))
     @test_throws msg EnzymeRates.DSL._compiled_mechanism(raw)
     em = EnzymeRates.compile_mechanism(m)
     @test_throws msg parameters(em)
