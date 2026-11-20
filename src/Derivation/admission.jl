@@ -646,7 +646,9 @@ direction. It is set aside when
   pairs, alive both ways, join (one touching node counts);
 - its fast classes drain: in the aggregated chain of the alive transitions that do not
   vanish (`_aggregated_chain`), each of its fast classes leads to a class that holds a law
-  node;
+  node. The chain is the whole network's; it is the group's own, joined to the law's, when
+  no transition that does not vanish runs from a law node into a group, as under a
+  consistent reading;
 - each of its pairs is safe: both directions are alive; or only one that does not vanish
   is, so it only empties its source; or it joins two nodes outside the law network and
   only its vanishing direction is alive, which is slow, or leaves a node the law network
@@ -678,8 +680,9 @@ function _without_set_aside_groups(net::_Network, law_nodes::BitVector, face::UI
             !net.vanishing[t] && !net.vanishing[r] && join!(held, a, b)
     end
     # The fast classes that drain: those that lead, in the aggregated chain, to a class
-    # holding a law node. A slow way out of a node that a fast step empties elsewhere does
-    # not count, or a fast trap inside a group would read as draining.
+    # holding a law node. A slow way out of a node in no fast class, one that the fast
+    # steps carry into another class, does not count, or a fast trap inside a group would
+    # read as draining.
     chain = _aggregated_chain(net, s.n0)
     back = [Int[] for _ in chain.fast_classes]
     for (q, ks) in enumerate(chain.next), k in ks
@@ -736,15 +739,16 @@ end
 
 Admission's face condition (`_face_condition`) on face `faces[i]` of `am`, from its
 ε-network `eps` and law network `law`; a rejection carries the face index `i`. A face the
-condition refuses with `_PUMPED` or `_BRIDGE` passes when the condition finds no fault
-once more on `eps` without the groups that cannot matter there
-(`_without_set_aside_groups`).
+condition refuses with `_BRIDGE` passes when the condition finds no fault once more on
+`eps` without the groups that cannot matter there (`_without_set_aside_groups`). A face
+refused with `_PUMPED` is not run again: its stranded form's group cannot drain, so it is
+never set aside, and free E still feeds it through the transition that pumps it.
 """
 function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law::_Network,
                          faces::Vector{UInt64}, i::Int)
     x = _turnover_name(Mechanisms.catalytic(am))
     v = _face_condition(eps, law.present, faces[i], x)
-    if v.fault === _PUMPED || v.fault === _BRIDGE
+    if v.fault === _BRIDGE
         # A second route between two forms already in equilibrium changes nothing, and with
         # one touching form there is none. A group set aside holds a vanishing share of the
         # enzyme: its forms drain at rates that do not shrink as the fast steps speed up,

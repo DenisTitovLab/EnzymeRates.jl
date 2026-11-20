@@ -527,10 +527,10 @@ end
 The chain over the fast classes of the transitions of `net` that `keep` flags:
 `fast_classes`, the closed classes of the fast ones among them (`_closed_classes`; a node
 with no fast way out is a class of its own); `class_of`, each node's class (0 for a node
-with a fast way out); and `next`, for each class the other classes that a slow transition
-out of it reaches, followed along the fast ones (`_classes_reached`). A slow transition out
-of a node with a fast way out does not count: its share vanishes as the fast steps speed
-up.
+that the fast transitions carry into another class); and `next`, for each class the other
+classes that a slow transition out of it reaches, followed along the fast ones
+(`_classes_reached`). A slow transition out of a node in no fast class does not count: its
+share vanishes as the fast steps speed up.
 """
 function _aggregated_chain(net::_Network, keep::BitVector)
     fast_keep = keep .& net.fast

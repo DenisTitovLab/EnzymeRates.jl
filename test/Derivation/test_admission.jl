@@ -2787,7 +2787,20 @@ end
         D._LOSES_REVERSE
     r[_testhelper_edge(set_aside, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
     @test D._admission(set_aside, r) == D._WELL_POSED
+    @test _testhelper_admission_faults(set_aside; reading = _testhelper_reading(r)) ==
+          fill(NO, 7)
+    # The face condition alone refuses the interior and the face with A zero. There the
+    # uptake E + A → E(A) is dead, so that pair runs one way, through its release, which
+    # does not vanish and only empties E(A): it is safe, and the cut-off forms go again.
+    @test _testhelper_faces(set_aside)[4] == Set([:A])
+    let eps = D._eps_network(set_aside, D._re_flags(set_aside.catalytic), r),
+        law = D._law_network(set_aside), faces = D._faces(set_aside.catalytic)
+        x = D._turnover_name(set_aside.catalytic)
+        @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
+              [BR, NO, NO, BR, NO, NO, NO]
+    end
     @test _testhelper_passes_only_set_aside(set_aside, r, 1)
+    @test _testhelper_passes_only_set_aside(set_aside, r, 4)
     for face in _testhelper_faces(set_aside)
         @test _testhelper_epath_verdict(set_aside; rng, face, corners = true,
                                         reading = _testhelper_reading(r)) === :converges
@@ -2826,7 +2839,8 @@ end
     @test D._admission(kept, k) ==
           D._Verdict(BR, U, 1, 2, _testhelper_edge(kept, "EB_res_plusA_minusP ⇌ EQ"))
     @test _testhelper_epath_verdict(kept; rng, corners = true,
-                                    reading = _testhelper_reading(k)) !== :converges
+                                    reading = _testhelper_reading(k)) ===
+          :direction_dependent
 
     # One touching law form counts: in this ping-pong's inactive conformation free E stands
     # alone, and the cut-off forms E(A), F(P), F, F(B) and E(Q) touch nothing else.
@@ -2848,17 +2862,31 @@ end
     o[_testhelper_edge(one_touch, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
         D._LOSES_REVERSE
     @test D._admission(one_touch, o) == D._WELL_POSED
+    @test _testhelper_admission_faults(one_touch; reading = _testhelper_reading(o)) ==
+          fill(NO, 7)
+    # The face condition alone refuses five faces. With P zero the uptake F + P → F(P) is
+    # dead, and F + P ⇌ F(P) runs one way between two cut-off forms, through its release,
+    # which vanishes and is fast; it is safe because no fast transition from the law's
+    # forms reaches its source F(P), so the flow through it vanishes.
+    @test _testhelper_faces(one_touch)[6] == Set([:P])
+    let eps = D._eps_network(one_touch, D._re_flags(one_touch.catalytic), o),
+        law = D._law_network(one_touch), faces = D._faces(one_touch.catalytic)
+        x = D._turnover_name(one_touch.catalytic)
+        @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
+              [BR, BR, NO, BR, NO, BR, BR]
+    end
     @test _testhelper_passes_only_set_aside(one_touch, o, 1)
+    @test _testhelper_passes_only_set_aside(one_touch, o, 6)
     for face in _testhelper_faces(one_touch)
         @test _testhelper_epath_verdict(one_touch; rng, face, corners = true,
                                         reading = _testhelper_reading(o)) === :converges
     end
 
-    # `first_try`, a ter-ter mechanism of the gate's populations that needed the third
-    # reading before groups were set aside: under the first reading the face condition alone
-    # refuses five faces as bridges of the inactive conformation, and admission passes
-    # every one by setting cut-off forms aside. The first try now admits it, and the
-    # oracles agree on every face under that reading.
+    # `first_try`, a ter-ter mechanism of the gate's populations: under the guard's first
+    # reading the face condition alone refuses five faces as bridges of the inactive
+    # conformation, and admission passes every one by setting cut-off forms aside, so the
+    # first try admits it. The oracles agree on every face under that reading, and the
+    # compiled law equals the oracle's deletion limit.
     first_try = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, D
         products: P, Q, R
@@ -2886,6 +2914,7 @@ end
     end
     @test D._guard(first_try) == D._WELL_POSED
     @test all(_testhelper_admission_agreement(first_try; rng = Random.MersenneTwister(1)))
+    _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(first_try))
 
     # R2funnel and R2funnel_SS under the guard's first built reading, at zero P. Their
     # cut-off forms touch free E alone, and each reaches it along transitions that do not
@@ -2895,6 +2924,7 @@ end
     # a bridge, and the limit there depends on the direction.
     for name in ("R2funnel", "R2funnel_SS")
         am = _testhelper_tag_sets[name]
+        @test _testhelper_faces(am)[2] == Set([:P])
         eps = D._eps_network(am, D._re_flags(am.catalytic), D._built_reading(am))
         law, faces = D._law_network(am), D._faces(am.catalytic)
         @test !any(D._face_sets(eps, law.present, faces[2]).stranded)
@@ -2903,6 +2933,48 @@ end
         @test _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[2],
                                         corners = true) === :direction_dependent
     end
+
+    # The safety clause deciding. `stopped_exit` (a gate entry; the mechanism of
+    # `slow_source` in "no form fills faster than it empties") under a reading that stops
+    # E + A <--> F(P), F being E(; residual = A - P), rather than letting it lose its
+    # uptake. In the inactive conformation free E stands alone, so the cut-off forms
+    # touch one law form, and their fast classes drain through F(P) + Q <--> E(A, Q),
+    # E(A, Q) → E(Q) + A and E(Q) → E + Q. With A and B zero the stopped step runs one
+    # way, from F(P) into free E, along its vanishing direction: a pair at a law form with
+    # only its vanishing direction alive, which is not safe. It alone keeps them: nothing
+    # is set aside, the face stays a bridge, and the limit there depends on the direction.
+    stopped_exit = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A <--> E(P; residual = A - P), E(Q) + A <--> E(A, Q))    :: OnlyA
+            (E + Q <--> E(Q), E(P; residual = A - P) + Q <--> E(A, Q))    :: OnlyA
+            E(; residual = A - P) + P ⇌ E(P; residual = A - P)            :: EqualAI
+            E(; residual = A - P) + B ⇌ E(Q)                              :: OnlyA
+        end
+    end
+    se = fill(D._RUNS, length(stopped_exit.catalytic.steps), 2)
+    se[_testhelper_edge(stopped_exit, "E + A <--> EP_res_plusA_minusP"), 2] = D._STOPPED
+    for text in ("E + Q <--> EQ", "EQ + A <--> EAQ")
+        se[_testhelper_edge(stopped_exit, text), 2] = D._LOSES_FORWARD
+    end
+    for text in ("E_res_plusA_minusP + B ⇌ EQ", "EP_res_plusA_minusP + Q <--> EAQ")
+        se[_testhelper_edge(stopped_exit, text), 2] = D._LOSES_REVERSE
+    end
+    @test _testhelper_faces(stopped_exit)[3] == Set([:A, :B])
+    let eps = D._eps_network(stopped_exit, D._re_flags(stopped_exit.catalytic), se),
+        law = D._law_network(stopped_exit), faces = D._faces(stopped_exit.catalytic)
+        @test count(law.present[(length(stopped_exit.catalytic.nodes) + 1):end]) == 1
+        @test !any(D._face_sets(eps, law.present, faces[3]).stranded)
+        @test D._without_set_aside_groups(eps, law.present, faces[3]) === eps
+    end
+    @test D._admission(stopped_exit, se) ==
+          D._Verdict(BR, U, 3, 2, _testhelper_edge(stopped_exit, "E + Q <--> EQ"))
+    @test _testhelper_epath_verdict(stopped_exit; rng,
+                                    face = _testhelper_faces(stopped_exit)[3],
+                                    corners = true,
+                                    reading = _testhelper_reading(se)) ===
+          :direction_dependent
 
     # The conservative rejections the suite pins stay rejected. R-B1's cut-off forms E(I)
     # and E(I, J) touch free E and the dead end E(J), which only the steady-state
@@ -4141,6 +4213,40 @@ end
                      _testhelper_edge(rb3, "EB_res_plusA_minusP ⇌ EQ"))
     @test _testhelper_epath_verdict(rb3; rng, corners = true,
                                     reading = _testhelper_reading(r)) === :converges
+    # R-B4, the set-aside rule's safety clause. In this random-order mechanism's inactive
+    # conformation, with P and Q zero, the stopped E + P <--> E(P) runs one way from E(P)
+    # into free E along its vanishing direction, a pair at a law form that is not safe;
+    # the cut-off forms touch free E alone and their fast classes drain, so that pair
+    # alone keeps them, and the face stays a bridge. Every corner direction converges
+    # there: a conservative rejection.
+    rb4 = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))        :: OnlyA
+            (E + P <--> E(P), E(A) + P <--> E(A, P))  :: OnlyA
+            E(A) + B <--> E(P, Q)                      :: EqualAI
+            E(P) + Q ⇌ E(P, Q)                         :: OnlyA
+        end
+    end
+    r = fill(D._RUNS, length(rb4.catalytic.steps), 2)
+    for text in ("E + A ⇌ EA", "EA + P <--> EAP")
+        r[_testhelper_edge(rb4, text), 2] = D._LOSES_FORWARD
+    end
+    r[_testhelper_edge(rb4, "E + P <--> EP"), 2] = D._STOPPED
+    for text in ("EP + A ⇌ EAP", "EP + Q ⇌ EPQ")
+        r[_testhelper_edge(rb4, text), 2] = D._LOSES_REVERSE
+    end
+    @test _testhelper_faces(rb4)[2] == Set([:P, :Q])
+    let eps = D._eps_network(rb4, D._re_flags(rb4.catalytic), r),
+        law = D._law_network(rb4), faces = D._faces(rb4.catalytic)
+        @test D._without_set_aside_groups(eps, law.present, faces[2]) === eps
+    end
+    @test D._admission(rb4, r) ==
+          D._Verdict(BR, D._LIMIT_UNTESTED, 2, 2, _testhelper_edge(rb4, "EP + Q ⇌ EPQ"))
+    @test _testhelper_epath_verdict(rb4; rng, face = _testhelper_faces(rb4)[2],
+                                    corners = true, reading = _testhelper_reading(r)) ===
+          :converges
 end
 
 @testset "S1 passes admission's interior and fails class 3, as AD7b's faces do" begin
