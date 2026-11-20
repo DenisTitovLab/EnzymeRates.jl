@@ -6186,6 +6186,49 @@ end
     @test count(==(D._FAST_STEP_PINNED), faults) >= 3
 end
 
+@testset "sampled taggings: the energy-level rule agrees with the oracles" begin
+    # An aggregate check over a population: the nonempty :OnlyA sets of the plain init
+    # mechanisms of 8 steps or fewer of the bi-bi and ping-pong reactions, sorted by their
+    # text so that the sample does not depend on the enumeration order, each built without
+    # the guard. 40 random ones that the guard admits only by a reading it searched, none
+    # of its three built readings passing, agree with both oracles on every face, the
+    # ε-path oracle along the corner directions under the reading the guard admitted with.
+    # At least 5 of them are admitted with a step that loses its reverse direction, which
+    # no built reading does.
+    D = EnzymeRates.Derivation
+    bibi = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    pingpong = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    plain = sort!(unique([m for rxn in (bibi, pingpong)
+                          for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
+                          if m isa EnzymeRates.Mechanism && length(m.steps) <= 8]);
+                  by = m -> sprint(show, m))
+    built(am) = [D._built_reading(am, r) for r in instances(D._SlowUptakeReading)]
+    rng = Random.MersenneTwister(20261120)
+    sample = EnzymeRates.AllostericMechanism[]
+    while length(sample) < 40
+        m = rand(rng, plain)
+        G = length(m.groups)
+        bits = rand(rng, 1:(2^G - 1))
+        am = EnzymeRates.AllostericMechanism(
+            m, [isodd(bits >> (g - 1)) ? :OnlyA : :EqualAI for g in 1:G], 1,
+            EnzymeRates.Mechanisms.RegulatorySite[])
+        reading = D._admitting_reading(am)
+        searched = reading !== nothing && !(reading in built(am))
+        searched && !(am in sample) && push!(sample, am)
+    end
+    for am in sample
+        @test all(_testhelper_admission_agreement(am; rng, corners = true))
+    end
+    @test count(am -> :loses_reverse in _testhelper_reading(D._admitting_reading(am)),
+                sample) >= 5
+end
+
 @testset "joint R1 rejects a mechanism whose bridges cut the tree only together" begin
     # The hand-built joint-R1 network's pattern on a mechanism. Half 2 :OnlyA strands the
     # inactive conformation's covalent forms at zero P, so no in-tree of that
