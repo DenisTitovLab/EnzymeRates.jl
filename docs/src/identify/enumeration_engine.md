@@ -304,16 +304,18 @@ On its bases the engine emits, per multiplicity:
   binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
   fused one); each is emitted bare, and the exits drop those the guard rejects;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
-  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry
-  base the regulator reveals `L`; on a one-half base `L` already shows without one, yet
-  every base is emitted only with a regulator (the repository's `ROADMAP.md` lists this).
+  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. Over one subunit the
+  regulator reveals `L` on the every-chemistry base; above one subunit, and on a one-half
+  base, `L` can show without one, yet every base is emitted only with a regulator (the
+  repository's `ROADMAP.md` lists this).
 
 Tag sets whose laws agree up to renaming the constants share one key, so identify fits the
 law once.
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
 would cancel). The guard at the exits drops a child it rejects, as for every move. A
-ping-pong parent with no declared regulator can end with no child, when the exits drop
-every K-type.
+parent with no declared regulator gets no allosteric child when it has no binding group,
+and so no K-type, or when the exits drop every K-type; among the census parents the second
+happens only where the guard finds the K-type too large to search.
 Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already allosteric
 input.
 

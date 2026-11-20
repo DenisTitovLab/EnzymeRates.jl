@@ -25,11 +25,12 @@ them.
 
 **Allosteric ping-pong that stops both half-reactions.** An allosteric ping-pong may stop
 both half-reactions in the inactive conformation when its covalent intermediate can lie
-higher in energy there: each half's step into it vanishes while its step out keeps its
-rate, so the intermediate empties ([How an excluded step is switched off](@ref)). Where
-the intermediate empties only by binding the second substrate, no choice of energies gives
-the limit, and `@allosteric_mechanism` rejects the mechanism. Supporting it needs the conformations to
-interconvert at the covalent intermediate as well, which will come with iso mechanisms.
+higher in energy there: each half's step into it vanishes while its step out keeps its rate,
+so the intermediate empties ([How an excluded step is switched off](@ref)). Where the
+intermediate empties only by binding the second substrate, no choice of energies gives the
+limit, and `@allosteric_mechanism` rejects the mechanism. Supporting it needs the
+conformations to interconvert at the covalent intermediate as well, which will come with iso
+mechanisms.
 
 ## Support more measurement types
 

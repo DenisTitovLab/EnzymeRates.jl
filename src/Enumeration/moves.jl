@@ -820,11 +820,11 @@ the all-`:EqualAI` baseline and a V-type variant without a regulator.
   * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric regulator at
     a new site, one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the
     every-chemistry base the inactive state binds substrate and product as the active state
-    does and runs no chemistry, so without a regulator `L` folds entirely into `kcat`
-    (`v = kcat/(1+L)·shape`) and is not observable. On a one-half base the inactive
-    conformation runs the other half-reaction, and `L` shows without a regulator too, yet
-    every base is emitted only with one. A reaction with no declared allosteric regulators
-    emits no V-type.
+    does and runs no chemistry, so over one subunit, without a regulator, `L` folds entirely
+    into `kcat` (`v = kcat/(1+L)·shape`) and is not observable; above one subunit it can
+    show. On a one-half base the inactive conformation runs the other half-reaction, and `L`
+    shows without a regulator too. Yet every base is emitted only with one. A reaction with
+    no declared allosteric regulators emits no V-type.
 
 A ping-pong parent with no declared regulator can end with no child at the exits, when
 `_enumerator_keeps` refuses every K-type.

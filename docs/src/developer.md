@@ -554,15 +554,17 @@ limit test modulo 2^61 − 1 where structure decides nothing) and admission's fa
 (`_admission_face`, below).
 
 **Readings.** The steps a conformation keeps join the forms into groups
-(`exclusion_components`), and every group but free E's is cut off: it lies higher in
-energy and holds no enzyme of that conformation. A reading (`_SwitchOff` per step and
-conformation) switches off each excluded step. One between two groups loses the rate of its
-uphill direction (`_LOSES_FORWARD`, `_LOSES_REVERSE`) and keeps the other and its kind, so
-a rapid-equilibrium step stays fast; at steady state it may stop instead (`_STOPPED`). One
+(`exclusion_components`), and every group but free E's is cut off: it lies higher in energy
+and holds no enzyme of that conformation. A reading (`_SwitchOff` per step and conformation)
+switches off each excluded step. One between two groups loses the rate of its uphill
+direction (`_LOSES_FORWARD`, `_LOSES_REVERSE`) and keeps the other and its kind, so a
+rapid-equilibrium step stays fast; at steady state it may stop instead (`_STOPPED`). One
 inside a group stops at steady state, and at rapid equilibrium no reading switches it off
 (`_FAST_STEP_PINNED`): its two sides lie at one energy, so thermodynamics fixes its
 equilibrium constant, and a step keeps its kind in both conformations. A reading is
-consistent (`_interior_verdict`) when the steps that lose, each pointing uphill, close no
+consistent (`_interior_verdict`) when every excluded rapid-equilibrium step loses a
+direction, none stopped or left unswitched (`_CANNOT_SWITCH_OFF`), which is how a built
+reading becomes inconsistent; when the steps that lose, each pointing uphill, close no
 directed cycle over the groups and never point into free E's group, so energies exist that
 rise along them with every cut-off group above free E's; and when they lead from free E's
 group to every group, so every cut-off group has a step by which it empties. The law is the
@@ -584,16 +586,17 @@ turns the reaction over under one of them is fast under every consistent reading
 (`_RE_TURNOVER`), and any other fault of the first consistent one but those three holds
 under every consistent reading, so either ends the guard. Next it reports an excluded
 rapid-equilibrium step inside one group, which no reading switches off. Then it searches
-each conformation's consistent columns (`_consistent_columns`) and every pair of them,
-conformation 1's outer, against admission's face condition alone, class 3 having passed once
-on the law network. A conformation with more than `_MAX_CHOICES_PER_CONFORMATION` (20,000)
-ways, or more than `_MAX_READING_PAIRS` (5,000) pairs of consistent columns, stops the whole
-search before it starts, so whether the guard admits never depends on the order of the
-steps. Such a mechanism is rejected with the first consistent built reading's verdict, else
-with an active conformation that turns nothing over (`_NO_ACTIVE_TURNOVER`), else with
-`_TOO_MANY_READINGS`. A rejection reports the verdict of the first consistent reading tried,
-so its message never says that a step cannot be switched off when another reading switches
-it off. `_admitting_reading` returns the reading the guard admits with.
+each conformation's consistent columns (`_consistent_columns`) and every pair of them, one
+column per conformation, in a fixed order, against admission's face condition alone, class 3
+having passed once on the law network. When a conformation has more than
+`_MAX_CHOICES_PER_CONFORMATION` (20,000) ways, or the two conformations' consistent columns
+form more than `_MAX_READING_PAIRS` (5,000) pairs, the guard searches nothing, so whether it
+admits never depends on the order of the steps. Such a mechanism is rejected with the first
+consistent built reading's verdict, else with an active conformation that turns nothing over
+(`_NO_ACTIVE_TURNOVER`), else with `_TOO_MANY_READINGS`. A rejection reports the verdict of
+the first consistent reading tried, so its message never says that a step cannot be switched
+off when another reading switches it off. `_admitting_reading` returns the reading the guard
+admits with.
 
 **The face condition.** Admission's face condition (`_face_condition`) reads which
 transitions of the ε-network are alive on a face and which vanish. It refuses, in order, a
@@ -605,18 +608,23 @@ transitions of a conformation shorten the cheapest spanning in-tree of the fed f
 (`_fewest_slow`) where no potential absorbs their turnover, or both conformations' do
 together.
 
-The filling check (`_FILLED`) refuses, on a face, a rapid-equilibrium transition that
-vanishes and is alive while its reverse, which does not vanish, is dead, when free E reaches
-its source on that face, alive rapid-equilibrium transitions, vanishing or not, lead from
-the law's forms to that source, and no alive rapid-equilibrium transitions that do not
-vanish lead from its target to a law form (`_fast_law_reach`). A form's weight is its inflow
-over its outflow. Past a slow transition the inflow is bounded by a rate that vanishes;
-through fast transitions alone it grows with their speed, and then only an outflow that
-grows as fast keeps the form empty in every order of the two limits. A step that loses a
-direction can keep its uptake, which dies on the face where its metabolite is zero and
-leaves the vanishing direction to fill the form one way. A built reading never does this:
-the direction it keeps is a release, alive on every face. A steady-state transition that
-fills one way is the stranded basin's case.
+The filling check (`_FILLED`) looks, on a face, at each rapid-equilibrium transition that
+vanishes and is alive while its reverse, which does not vanish, is dead. It refuses one
+when:
+
+- free E reaches its source on that face;
+- alive rapid-equilibrium transitions, vanishing or not, lead from the law's forms to that
+  source (`_fast_law_reach`); and
+- no alive rapid-equilibrium transitions that do not vanish lead from its target to a law
+  form.
+
+A form's weight is its inflow over its outflow. Past a slow transition the inflow is bounded
+by a rate that vanishes; through fast transitions alone it grows with their speed, and then
+only an outflow that grows as fast keeps the form empty in every order of the two limits. A
+step that loses a direction can keep its uptake, which dies on the face where its metabolite
+is zero and leaves the vanishing direction to fill the form one way. A built reading never
+does this: the direction it keeps is a release, alive on every face. A steady-state
+transition that fills one way is the stranded basin's case.
 
 The set-aside rule (`_without_set_aside_groups`): a face refused as a bridge passes when the
 condition finds no fault once more without the groups that cannot matter there. A face
@@ -640,13 +648,14 @@ form drains at a rate that does not shrink as the fast steps speed up, none fill
 than it empties, and class 2 has refused any fast cycle in it that turns the reaction over.
 
 Neither argument proves that the face condition with these checks suffices under every
-reading; the evidence is numerical. A gate compared the guard with the ε-path oracle and
-the RE-speed oracle on 78,554 mechanisms in ten populations: each of the 591 mechanisms of 8
-steps or fewer there that only the search or the set-aside rule admits agrees along corner
-directions. With the filling check off, the guard admits 250 such mechanisms among the
-`:OnlyA` taggings of the uni-uni, bi-bi and ping-pong starting mechanisms, and 18 of them
-fail. `test/Derivation/test_admission.jl` keeps a sampled population test with corner
-directions ("sampled taggings: the energy-level rule agrees with the oracles").
+reading; the evidence is numerical. A gate ran the guard on 78,554 mechanisms in ten
+populations, and the ε-path and RE-speed oracles on those that only the search or the
+set-aside rule admits: each of the 591 of 8 steps or fewer agrees along corner directions,
+and samples of the larger ones agree too. With the filling check off, the guard admits 250
+such mechanisms among the `:OnlyA` taggings of the uni-uni, bi-bi and ping-pong starting
+mechanisms, and 18 of them fail. `test/Derivation/test_admission.jl` keeps a sampled
+population test with corner directions ("sampled taggings: the energy-level rule agrees with
+the oracles").
 
 **Faults.** A verdict's fault is one of: no cycle turns the reaction over (`_NO_CYCLE`); a
 fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`,

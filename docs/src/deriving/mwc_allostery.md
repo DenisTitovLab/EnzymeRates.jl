@@ -296,19 +296,19 @@ vanishing rates, and the inactive conformation binds A and Q and turns nothing o
 
 Two of the face checks, that no cut-off form fills faster than it empties and that the
 cut-off forms on a faster route cannot change the limit, rest on numerical tests, not on a
-proof. Two numerical oracles follow the two-conformation mass-action steady state as the
-rapid-equilibrium steps speed up and the excluded steps vanish, along many paths. They were
-run on 78,554 mechanisms in ten populations: taggings of uni-uni, bi-bi, ping-pong, ter-bi,
-bi-ter and ter-ter mechanisms, with and without an inhibitor or an `:OnlyI` group, one
-expansion round of the search, and the test suite's allosteric mechanisms. Of the 1,575
-among them whose acceptance rests on the search for energies or on cut-off forms that cannot
-change the limit, all 591 of 8 steps or fewer agree with both oracles along the harshest
-paths, as do 598 larger ones sampled along standard paths and a spaced 100 ter-ter ones
-along the harshest; at two catalytic subunits the steady state equals the law for 40 of 40
-sampled. With the first of the two checks switched off, the package accepts 250 small
-mechanisms more in one population, and 18 of them fail the harshest test. Admission is not
-exact: it rejects some mechanisms whose law is the limit, which the repository's
-`ROADMAP.md` lists.
+proof. The package was run on 78,554 mechanisms in ten populations: taggings of uni-uni,
+bi-bi, ping-pong, ter-bi, bi-ter and ter-ter mechanisms, with and without an inhibitor or an
+`:OnlyI` group, one expansion round of the search, and the test suite's allosteric
+mechanisms. It accepts 1,575 of them only through its search for energies or through cut-off
+forms that cannot change the limit. Two numerical oracles, which follow the two-conformation
+mass-action steady state as the rapid-equilibrium steps speed up and the excluded steps
+vanish along many paths, were run on all of those of 8 steps or fewer and on samples of the
+rest. They agree with the package on all 591 small ones along the harshest paths, on 598
+larger ones along standard paths, and on 100 ter-ter ones along the harshest paths. At two
+catalytic subunits the steady state equals the law for 40 of 40 sampled. With the first of
+the two checks switched off, the package accepts 96 small mechanisms more in one population,
+and 18 of them fail the harshest test. Admission is not exact: it rejects some mechanisms
+whose law is the limit, which the repository's `ROADMAP.md` lists.
 
 When the steps a conformation keeps join the two sides of an excluded rapid-equilibrium
 step, as in the second example, the error says so and offers each fix that the package
@@ -335,7 +335,8 @@ package rejects:
    segment whose lowest forms are joined only through other forms, a trap that the face
    feeds and its fast exits cannot drain, a second closed set of forms, or a law with no
    value (0/0) there;
-4. tags under which no choice of energies gives the limit (admission, above).
+4. tags under which no choice of energies gives the limit, or that allow too many choices
+   to search when none of the three tried first gives it (admission, above).
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so `rate_equation`

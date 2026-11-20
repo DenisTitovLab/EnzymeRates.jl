@@ -63,42 +63,43 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **A law the guard admits can be 0/0 where one substrate and every product are zero.**
   The guard checks the faces of the rewrite spec's section 8 (every product zero, every
   substrate zero, each single reactant zero, each also with every modifier zero), never a
-  corner that zeroes one substrate with every product. Of 65,423 census mechanisms, 357
-  pass the guard yet have a law that is 0/0 at such a corner: 293 plain ter-bi, 38 plain
-  ping-pong and 26 allosteric ter-bi mechanisms; there 264 of these laws have no limit and
-  93 a removable 0/0, census mechanism `d7a09031d5dd2fc6` at B = P = Q = 0 among them.
-  Another 12 allosteric ping-pongs that pass the guard have a non-unique steady state at
-  such a corner. `rate_equation` returns NaN there, where a well-posed law returns 0. A fit
-  scores the NaN as it scores the 0 a well-defined law predicts there: `FittingProblem`
-  refuses a zero rate, and the loss scores a NaN prediction as a sign mismatch, the penalty
-  a 0 prediction gets (`test/Derivation/test_admission.jl`). Adding these corners to the
-  faces would drop at least these 369 mechanisms, 93 of whose laws have a limit there.
+  corner that zeroes one substrate with every product. Measured with the guard before
+  0.11.0, 357 of 65,423 census mechanisms pass it yet have a law that is 0/0 at such a
+  corner: 293 plain ter-bi, 38 plain ping-pong and 26 allosteric ter-bi mechanisms; there
+  264 of these laws have no limit and 93 a removable 0/0, census mechanism
+  `d7a09031d5dd2fc6` at B = P = Q = 0 among them. Another 12 allosteric ping-pongs that pass
+  the guard have a non-unique steady state at such a corner. `rate_equation` returns NaN
+  there, where a well-posed law returns 0. A fit scores the NaN as it scores the 0 a
+  well-defined law predicts there: `FittingProblem` refuses a zero rate, and the loss scores
+  a NaN prediction as a sign mismatch, the penalty a 0 prediction gets
+  (`test/Derivation/test_admission.jl`). Adding these corners to the faces would drop at
+  least these 369 mechanisms, 93 of whose laws have a limit there.
 - **The guard rejects some allosteric mechanisms whose law is the limit.**
-  A gate run on the guard as built (see the next entry) found three kinds among its 78,554
-  mechanisms:
-  - **Too large to search.** A conformation with more than 20,000 ways to switch off its
-    excluded steps, or more than 5,000 pairs of consistent ways, stops the search
-    (`_MAX_CHOICES_PER_CONFORMATION`, `_MAX_READING_PAIRS`, `src/Derivation/guard.jl`), and
-    the guard tries only its three built readings. 441 gate mechanisms are too large to
-    search. The 33 among them with no consistent built reading are rejected with
-    `_TOO_MANY_READINGS`, whatever their law: 27 of the 2,000 ter-ter taggings, 2 of 3,000
-    ter-bi, 1 of 3,000 bi-ter and 3 of the admission tests' mechanisms. Without a
+  A gate run on the guard as built (see the next entry) found three kinds:
+  - **Too large to search.** When a conformation has more than 20,000 ways to switch off its
+    excluded steps, or the two conformations' consistent ways form more than 5,000 pairs,
+    the guard does not search (`_MAX_CHOICES_PER_CONFORMATION`, `_MAX_READING_PAIRS`,
+    `src/Derivation/guard.jl`) and tries only its three built readings. 441 gate mechanisms
+    are too large to search. The 33 among them with no consistent built reading are rejected
+    with `_TOO_MANY_READINGS`, whatever their law: 27 of the 2,000 ter-ter taggings, 2 of
+    3,000 ter-bi, 1 of 3,000 bi-ter and 3 of the admission tests' mechanisms. Without a
     regulator, 20 of the 4,885 census ter-bi starting mechanisms keep no allosteric child,
-    since their only K-type is too large to search. Raising the caps costs time: the
-    slowest guard call, on a ter-bi mechanism of 25 steps with 2,157 pairs, takes 0.3 s.
+    since their only K-type is too large to search. Raising the caps costs time: the slowest
+    guard call, on a ter-bi mechanism of 25 steps with 2,157 pairs, takes 0.3 s.
   - **Refused as a bridge.** The face condition refuses vanishing transitions that open a
     faster route between two of the law's forms when it cannot prove the route harmless.
-    Gate entries 53145 and 53246, ter-ter taggings each holding an excluded
-    rapid-equilibrium step that binds and reacts at once, are refused so. 53246 has one
-    consistent reading, under which the ε-path oracle converges on every face along standard
-    directions. A wider set-aside rule would admit it: one that takes a cut-off form the
-    enzyme does not reach on the face along with a group set aside when any of its alive
-    transitions leads into it, where the rule as built wants all of them to. The wider rule
-    was not built. The suite pins two more, `bridge_deadend` and R-B3
-    (`test/Derivation/test_admission.jl`, "conservative rejections the oracle admits stay
-    rejected under their reading"). A rule that also set aside groups touching forms in
-    equilibrium for another reason, such as a dead-end branch, admitted nothing in any
-    population.
+    Gate entry 53246, a ter-ter tagging that holds an excluded rapid-equilibrium step that
+    binds and reacts at once, is refused so, yet it has one consistent reading, under which
+    the ε-path oracle converges on every face along standard directions. A wider set-aside
+    rule would admit it: one that takes a cut-off form the enzyme does not reach on the face
+    along with a group set aside when any of its alive transitions leads into it, where the
+    rule as built wants all of them to. The wider rule was not built. Entry 53145, of the
+    same kind and refused as a bridge too, is not shown valid: under the one reading tested,
+    the ε-path oracle finds a limit that depends on the path at zero products and at zero P.
+    The suite pins two more, `bridge_deadend` and R-B3 (`test/Derivation/test_admission.jl`,
+    "conservative rejections the oracle admits stay rejected under their reading"). A rule
+    that also set aside groups touching forms in equilibrium for another reason, such as a
+    dead-end branch, admitted nothing in any population.
   - **Refused by the filling check though the rate equals the law's.** Of the mechanisms of
     8 steps or fewer that a face check refuses, sampled 40 per population, these have a
     limit along corner directions under some consistent reading: 9 of 40 `:OnlyA` taggings
@@ -107,9 +108,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     ping-pong taggings with both halves' chemistry `:OnlyA` (below), 1 of 40 bi-ter (2 of
     86), and none of the `:OnlyI`, ter-ter, bi-bi split and inhibitor ones. The guard
     reports each with its first consistent reading's `_PUMPED` or `_FILLED`. Nearly all are
-    ping-pongs that the filling check refuses, under the reading the oracles accept, at the
-    second substrate's binding to the covalent form: 8 of the 9 `:OnlyA` taggings, the
-    ninth a bridge there. On such a face the cut-off forms hold most of the enzyme, yet the
+    ping-pongs. Under the reading the oracles accept, the guard refuses 8 of the 9 `:OnlyA`
+    taggings by the filling check and 1 as a bridge, 8 times at B's binding to the covalent
+    form and once at P's. On such a face the cut-off forms hold most of the enzyme, yet the
     rate equals the law's because the inactive conformation's kept chemistry has the active
     one's constants. No simple rule found separates these from the wrong ones.
 - **The guard's face checks under a searched reading rest on numerical evidence.**
@@ -117,22 +118,22 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   arguments, not proofs, that the face condition with them suffices under every reading. A
   wrong law the guard admitted would not show in a fit: it is a smooth function that can fit
   well, with a wrong mechanism label and unreliable extrapolation toward the face where it
-  fails. The protection is a gate run once on the guard as built, against the ε-path and
-  RE-speed oracles, over 78,554 mechanisms in ten populations: `:OnlyA` taggings of the
-  uni-uni, bi-bi and ping-pong starting mechanisms (9,616), taggings with an `:OnlyI` group
-  (43,311), ter-ter taggings (2,000), K-type taggings of the bi-bi split children (9,878),
-  ping-pong taggings (50), bi-bi with a competitive inhibitor, ter-bi and bi-ter taggings
-  (3,000 each), one expansion round's allosteric children (1,990) and the admission tests'
-  mechanisms (2,709). None of the 29,517 the built readings admit is rejected. Of the 1,575
-  that only the search or the set-aside rule admits, all 591 of 8 steps or fewer agree along
-  corner directions, 598 larger ones sampled agree along standard directions, a spaced 100
-  ter-ter ones agree along corner directions, and at two subunits the steady state equals
-  the law for 40 of 40 sampled. With the filling check off, the guard admits 250 small
-  `:OnlyA` taggings more, and 18 of them fail; standard directions miss these, so corner
-  directions are the test. `test/Derivation/test_admission.jl` keeps a sampled population
-  test with corner directions. The gate's scripts, logs and report (`report.md`) are on the
-  maintainer's machine, outside the repository, in
-  `claude-scratchpad/lean-mechanism-spike/gate/`.
+  fails. The protection is a gate run once on the guard as built. It ran the guard on 78,554
+  mechanisms in ten populations: `:OnlyA` taggings of the uni-uni, bi-bi and ping-pong
+  starting mechanisms (9,616), taggings with an `:OnlyI` group (43,311), ter-ter taggings
+  (2,000), K-type taggings of the bi-bi split children (9,878), ping-pong taggings (50),
+  bi-bi with a competitive inhibitor, ter-bi and bi-ter taggings (3,000 each), one expansion
+  round's allosteric children (1,990) and the admission tests' mechanisms (2,709). None of
+  the 29,517 the built readings admit is rejected. It ran the ε-path and RE-speed oracles on
+  the 1,575 that only the search or the set-aside rule admits, all of them of 8 steps or
+  fewer and samples of the rest: all 591 small ones agree along corner directions, 598
+  larger ones agree along standard directions, and 100 ter-ter ones agree along corner
+  directions; at two subunits the steady state equals the law for 40 of 40 sampled. With the
+  filling check off, the guard admits 96 small `:OnlyA` taggings more (138 in all), and 18
+  of them fail; standard directions miss these, so corner directions are the test.
+  `test/Derivation/test_admission.jl` keeps a sampled population test with corner
+  directions. The gate's scripts, logs and report (`report.md`) are on the maintainer's
+  machine, outside the repository, in `claude-scratchpad/lean-mechanism-spike/gate/`.
 - **An allosteric ping-pong whose covalent forms empty only by binding B cannot stop both
   half-reactions.**
   PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
@@ -167,12 +168,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that child, and none of the 44
     children above has an inactive conformation that turns the reaction over. On the
     three-step ping-pong, whose steps are all steady-state, the same relaxation passes.
-  - **A one-half tagging base is fitted only beside a regulator.**
+  - **A bare tagging base is fitted only beside a regulator.**
     The tagging move emits a base only beside a declared regulator, and no move reaches the
     bare base: change-tag relaxes tags only to `:NonequalAI`, and no move removes a site.
-    Yet a bare one-half base can be well-posed with its `L` identifiable: on the four-step
-    ping-pong above, the bare base stops the first half-reaction, fits 6 parameters at rank
-    6 over the parent's 5, at one and at two subunits, and turns over at zero products.
+    Yet a bare base can be well-posed with its `L` identifiable. The three-step ping-pong's
+    every-chemistry base, its only base, fits 6 parameters at rank 6 over the parent's 5 at
+    two subunits (at rank 5 at one, where `L` is a phantom). The four-step ping-pong's
+    one-half base, which stops the first half-reaction, fits 6 at rank 6 at one and at two
+    subunits. Both turn over at zero products. Whether the enumerator should emit a bare
+    base, at least above one subunit, is the maintainer's decision.
 - **A batch's progress-log header can print twice.**
   When an L phantom's source's fit throws in the phantom's own batch, `run_batch!`'s log
   closure (`src/identify_rate_equation.jl`) prints the batch header again above the demotion
@@ -191,15 +195,31 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
   true K. The data do not constrain K there, so the fit returns any value in the box and
   lists it in `at_bound` only when it lands at an edge.
-- **`loss!` timing varies for a cause not yet found.**
-  One local process ran three large laws 15-25% over `rate_equation` per call plus 6 `log`
-  calls, then passed on rerun and in four more runs. Windows CI ran up to 5% over that budget
-  at 1.25 × `rate_equation` on six laws, a different six in each of two runs; coverage counters
-  are the likely cause there, since coverage doubles small laws' ratio locally, but it is
-  unproven on Windows. Time on one `FittingProblem` can also sit up to
-  about 40% above a fresh problem's, which points to memory layout but is unproven. The gate
-  in `test/Derivation/test_rate_eq_derivation.jl` allows for these, with its factor of 1.25,
-  its 8 `log` calls and its best of 20 batches on fresh problems.
+- **`loss!` runs 2-5× slower in about one process in nine.**
+  `loss!` stores each row's concentrations and the parameters in one block of its stack
+  frame and passes them by pointer to `rate_equation`, which is not inlined (for every gated
+  law but Uni-Uni). When a 4 KB page boundary of the stack falls inside that block, one of
+  `rate_equation`'s 16- or 32-byte loads straddles the page on every row and costs 20-30 ns
+  more per row, measured in a Lima VM on Apple Silicon with 4 KB pages. The stack's offset
+  within its page is random per process and fixed for its life, so the slow mode looks
+  random: 29 of 256 offsets slow at least one of the 42 gated laws. With address-space
+  randomization off, one 2 KB environment variable reproduces it on unchanged code, and the
+  same laws fail at the same offset at an older commit (47e581ce). The `loss!` gate in
+  `test/Derivation/test_rate_eq_derivation.jl` therefore fails falsely in about one full
+  suite in nine, on several laws at once, each at 26-38 ns per row: its 20 batches use fresh
+  problems, which vary the heap, but share one stack depth. Rerun such a suite. Two fixes
+  are open, for the maintainer to choose: run each batch a few frames deeper (test only: 0
+  false failures in 10,752 (law, offset) pairs, against 147 now); or inline `rate_equation`
+  at `loss!`'s call site, which makes `loss!` 15-35% faster per row on small and medium laws
+  and cuts the failing pairs from 147 to 10, at a compile cost not measured (see the Idea
+  "Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`"). Not measured: 16 KB
+  pages (macOS on Apple Silicon), x86, and the cost to a whole fit; that a fit in such a
+  process evaluates `loss!` slower for its whole life is inferred. The earlier observations
+  may be this effect: three large laws 15-25% over the gate in one local process, and one
+  `FittingProblem` up to about 40% slower than a fresh one. Windows CI running up to 5% over
+  on six laws is more likely coverage counters, unproven. The investigation, with its
+  scripts and scans, is `claude-scratchpad/loss-timing-investigation/report.md` on the
+  maintainer's machine.
 
 ## Planned
 
@@ -233,10 +253,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Priority: medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
-  numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`.
-  The guard admits 253 of them only through the search or the set-aside rule: the 19 of 8
-  steps or fewer agree with both oracles along corner directions, 150 of the 234 larger ones
-  along standard directions, and a spaced 100 of the 253 along corner directions (a median
+  numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The
+  guard admits 253 of them only through the search or the set-aside rule: the 19 of 8 steps
+  or fewer agree with both oracles along corner directions, 150 of the 234 larger ones along
+  standard directions, and 100 of the 253, evenly spaced, along corner directions (a median
   6.9 s each). 223 of the 2,000 are too large to search. The other ter-ter taggings, and
   ter-ter mechanisms after an expansion round, are unchecked. Priority: medium.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
@@ -267,11 +287,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   1,046,178 tag vectors on hyperbolic parents of at most 7 groups. On the six-step bi-bi
   ping-pong whose A and P groups each hold an abortive binding, the tagging move's one base
   stops both half-reactions; at two subunits the drop removes none of its 15 K-types, and
-  the exits keep 5. A reason, not a proof: such a child has no `:OnlyI` catalytic group, and
-  an excluded rapid-equilibrium step with both sides in the inactive law is pinned, so the
-  inactive law's segments are the parent's cut down, and its degree in a metabolite exceeds
-  the parent's only through a bridge the face condition refuses; the set-aside rule is not
-  covered. Tests pin both drops on candidates the guard rejects anyway. Priority: low.
+  the exits keep 5. Why the drops find nothing, as an argument rather than a proof: a
+  tagging or change-tag child has no `:OnlyI` catalytic group, so its active law is the
+  parent's, which the move requires to be hyperbolic. Its inactive law keeps only forms of
+  free E's group. An excluded rapid-equilibrium step between two of them would be pinned,
+  which the guard rejects, so each rapid-equilibrium segment of the inactive law is a
+  segment of the parent cut down to the kept forms, and the law's degree in a metabolite
+  cannot exceed the parent's. The exception is a segment the cut splits in two: the cut-off
+  forms between the parts then drain into both, which the face condition refuses as a
+  bridge, unless the set-aside rule sets them aside; that case the argument does not cover.
+  Tests pin both drops on candidates the guard rejects anyway. Priority: low.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
