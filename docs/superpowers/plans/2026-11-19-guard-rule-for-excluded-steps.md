@@ -742,7 +742,7 @@ its failing testsets and wall time before and after. Rerun
     conformation and the step. Its message names the face, the step, the form it fills
     and the form's slow way out, and offers the steady-state fix where that variant passes.
   - The set-aside rule exactly as the spec's "Groups that cannot matter are set aside"
-    states it: when `_face_condition` refuses a face with `_PUMPED` or `_BRIDGE`, it runs
+    states it: when `_face_condition` refuses a face with `_BRIDGE`, it runs
     once more on the network without the groups that qualify, and the face passes if that
     run does. `_FILLED` and `_EPS_NONUNIQUE` are not retried.
 - Reference only, not to copy: `pump_ok` and `without_appendages` in

@@ -304,9 +304,11 @@ check is sufficient for every reading; the evidence below is numerical, and the 
 
 **Groups that cannot matter are set aside (removes over-cautious rejections).** The face
 condition refuses a mechanism when vanishing transitions open a faster route between two
-of the law's forms and it cannot prove the route harmless. When it refuses a face, the
-guard runs it once more on that face with some groups set aside, and the face passes if
-either run does. A group is the cut-off forms the enzyme reaches on the face that
+of the law's forms and it cannot prove the route harmless. When it refuses a face as a
+bridge, the guard runs it once more on that face with some groups set aside, and the face
+passes if either run does. (A face refused for a stranded form is not run again: the
+stranded form's group cannot drain, so it is never set aside, and the second run would
+refuse the face again.) A group is the cut-off forms the enzyme reaches on the face that
 transitions join to one another, with every alive transition at them. It is set aside
 when, on this face:
 
@@ -490,6 +492,11 @@ directions, misses the failure below.
   agree on 55 of 55 (51 harsh). The set-aside rule adds 10, oracles agree on 65 of 65 (60
   harsh). It still adds the same 35 and 23 in the second and fourth populations of the
   table, oracles agree on 35 of 35 (25 harsh) and 23 of 23 (mild).
+- The safety condition decides alone on 215 faces of 40 small mechanisms under searched
+  readings, and on none under the built ones. Each is a stopped steady-state step at a law
+  form that runs one way along its vanishing direction because its uptake is dead on the
+  face. Of the twelve smallest, the harsh test finds a limit that depends on the direction
+  in 4 and a limit equal to the law in 8, which stay rejected.
 - Not yet measured: reactions with inhibitors in the `:OnlyA` populations, ter-bi and
   bi-ter, the enumerator's own expansion rounds, ter-ter under the harsh test, and more
   than one catalytic subunit. The gate covers them.
