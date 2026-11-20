@@ -190,8 +190,10 @@ decides whether a rapid-equilibrium isomerization's constant is `K` or `1/K`.
 their constants, so which way its members correspond is a fact about the mechanism, and
 the graph does not hold it. In `(Estar <--> E, EstarA <--> EA)` the change of
 conformation has one pair of constants at both forms, yet the reaction runs through the
-two steps in opposite directions. The table orients one member, chosen without regard to
-the writing, and the others keep the directions they were written in relative to it. So
+two steps in opposite directions. The table orients one member, and the others keep the
+directions they were written in relative to it. That member is the one nearest the free
+enzyme among those the direction of the reaction decides, or among all of them when it
+decides none (the maintainer's choice, 2026-11-20). So
 turning a whole group as written changes nothing, and turning one member against its
 group writes a different mechanism, one that shares other constants. Nothing can check
 that a group is written aligned: the writer aligns it, as the enumerator and the
@@ -201,9 +203,10 @@ Checked on today's data model
 (`claude-scratchpad/lean-mechanism-spike/orientation/`): the table gives the stored
 direction of all 3,566 isomerizations in the seeds and first expansions of four reactions
 and in 3,000 ter-ter seeds. Of the 1,301 isomerizations in the mechanisms the tests
-write, 36 turn, in 25 fixtures. Each is a change of conformation or a step off the cycle,
-which today falls back to the order of the forms. In three groups the table alone would
-turn the members apart, which is why a group turns together.
+write, 32 turn, in at most 25 fixtures. Each is alone in its kinetic group, and is a
+change of conformation or a step off the cycle, which today falls back to the order of
+the forms. All 46 that share a group keep today's direction; in three groups the table
+alone would turn the members apart, which is why a group turns together.
 
 Removed: `AllostericMechanism`, `EnzymeMechanism`, `AllostericEnzymeMechanism`,
 `AbstractEnzymeMechanism`, `EnzymeForm`, `Metabolite`, `catalytic`, `compile_mechanism`,
@@ -390,9 +393,10 @@ end
 - **How Enumeration gets form contents.** It keeps its own record of them beside each
   mechanism it builds (decision 6). Nothing in `src/` reads a form name back.
 - **`Mechanisms`** keeps only what two modules use. `present_species` becomes private:
-  it is five lines, and `Derivation` writes its own. `segment_walk` stays public, since
-  `rapid_equilibrium_segments` in `Mechanisms` and the guard in `Derivation` both call
-  it.
+  it is five lines, and `Derivation` writes its own. `segment_walk` becomes private too
+  (the maintainer, 2026-11-20): `rapid_equilibrium_segments` keeps it, and the guard in
+  `Derivation`, its one outside caller, walks its own network of both conformations
+  itself.
 - **Which state excludes a step in which conformation** has one owner,
   `Mechanisms.excludes(state, conformation)`, which stays public. `Derivation` and
   `Enumeration` both need the steps a conformation excludes by their state, beside the
@@ -406,7 +410,7 @@ Public names of `Mechanisms` after the change, from 25: `Mechanism`, `CatalyticS
 `Allostery`, `Step`, `RegulatorySite`, `EnzymeReaction`, `Reactant`, `Regulator`,
 `metabolites`, `step_text`, `steps_in_active_conformation`,
 `steps_in_inactive_conformation`, `rapid_equilibrium_segments`, `has_turnover_cycle`,
-`has_unbalanced_cycle`, `segment_walk`, `excludes`: 17. The builder removes
+`has_unbalanced_cycle`, `excludes`: 16. The builder removes
 `has_unbalanced_cycle` if each module can own its use.
 
 Exports after the change: `Mechanism` and `compile_rate_equation` join;
@@ -702,8 +706,9 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
 
 - The canonical order of forms and steps, and the orientation of a step that exchanges
   several metabolites.
-- How the shortest turnover cycle through an isomerization is found, and which member of
-  a group the table orients; neither may depend on the writing.
+- How the shortest turnover cycle through an isomerization is found, and how a tie
+  between two members of a group equally near the free enzyme is broken; neither may
+  depend on the writing.
 - The replacement rule in `_priority_key`.
 - The private type that holds a candidate's record of its forms, and whether the moves
   work on it or on the lean graph beside it.
