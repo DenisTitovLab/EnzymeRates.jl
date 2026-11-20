@@ -312,7 +312,14 @@ when, on this face:
 
 - the law's forms it touches lie within one set that the law's own rapid-equilibrium
   steps, alive in both directions, hold in equilibrium (one touching form counts);
-- each of its forms reaches a law form along alive transitions that do not vanish; and
+- its forms drain to the law's forms however fast the rapid-equilibrium steps are. Take
+  the group's alive transitions that do not vanish. Its fast classes are the sets of its
+  forms that the fast ones among them cannot leave (a form with no fast way out is a class
+  of its own). Every fast class must lead to a law form by slow transitions out of fast
+  classes, each followed along fast transitions to the classes or law forms they reach. A
+  slow transition out of a form that has a fast way out does not count: its share vanishes
+  as the fast steps speed up. This is the chain class 3 builds on the law's network,
+  built on the group; and
 - each of its transition pairs is safe: it runs both ways; or only its direction that does
   not vanish is alive, so it only empties its form; or it joins two cut-off forms, only
   its vanishing direction is alive, and that direction is slow, or its source is not one
@@ -325,8 +332,8 @@ aside, goes with it: left alone it would read as a second place the enzyme could
 
 The argument: a second route between two forms already in equilibrium changes nothing,
 and with one touching form there is no route between two different forms. The group's own
-occupancy vanishes because every form drains and none is filled faster than it empties.
-Class 2 has already refused any cycle of fast transitions that turns the reaction over, so
+occupancy vanishes because every form drains at a rate that does not shrink as the fast
+steps speed up, and none is filled faster than it empties. Class 2 has already refused any cycle of fast transitions that turns the reaction over, so
 a cycle inside the group carries a flux that vanishes with its occupancy.
 
 A wider version was measured and is not built: a group touching forms that are in
@@ -468,10 +475,24 @@ directions, misses the failure below.
   check whose rate equals the law's although the cut-off forms hold most of the enzyme on
   that face (the inactive conformation's kept chemistry has the active one's constants).
   No simple rule found separates the last kind from the wrong ones; they stay rejected.
+- The set-aside rule's drain condition was first weaker: each form of the group had only
+  to reach a law form along alive transitions that do not vanish. Building it showed that
+  form unsound. In four hand-written test mechanisms (the R2funnel family of
+  `test/Derivation/test_admission.jl` and the enumeration tests), read with one step
+  stopped, the group's only such way out leaves a form that a fast step empties elsewhere,
+  so the group drains ever more slowly as the fast steps speed up; the harsh test finds a
+  limit at zero P that depends on the direction. The populations above held no such
+  mechanism. With the condition as stated above the four are no longer set aside under
+  that reading, and the search admits each under another reading (the stopped step loses
+  its uphill rate instead), with a law equal to the limit.
+- The 673 distinct allosteric mechanisms written in the test files, 201 of them open to a
+  reading: the search with the filling check admits 55 more than the built guard, oracles
+  agree on 55 of 55 (51 harsh). The set-aside rule adds 10, oracles agree on 65 of 65 (60
+  harsh). It still adds the same 35 and 23 in the second and fourth populations of the
+  table, oracles agree on 35 of 35 (25 harsh) and 23 of 23 (mild).
 - Not yet measured: reactions with inhibitors in the `:OnlyA` populations, ter-bi and
-  bi-ter, the enumerator's own expansion rounds, the hand-written mechanisms of
-  `test/Derivation/test_admission.jl`, ter-ter under the harsh test, and more than one
-  catalytic subunit. The gate covers them.
+  bi-ter, the enumerator's own expansion rounds, ter-ter under the harsh test, and more
+  than one catalytic subunit. The gate covers them.
 
 The spike scripts and logs are kept at
 `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/`, outside the repository. They

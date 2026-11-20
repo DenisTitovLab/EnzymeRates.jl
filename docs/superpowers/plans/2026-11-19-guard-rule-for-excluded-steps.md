@@ -795,6 +795,26 @@ one is lost or one disagrees, stop.**
 
 `git commit -m "Refuse a form that fills faster than it empties; set harmless groups aside"`
 
+**Split in execution.** The filling check landed alone (`852d69ab`, "Refuse a form that
+fills faster than it empties"): the set-aside rule as first specified admitted the
+R2funnel family with laws the harsh test rejects. The set-aside rule lands as Task 11b,
+with the spec's drain condition as now stated (the group's fast classes drain in the
+aggregated chain) and these additions to the testset above:
+
+- `R2funnel` and `R2funnel_SS` under the first built reading: the group at zero P is not
+  set aside (its only way out that does not vanish leaves a form with a fast way out), the
+  face stays `_BRIDGE`, and the oracle with `corners = true` does not converge there.
+- A counter-case for the equilibrium condition in which the oracle does not converge (the
+  one first planned, entry 8561 with `E + Q <--> E(Q)`, stays `_BRIDGE` though the oracle
+  converges: a conservative rejection, pinned as such).
+- Fixtures the rule moves to another verdict are brought to it in the spec's allowed
+  ways: the trap fixture is rejected as `_TRAP`, not `_BRIDGE`; `second_try_a` and
+  `second_try_b`, now admitted on the first try, are replaced by mechanisms from the
+  gate's later-try entries so that the second and third tries stay exercised.
+
+Reference only: `without_appendages` with `REPAIR[] = :agg` in `gate/repair.jl`, and its
+output `gate/repair.out`. Commit: `"Set aside cut-off groups that cannot matter"`.
+
 ### Task 12: The search for a reading
 
 **Files:**
