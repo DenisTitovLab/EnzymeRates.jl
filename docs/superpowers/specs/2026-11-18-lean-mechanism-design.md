@@ -706,16 +706,27 @@ struct CandidateMechanism
     # the enumerator's record of each form: private
 end
 
-candidate_mechanisms(reaction; optional_allosteric_regulators,
+candidate_mechanisms(reaction; max_param_count, eq_complexity_filter,
+                     optional_allosteric_regulators,
                      optional_competitive_inhibitors) -> Vector{CandidateMechanism}
-candidate_mechanisms(reaction, parent::CandidateMechanism) -> Vector{CandidateMechanism}
+candidate_mechanisms(reaction, parent::CandidateMechanism; max_param_count,
+                     eq_complexity_filter) -> Vector{CandidateMechanism}
 ```
+
+Every keyword is a keyword of `identify_rate_equation`, passed through unchanged.
 
 - The first method returns the mechanisms the search fits first (today's
   `starting_mechanisms`). It works out which regulators are required from the reaction
   and the two optional lists, which identify does today (`_required_regulators`).
 - The second returns every child of `parent` by the expansion moves (today's
   `expand_mechanisms` on a one-element vector).
+- **Every candidate returned is one identify may fit** (the maintainer's decision): it
+  has passed the guard, as today, and it is within both size limits, which identify
+  applies today. A mechanism is dropped when its law has more than `eq_complexity_filter`
+  terms (`Derivation.rate_equation_term_count`) or more than `max_param_count` fitted
+  constants (`Derivation.fitted_parameter_count`). The limits apply to the mechanisms
+  returned, not inside a move's own search, so the search proposes what it proposes
+  today: a mechanism over a limit was never fitted or expanded.
 - Two candidates are `==` and hash alike when their mechanisms are. Form names are built
   from the contents, so equal mechanisms hold equal records.
 - Errors: the reaction has no catalytic cycle; no mechanism binds every required
@@ -850,6 +861,22 @@ Interface compared, as `.claude/CLAUDE.md` asks:
 | `Keq` inside `params`, one list | `eq(concs, params)`; `parameters(m)` | One argument fewer, but `parameters(m)` no longer lists everything `params` must hold. |
 | Two kinds | `parameters(m)` for the law's inputs, `parameters(m, FittedParameters())` for a fit's | Keeps an export and a second meaning of `parameters`. |
 | Today | three kinds, `E_total` merged in by every caller | |
+
+#### What identify asks
+
+Per candidate, identify asks `Derivation` three things: the fitted names (`parameters`),
+the law's text (`rate_equation_string`) and the dedup key (`rate_equation_dedup_key`).
+Today it asks five. The guard and the two size limits are the enumerator's (decision 6),
+so identify's calls to `check_valid_rate_equation` and `rate_equation_term_count` go.
+
+- **The progress log loses two counts** (accepted by the maintainer): how many children
+  of a batch were skipped for each limit. A batch whose children are all too large shows
+  no children.
+- **The dedup key keeps its shape.** Hiding the `L`-phantom rule inside `Derivation`
+  would change which mechanism is fitted first for a key, and so could change
+  selections.
+- **No `Identification` module.** Moving `identify_rate_equation.jl` into a module would
+  remove no name and no argument from any interface.
 
 #### Public names of `Derivation` after the change
 
