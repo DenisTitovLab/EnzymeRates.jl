@@ -545,7 +545,7 @@ allosteric mechanisms `test/Derivation/test_admission.jl` puts through the guard
   127 of 566), 7 of 40 ter-bi, 1 of 40 bi-ter, 4 of 8 ping-pong taggings, none in the
   `:OnlyI`, ter-ter, split and inhibitor populations. Nearly all are ping-pongs that the
   filling check refuses under the reading the oracles accept, at the second substrate's
-  binding to the covalent form; none is a bridge.
+  binding to the covalent form; one of the 9 is refused as a bridge instead.
 
 The spike scripts and logs are kept at
 `/home/denis.linux/claude-scratchpad/lean-mechanism-spike/`, outside the repository. They
