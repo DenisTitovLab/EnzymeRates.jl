@@ -791,7 +791,7 @@ end
     end
 end
 
-@testset "the ε-path oracle rejects islands, and R2 only at P = 0" begin
+@testset "under the built readings the ε-path rejects islands, and R2 only at P = 0" begin
     # Read as the guard's built readings read it, stopped, a steady-state :OnlyA
     # isomerization strands F in the inactive conformation of R3 and of R4 with F <--> E
     # steady-state, an island: its weight follows the potential the path gives it, so along
@@ -840,6 +840,10 @@ end
     @test all(_testhelper_admission_agreement(r4; rng = Random.MersenneTwister(32),
                                               corners = true))
     _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(r4))
+    # R2 read as the guard's built readings read it, F <--> E stopped: its ε-path converges
+    # at the interior and at zero S, and at zero P depends on how fast F <--> E vanishes.
+    # The guard admits R2 under another reading ("the unguarded macro builds what the
+    # guard refuses").
     r2 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: S
         products: P
@@ -919,7 +923,10 @@ end
     # A limit exists exactly when no excluded rapid-equilibrium step is pinned, which the
     # LP does not read, and the LP is feasible. Under the first built reading every grid
     # member's LP is feasible: a binding whose sides stay joined is stopped at steady state
-    # and pinned at rapid equilibrium, and neither adds a row.
+    # and pinned at rapid equilibrium, and neither adds a row. So here the agreement only
+    # sorts the pinned members from the rest; test_admission.jl's "the graph test equals
+    # the exact LP on the uni-uni grid" reaches the LP's infeasible side, under every
+    # reading of the inactive conformation's excluded steps.
     grid = _testhelper_uniuni_grid()
     @test count(am -> (_testhelper_exclusion(am, 2).failure !== :fast &&
                        _testhelper_lp_existence(am, 2)) ==
@@ -1178,9 +1185,10 @@ end
 
 @testset "ping-pong seeds' tagging children are admitted, distinct and oracle-checked" begin
     # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
-    # form) of the census ping-pong reaction. Each seed's bases stop the inactive
-    # conformation's catalysis, pass the guard, and tag disjoint sets of chemistry groups;
-    # each seed gets one base. The move emits 94 children and the guard keeps 53; class 3
+    # form) of the census ping-pong reaction. Each seed gets one base, which stops the
+    # inactive conformation's catalysis and passes the guard (test_mechanism_enumeration.jl,
+    # "the tagging search extends a tag set whose child the guard rejects", holds a parent
+    # with several bases). The move emits 94 children and the guard keeps 53; class 3
     # rejects none of the other 41, admission rejects them all. Every kept child is
     # distinct, its verdict matches the one its tags get at one subunit, on every face its
     # guard verdict agrees with the RE-speed oracle, and, under the reading the guard
@@ -1191,19 +1199,18 @@ end
     seeds = [m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
              if any(EnzymeRates.Mechanisms._has_residual, m.nodes)]
     @test length(seeds) == 18
-    nbases, n_moved, n_kids = Dict{Int, Int}(), 0, 0
+    nbases, n_moved, n_kids, n_class3 = Dict{Int, Int}(), 0, 0, 0
     for m in seeds
         tags = EnzymeRates.Enumeration._tagging_bases(m)
         nbases[length(tags)] = get(nbases, length(tags), 0) + 1
-        onlya = [Set(findall(==(:OnlyA), t)) for t in tags]
-        @test all(isdisjoint(onlya[i], onlya[j]) for i in eachindex(onlya)
-                  for j in (i + 1):length(onlya))
         @test all(t -> EnzymeRates.Enumeration._valid_tagging(m, t) &&
                        EnzymeRates.Enumeration._stops_inactive_turnover(m, t), tags)
         moved = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
         kids = filter(_testhelper_is_valid, moved)
         n_moved += length(moved)
         n_kids += length(kids)
+        n_class3 += count(c -> any(!=(EnzymeRates.Derivation._NO_FAULT),
+                                   _testhelper_face_faults(c)), moved)
         @test allunique(kids)
         for c in kids
             @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.mwc_tags)
@@ -1221,6 +1228,7 @@ end
     @test nbases == Dict(1 => 18)
     @test n_moved == 94
     @test n_kids == 53
+    @test n_class3 == 0
 end
 
 # ── Population tests of the well-posedness guard ────────────────────────────
@@ -1264,8 +1272,8 @@ the first substrate change. In sorted order the names become `Z`, `Y`, `X`, `W`,
 `R`, `M`, `H` and `G`, so `m` holds at most ten metabolites (with more, the slice throws a
 `BoundsError`). The letters descend, so the order reverses. None of them is a name no
 metabolite may take (`E`, `L`, `N`) or the conformation label `F`, and none is a metabolite
-name of the population sample or of the four rejected fixtures below (`A`, `B`, `P`, `Q`
-and `S`), so every name changes."""
+name of the population sample or of the fixtures below (`A`, `B`, `P`, `Q`, `S`, `ATP`,
+`F6P`, `ADP` and `F16BP`), so every name changes."""
 function _testhelper_reversing_rename(m)
     names = sort(EnzymeRates.metabolites(m))
     Dict(zip(names, [:Z, :Y, :X, :W, :U, :T, :R, :M, :H, :G][1:length(names)]))
@@ -1411,14 +1419,15 @@ end
 end
 
 @testset "the guard's verdict survives reordering, reversal, regrouping and renames" begin
-    # The sample, R2, which the guard admits under a reading it finds by search, and four
+    # The sample, R2, which the guard admits under a reading it finds by search, and five
     # mechanisms the guard rejects: a lumpable split rejected at Q zero only (limit test
     # `differ`), an unfed trap rejected at Q zero only (`speed`), F3 with A's binding and
     # its rapid-equilibrium Theorell–Chance step :OnlyA, whose E(A) fills faster than it
-    # empties at zero substrates (`_FILLED`), and S1's second closed class at zero
-    # substrates. Reversing the step order and every step's direction gives the same
-    # mechanism. A same-model regrouping (a split the cycles tie back, the count unchanged)
-    # keeps the fault. A renaming that reverses the name order moves the faces'
+    # empties at zero substrates (`_FILLED`), S1's second closed class at zero substrates,
+    # and a ping-pong whose inactive conformation runs neither half-reaction, pumped at
+    # zero products (`_PUMPED`). Reversing the step order and every step's direction gives
+    # the same mechanism. A same-model regrouping (a split the cycles tie back, the count
+    # unchanged) keeps the fault. A renaming that reverses the name order moves the faces'
     # indices and the first substrate, and keeps the fault, the limit verdict, the
     # conformation and the zeroed names.
     lumpable_732 = @_testhelper_unguarded @enzyme_mechanism begin
@@ -1456,8 +1465,6 @@ end
         end
     end
     @test EnzymeRates.Derivation._guard(r2) == EnzymeRates.Derivation._WELL_POSED
-    @test all(_testhelper_admission_agreement(r2; rng = Random.MersenneTwister(1338),
-                                              corners = true))
     tc = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1482,7 +1489,19 @@ end
             F + B <--> E(B)                 :: EqualAI
         end
     end
-    rejected = [lumpable_732, unfed_trap, tc, s1]
+    dead = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: ATP, F6P
+        products: ADP, F16BP
+        steps: begin
+            E + ATP ⇌ E(ATP)                                                      :: EqualAI
+            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
+            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
+            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
+            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
+            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+        end
+    end
+    rejected = [lumpable_732, unfed_trap, tc, s1, dead]
     verdicts = EnzymeRates.Derivation._guard.(rejected)
     @test all(v -> v.fault !== EnzymeRates.Derivation._NO_FAULT, verdicts)
     @test [(v.fault, v.limit, v.face) for v in verdicts[1:2]] ==
@@ -1491,6 +1510,8 @@ end
     @test (verdicts[3].fault, verdicts[3].face, verdicts[3].conformation) ==
           (EnzymeRates.Derivation._FILLED, 3, 2)
     @test (verdicts[4].fault, verdicts[4].face) == (EnzymeRates.Derivation._NONUNIQUE, 3)
+    @test (verdicts[5].fault, verdicts[5].face, verdicts[5].conformation) ==
+          (EnzymeRates.Derivation._PUMPED, 2, 2)
     _testhelper_zeroed(m, v) = v.face == 0 ? Set{Symbol}() :
         Set(EnzymeRates.Derivation._face_names(
             EnzymeRates.Mechanisms.catalytic(m),

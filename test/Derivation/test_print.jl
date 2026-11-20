@@ -251,12 +251,14 @@ end
     # conformation's rule, dividing its Q, D and free-E weight alike, so the MWC
     # combination does not change. A two-subunit ping-pong whose chemistry differs between
     # the conformations takes Cleland's normalizer in both, each on its own terms. F3 with
-    # every step :OnlyA takes no normalizer in the active conformation and the constant
-    # term in the inactive one, which keeps free E alone. With E(Q)'s release left to both
-    # conformations, the inactive one would keep free E and E(Q), but the
-    # rapid-equilibrium Theorell–Chance step, which then lies between two of its groups,
-    # fills E(A) faster than E(A) empties at zero substrates, and the guard refuses it;
-    # under none of its consistent readings does the ε-path oracle find a limit.
+    # every step :OnlyA, beside a steady-state dead-end inhibitor I that binds free E in
+    # both conformations, takes no normalizer in the active conformation and the constant
+    # term in the inactive one, which keeps free E and E(I). With A's binding and the
+    # Theorell–Chance step alone :OnlyA, the inactive conformation would keep free E and
+    # E(Q), but the rapid-equilibrium Theorell–Chance step, which then lies between two of
+    # its groups, fills E(A) faster than E(A) empties at zero substrates, and the guard
+    # refuses it; under none of its consistent readings does the ε-path oracle find a
+    # limit.
     filled = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
@@ -289,10 +291,12 @@ end
     tc = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
+        modifiers: I
         steps: begin
             E + A <--> E(A)            :: OnlyA
             E(A) + B ⇌ E(Q) + P        :: OnlyA
             E(Q) <--> E + Q            :: OnlyA
+            E + I <--> E(I)            :: EqualAI
         end
     end)
     for (i, am) in enumerate((pp2, tc))
@@ -539,10 +543,11 @@ end
 @testset "a law with no normalizer prints finite where a concentration is zero" begin
     # The printed law divides by no concentration, so both forms equal `rate_equation` at
     # a zero of each one. F1, F3 and the covalent ping-pong take no normalizer, and
-    # neither do the active conformation of `tc`, F3 with every step :OnlyA, and the
-    # inactive one of `pp`; the rule pin keeps `pp` an MWC law whose other conformation has
-    # a normalizer. `pp`'s inactive and `tc`'s active conformation print their polynomials
-    # as derived, with no `N` line.
+    # neither do the active conformation of `tc`, F3 with every step :OnlyA beside a
+    # steady-state dead-end inhibitor I, and the inactive one of `pp`; the rule pin keeps
+    # `pp` an MWC law whose other conformation has a normalizer. `pp`'s inactive and `tc`'s
+    # active conformation print their polynomials as derived, with no `N` line, and `tc`'s
+    # inactive one, free E and E(I), prints its constant term's D_I line.
     f1 = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -571,10 +576,12 @@ end
     tc = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
+        modifiers: I
         steps: begin
             E + A <--> E(A)            :: OnlyA
             E(A) + B ⇌ E(Q) + P        :: OnlyA
             E(Q) <--> E + Q            :: OnlyA
+            E + I <--> E(I)            :: EqualAI
         end
     end
     pp = @allosteric_mechanism begin
@@ -611,9 +618,11 @@ end
            "fI_P = k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A"] ⊆ coef
     tc_full = split(rate_equation_string(tc), '\n')
     tc_coef = split(rate_equation_string(tc; coefficients = true), '\n')
-    @test heads(tc_full) == ["Q_A", "D_A", "F_A"]
+    @test heads(tc_full) == ["Q_A", "D_A", "D_I", "F_A"]
     @test heads(tc_coef) == heads(tc_full)
-    @test ["dA_P = k_A_EA_to_E_A", "dA_P_Q = k_A_E_Q_to_EQ"] ⊆ tc_coef
+    @test "D_I = 1 + I * k_E_I_to_EI / k_EI_to_E_I" in tc_full
+    @test ["dA_P = k_A_EA_to_E_A * k_EI_to_E_I", "dA_P_Q = k_A_E_Q_to_EQ * k_EI_to_E_I",
+           "dI_I = k_E_I_to_EI / k_EI_to_E_I"] ⊆ tc_coef
     rng = Random.MersenneTwister(41)
     for m in (f1, f3, covalent, tc, pp), x in metabolites(m), _ in 1:2
         _testhelper_check_pasted_forms(m, rng; at_zero = x)

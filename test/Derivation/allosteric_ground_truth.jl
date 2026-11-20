@@ -801,10 +801,11 @@ end
     @test (v.fault, v.face, v.conformation) == (ER.Derivation._FILLED, 3, 2)
     readings = _testhelper_consistent_readings(err1)
     @test length(readings) == 2
+    zero_substrates = _testhelper_faces(err1)[3]
     for reading in readings
-        @test any(face -> _testhelper_epath_verdict(err1; rng = MersenneTwister(761), face,
-                                                    corners = true, reading) !==
-                          :converges, _testhelper_faces(err1))
+        @test _testhelper_epath_verdict(err1; rng = MersenneTwister(761),
+                                        face = zero_substrates, corners = true, reading) ===
+              :direction_dependent
     end
     @test_throws ErrorException(
         ER.Derivation._guard_message(err1, v)) @allosteric_mechanism begin
@@ -1110,6 +1111,19 @@ end
                                     face = _testhelper_faces(dead)[v.face], corners = true,
                                     reading = _testhelper_reading(reported.reading)) ===
           :direction_dependent
+    # The conservative rejection: of the three consistent readings, one lets the ε-path
+    # oracle converge on every face, and under it the face checks refuse the filling of
+    # E(; residual = ATP - F16BP) at zero substrates.
+    readings = _testhelper_consistent_readings(dead)
+    @test length(readings) == 3
+    converging = filter(readings) do reading
+        all(face -> _testhelper_epath_verdict(dead; rng = MersenneTwister(998), face,
+                                              corners = true, reading) === :converges,
+            _testhelper_faces(dead))
+    end
+    @test length(converging) == 1
+    @test _testhelper_admission_faults(dead; reading = only(converging))[3] ===
+          ER.Derivation._FILLED
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
@@ -1154,6 +1168,7 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
+    _testhelper_check_law_against_oracle(half2)
     afp = parameters(half2, FittedParameters())
     # Non-allosteric twin: the same six steps with no tags. At L = 0 the inactive
     # conformation is unpopulated, so the allosteric rate must reduce to the twin's, an
