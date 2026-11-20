@@ -37,15 +37,11 @@ constants. This design makes that graph the whole mechanism.
 
 ## Non-goals
 
-Each of these gets its own design (see "Sequence"). The first of them, what Enumeration
-needs to know about a form, is now decision 6.
+An earlier draft left three designs for later. They are now decisions 6 (what Enumeration
+needs to know about a form) and 7 (Derivation's interface to its callers, `E_total` and
+the parameter kinds).
 
-- Derivation's interface to its callers: identify's questions, an Identification module,
-  a units function for Fitting, and whether Enumeration should ask `Derivation` about the
-  rate law instead of predicting it from the graph.
-- Dropping `E_total` and reshaping the parameter kinds.
-
-Also outside this design: new enumeration moves, iso mechanisms, a flip at a covalent
+Outside this design: new enumeration moves, iso mechanisms, a flip at a covalent
 form, identify's keyword arguments.
 
 ## Anti-goals
@@ -561,8 +557,10 @@ are a reference for the comparison, not code to keep.
 
   ```julia
   eq = compile_rate_equation(m)   # compiles once
-  v = eq(concs, params)           # fast, no allocation
+  v = eq(concs, params, Keq)      # fast, no allocation
   ```
+
+  `Keq` is its own argument and `E_total` is gone (decision 7).
 
   `eq` is a callable object whose type carries the graph (`Sig`), so its call is generated
   per mechanism as `rate_equation` is today. `Sig` holds the graph as nested tuples of
@@ -572,8 +570,8 @@ are a reference for the comparison, not code to keep.
   way to evaluate a law, and no slow path. Users who want the law in other code copy
   `rate_equation_string`.
 - `FittingProblem(m, data)` compiles inside and keeps both the mechanism and `eq`. Fitting
-  reads the parameter names as a compile-time constant from `eq` (`parameters(eq, kind)`);
-  `parameters(m, kind)` on a mechanism is an ordinary function.
+  reads the parameter names as a compile-time constant from `eq` (`parameters(eq)`);
+  `parameters(m)` on a mechanism is an ordinary function.
 - Plotting compiles once per plot. Tests evaluate a law through `compile_rate_equation`.
 - The speed, allocation, compile-budget and type-stability tests move to `eq`.
 
@@ -581,7 +579,7 @@ Interface compared, as `.claude/CLAUDE.md` asks:
 
 | Sketch | Caller writes | Trade-off |
 |:--|:--|:--|
-| A function returning a callable (chosen) | `eq = compile_rate_equation(m)`, then `eq(concs, params)` | One name, one way to evaluate. |
+| A function returning a callable (chosen) | `eq = compile_rate_equation(m)`, then `eq(concs, params, Keq)` | One name, one way to evaluate. |
 | A compiled object passed to `rate_equation` | `rate_equation(eq, concs, params)` | Keeps a second name, and invites a slow `rate_equation(m, …)` beside it. |
 | Fitting builds the type itself | `Derivation.CompiledRateEquation{Derivation.sig(m)}()` | Exposes the encoding to Fitting. |
 
@@ -648,24 +646,21 @@ end
   mechanism it builds (decision 6). Nothing in `src/` reads a form name back.
 - **`Mechanisms`** keeps only what two modules use. `segment_walk` and `present_species`,
   which only `Derivation` calls, move into `Derivation`.
-- **Deferred to the Derivation-interface design.** Enumeration calls
-  `steps_in_active_conformation`, `steps_in_inactive_conformation`,
-  `rapid_equilibrium_segments` and `has_turnover_cycle` only to predict properties of the
-  rate law from the graph (a maximal rate, first order in each metabolite, an invisible
-  constant, which flips add a parameter, inactive turnover). Whether it should ask
-  `Derivation` instead, which would make all four internal to `Derivation`, is settled
-  there, with timings.
+- **Enumeration predicts the rate law from the graph itself** (the maintainer's decision,
+  2026-11-20; decision 7). It calls `steps_in_active_conformation`,
+  `steps_in_inactive_conformation`, `rapid_equilibrium_segments` and `has_turnover_cycle`
+  for that, so the four stay public in `Mechanisms`.
 
 Public names of `Mechanisms` after the change, from 25: `Mechanism`, `CatalyticScheme`,
 `Allostery`, `Step`, `RegulatorySite`, `EnzymeReaction`, `Reactant`, `Regulator`,
 `metabolites`, `step_text`, `steps_in_active_conformation`,
 `steps_in_inactive_conformation`, `rapid_equilibrium_segments`, `has_turnover_cycle`,
 `has_unbalanced_cycle`: 15. The builder removes `has_unbalanced_cycle` if each module can
-own its use; the Derivation-interface design may remove four more.
+own its use.
 
 Exports after the change: `Mechanism` and `compile_rate_equation` join;
-`EnzymeMechanism`, `AllostericEnzymeMechanism`, `@allosteric_mechanism` and
-`rate_equation` leave.
+`EnzymeMechanism`, `AllostericEnzymeMechanism`, `@allosteric_mechanism`, `rate_equation`,
+`IndependentParameters`, `FittedParameters` and `AllParameters` leave.
 
 ### 6. Enumeration's interface: candidates
 
@@ -777,6 +772,91 @@ a candidate back to get its children, and returns plain mechanisms to the user.
   proposes, organized by the starting set and the moves. It stops presenting
   `init_mechanisms`, `seed_mechanisms` and `expand_mechanisms` as functions to call, and
   shows `candidate_mechanisms` as the way to list what the search would propose.
+
+### 7. Derivation's interface, `Keq` and `E_total`
+
+Decided with the maintainer on 2026-11-20.
+
+#### Who asks `Derivation` what, today
+
+| Caller | What it asks | How |
+|:--|:--|:--|
+| Fitting | The law's value, the fitted names, a starting scale for each parameter, which constants are rate constants | 8 names. It also reads step fields and `step_kinds` to work out each parameter's units. |
+| Identify | Per candidate: term count, validity, fitted names, the law's text, the dedup key | 5 functions |
+| Enumeration | Validity and the fitted-parameter count | 2 functions |
+| Plotting, the macro | The law's value and names; validity | 3 names |
+
+#### Enumeration keeps predicting the rate law from the graph
+
+Its filters predict six properties of a law without deriving it: a maximal rate, chemistry
+in equilibrium with both sides, first order in each reactant, an invisible inhibitor
+constant, which steps carry flux, inactive turnover. They stay in `Enumeration` (the
+maintainer's decision): only the enumerator needs them, they are its search policy, and
+asking `Derivation` would mean deriving every candidate's law before screening it. The
+graph functions both modules use stay public in `Mechanisms` (decision 5).
+
+#### The parameter interface
+
+```julia
+parameters(m)                                # the constants a fit estimates
+parameter_units(m)                           # their units, for Fitting
+dependent_parameter_values(m, params, Keq)
+eq = compile_rate_equation(m)
+eq(concs, params, Keq)                       # the rate per unit enzyme
+```
+
+- **`Keq` is its own argument** (the maintainer's design). It is a property of the
+  reaction that is given, never fitted, and the signature says so. `parameters(m)` is then
+  exactly the names of `params`. It stays positional, so the hot path stays simple. The
+  user still supplies it with the data (`FittingProblem(m, data; Keq = 2.0)`), since it
+  depends on the conditions the data were measured in.
+- **`E_total` is gone.** The law returns the rate per unit enzyme; a user who wants an
+  absolute rate multiplies by the enzyme concentration. Inside the package it was always
+  1. It leaves the parameters, the printed equation and the docs.
+- **One parameter list.** `IndependentParameters`, `FittedParameters` and `AllParameters`
+  leave the exports. The dependent constants' names are the keys of
+  `dependent_parameter_values`, and the printed equation shows their relations.
+- **A fit's `params`** holds exactly `parameters(m)`; today it also carries `Keq`.
+- **`rate_equation_string`** shows `Keq` as an input of its own.
+
+`parameter_units(m)` returns each fitted constant's units as integer powers:
+
+```julia
+units = parameter_units(m)
+units.rate            # Vector{Int}, one entry per name of parameters(m)
+units.concentrations  # Matrix{Int}: rows follow parameters(m), columns metabolites(m)
+```
+
+| Constant | Power of the rate | Powers of concentration |
+|:--|--:|:--|
+| Rate constant of a steady-state step | 1 | −1 for each metabolite the step takes up in that direction |
+| Dissociation constant of a rapid-equilibrium binding | 0 | +1 for the metabolite that binds |
+| Other rapid-equilibrium constant | 0 | +1 for each metabolite given off, −1 for each taken up |
+| Regulator's constant | 0 | +1 for its ligand |
+| `L` | 0 | none |
+
+The rate is per unit enzyme, in the units of the data's `Rate` column. Fitting starts each
+constant at `r^rate × Π s_x^power` (`r` the data's typical rate, `s_x` each metabolite's
+typical concentration) and, for relative data, rescales the constants whose power of the
+rate is 1. `parameter_units` is public in `Derivation` and not exported. It replaces
+`parameter_info`, `name`, `StepParameter`, `RegulatorParameter` and `AllostericParameter`,
+and Fitting's reads of the steps.
+
+Interface compared, as `.claude/CLAUDE.md` asks:
+
+| Sketch | Caller writes | Trade-off |
+|:--|:--|:--|
+| `Keq` as an argument, one list (chosen) | `eq(concs, params, Keq)`; `parameters(m)` | `parameters(m)` is exactly what `params` holds, and the signature shows what is not fitted. |
+| `Keq` inside `params`, one list | `eq(concs, params)`; `parameters(m)` | One argument fewer, but `parameters(m)` no longer lists everything `params` must hold. |
+| Two kinds | `parameters(m)` for the law's inputs, `parameters(m, FittedParameters())` for a fit's | Keeps an export and a second meaning of `parameters`. |
+| Today | three kinds, `E_total` merged in by every caller | |
+
+#### Public names of `Derivation` after the change
+
+From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
+`dependent_parameter_values` (these four exported), `parameter_units`,
+`check_valid_rate_equation`, `fitted_parameter_count`, `rate_equation_dedup_key`,
+`rate_equation_term_count`: 9.
 
 ## Tests
 
@@ -903,11 +983,10 @@ maintainer's request). It lands with stage 1, when the rule changes:
    the same branch, before the enumeration tests are brought to the rule.
 2. The Enumeration design: what its moves need to know about a form. Done on 2026-11-20:
    decision 6.
-3. The Derivation-interface design.
+3. The Derivation-interface design, with `E_total` and the parameter kinds. Done on
+   2026-11-20: decision 7.
 4. The rest of this design is planned and built: the lean graph, the one type and the one
    macro with the fixtures, then compiling inside `FittingProblem`.
-
-The `E_total` design can come anywhere in that list.
 
 ## Consequences for the maintainer to know
 
