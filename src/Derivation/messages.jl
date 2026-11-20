@@ -10,7 +10,8 @@ The error for the guard's verdict `v` on `mech` (`_guard`):
 `<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.`, the
 cause read under the reading the verdict was judged under (`_guard_with_reading`). Class
 2's fix is printed when each step's variant leaves no fast turnover cycle
-(`_every_step_cures`); every other fix only when its variant passes `_guard`.
+(`_every_step_cures`); every other fix only when its variant passes `_guard`. `v` must be
+`_guard(mech)`, since the message runs the guard again to recover that reading.
 """
 function _guard_message(mech::_AnyMech, v::_Verdict)
     who = mech isa Mechanisms.AllostericMechanism ? "AllostericMechanism" : "Mechanism"

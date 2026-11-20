@@ -1560,9 +1560,11 @@ end
 
 """
 Tag sets by name, each built without the guard (`@_testhelper_unguarded`): those that pass
-every face, those a face rejects (`_testhelper_face_rejected`), and those whose inactive
-conformation excludes a rapid-equilibrium step it cannot switch off, which admission's
-interior rejects (`_testhelper_pinned_tag_sets`). The ping-pong tag sets write their
+every face under the guard's first built reading, those a face rejects under it
+(`_testhelper_face_rejected`), and those whose inactive conformation excludes a
+rapid-equilibrium step that reading cannot switch off, so admission's interior rejects it
+(`_testhelper_pinned_tag_sets`); the search admits some of the last two kinds. The
+ping-pong tag sets write their
 covalent form `E(; residual = A - P)`, which gives the graph a free form `F` would;
 AD2a_iso_chemNonequal is R1, AD2e is R2 and AD2c is R3 written again, and AD6 holds one
 reaction in two groups, which the constructor rejects.
@@ -2592,6 +2594,15 @@ end
     # The verdict names the first of them in edge order.
     @test D._admission_interior(am, flipped) ==
           D._Verdict(D._ARC_CYCLE, D._LIMIT_UNTESTED, 0, 2, chem_a)
+    # A step keeps its kind, so a reading that stops the rapid-equilibrium F(B) ⇌ E(Q) is
+    # refused as one that cannot switch it off.
+    stopped_fast = copy(r)
+    stopped_fast[chem_b, 2] = D._STOPPED
+    @test D._admission_interior(am, stopped_fast) ==
+          D._Verdict(D._FAST_STEP_PINNED, D._LIMIT_UNTESTED, 0, 2, chem_b)
+    stopped_names = _testhelper_reading(stopped_fast)
+    @test !_testhelper_reading_is_consistent(am, stopped_names)
+    @test _testhelper_exclusion(am, 2; reading = stopped_names).failure === :fast
     # A step the conformation keeps joins its two sides into one group, so a direction it
     # loses points uphill inside that group and closes a cycle alone.
     b_binding = _testhelper_edge(am, "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP")
@@ -3269,11 +3280,14 @@ end
     # every check: under no built reading are `large_island`'s forms all reached, so the
     # guard reports that there are too many readings; `large_pumped`'s first built reading
     # is consistent, so the guard reports its verdict.
-    function _testhelper_choice_count(am)
-        group = _testhelper_kept_components(am, 2)
+    # The ways conformation `c` of `am` may switch off its excluded steps between two
+    # groups, by the tests' own rule: each loses toward either side but free E's group,
+    # or, at steady state, stops.
+    function _testhelper_choice_count(am, c = 2)
+        group = _testhelper_kept_components(am, c)
         prod((group[e.to] != group[1]) + (group[e.from] != group[1]) + !e.rapid_equilibrium
              for (k, e) in enumerate(am.catalytic.steps)
-             if _testhelper_excludes(am, k, 2) && group[e.from] != group[e.to]; init = 1)
+             if _testhelper_excludes(am, k, c) && group[e.from] != group[e.to]; init = 1)
     end
     large_admitted = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, D
@@ -3347,10 +3361,99 @@ end
         @test D._verdict_under(am, map(name -> names[name], reading)) == D._WELL_POSED
         @test D._admitting_reading(am) === nothing
     end
+
+    # The two other ways a search can be too large, in ter-ter taggings that mix :OnlyA
+    # and :OnlyI, found by sampling the gate's ter-ter init mechanisms. In
+    # `too_many_pairs` each conformation stays within `_MAX_CHOICES_PER_CONFORMATION`, but
+    # its consistent columns, counted by the tests' own rule and equal to the package's,
+    # pair up more than `_MAX_READING_PAIRS` times; in `too_many_active` it is the active
+    # conformation that has too many choices. No built reading of either is consistent,
+    # so the guard reports that there are too many readings. (Neither active conformation
+    # turns the reaction over; the guard meets the cap before it reads that.)
+    function _testhelper_consistent_column_count(am, c)
+        n = length(am.catalytic.steps)
+        group = _testhelper_kept_components(am, c)
+        between = [k for (k, e) in enumerate(am.catalytic.steps)
+                   if _testhelper_excludes(am, k, c) && group[e.from] != group[e.to]]
+        r = fill(:runs, n, 2)
+        for (k, e) in enumerate(am.catalytic.steps)
+            _testhelper_excludes(am, k, c) && group[e.from] == group[e.to] &&
+                (r[k, c] = e.rapid_equilibrium ? :cannot_switch_off : :stopped)
+        end
+        ways(k) = [w for w in (:loses_forward, :loses_reverse, :stopped)
+                   if !(w === :loses_forward &&
+                        group[am.catalytic.steps[k].to] == group[1]) &&
+                      !(w === :loses_reverse &&
+                        group[am.catalytic.steps[k].from] == group[1]) &&
+                      !(w === :stopped && am.catalytic.steps[k].rapid_equilibrium)]
+        count(Iterators.product((ways(k) for k in between)...)) do choice
+            r[between, c] .= collect(choice)
+            ex = _testhelper_exclusion(am, c; reading = r)
+            ex.failure === :none && isempty(ex.lost)
+        end
+    end
+    too_many_pairs = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + A <--> E(A), E(D) + A <--> E(P; residual = A + D - P),
+             E(Q) + A <--> E(A, Q)) :: OnlyI
+            (E + D <--> E(D), E(A) + D <--> E(P; residual = A + D - P),
+             E(R) + D <--> E(D, R)) :: OnlyI
+            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q),
+             E(Q, R) + Q <--> E(B, Q; residual = A + D - P), E(R) + Q <--> E(Q, R)) :: OnlyI
+            (E + R <--> E(R), E(D) + R <--> E(D, R), E(Q) + R <--> E(Q, R)) :: OnlyA
+            (E(; residual = A + D - P) + P ⇌ E(P; residual = A + D - P),
+             E(Q, R) + P ⇌ E(B, P; residual = A + D - P)) :: OnlyA
+            (E(; residual = A + D - P) + B ⇌ E(Q, R),
+             E(P; residual = A + D - P) + B ⇌ E(B, P; residual = A + D - P),
+             E(Q) + B ⇌ E(B, Q)) :: EqualAI
+        end
+    end
+    too_many_active = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: A, B, D
+        products: P, Q, R
+        steps: begin
+            (E + A ⇌ E(A), E(B, R) + A ⇌ E(A, B, R), E(R) + A ⇌ E(A, R)) :: OnlyI
+            (E + R <--> E(R), E(A) + R <--> E(A, R),
+             E(Q; residual = A + B - Q) + R <--> E(A, B, R)) :: OnlyI
+            E(; residual = A + B - Q) + D <--> E(P, R) :: OnlyI
+            E(; residual = A + B - Q) + Q ⇌ E(Q; residual = A + B - Q) :: OnlyI
+            (E(A) + B <--> E(Q; residual = A + B - Q), E(A, R) + B <--> E(A, B, R),
+             E(R) + B <--> E(B, R)) :: OnlyI
+            E(R) + P ⇌ E(P, R) :: OnlyI
+        end
+    end
+    pair_columns = [_testhelper_consistent_column_count(too_many_pairs, c) for c in 1:2]
+    @test pair_columns == [length(D._consistent_columns(too_many_pairs, c).columns)
+                           for c in 1:2]
+    @test all(c -> _testhelper_choice_count(too_many_pairs, c) <=
+                   D._MAX_CHOICES_PER_CONFORMATION, 1:2)
+    @test prod(pair_columns) > D._MAX_READING_PAIRS
+    @test _testhelper_choice_count(too_many_active, 1) > D._MAX_CHOICES_PER_CONFORMATION
+    for am in (too_many_pairs, too_many_active)
+        @test !any(r -> _testhelper_reading_is_consistent(
+                       am, _testhelper_reading(am, r)), keys(_testhelper_guard_readings))
+    end
+    @test D._guard(too_many_pairs) ==
+          D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 0, 0)
+    @test D._guard_message(too_many_pairs, D._guard(too_many_pairs)) ==
+          "AllostericMechanism: the two conformations together can switch off the tagged " *
+          "steps in more than 5000 ways, too many for the guard to search, and none of " *
+          "the three ways it tries first fits the rule for switching them off, so it " *
+          "cannot show that the rate law is the limit."
+    @test D._guard(too_many_active) ==
+          D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 1, 0)
+    @test D._guard_message(too_many_active, D._guard(too_many_active)) ==
+          "AllostericMechanism: the active conformation can switch off the tagged steps " *
+          "in more than 20000 ways, too many for the guard to search, and none of the " *
+          "three ways it tries first fits the rule for switching them off, so it cannot " *
+          "show that the rate law is the limit."
 end
 
 @testset "the graph test equals the exact LP on the uni-uni grid" begin
-    # A limit exists exactly when no excluded rapid-equilibrium step is pinned and the
+    # A limit exists exactly when no excluded rapid-equilibrium step is pinned (the reading
+    # cannot switch it off, or stops it, though a step keeps its kind) and the
     # steps that lose a direction, each pointing uphill, close no cycle and never point
     # into free E's component; the test oracle's own reading of the rule and its exact
     # simplex over the cycle rows decide the same question, and its exclusion structure
@@ -3930,8 +4033,12 @@ end
     @test _testhelper_epath_verdict(with_i; rng) === :no_path
     @test _testhelper_agrees(v.fault, _testhelper_respeed_verdicts(
         with_i; rng = Random.MersenneTwister(38), law = :limit)[v.face])
-    @test startswith(EnzymeRates.Derivation._guard_message(with_i, v),
-                     "AllostericMechanism: at zero I, the forms")
+    @test EnzymeRates.Derivation._guard_message(with_i, v) ==
+          "AllostericMechanism: at zero I, the forms {E (active), E(A) (active), " *
+          "E(A, B) (active), E(P) (active), E (inactive), E(P) (inactive)} and " *
+          "{E(A, B) (inactive)} of one rapid-equilibrium segment are joined only by " *
+          "steps that take up a zeroed metabolite (E + I ⇌ E(I) and " *
+          "E(A, B) + I ⇌ E(A, B, I)), so the rate law cannot weight one against the other."
     @test EnzymeRates.Derivation._guard(with_i_untagged) ==
           EnzymeRates.Derivation._WELL_POSED
     @test EnzymeRates.Derivation._guard(with_i_joins_tagged).fault ===
@@ -4223,8 +4330,10 @@ end
 end
 
 """The tag sets of `_testhelper_tag_sets` whose inactive conformation excludes a
-rapid-equilibrium step it cannot switch off: admission's interior rejects them
-(`_FAST_STEP_PINNED`)."""
+rapid-equilibrium step that the guard's first built reading cannot switch off, so
+admission's interior rejects that reading (`_FAST_STEP_PINNED`). In AD7b, AD9 and TC1 the
+step lies inside one group, so no reading switches it off; BS2's isomerization joins two
+groups, and the search admits BS2."""
 const _testhelper_pinned_tag_sets = Set(["AD7b", "AD9", "BS2", "TC1"])
 
 @testset "admission's interior rejects only the tag sets with a pinned fast step" begin
@@ -4256,8 +4365,9 @@ end
     @test _testhelper_epath_verdict(am; rng = Random.MersenneTwister(43)) === :converges
 end
 
-"""The tag sets of `_testhelper_tag_sets` that a face rejects; every other one passes every
-face."""
+"""The tag sets of `_testhelper_tag_sets` that a face rejects under the guard's first built
+reading; every other one passes every face under it. The search admits R2, BS1, BS2, BS3,
+BS4, R2funnel, R2funnel_SS and fz101_10232 under other readings."""
 const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbridge",
     "ADbridge_noturnover", "bridge_drain", "bridge_deadend", "R2funnel", "R2funnel_SS",
     "S1", "AD7b", "fz101_10232"])
@@ -4331,8 +4441,11 @@ end
           (EnzymeRates.Derivation._SPLIT, Set([:I]), 0)
     @test _testhelper_agrees(v.fault, _testhelper_respeed_verdicts(
         am; rng = Random.MersenneTwister(44), law = :limit)[v.face])
-    @test startswith(EnzymeRates.Derivation._guard_message(am, v),
-                     "AllostericMechanism: at zero I, the forms")
+    @test EnzymeRates.Derivation._guard_message(am, v) ==
+          "AllostericMechanism: at zero I, the forms {E (active), E(S) (active), " *
+          "E (inactive)} and {F (active)} of one rapid-equilibrium segment are joined " *
+          "only by steps that take up a zeroed metabolite (E + I ⇌ E(I) and " *
+          "F + I ⇌ F(I)), so the rate law cannot weight one against the other."
     faces = EnzymeRates.Derivation._faces(am.catalytic)
     built = EnzymeRates.Derivation._built_reading(am)
     eps = EnzymeRates.Derivation._eps_network(
@@ -4393,6 +4506,11 @@ end
         @test all(==(EnzymeRates.Derivation._NO_FAULT), _testhelper_admission_faults(am))
         @test all(_testhelper_admission_agreement(am; rng))
     end
+    # The search admits these of the tag sets the first built reading rejects.
+    @test Set(n for n in union(_testhelper_face_rejected, _testhelper_pinned_tag_sets)
+              if EnzymeRates.Derivation._guard(_testhelper_tag_sets[n]) ==
+                 EnzymeRates.Derivation._WELL_POSED) ==
+          Set(["R2", "BS1", "BS2", "BS3", "BS4", "R2funnel", "R2funnel_SS", "fz101_10232"])
     # AD9's chemistry and TC1's exchange of B for P, both at rapid equilibrium and :OnlyA,
     # join forms the inactive conformation keeps joined, so it cannot switch them off.
     @testset "$name" for name in ("AD9", "TC1")
@@ -5765,6 +5883,12 @@ end
     v = EnzymeRates.Derivation._guard(island)
     @test (v.fault, _testhelper_faces(island)[v.face], v.conformation) ==
           (EnzymeRates.Derivation._NONUNIQUE, Set([:I, :J]), 2)
+    @test _testhelper_agrees(v.fault, _testhelper_respeed_verdicts(
+        island; rng = Random.MersenneTwister(93), law = :limit)[v.face])
+    @test EnzymeRates.Derivation._guard_message(island, v) ==
+          "AllostericMechanism: at zero I and J in the inactive conformation, the forms " *
+          "{E(I)} keep enzyme away from free E: every step that leaves them takes up a " *
+          "zeroed metabolite (E(I) + J <--> E(I, J)), so the steady state is not unique."
 end
 
 @testset "a pinned step and its mirror get one message, but for conformation and tag" begin

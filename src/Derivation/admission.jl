@@ -80,8 +80,9 @@ Admission's interior checks on conformation `c` of `am`, its excluded edges swit
 `reading` says, on `comp`, the components of the forms its other edges join
 (`exclusion_components`), with the edges that lose a direction as arcs (`_arcs`), each
 pointing uphill:
-- kind: no excluded rapid-equilibrium edge that `reading` cannot switch off, since a step
-  keeps its kind in both conformations (`_FAST_STEP_PINNED`, the first such edge);
+- kind: no excluded rapid-equilibrium edge that `reading` cannot switch off or stops,
+  since a step keeps its kind in both conformations (`_FAST_STEP_PINNED`, the first such
+  edge);
 - existence: the arcs close no directed cycle, and none points into free E's component
   (`_ARC_CYCLE`, the first edge of the cycle, else the first such arc). This is the exact
   cone test: with every other constant fixed, a direction's equilibrium-ratio exponents
@@ -96,8 +97,11 @@ The verdict carries the conformation and the edge (face 0); `_WELL_POSED` when a
 """
 function _interior_verdict(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{Int},
                            reading::_Reading)
-    pinned = findfirst(==(_CANNOT_SWITCH_OFF), view(reading, :, c))
-    pinned === nothing || return _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, c, pinned)
+    for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
+        o = reading[k, c]
+        (o === _CANNOT_SWITCH_OFF || o === _STOPPED && e.rapid_equilibrium) &&
+            return _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, c, k)
+    end
     arcs = _arcs(am, c, reading)
     cycle = _arc_cycle(comp, arcs)
     isempty(cycle) || return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, cycle[1][3])

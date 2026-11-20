@@ -54,8 +54,8 @@ the limit test rejects where procedure A stopped at a trap fed on the face (`_TR
 segment whose lowest forms split (`_SPLIT`), a law segment chain with several closed
 classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
 interior (class 4), each excluded step switched off as a reading says (`_Reading`), a
-rapid-equilibrium step that a conformation excludes and the reading cannot switch off
-(`_FAST_STEP_PINNED`; the guard reports it only for a step inside one group, which no
+rapid-equilibrium step that a conformation excludes and the reading cannot switch off or
+stops (`_FAST_STEP_PINNED`; the guard reports it only for a step inside one group, which no
 reading switches off), steps that lose a direction and, each pointing uphill, close a
 directed cycle or point into free E's component (`_ARC_CYCLE`), forms free E's component
 does not reach along those steps (`_ISLAND`), or an active conformation that no longer
@@ -462,8 +462,10 @@ function _guard_with_reading(am::Mechanisms.AllostericMechanism)
         # switch off, so a cycle fast under them is fast under every consistent reading.
         v.fault === _RE_TURNOVER && return (; verdict = v, reading)
         push!(tried, reading)
-        if isempty(reported) &&
-           _admission_interior(am, reading).fault ∉ (_FAST_STEP_PINNED, _ARC_CYCLE, _ISLAND)
+        # Class 2 passed, so `v` is admission's interior verdict whenever the interior
+        # fails: the reading is consistent exactly when `v` holds none of its first three
+        # faults.
+        if isempty(reported) && v.fault ∉ (_FAST_STEP_PINNED, _ARC_CYCLE, _ISLAND)
             reported, verdict = reading, v
             verdict.fault in _FAULTS_A_READING_CHANGES ||
                 return (; verdict, reading = reported)

@@ -2925,10 +2925,12 @@ end
     @test _testhelper_admission_agrees(
         v.fault, _testhelper_epath_verdict(am; rng = Random.MersenneTwister(4),
                                            face = Set([:A, :B]), reading = reported))
-    @test startswith(ER.Derivation._guard_message(am, v),
-                     "AllostericMechanism: at zero A and B, in the inactive conformation " *
-                     "the :OnlyA rapid-equilibrium step E(B) + A ⇌ E(P, Q) runs one way " *
-                     "into E(B)")
+    @test ER.Derivation._guard_message(am, v) ==
+          "AllostericMechanism: at zero A and B, in the inactive conformation the :OnlyA " *
+          "rapid-equilibrium step E(B) + A ⇌ E(P, Q) runs one way into E(B), at a rate " *
+          "that vanishes yet grows with the rapid-equilibrium speed, and E(B) leaves " *
+          "only through the slower step E + B <--> E(B), so E(B) fills faster than it " *
+          "empties and its weight depends on how fast the tagged step vanishes."
     # With the fused binding steady-state in a group of its own, the inactive
     # conformation stops it, and admission reads each edge: the abortive bindings reach
     # {E(A, P), E(A, Q), E(A, P, Q)} from the product forms on their unbound side only,

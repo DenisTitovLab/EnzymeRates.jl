@@ -208,11 +208,12 @@ forms into groups, and every group but free E's lies higher in energy and holds 
 a tagged step between two groups loses its rate uphill and keeps its rate downhill, or, at
 steady state, may stop; one inside a group stops at steady state, and at rapid equilibrium
 cannot be switched off, so the macro rejects it. The macro looks for energies of the groups
-under which the rate law is the limit, and rejects the tag set when it finds none: under
+under which the rate law is the limit, and rejects the tag set when it finds none (under
 each, a face's steady state depends on where the enzyme starts, or the macro cannot show
-that the limit does not depend on how fast the tagged constants vanish (see
-[How an excluded step is switched off](@ref)). The checks of [`@enzyme_mechanism`](@ref)
-apply as well.
+that the limit does not depend on how fast the tagged constants vanish), or when the tag
+set allows more choices than it searches and none of the few it tries first gives the
+limit (see [How an excluded step is switched off](@ref)). The checks of
+[`@enzyme_mechanism`](@ref) apply as well.
 
 ```jldoctest
 julia> using EnzymeRates

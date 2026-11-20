@@ -1607,10 +1607,11 @@ The exclusion structure of conformation `c` of `am`, its edges switched off as `
 says (a matrix or a built name, `_testhelper_reading`): `component[f]`, the component of
 form `f` under the edges `c` keeps (`_testhelper_kept_components`); `arcs`, `(lower side's
 component, higher side's, edge)` for each edge that loses a direction, so that it points
-uphill; `failure`, `:fast` when `c` excludes a rapid-equilibrium edge it cannot switch
-off, `:cycle` when the arcs close a directed cycle or one points into free E's component,
-below which nothing lies, else `:none` (a path to the limit exists); `lost`, the
-components free E's does not reach along the arcs (islands).
+uphill; `failure`, `:fast` when `c` excludes a rapid-equilibrium edge the reading cannot
+switch off or stops (a step keeps its kind, so a fast one never turns slow), `:cycle` when
+the arcs close a directed cycle or one points into free E's component, below which nothing
+lies, else `:none` (a path to the limit exists); `lost`, the components free E's does not
+reach along the arcs (islands).
 """
 function _testhelper_exclusion(am, c::Int;
                                reading::Union{Symbol, Matrix{Symbol}} = :all_lose_affinity)
@@ -1622,8 +1623,10 @@ function _testhelper_exclusion(am, c::Int;
         off[k] === :loses_forward ? (component[e.from], component[e.to], k) :
         (component[e.to], component[e.from], k)
         for (k, e) in enumerate(cm.steps) if off[k] in (:loses_forward, :loses_reverse)]
-    failure = :cannot_switch_off in off ? :fast :
-              any(a -> a[2] == component[1], arcs) ? :cycle : :none
+    fast_off = any(k -> off[k] === :cannot_switch_off ||
+                        off[k] === :stopped && cm.steps[k].rapid_equilibrium,
+                   eachindex(off))
+    failure = fast_off ? :fast : any(a -> a[2] == component[1], arcs) ? :cycle : :none
     if failure === :none
         indegree = zeros(Int, n)
         foreach(a -> indegree[a[2]] += 1, arcs)
