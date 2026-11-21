@@ -96,13 +96,13 @@ struct Regulator
 end
 
 """
-The names no metabolite takes: `E_total`, `Keq`, `L` and `N`, which name or are kept for
+The names no metabolite takes: `Keq`, `L` and `N`, which name or are kept for
 rate-equation constants, and `params`, `concs` and `v`, the local names of a rate
 equation's code (`rate_equation_string`). A rate equation binds its constants, its
 locals and the concentrations in one scope, so a metabolite of one of these names would
 overwrite another or be overwritten.
 """
-const _RESERVED_NAMES = (:E_total, :Keq, :L, :N, :params, :concs, :v)
+const _RESERVED_NAMES = (:Keq, :L, :N, :params, :concs, :v)
 
 """
 Julia's reserved words and the infix keywords `in`, `isa` and `where`. `Base.isidentifier`
@@ -251,8 +251,8 @@ sorted by name in the constructor, a name's competitive inhibitor before its
 allosteric regulator, so two equivalent declarations compare equal under
 `==`/`hash`. The constructor rejects a name listed as both a substrate
 and a product: concentrations and constants are keyed by name. For the same
-reason it rejects a reactant or regulator named `E_total`, `Keq`, `L`, `N`,
-`params`, `concs` or `v`, names a rate equation keeps for its constants and the
+reason it rejects a reactant or regulator named `Keq`, `L`, `N`, `params`,
+`concs` or `v`, names a rate equation keeps for its constants and the
 local names of its code, a name holding `_`, since constant names join
 names with `_`, the name `E`, which labels the free enzyme form, and a name that is
 no identifier, is a keyword or reads in Julia code as another name (a micro sign as `μ`),

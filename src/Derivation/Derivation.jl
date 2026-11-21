@@ -7,9 +7,9 @@ using ..Mechanisms: Mechanisms
 using LinearAlgebra: det
 using SHA: sha256
 
-public AllostericParameter, RegulatorParameter, StepParameter, check_valid_rate_equation,
-    dependent_parameter_values, fitted_parameter_count, name, parameter_info, parameters,
-    rate_equation, rate_equation_term_count, rate_equation_dedup_key, rate_equation_string
+public check_valid_rate_equation, dependent_parameter_values, fitted_parameter_count,
+    parameter_units, parameters, rate_equation, rate_equation_term_count,
+    rate_equation_dedup_key, rate_equation_string
 
 """A plain or an allosteric mechanism."""
 const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}

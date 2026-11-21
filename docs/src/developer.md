@@ -52,9 +52,9 @@ flowchart TB
   plot -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
-  fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
+  fit -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
@@ -162,7 +162,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | | | Plotting, top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, Plotting, top level | |
-| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration, Fitting | |
+| `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
@@ -180,11 +180,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `rate_equation_string` | The rate law as text | top level | ✓ |
 | `parameters` | The names of the constants a fit estimates | Fitting, Plotting, top level | ✓ |
 | `dependent_parameter_values` | The dependent constants' values from the fitted ones and `Keq` | top level | ✓ |
-| `StepParameter` | A constant of a step: its step, slot and conformation | Fitting | |
-| `RegulatorParameter` | A regulator ligand's constant in one conformation | Fitting | |
-| `AllostericParameter` | The allosteric constant `L` | Fitting | |
-| `parameter_info` | The fitted parameters, in `parameters` order | Fitting | |
-| `name` | The name of a parameter in a concrete mechanism | Fitting | |
+| `parameter_units` | Each fitted constant's units, as powers of the rate and concentrations | Fitting | |
 | `check_valid_rate_equation` | Whether the law is defined | DSL, Enumeration, top level | |
 | `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
 | `rate_equation_term_count` | The law's term count, V×τ, before derivation | top level | |
@@ -403,9 +399,9 @@ mechanism.
 
 ### Parameters
 
-One type family in `src/Derivation/names.jl` describes every constant a fit estimates, and
-`parameter_info(m)` lists them for a concrete mechanism in
-`parameters(m)` order:
+One type family in `src/Derivation/names.jl`, the union `Parameter`, describes every
+constant a fit estimates, and the joint solve lists them in `parameters(m)` order
+(`_Solve.info`):
 
 | Type | What it points at |
 |:-----|:------------------|
@@ -421,6 +417,13 @@ rapid-equilibrium one constructs but has no name: `name` errors on it. `name(p, 
 the name from the step's sides and the kept member of its kinetic class, and derives the
 conformation tag from `inactive` and the group's or ligand's allosteric tag. `parameters`
 returns these names as Symbols, and the rate law takes them at compile time.
+
+`parameter_units(m)` gives each one's units from its step or ligand, as integer powers of
+the rate and of each concentration: a steady-state step's rate constant is the rate over
+what the step takes up in its direction, a binding's K what binds, any other
+rapid-equilibrium K what the step gives off over what it takes up, a regulator's K its
+ligand, and `L` has none. Fitting centres its search on these units and scales the
+constants whose units hold the rate, so it reads no step itself.
 
 ### The joint thermodynamic solve
 

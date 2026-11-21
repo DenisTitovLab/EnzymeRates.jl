@@ -1377,18 +1377,18 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # and the local names of its code, and no name holding `_`, which constant names
         # use to join names.
         _testhelper_reserved(n) = ErrorException(
-            "EnzymeReaction: $n is a reserved name; E_total, Keq, L, N, params, concs " *
+            "EnzymeReaction: $n is a reserved name; Keq, L, N, params, concs " *
             "and v are kept for a rate equation's constants and local names")
-        for n in (:E_total, :Keq, :L, :N, :params, :concs, :v)
+        for n in (:Keq, :L, :N, :params, :concs, :v)
             @test_throws _testhelper_reserved(n) ER.EnzymeReaction(
                 [M.Reactant(n, [:C => 1])], [P], noregs, Int[1])
             @test_throws _testhelper_reserved(n) ER.EnzymeReaction(
                 [S], [P], [M.Regulator(n, :allosteric)], Int[1])
         end
-        @test_throws _testhelper_reserved(:E_total) @enzyme_reaction begin
+        @test_throws _testhelper_reserved(:Keq) @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
-            allosteric_regulators: E_total
+            allosteric_regulators: Keq
         end
         _testhelper_underscore(n) = ErrorException(
             "EnzymeReaction: the metabolite name $n holds `_`; constant names join " *
@@ -3104,7 +3104,8 @@ end
     @test_throws msg rate_equation_string(em)
     @test_throws msg dependent_parameter_values(em, (;), 1.0)
     @test_throws msg dependent_parameter_values(m, (;), 1.0)
-    @test_throws msg EnzymeRates.Derivation.parameter_info(m)
+    @test_throws msg EnzymeRates.Derivation.parameter_units(em)
+    @test_throws msg EnzymeRates.Derivation.parameter_units(m)
 end
 
 """A value of each type a mechanism is built from: a metabolite, a node with a residual,
@@ -3181,7 +3182,7 @@ end
     # An allosteric regulator reaches the constructor only as a site ligand, so the
     # AllostericMechanism constructor checks the ligands' names.
     @test_throws(ErrorException(
-        "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
+        "AllostericMechanism: L is a reserved name; Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),
         @allosteric_mechanism begin
             substrates: S

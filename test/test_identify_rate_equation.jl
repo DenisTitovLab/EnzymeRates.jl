@@ -241,7 +241,7 @@ end
         # conformational constant L, so a metabolite named L would fail every allosteric
         # candidate; the reaction refuses it up front.
         @test_throws(
-            ErrorException("EnzymeReaction: L is a reserved name; E_total, Keq, L, N, " *
+            ErrorException("EnzymeReaction: L is a reserved name; Keq, L, N, " *
                            "params, concs and v are kept for a rate equation's constants " *
                            "and local names"),
             @enzyme_reaction begin

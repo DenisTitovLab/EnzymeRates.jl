@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the parameter names: the name(p, m) chokepoint, the constant columns and
-# ABOUTME: the regulator constants.
+# ABOUTME: Tests of the parameter names and units: the name(p, m) chokepoint, the constant
+# ABOUTME: columns, the regulator constants and parameter_units.
 
 const ER = EnzymeRates
 
@@ -105,20 +105,31 @@ end
     @test ER.Derivation.AllostericParameter() == ER.Derivation.AllostericParameter()
 end
 
-@testset "parameter_info lists the fitted parameters in parameters() order" begin
-    for spec in MECHANISM_TEST_SPECS
-        m = _testhelper_lift(spec.mechanism)
-        info = ER.Derivation.parameter_info(m)
-        @test [ER.Derivation.name(p, m) for p in info] ==
-              collect(parameters(m))
-        @test all(p -> p isa ER.Derivation.Parameter, info)
-        empty!(info)
-        @test !isempty(ER.Derivation.parameter_info(m))
-    end
-end
+@testset "parameter_units gives each constant's units" begin
+    D = ER.Derivation
+    # Each mechanism's fitted constants, then their units: row i is parameters(m)[i], its
+    # power of the rate and its power of each concentration, in metabolites(m) order.
 
-@testset "parameter_info points at the steps of Uni-Uni" begin
-    m = ER.Mechanism(@enzyme_mechanism begin
+    # Uni-uni, rapid-equilibrium bindings and a steady-state isomerization: a binding's
+    # dissociation constant has the units of what binds, the rate constant of a step that
+    # takes nothing up those of the rate.
+    uni_uni = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    @test parameters(uni_uni) == (:K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
+    @test D.parameter_units(uni_uni) ==
+          (rate = [0, 0, 1], concentrations = [0 1; 1 0; 0 0])
+    @test D.parameter_units(ER.Mechanism(uni_uni)) == D.parameter_units(uni_uni)
+
+    # Steady-state bindings: a rate constant is the rate over what it takes up in its own
+    # direction, so the binding of S has [S]⁻¹ and each release none.
+    ss_bindings = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -126,14 +137,95 @@ end
             E(S) <--> E + P
         end
     end)
-    P = ER.Derivation.StepParameter
-    @test ER.Derivation.parameter_info(m) ==
-          [P(1, 2, false), P(2, 2, false), P(2, 1, false)]
-    @test parameters(m) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
-end
+    @test parameters(ss_bindings) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
+    @test D.parameter_units(ss_bindings) ==
+          (rate = [1, 1, 1], concentrations = [0 0; 0 0; -1 0])
+    # A release's reverse rate constant binds the product: [P]⁻¹.
+    ss_uni_uni = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+        end
+    end
+    @test parameters(ss_uni_uni) ==
+          (:k_EP_to_E_P, :k_ES_to_EP, :k_ES_to_E_S, :k_E_P_to_EP, :k_E_S_to_ES)
+    @test D.parameter_units(ss_uni_uni) ==
+          (rate = [1, 1, 1, 1, 1], concentrations = [0 0; 0 0; 0 0; 0 -1; -1 0])
 
-@testset "parameter_info ends an allosteric mechanism with its regulators and L" begin
-    m = ER.AllostericMechanism(@allosteric_mechanism begin
+    # A rapid-equilibrium Theorell–Chance step's constant is what it gives off over what
+    # it takes up, [P]/[B]; the binding of Q to F is steady state.
+    theorell_chance = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(Q) + P
+            E(Q) <--> F(Q)
+            F(Q) <--> F + Q
+            F <--> E
+        end
+    end
+    @test parameters(theorell_chance) == (:K_EA_B_to_EQ_P, :K_EA_to_E_A, :k_EQ_to_FQ,
+                                          :k_E_to_F, :k_FQ_to_F_Q, :k_F_Q_to_FQ, :k_F_to_E)
+    @test D.parameter_units(theorell_chance) ==
+          (rate = [0, 0, 1, 1, 1, 1, 1],
+           concentrations = [0 -1 1 0; 1 0 0 0; 0 0 0 0; 0 0 0 0; 0 0 0 0; 0 0 0 -1;
+                             0 0 0 0])
+
+    # Two metabolites bound in one rapid-equilibrium step: the constant is the complex
+    # over what it takes up, [A]⁻¹[B]⁻¹.
+    two_in_rapid = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(Q) + P
+            E(Q) <--> E + Q
+        end
+    end
+    @test first(parameters(two_in_rapid)) === :K_E_A_B_to_EAB
+    units = D.parameter_units(two_in_rapid)
+    @test (units.rate[1], units.concentrations[1, :]) == (0, [-1, -1, 0, 0])
+
+    # A dead-end rapid-equilibrium isomerization's constant has no units.
+    dead_end = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E(S) ⇌ F(S)
+        end
+    end
+    @test parameters(dead_end) == (:K_EP_to_E_P, :K_ES_to_E_S, :K_ES_to_FS, :k_ES_to_EP)
+    @test D.parameter_units(dead_end) ==
+          (rate = [0, 0, 0, 1], concentrations = [0 1; 1 0; 0 0; 0 0])
+
+    # A reactant's modifier copy takes the reactant's column.
+    modifier_copy = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: S
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+            E(P) + S::Mod ⇌ E(P, S::Mod)
+        end
+    end
+    @test parameters(modifier_copy) ==
+          (:K_EPSmod_to_EP_Smod, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
+    @test D.parameter_units(modifier_copy) ==
+          (rate = [0, 0, 0, 1], concentrations = [1 0; 0 1; 1 0; 0 0])
+
+    # An allosteric mechanism ends with its regulator constants, which have the units of
+    # their ligand, the last metabolite, and L, which has none.
+    allosteric = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -145,14 +237,35 @@ end
         end
         regulatory_site(2): R::NonequalAI
     end)
-    info = ER.Derivation.parameter_info(m)
-    @test info[(end - 2):end] == [ER.Derivation.RegulatorParameter(:R, false),
-                                  ER.Derivation.RegulatorParameter(:R, true),
-                                  ER.Derivation.AllostericParameter()]
-    @test [ER.Derivation.name(p, m) for p in info[(end - 2):end]] ==
-          [:K_A_Rreg, :K_I_Rreg, :L]
-    @test [ER.Derivation.name(p, m) for p in info] ==
-          collect(parameters(m))
+    @test metabolites(allosteric) == [:S, :P, :R]
+    @test parameters(allosteric) ==
+          (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_ES_to_EP, :K_A_Rreg, :K_I_Rreg, :L)
+    @test D.parameter_units(allosteric) ==
+          (rate = [0, 0, 1, 0, 0, 0],
+           concentrations = [1 0 0; 0 1 0; 0 0 0; 0 0 1; 0 0 1; 0 0 0])
+end
+
+@testset "parameter_units reproduces the pinned starting values" begin
+    # A fit starts each constant at r^rate × Π s_j^power, r the typical rate and s_j the
+    # typical concentration of metabolite j; in logs, at the rate 3 and concentrations
+    # 10^-j of `_testhelper_typical_table`, the centres pinned in
+    # `_testhelper_typical_log_centres`. The compiled and the concrete mechanism agree, and
+    # each call returns arrays of its own.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        units = ER.Derivation.parameter_units(m)
+        n, k = length(parameters(m)), length(metabolites(m))
+        @test units.rate isa Vector{Int} && size(units.rate) == (n,)
+        @test units.concentrations isa Matrix{Int} && size(units.concentrations) == (n, k)
+        pinned = _testhelper_typical_log_centres[spec.name]
+        @test first.(pinned) == collect(parameters(m))
+        log_s = [log(10.0^-j) for j in 1:k]
+        @test units.rate .* log(3.0) .+ units.concentrations * log_s ≈ last.(pinned) atol =
+            1e-12
+        lifted = _testhelper_lift(m)
+        fill!(ER.Derivation.parameter_units(lifted).rate, 7)
+        @test ER.Derivation.parameter_units(lifted) == units
+    end
 end
 
 @testset "name(p, ::AllostericMechanism) chokepoint" begin

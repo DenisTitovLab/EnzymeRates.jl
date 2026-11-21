@@ -1,5 +1,5 @@
-# ABOUTME: The parameter API: parameters, the constants a fit estimates, parameter_info
-# ABOUTME: for Fitting, and dependent_parameter_values, the constants the law computes.
+# ABOUTME: The parameter API: parameters, the constants a fit estimates, parameter_units,
+# ABOUTME: their units, and dependent_parameter_values, the constants the law computes.
 
 # ─── Parameters API ─────────────────────────────────────────
 
@@ -33,17 +33,63 @@ function parameters(m::_AnyMech)
 end
 
 """
-    parameter_info(m) -> Vector{Parameter}
+    parameter_units(m) -> (; rate::Vector{Int}, concentrations::Matrix{Int})
 
-One `Parameter` per fitted parameter of the concrete mechanism `m`, in `parameters(m)`
-order: each independent column, then the regulator parameters, then
-`AllostericParameter()`. `name(p, m)` gives each one's name. Errors when the rate law of
-`m` is not defined (`check_valid_rate_equation`).
+The units of the constants of [`parameters`](@ref)`(m)`, as integer powers: constant
+`parameters(m)[i]` has the units of the rate per unit enzyme to the power `rate[i]` times
+the concentration of each metabolite `metabolites(m)[j]` to the power
+`concentrations[i, j]`. A steady-state step's rate constant has `rate` 1 and −1 for each
+metabolite the step takes up in its direction. Every other constant has `rate` 0: a
+rapid-equilibrium binding's dissociation constant +1 for the metabolite that binds, any
+other rapid-equilibrium constant +1 for each metabolite given off and −1 for each taken
+up, a regulator's constant +1 for its ligand, and `L` none. A reactant's modifier copy
+counts as the reactant. Errors when the rate law of `m` is not defined
+(`check_valid_rate_equation`).
 """
-function parameter_info(m::_AnyMech)
+function parameter_units(m::_AnyMech)
     check_valid_rate_equation(m)
-    copy(_memo_solve(m).info)
+    _parameter_units(m, _memo_solve(m).info)
 end
+function parameter_units(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism))
+    cm = _derivation_input(typeof(m))
+    _parameter_units(cm, _solve(cm).info)
+end
+
+"""`parameter_units` of the checked mechanism `m`, whose fitted constants are `info`."""
+function _parameter_units(m::_AnyMech, info::Vector{Parameter})
+    column = Dict(x => j for (j, x) in enumerate(Mechanisms.metabolites(m)))
+    units = (; rate = zeros(Int, length(info)),
+             concentrations = zeros(Int, length(info), length(column)))
+    for (i, p) in enumerate(info)
+        _write_units!(units, i, p, m, column)
+    end
+    units
+end
+
+"""Writes the units of `p`, the `i`-th fitted constant of `m`, into row `i` of `units`
+(`parameter_units`), whose rows start at zero; `column` maps each metabolite of `m` to its
+column."""
+function _write_units!(units, i::Int, p::StepParameter, m::_AnyMech,
+                       column::Dict{Symbol, Int})
+    cm = Mechanisms.catalytic(m)
+    e = cm.steps[p.step]
+    add!(xs, power) = foreach(x -> units.concentrations[i, column[x.name]] += power, xs)
+    if !e.rapid_equilibrium
+        units.rate[i] = 1
+        add!(p.slot == 1 ? e.taken_up : e.given_off, -1)
+    elseif cm.step_kinds[p.step] in (:binding, :fused_binding)
+        add!(e.taken_up, 1)
+    else
+        add!(e.given_off, 1)
+        add!(e.taken_up, -1)
+    end
+    nothing
+end
+_write_units!(units, i::Int, p::RegulatorParameter, m::_AnyMech,
+              column::Dict{Symbol, Int}) =
+    (units.concentrations[i, column[p.ligand]] += 1; nothing)
+_write_units!(units, i::Int, ::AllostericParameter, m::_AnyMech,
+              column::Dict{Symbol, Int}) = nothing
 
 """The dependent constants of the joint solve `s` in name order, less the kinetic-group
 tie pins, which are not constants of the rate law."""

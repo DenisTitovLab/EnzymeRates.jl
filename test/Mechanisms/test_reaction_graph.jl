@@ -222,7 +222,7 @@ end
                      m, [:EqualAI, :EqualAI, :OnlyA], 2,
                      [sites; EnzymeRates.Mechanisms.RegulatorySite([:X], 4, [:OnlyA])]))
     @test_throws(ErrorException(
-        "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
+        "AllostericMechanism: L is a reserved name; Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),
         ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 2,
                                [EnzymeRates.Mechanisms.RegulatorySite([:L], 2, [:OnlyI])]))
@@ -558,7 +558,7 @@ end
     @test_throws(ErrorException("Mechanism: E cannot name a metabolite; it labels the " *
                                 "free enzyme form"),
                  _testhelper_uniuni(substrates = [:S, :E]))
-    @test_throws(ErrorException("Mechanism: Keq is a reserved name; E_total, Keq, L, N, " *
+    @test_throws(ErrorException("Mechanism: Keq is a reserved name; Keq, L, N, " *
                                 "params, concs and v are kept for a rate equation's " *
                                 "constants and local names"),
                  _testhelper_uniuni(substrates = [:S, :Keq]))

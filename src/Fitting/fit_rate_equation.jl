@@ -336,67 +336,52 @@ _geometric_mean(v) = exp(mean(log, v))
 _rate_scale(@nospecialize(fp::FittingProblem)) = exp(mean(fp.log_abs_rates))
 
 """
-    _log_centre(p, m, s, r) -> Float64
-
-The log value of parameter `p` of the concrete mechanism `m` at which it matches the
-concentration scales `s` (`_concentration_scales`) and the rate scale `r` (`_rate_scale`).
-A rate constant turns the scales of what it takes up into `r`. A binding's K, a dissociation
-constant, is the scale of what binds, and any other rapid-equilibrium K is the scales given
-off over those taken up. A regulator's K is the scale of its ligand, and `L` centres on 1.
-"""
-function _log_centre(p::Derivation.StepParameter, m, s::Dict{Symbol, Float64}, r::Real)
-    cm = Mechanisms.catalytic(m)
-    e = cm.steps[p.step]
-    e.rapid_equilibrium ||
-        return log(r) - _sum_log(s, p.slot == 1 ? e.taken_up : e.given_off)
-    cm.step_kinds[p.step] in (:binding, :fused_binding) ? _sum_log(s, e.taken_up) :
-        _sum_log(s, e.given_off) - _sum_log(s, e.taken_up)
-end
-_log_centre(p::Derivation.RegulatorParameter, m, s::Dict{Symbol, Float64}, r::Real) =
-    log(s[p.ligand])
-_log_centre(::Derivation.AllostericParameter, m, s::Dict{Symbol, Float64}, r::Real) = 0.0
-
-_sum_log(s, mets) = sum(log(s[x.name]) for x in mets; init = 0.0)
-
-"""
     _log_centres(fp) -> Vector{Float64}
 
-The centre of `fit_rate_equation`'s search: `_log_centre` of each parameter of
-`Derivation.parameter_info`, in the order of `parameters(fp.mechanism)`.
+The centre of `fit_rate_equation`'s search, in the order of `parameters(fp.mechanism)`:
+the log of each constant's value at the table's scales, the rate scale (`_rate_scale`)
+and each metabolite's concentration scale (`_concentration_scales`) raised to the
+constant's powers of them (`Derivation.parameter_units`).
 """
 function _log_centres(@nospecialize(fp::FittingProblem))
-    m = _concrete(fp.mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    m = _to_concrete_mechanism(fp.mechanism)::Union{Mechanisms.Mechanism,
+                                                     Mechanisms.AllostericMechanism}
+    units = Derivation.parameter_units(m)
     s = _concentration_scales(fp)
-    r = _rate_scale(fp)
-    Float64[_log_centre(p, m, s, r) for p in Derivation.parameter_info(m)]
+    log_s = Float64[log(s[x]) for x in Mechanisms.metabolites(m)]
+    log(_rate_scale(fp)) .* units.rate .+ units.concentrations * log_s
 end
 
 """
     _scale_rate_constants(mechanism, params, factor) -> NamedTuple
 
-`params` with every fitted rate constant on a steady-state step of `mechanism` (a concrete
-or a compiled one) multiplied by `factor`, every other entry unchanged. A common factor on
-those constants multiplies every rate by the same factor and leaves the binding constants,
-`L` and the regulatory constants alone.
+`params` with every fitted rate constant of `mechanism` (a concrete or a compiled one),
+each constant whose units hold the rate (`Derivation.parameter_units`), multiplied by
+`factor`, every other entry unchanged. A common factor on those constants multiplies every
+rate by the same factor and leaves the binding constants, `L` and the regulatory constants
+alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    m = _concrete(mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-    steady_state = _steady_state_constant_names(m)
-    NamedTuple{keys(params)}(map((k, v) -> k in steady_state ? v * factor : v,
+    m = _to_concrete_mechanism(mechanism)::Union{Mechanisms.Mechanism,
+                                                 Mechanisms.AllostericMechanism}
+    names = Derivation.parameters(m)
+    rate = Derivation.parameter_units(m).rate
+    rate_constants = Set{Symbol}()
+    for i in eachindex(rate)
+        rate[i] == 1 && push!(rate_constants, names[i])
+    end
+    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
                                  keys(params), values(params)))
 end
 
-_steady_state_constant_names(m) =
-    Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
-        if _on_steady_state_step(p, m))
-
-_on_steady_state_step(p::Derivation.StepParameter, m) =
-    !Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium
-_on_steady_state_step(p, m) = false
-
-_concrete(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
-_concrete(m::Mechanisms.AllostericEnzymeMechanism) = Mechanisms.AllostericMechanism(m)
-_concrete(m) = m
+# The concrete mechanism a compiled one encodes. The callers hold a mechanism they do not
+# specialize on: the catch-all method lets them call this without a run-time lookup, and
+# the type they assert on its result lets the Derivation calls after it dispatch without
+# one too.
+_to_concrete_mechanism(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
+_to_concrete_mechanism(m::Mechanisms.AllostericEnzymeMechanism) =
+    Mechanisms.AllostericMechanism(m)
+_to_concrete_mechanism(m) = m
 
 """
     _reference_scale(fp, params)

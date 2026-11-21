@@ -30,6 +30,11 @@ function Optimization.SciMLBase.__solve(prob::Optimization.OptimizationProblem,
                    opt.objective; retcode = ReturnCode.Success)
 end
 
+# A one-row table of the metabolites `mets` at the concentrations `s`, a Dict, and the rate
+# `r`: its scales, the geometric means a fit's centres read, are `s` and `r`.
+_testhelper_scales_table(mets, s, r) =
+    (; group = ["g"], Rate = [r], (x => [s[x]] for x in mets)...)
+
 # Tests that the centres of `mechanism` move with the law: scaling each metabolite by its
 # own factor, `Keq` by those factors to their stoichiometry and each fitted parameter by the
 # move of its centre multiplies the rate by exactly the factor on the rate reference.
@@ -44,12 +49,13 @@ function _testhelper_check_centres_match_law(mechanism, rng)
     r, g = exp(randn(rng)), exp(2 * randn(rng))
     keq_factor = prod(f[x] for x in catalytic.products) /
                  prod(f[x] for x in catalytic.substrates)
-    centre = EnzymeRates.Fitting._log_centre
+    centres(scales, rate) = EnzymeRates.Fitting._log_centres(
+        FittingProblem(m, _testhelper_scales_table(mets, scales, rate), 1.0))
+    move = centres(sf, g * r) .- centres(s, r)
     params, Keq = _testhelper_random_independent_params(m; rng)
-    scaled = merge(params, NamedTuple(
-        EnzymeRates.Derivation.name(p, m) => params[EnzymeRates.Derivation.name(p, m)] *
-            exp(centre(p, m, sf, g * r) - centre(p, m, s, r))
-        for p in EnzymeRates.Derivation.parameter_info(m)))
+    fitted = parameters(m)
+    scaled = merge(params, NamedTuple{fitted}(Tuple(params[k] * exp(move[i])
+                                                    for (i, k) in enumerate(fitted))))
     concs = NamedTuple{mets}(Tuple(exp(randn(rng)) for _ in mets))
     concs_scaled = NamedTuple{mets}(Tuple(concs[x] * f[x] for x in mets))
     @test rate_equation(compiled, concs_scaled, scaled, Keq * keq_factor) ≈
@@ -68,7 +74,6 @@ function _testhelper_noiseless_table(mechanism, params, Keq, axes)
 end
 
 @testset "Fit search around the data" begin
-    log_centre = EnzymeRates.Fitting._log_centre
     log_centres = EnzymeRates.Fitting._log_centres
     concentration_scales = EnzymeRates.Fitting._concentration_scales
     rate_scale = EnzymeRates.Fitting._rate_scale
@@ -170,7 +175,9 @@ end
     end
 
     @testset "Each parameter's centre" begin
-        Derivation = EnzymeRates.Derivation
+        # The centres at the table's scales `s` and `r`, by name.
+        centres(m, s, r) = Dict(zip(parameters(m), log_centres(FittingProblem(
+            m, _testhelper_scales_table(metabolites(m), s, r), 2.0))))
         s = Dict(:S => 10.0, :P => 100.0, :R => 1000.0)
         r = 4.0
         allosteric = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
@@ -185,14 +192,17 @@ end
             end
             regulatory_site(1): R::OnlyI
         end)
-        expected = (K_ES_to_E_S = log(10.0), K_EP_to_E_P = log(100.0),
-                    k_A_ES_to_EP = log(4.0), K_I_Rreg = log(1000.0), L = 0.0)
-        for p in Derivation.parameter_info(allosteric)
-            @test log_centre(p, allosteric, s, r) ≈ expected[Derivation.name(p, allosteric)]
+        expected = Dict(:K_ES_to_E_S => log(10.0), :K_EP_to_E_P => log(100.0),
+                        :k_A_ES_to_EP => log(4.0), :K_I_Rreg => log(1000.0), :L => 0.0)
+        got = centres(allosteric, s, r)
+        @test keys(got) == keys(expected)
+        for (k, v) in expected
+            @test got[k] ≈ v
         end
 
-        # A Theorell–Chance step's rate constants each read what they take up, and its
-        # equilibrium constant reads what it gives off over what it takes up.
+        # A Theorell–Chance step's rate constant reads what it takes up, and its
+        # equilibrium constant, fitted where an isomerization closes the cycle, reads what
+        # it gives off over what it takes up.
         s = Dict(:A => 2.0, :B => 10.0, :P => 100.0, :Q => 3.0)
         tc_steady = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
@@ -203,23 +213,19 @@ end
                 E(Q) ⇌ E + Q
             end
         end)
-        step = only(k for (k, e) in enumerate(tc_steady.steps) if !e.rapid_equilibrium)
-        forward = Derivation.StepParameter(step, 1, false)
-        backward = Derivation.StepParameter(step, 2, false)
-        @test log_centre(forward, tc_steady, s, r) ≈ log(4.0) - log(10.0)
-        @test log_centre(backward, tc_steady, s, r) ≈ log(4.0) - log(100.0)
+        @test centres(tc_steady, s, r)[:k_EA_B_to_EQ_P] ≈ log(4.0) - log(10.0)
         tc_rapid = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
                 E + A <--> E(A)
                 E(A) + B ⇌ E(Q) + P
-                E(Q) <--> E + Q
+                E(Q) <--> F(Q)
+                F(Q) <--> F + Q
+                F <--> E
             end
         end)
-        step = only(k for (k, e) in enumerate(tc_rapid.steps) if e.rapid_equilibrium)
-        @test log_centre(Derivation.StepParameter(step, 1, false), tc_rapid, s, r) ≈
-              log(100.0) - log(10.0)
+        @test centres(tc_rapid, s, r)[:K_EA_B_to_EQ_P] ≈ log(100.0) - log(10.0)
     end
 
     @testset "Issue #97 regression" begin

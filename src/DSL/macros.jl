@@ -33,8 +33,8 @@ oligomeric states the search may use.
   one catalytic site, so never both at once.
 - The list labels may repeat; their entries accumulate.
 
-No metabolite is named `E_total`, `Keq`, `L`, `N`, `params`, `concs` or `v`, or holds
-`_`: a rate equation keeps those names, and its constant names join names with `_`. Nor
+No metabolite is named `Keq`, `L`, `N`, `params`, `concs` or `v`, or holds `_`: a
+rate equation keeps those names, and its constant names join names with `_`. Nor
 is one named `E`, the label of the free enzyme form; a name is an identifier that is no
 keyword. An enzyme form's name joins its bound metabolites' names without a separator,
 so the names may not spell one string two ways: with `Ac`, `CoA` and `AcCoA`, E with Ac

@@ -106,16 +106,12 @@ function _testhelper_step_parameters(m, k, inactive = false)
     [EnzymeRates.Derivation.StepParameter(k, slot, inactive) for slot in 1:(re ? 1 : 2)]
 end
 
-"""The names of the `parameter_info` entries of `m` on steady-state steps: the fitted rate
-constants a common factor scales."""
-function _testhelper_steady_state_names(m)
-    mech = _testhelper_lift(m)
-    cm = EnzymeRates.Mechanisms.catalytic(mech)
-    Tuple(EnzymeRates.Derivation.name(p, mech)
-          for p in EnzymeRates.Derivation.parameter_info(mech)
-          if p isa EnzymeRates.Derivation.StepParameter &&
-             !cm.steps[p.step].rapid_equilibrium)
-end
+"""The fitted rate constants of `m`, the constants of steady-state steps, which a common
+factor scales: the names of `parameters(m)` that start `k_`, the prefix only a rate
+constant's name takes (a rapid-equilibrium step's and a regulator's constants start `K_`,
+and the allosteric constant is `L`)."""
+_testhelper_steady_state_names(m) =
+    Tuple(k for k in parameters(m) if startswith(String(k), "k_"))
 
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at

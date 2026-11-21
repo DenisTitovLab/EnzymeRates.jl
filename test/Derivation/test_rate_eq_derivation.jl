@@ -1839,7 +1839,7 @@ function _testhelper_regulator_names(am)
            for p in EnzymeRates.Derivation._regulator_parameters(am)]
 end
 
-@testset "parameter_info gives what Fitting scales" begin
+@testset "the fitted rate constants are what Fitting scales" begin
     # Every fitted steady-state rate constant of both conformations takes the factor;
     # scaling exactly these multiplies the rate by it, on concrete and compiled
     # mechanisms alike.
@@ -2229,7 +2229,7 @@ end
 @testset "a metabolite named after a constant is rejected" begin
     # An allosteric regulator named L would take the conformational constant's name.
     @test_throws(ErrorException(
-        "AllostericMechanism: L is a reserved name; E_total, Keq, L, N, params, concs " *
+        "AllostericMechanism: L is a reserved name; Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),
         @allosteric_mechanism begin
             substrates: S
@@ -2450,13 +2450,13 @@ end
         parameters(residual_clash))
 end
 
-# The names no metabolite takes: E_total, Keq, L, N, params, concs, v and every name
+# The names no metabolite takes: Keq, L, N, params, concs, v and every name
 # holding `_` (test_types.jl checks that the reaction rejects each). Besides the
 # metabolites, the printed law binds or reads only such names; the generated body binds
 # only positional locals (the next testset), so no concentration can overwrite a constant
 # or a local.
 @testset "the reserved names cover every non-metabolite name of a law" begin
-    reserved = (:E_total, :Keq, :L, :N, :params, :concs, :v)
+    reserved = (:Keq, :L, :N, :params, :concs, :v)
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         printed = Meta.parseall(rate_equation_string(m))

@@ -1,10 +1,6 @@
 # ABOUTME: The parameter types, the naming chokepoint name(p, m), the rules it names by
 # ABOUTME: (kept class members, regulator constants) and its renderers.
 
-"""A constant of a rate law. A value means nothing without its mechanism, which holds every
-other fact about it (`name(p, m)`)."""
-abstract type Parameter end
-
 """
 A constant of a step, and a column of the joint solve (`constant_columns`): slot `slot` of
 step `step` of a mechanism's catalytic graph, in the inactive conformation when `inactive`.
@@ -12,7 +8,7 @@ Slot 1 is a rapid-equilibrium step's equilibrium constant or a steady-state step
 constant in its stored direction; slot 2 is a steady-state step's rate constant in the
 reverse direction.
 """
-struct StepParameter <: Parameter
+struct StepParameter
     step::Int
     slot::Int
     inactive::Bool
@@ -23,19 +19,24 @@ Regulator-site parameter: the constant of the ligand named `ligand` in the activ
 inactive conformation. A ligand sits at one site, so its name and conformation determine
 the constant.
 """
-struct RegulatorParameter <: Parameter
+struct RegulatorParameter
     ligand::Symbol
     inactive::Bool
 end
 
 """The allosteric constant `L` of an allosteric mechanism."""
-struct AllostericParameter <: Parameter end
+struct AllostericParameter end
+
+"""A constant of a rate law. A value means nothing without its mechanism, which holds every
+other fact about it (`name(p, m)`). A union rather than an abstract type, so that a loop
+over a list of them dispatches without a run-time lookup."""
+const Parameter = Union{StepParameter, RegulatorParameter, AllostericParameter}
 
 # ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
 #
 # Single chokepoint for parameter Symbol production. Renders structural
-# names (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) via Parameter
-# subtype dispatch. Routing all parameter-name production through one function
+# names (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) by dispatch on
+# the parameter's type. Routing all parameter-name production through one function
 # keeps any name-scheme change a single-function edit.
 
 """
