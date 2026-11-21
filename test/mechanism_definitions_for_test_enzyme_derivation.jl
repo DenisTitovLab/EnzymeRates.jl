@@ -206,19 +206,18 @@ conformation (`inactive` and every `inactive_names` empty), no sites and
 then by content.
 """
 function _testhelper_graph(m)
-    mech = m
-    allo = _testhelper_is_allosteric(mech)
-    cm = mech.catalytic
-    kept = EnzymeRates.Derivation._kept_members(mech)
-    tags = copy(mech.allosteric.allosteric_states)
+    allo = _testhelper_is_allosteric(m)
+    cm = m.catalytic
+    kept = EnzymeRates.Derivation._kept_members(m)
+    tags = copy(m.allosteric.allosteric_states)
     # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates.Derivation._flat_edges(cm)
     _testhelper_names(k, inactive) =
-        Symbol[EnzymeRates.Derivation._name(p, mech, kept)
-               for p in _testhelper_step_parameters(mech, k, inactive)]
+        Symbol[EnzymeRates.Derivation._name(p, m, kept)
+               for p in _testhelper_step_parameters(m, k, inactive)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
-    in_law, in_active = allo ? (EnzymeRates.Mechanisms.steps_in_inactive_conformation(mech),
-                                EnzymeRates.Mechanisms.steps_in_active_conformation(mech)) :
+    in_law, in_active = allo ? (EnzymeRates.Mechanisms.steps_in_inactive_conformation(m),
+                                EnzymeRates.Mechanisms.steps_in_active_conformation(m)) :
                         (falses(length(cm.steps)), trues(length(cm.steps)))
     steps = map(edges) do k
         e = cm.steps[k]
@@ -236,13 +235,13 @@ function _testhelper_graph(m)
     sites = [(multiplicity = site.multiplicity,
               ligands = copy(site.ligands),
               allosteric_states = copy(site.allosteric_states))
-             for site in mech.allosteric.regulatory_sites]
+             for site in m.allosteric.regulatory_sites]
     (forms = String[EnzymeRates.Mechanisms._form_name(cm, f) for f in eachindex(cm.nodes)],
      free = Bool[EnzymeRates.Mechanisms._is_free(f) for f in cm.nodes], steps, tags,
      inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
      active = Int[j for (j, k) in enumerate(edges) if in_active[k]],
      oligomeric_state = allo ?
-     mech.allosteric.oligomeric_state : nothing,
+     m.allosteric.oligomeric_state : nothing,
      sites, substrates = cm.substrates,
      products = cm.products,
      modifiers = cm.modifiers)
@@ -285,16 +284,15 @@ canonical form turns (`_canonicalize`), group by group, and writing every step t
 way round, in the reverse order, builds the same mechanism.
 """
 function _testhelper_check_stored_orientation(m)
-    mech = m
-    raw = _testhelper_written(mech)
+    raw = _testhelper_written(m)
     # The written form holds edge `k` as step `k`.
     flipped = _testhelper_canonicalize(raw).flipped
     for members in
-        mech.catalytic.groups
+        m.catalytic.groups
         @test !any(flipped[members])
     end
     @test _testhelper_build((; raw..., steps = reverse(_testhelper_turned.(raw.steps)))) ==
-          mech
+          m
 end
 
 # ── Exact steady-state oracle ───────────────────────────────────────────────
@@ -474,8 +472,7 @@ catalytic graph, the ones either conformation's law deletes or prunes included; 
 mechanism repeats column 1 in column 2. The law's constants are among them.
 """
 function _testhelper_consistent_point(m, rng)
-    mech = m
-    g = _testhelper_graph(mech)
+    g = _testhelper_graph(m)
     allo = g.oligomeric_state !== nothing
     mets = unique!([g.substrates; g.products; g.modifiers])
     nf, nconf = length(g.forms), allo ? 2 : 1
@@ -540,8 +537,8 @@ function _testhelper_consistent_point(m, rng)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
         vals[:L] = L
-        for K in [_testhelper_regulator_constants(mech, :A);
-                  _testhelper_regulator_constants(mech, :I)]
+        for K in [_testhelper_regulator_constants(m, :A);
+                  _testhelper_regulator_constants(m, :I)]
             vals[K] = exp(4 * big(rand(rng)) - 2)
         end
     end
@@ -554,7 +551,7 @@ function _testhelper_consistent_point(m, rng)
     # prunes.
     # (`forward` holds the forward rates: a local named `kf` would be the one the closure
     # `_testhelper_conformation_steps` assigns.)
-    cm = mech.catalytic
+    cm = m.catalytic
     flat = EnzymeRates.Derivation._flat_edges(cm)
     K = ones(BigFloat, length(cm.steps), 2)
     forward = ones(BigFloat, length(cm.steps), 2)
@@ -569,7 +566,7 @@ function _testhelper_consistent_point(m, rng)
         K[k, c] = exp(u[(c - 1) * nf + s.from] + sum(gm, s.consumed; init = big(0)) -
                       u[(c - 1) * nf + s.to] - sum(gm, s.released; init = big(0)))
         s.rapid_equilibrium && continue
-        key = _testhelper_excludes(mech, k, c) ? (-k, c) : (s.group, c)
+        key = _testhelper_excludes(m, k, c) ? (-k, c) : (s.group, c)
         forward[k, c] = get!(() -> exp(4 * big(rand(rng)) - 2), rates, key)
     end
     allo || (K[:, 2] .= K[:, 1]; forward[:, 2] .= forward[:, 1])
@@ -594,8 +591,7 @@ when the network is disconnected, since its steady state is then not unique. Wit
 function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30,
                                        flip::Int = 1, occupancy::Int = 0)
     setprecision(BigFloat, 256) do
-        mech = m
-        g = _testhelper_graph(mech)
+        g = _testhelper_graph(m)
         node = Dict{Tuple{Symbol, Int}, Int}()
         id(c, f) = get!(node, (c, f), length(node) + 1)
         x1 = first(g.substrates)
@@ -609,7 +605,7 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
         end
         if g.oligomeric_state !== nothing
             push!(edges, (id(:A, flip), id(:I, flip),
-                          _testhelper_flip_ratio(mech, point, concs), big(1), 0))
+                          _testhelper_flip_ratio(m, point, concs), big(1), 0))
         end
         n = length(node)
         reached, frontier = Set([1]), [1]
@@ -695,15 +691,14 @@ subunit.
 function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                               bigfloat = false, rtol = big(10)^-20)
     rng = Random.MersenneTwister(seed)
-    em = _testhelper_single_subunit(m)
-    mech = em
-    fitted = _testhelper_dependent_param_exprs(em)[2]
-    mets = Tuple(EnzymeRates.metabolites(em))
-    rate = compile_rate_equation(em)
+    one_subunit = _testhelper_single_subunit(m)
+    fitted = _testhelper_dependent_param_exprs(one_subunit)[2]
+    mets = Tuple(EnzymeRates.metabolites(one_subunit))
+    rate = compile_rate_equation(one_subunit)
     for _ in 1:n_points
-        point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
-        oracle = _testhelper_steady_state_rate(mech, point, concs)
-        @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
+        point, concs, params = _testhelper_law_inputs(one_subunit, fitted, rng)
+        oracle = _testhelper_steady_state_rate(one_subunit, point, concs)
+        @test abs(_testhelper_law_value(one_subunit, params, concs) - oracle) <=
               rtol * abs(oracle)
         c64, p64, keq64 = _testhelper_float64_inputs(fitted, params, concs, mets)
         @test isapprox(rate(c64, p64, keq64), Float64(oracle); rtol = 1e-8)
@@ -729,15 +724,14 @@ checked too.
 """
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
-        mech = m
-        s = EnzymeRates.Derivation._solve(mech)
-        L = EnzymeRates.Derivation._law(mech, s)
+        s = EnzymeRates.Derivation._solve(m)
+        L = EnzymeRates.Derivation._law(m, s)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
-        g = _testhelper_graph(mech)
+        g = _testhelper_graph(m)
         subs, prods = g.substrates, g.products
         concs = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
-                                       for x in EnzymeRates.metabolites(mech))
+                                       for x in EnzymeRates.metabolites(m))
         p1 = first(prods)
         concs[p1] = params[:Keq] * prod(concs[x] for x in subs) /
                     prod((concs[x] for x in prods if x != p1); init = big(1))
@@ -869,12 +863,11 @@ law of a mechanism the guard rejects is derived once, unchecked
 (`EnzymeRates.Derivation._law`), and evaluated in BigFloat (`_testhelper_evaluate_law`), as
 `_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
-    mech = m
-    fitted = _testhelper_dependent_param_exprs(mech)[2]
-    rate = if _testhelper_is_valid(mech)
-        compile_rate_equation(mech)
+    fitted = _testhelper_dependent_param_exprs(m)[2]
+    rate = if _testhelper_is_valid(m)
+        compile_rate_equation(m)
     else
-        L = EnzymeRates.Derivation._law(mech)
+        L = EnzymeRates.Derivation._law(m)
         function _testhelper_unchecked_rate(c, p, keq)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
                                          for (k, v) in pairs(merge(p, c, (Keq = keq,))))
@@ -882,7 +875,7 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
         end
     end
     fp = collect(fitted)
-    mets = sort(collect(EnzymeRates.metabolites(mech)))
+    mets = sort(collect(EnzymeRates.metabolites(m)))
     # A fixed seed reproduces a failure in a later session; a struct hash mixes in
     # objectid and would not.
     rng = MersenneTwister(1)
@@ -1292,24 +1285,23 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
                              sigma::Vector{BigFloat} = BigFloat[],
                              theta::Vector{BigFloat} = BigFloat[],
                              reading::Union{Symbol, Matrix{Symbol}} = :all_lose_affinity)
-    mech = m
-    cm = mech.catalytic
+    cm = m.catalytic
     nf = length(cm.nodes)
-    nc = _testhelper_is_allosteric(mech) ? 2 : 1
+    nc = _testhelper_is_allosteric(m) ? 2 : 1
     # Only the ε-network reads the excluded edges, so only it needs the reading.
-    switch_off = mode === :vanish ? _testhelper_reading(mech, reading) : nothing
+    switch_off = mode === :vanish ? _testhelper_reading(m, reading) : nothing
     x1 = first(cm.substrates)
     met_names(list) = [x.name for x in list]
     # The law keeps the forms in free E's component (`_testhelper_kept_components`,
     # numbered by first form); the ε-network keeps every form.
-    keep = [mode === :law ? _testhelper_kept_components(mech, c) .== 1 : trues(nf)
+    keep = [mode === :law ? _testhelper_kept_components(m, c) .== 1 : trues(nf)
             for c in 1:nc]
     nodes = [(f, c) for c in 1:nc for f in 1:nf if keep[c][f]]
     id = Dict(node => n for (n, node) in enumerate(nodes))
     links = _testhelper_Link[]
     for c in 1:nc, (k, e) in enumerate(cm.steps)
         keep[c][e.from] && keep[c][e.to] || continue
-        excluded = _testhelper_excludes(mech, k, c)
+        excluded = _testhelper_excludes(m, k, c)
         mode === :law && excluded && continue
         K, kf = point.K[k, c], point.kf[k, c]
         fast = e.rapid_equilibrium
@@ -1331,7 +1323,7 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
                                       r * conc_out, w, fast))
     end
     if nc == 2
-        ratio = _testhelper_flip_ratio(mech, point, concs)
+        ratio = _testhelper_flip_ratio(m, point, concs)
         push!(links, _testhelper_Link(id[(1, 1)], id[(1, 2)], sqrt(ratio),
                                       1 / sqrt(ratio), 0, true))
     end
@@ -2137,10 +2129,9 @@ end
 
 """The guard's class-3 verdict (`_check_face`) on each face of `m`, in `_faces` order."""
 function _testhelper_face_verdicts(m)
-    mech = m
-    net = EnzymeRates.Derivation._law_network(mech)
-    faces = EnzymeRates.Derivation._faces(mech.catalytic)
-    [EnzymeRates.Derivation._check_face(mech, net, faces, i) for i in eachindex(faces)]
+    net = EnzymeRates.Derivation._law_network(m)
+    faces = EnzymeRates.Derivation._faces(m.catalytic)
+    [EnzymeRates.Derivation._check_face(m, net, faces, i) for i in eachindex(faces)]
 end
 
 """The guard's class-3 fault on each face of `m` (`_testhelper_face_verdicts`)."""
@@ -2156,10 +2147,9 @@ _testhelper_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symbol) =
 """Whether class 3's message for its verdict `v` on `m` (`_face_message`) names the face
 and, when `v` leads with an edge, that edge's step line."""
 function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
-    mech = m
-    msg = EnzymeRates.Derivation._face_message(mech, v)
+    msg = EnzymeRates.Derivation._face_message(m, v)
     line = v.edge == 0 ? "" : EnzymeRates.Mechanisms.step_text(
-        mech.catalytic, v.edge)
+        m.catalytic, v.edge)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
@@ -2168,9 +2158,8 @@ one `NamedTuple` per face of its catalytic graph
 (`EnzymeRates.Derivation._faces`), with that face's metabolites at 0 and the others drawn
 from (0.1, 10)."""
 function _testhelper_face_concentrations(mech; rng = Random.default_rng())
-    x = mech
-    g = x.catalytic
-    mets = Tuple(EnzymeRates.metabolites(x))
+    g = mech.catalytic
+    mets = Tuple(EnzymeRates.metabolites(mech))
     map(EnzymeRates.Derivation._faces(g)) do face
         zeroed = EnzymeRates.Derivation._face_names(g, face)
         NamedTuple{mets}(Tuple(n in zeroed ? 0.0 : 0.1 + 9.9 * rand(rng) for n in mets))
@@ -2278,14 +2267,13 @@ is read without the guard (`_testhelper_law_value`).
 """
 function _testhelper_check_law_against_limit(m; n_points::Int = 3, seed::Int = 1)
     sub = _testhelper_single_subunit(m)
-    am = sub
     fitted = _testhelper_dependent_param_exprs(sub)[2]
     rng = Random.MersenneTwister(seed)
     setprecision(BigFloat, 256) do
         for _ in 1:n_points
-            point, concs, params = _testhelper_law_inputs(am, fitted, rng)
-            speeds = _testhelper_draw_speeds(am, rng)
-            exact = _testhelper_re_limit(_testhelper_network(am, point, concs; speeds))
+            point, concs, params = _testhelper_law_inputs(sub, fitted, rng)
+            speeds = _testhelper_draw_speeds(sub, rng)
+            exact = _testhelper_re_limit(_testhelper_network(sub, point, concs; speeds))
             @test abs(_testhelper_law_value(sub, params, concs) - exact) <=
                   big(10)^-20 * abs(exact)
         end
@@ -2545,10 +2533,9 @@ constant (copies released − copies consumed, 0); a regulator's dissociation co
 (1, 0); `L` (0, 0).
 """
 function _testhelper_name_units(m)
-    mech = m
-    g = _testhelper_graph(mech)
+    g = _testhelper_graph(m)
     u = Dict{Symbol, Tuple{Rational{Int}, Rational{Int}}}(
-        x => (1 // 1, 0 // 1) for x in EnzymeRates.metabolites(mech))
+        x => (1 // 1, 0 // 1) for x in EnzymeRates.metabolites(m))
     u[:Keq] = (length(g.products) - length(g.substrates), 0 // 1)
     for st in g.steps, names in (st.names, st.inactive_names), (slot, x) in enumerate(names)
         u[x] = !st.rapid_equilibrium ?
@@ -2556,8 +2543,8 @@ function _testhelper_name_units(m)
                _testhelper_is_binding(st) ? (1 // 1, 0 // 1) :
                    (length(st.released) - length(st.consumed), 0 // 1)
     end
-    if _testhelper_is_allosteric(mech)
-        for state in (:A, :I), K in _testhelper_regulator_constants(mech, state)
+    if _testhelper_is_allosteric(m)
+        for state in (:A, :I), K in _testhelper_regulator_constants(m, state)
             u[K] = (1 // 1, 0 // 1)
         end
         u[:L] = (0 // 1, 0 // 1)
@@ -2790,14 +2777,13 @@ allosteric mechanism's point is drawn at one catalytic subunit, and the law is r
 own multiplicity.
 """
 function _testhelper_printed_law_error(m; points::Int = 2, seed::Int = 31)
-    mech = m
-    L = EnzymeRates.Derivation._law(mech)
-    fitted = collect(EnzymeRates.Derivation._solve(mech).fitted)
+    L = EnzymeRates.Derivation._law(m)
+    fitted = collect(EnzymeRates.Derivation._solve(m).fitted)
     texts = (rate_equation_string(m), rate_equation_string(m; coefficients = true))
     rng = Random.MersenneTwister(seed)
     worst = big(0.0)
     for _ in 1:points
-        _, concs, params = _testhelper_law_inputs(_testhelper_single_subunit(mech), fitted,
+        _, concs, params = _testhelper_law_inputs(_testhelper_single_subunit(m), fitted,
                                                   rng)
         law = _testhelper_evaluate_law(L, merge(params, concs))
         for text in texts

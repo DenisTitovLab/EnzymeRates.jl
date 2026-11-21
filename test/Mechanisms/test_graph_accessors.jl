@@ -186,7 +186,7 @@ end
 @testset "graph accessors: a metabolite and its modifier copy" begin
     M = ER.Mechanisms
     # Substrate inhibition: a second S binds E(S) as a modifier.
-    em = @enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -197,7 +197,6 @@ end
             E(P) ⇌ E + P
         end
     end
-    m = em
     # Canonical form numbers the forms E, E(P), E(S), E(S, S::Mod) and sorts the steps
     # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod).
     ESS = m.catalytic.nodes[4].bound
@@ -219,7 +218,7 @@ end
     @test isempty(filter(x -> x.modifier, m.catalytic.steps[2].taken_up))
 
     # A copy of one mechanism agrees, and a form of another mechanism compares by content.
-    other = deepcopy(em)
+    other = deepcopy(m)
     @test other.catalytic.nodes[4].bound == ESS &&
           hash(other.catalytic.nodes[4].bound) == hash(ESS)
     @test other.catalytic.nodes[3].bound != ESS

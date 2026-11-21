@@ -8,7 +8,7 @@ using DataFrames
     @testset "the macros work when imported alone" begin
         importer = Module(:_testhelper_MacroOnly)
         Core.eval(importer, :(using EnzymeRates: @enzyme_mechanism, @enzyme_reaction))
-        em = Core.eval(importer, :(@enzyme_mechanism begin
+        m = Core.eval(importer, :(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17,7 +17,7 @@ using DataFrames
                 E(P) ⇌ E + P
             end
         end))
-        @test em isa EnzymeRates.Mechanism
+        @test m isa EnzymeRates.Mechanism
         rxn = Core.eval(importer, :(@enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -191,15 +191,14 @@ _testhelper_binding_of(x, t) =
                 E + I <--> E(I)
             end
         end
-        mech_multi = m_multi
-        eab = only(f for (f, x) in enumerate(mech_multi.catalytic.nodes)   # E(A, B)
+        eab = only(f for (f, x) in enumerate(m_multi.catalytic.nodes)   # E(A, B)
                    if Set(y.name for y in x.bound) == Set([:A, :B]))
-        @test _testhelper_form_roles(mech_multi, eab) ==
+        @test _testhelper_form_roles(m_multi, eab) ==
               (:E, [(:A, :substrate), (:B, :substrate)])
         # The modifier-only name I binds as a modifier.
-        ei = _testhelper_binding_of(mech_multi,                               # E(I)
+        ei = _testhelper_binding_of(m_multi,                               # E(I)
                                     EnzymeRates.Mechanisms.Metabolite(:I, true)).to
-        @test _testhelper_form_roles(mech_multi, ei) == (:E, [(:I, :modifier)])
+        @test _testhelper_form_roles(m_multi, ei) == (:E, [(:I, :modifier)])
     end
 
     @testset "@enzyme_mechanism call-form grammar" begin

@@ -95,8 +95,7 @@ end
         end), [["E + A ⇌ EA", "EA + B <--> EPQ", "EQ + P <--> EPQ", "E + Q <--> EQ"],
                ["E + A ⇌ EA", "EA + B <--> EQ + P", "E + Q <--> EQ"]]),
     ]
-    for (em, cycles) in cases
-        m = em
+    for (m, cycles) in cases
         n = length(eachindex(m.catalytic.steps))
         at = [[_testhelper_edge(m, text) for text in cycle] for cycle in cycles]
         for bits in 0:(2^n - 1)

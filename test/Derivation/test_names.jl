@@ -595,13 +595,12 @@ end
     @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
     # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
-    mech = m
-    k = only(k for k in eachindex(mech.catalytic.steps)
-             if mech.catalytic.step_kinds[k] !== :binding)
-    kon, koff = _testhelper_step_parameters(mech, k)
+    k = only(k for k in eachindex(m.catalytic.steps)
+             if m.catalytic.step_kinds[k] !== :binding)
+    kon, koff = _testhelper_step_parameters(m, k)
     @test (kon.slot, koff.slot) == (1, 2)
-    @test ER.Derivation._name(kon, mech) == :k_EQ_P_to_EAB &&
-          ER.Derivation._name(koff, mech) == :k_EAB_to_EQ_P
+    @test ER.Derivation._name(kon, m) == :k_EQ_P_to_EAB &&
+          ER.Derivation._name(koff, m) == :k_EAB_to_EQ_P
     @test :k_E_A_to_EA in names && :k_EQ_to_E_Q in names
 end
 
@@ -712,9 +711,9 @@ end
     @test :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B in pp_names
     _testhelper_check_law_against_oracle(pingpong)
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
-    pm = pingpong
-    @test length(pp_names) == sum(pm.catalytic.steps[first(ks)].rapid_equilibrium ? 1 : 2
-                                  for ks in pm.catalytic.groups)
+    @test length(pp_names) ==
+          sum(pingpong.catalytic.steps[first(ks)].rapid_equilibrium ? 1 : 2
+              for ks in pingpong.catalytic.groups)
 end
 
 @testset "a modifier-only name is bare, a reactant's copy is Xmod in its form's name" begin
@@ -802,13 +801,14 @@ end
             E <--> F
         end
     end
-    m = forward
-    @test backward == m
-    k = only(k for (k, e) in enumerate(m.catalytic.steps) if ER.Mechanisms._is_iso(e))
-    @test ER.Mechanisms._form_name(m.catalytic, m.catalytic.steps[k].from) == "F" &&
-          ER.Mechanisms._form_name(m.catalytic, m.catalytic.steps[k].to) == "E"
-    kf, kr = _testhelper_step_parameters(m, k)
-    @test ER.Derivation._name(kf, m) == :k_F_to_E && ER.Derivation._name(kr, m) == :k_E_to_F
+    @test backward == forward
+    k = only(k for (k, e) in enumerate(forward.catalytic.steps) if ER.Mechanisms._is_iso(e))
+    c = forward.catalytic
+    @test ER.Mechanisms._form_name(c, c.steps[k].from) == "F" &&
+          ER.Mechanisms._form_name(c, c.steps[k].to) == "E"
+    kf, kr = _testhelper_step_parameters(forward, k)
+    @test ER.Derivation._name(kf, forward) == :k_F_to_E &&
+          ER.Derivation._name(kr, forward) == :k_E_to_F
 end
 
 # Chokepoint guard: no `Symbol("[KkVL]...")` literal is constructed outside

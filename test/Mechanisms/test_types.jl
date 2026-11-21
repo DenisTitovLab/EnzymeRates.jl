@@ -116,11 +116,10 @@ end
         @test ER.metabolites(m) == [:S, :P]
         # Steps are canonicalized at construction, so compare content
         # order-independently.
-        mech = m
-        @test Set(_testhelper_edge_text(mech, k)
-                  for k in eachindex(mech.catalytic.steps)) ==
+        @test Set(_testhelper_edge_text(m, k)
+                  for k in eachindex(m.catalytic.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
-        @test length(mech.catalytic.groups) == 3
+        @test length(m.catalytic.groups) == 3
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES", "EP"])
 
         # Shared kinetic-group: two steps in group 1 (regulator R binds
@@ -138,11 +137,10 @@ end
         end
         # Steps are canonicalized; the two R-binding steps share one kinetic
         # group → 5 steps, 4 groups (one 2-step group binding R).
-        mech2 = m2
-        @test length(mech2.catalytic.groups) == 4
-        shared = only(ks for ks in mech2.catalytic.groups if length(ks) == 2)
-        @test all(k -> ER.Mechanisms._is_binding(mech2.catalytic.steps[k]) &&
-                       only(mech2.catalytic.steps[k].taken_up) ==
+        @test length(m2.catalytic.groups) == 4
+        shared = only(ks for ks in m2.catalytic.groups if length(ks) == 2)
+        @test all(k -> ER.Mechanisms._is_binding(m2.catalytic.steps[k]) &&
+                       only(m2.catalytic.steps[k].taken_up) ==
                        ER.Mechanisms.Metabolite(:R, true),
                   shared)
     end
@@ -168,7 +166,7 @@ end
         # A modifier-only name and a reactant's modifier copy. The concentration order
         # is substrates, products, then the other modifiers, each by name, as the
         # compiled rate law lists them.
-        em = @enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: B, A
             products: Q, P
             modifiers: J, A, I
@@ -183,12 +181,11 @@ end
                 E(Q) + A::Mod ⇌ E(A::Mod, Q)
             end
         end
-        m = em
         @test m.catalytic.substrates == [:A, :B]
         @test m.catalytic.products == [:P, :Q]
         @test m.catalytic.modifiers == [:A, :I, :J]
         @test ER.metabolites(m) == [:A, :B, :P, :Q, :I, :J]
-        @test ER.metabolites(compile_rate_equation(em)) == (:A, :B, :P, :Q, :I, :J)
+        @test ER.metabolites(compile_rate_equation(m)) == (:A, :B, :P, :Q, :I, :J)
         # A reaction's competitive inhibitor that no step binds is no concentration of
         # its init mechanisms.
         rxn = @enzyme_reaction begin
@@ -307,14 +304,13 @@ end
         @test m.allosteric.oligomeric_state == 2
         # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
         # canonical, so identify the tagged group by its step, not its position.
-        am_c = m
-        members = am_c.catalytic.groups
+        members = m.catalytic.groups
         onlyA_g = only(g for g in eachindex(members)
-                       if am_c.allosteric.allosteric_states[g] === :OnlyA)
-        @test !ER.Mechanisms._is_binding(am_c.catalytic.steps[first(members[onlyA_g])])
-        @test all(am_c.allosteric.allosteric_states[g] === :EqualAI
+                       if m.allosteric.allosteric_states[g] === :OnlyA)
+        @test !ER.Mechanisms._is_binding(m.catalytic.steps[first(members[onlyA_g])])
+        @test all(m.allosteric.allosteric_states[g] === :EqualAI
                   for g in eachindex(members) if g != onlyA_g)
-        @test only(am_c.allosteric.regulatory_sites).allosteric_states ==
+        @test only(m.allosteric.regulatory_sites).allosteric_states ==
               [:OnlyI]
     end
 
@@ -1117,9 +1113,8 @@ end
 
     @testset "AllostericMechanism validators" begin
         # Wrong-length allosteric_states (4 entries for 3 kinetic groups) → error
-        cm = _testhelper_re_mm
         @test_throws ErrorException ER.Mechanism(
-            cm.catalytic,
+            _testhelper_re_mm.catalytic,
             ER.Mechanisms.Allostery([:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA], 2,
                                     ER.Mechanisms.RegulatorySite[]))
 
@@ -1130,8 +1125,10 @@ end
             "rendered regulator parameter names would collide. " *
             "Same-ligand-two-sites is not enumerated."),
             ER.Mechanism(
-                cm.catalytic, ER.Mechanisms.Allostery([:EqualAI, :EqualAI, :EqualAI], 2,
-                [ER.Mechanisms.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)])))
+                _testhelper_re_mm.catalytic,
+                ER.Mechanisms.Allostery(
+                    [:EqualAI, :EqualAI, :EqualAI], 2,
+                    [ER.Mechanisms.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)])))
 
         # Invalid allosteric state value → error
         @test_throws ErrorException @enzyme_mechanism begin
@@ -1199,13 +1196,12 @@ end
                 regulatory_site(2): I::NonequalAI
                 regulatory_site(2): J::OnlyI
             end"""
-        am = m
         # Every catalytic state appears in allosteric_states line
-        for g in eachindex(am.allosteric.allosteric_states)
-            @test occursin(string(am.allosteric.allosteric_states[g]), s)
+        for g in eachindex(m.allosteric.allosteric_states)
+            @test occursin(string(m.allosteric.allosteric_states[g]), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
-        for site in am.allosteric.regulatory_sites,
+        for site in m.allosteric.regulatory_sites,
             (lig, state) in zip(site.ligands,
                                 site.allosteric_states)
             @test occursin("$lig::$state", s)
@@ -1622,12 +1618,11 @@ end
                 E + A <--> E(A); E(A) <--> E(P); E(P) <--> F + P; E <--> F  # last flipped
             end
         end
-        m = s2
-        iso = only(e for e in m.catalytic.steps
+        iso = only(e for e in s2.catalytic.steps
                    if ER.Mechanisms._is_iso(e) &&
-                       ER.Mechanisms._form_name(m.catalytic, e.from) in ("E", "F"))
-        @test ER.Mechanisms._form_name(m.catalytic, iso.from) == "F"  # where P leaves
-        @test ER.Mechanisms._form_name(m.catalytic, iso.to)   == "E"  # where A enters
+                       ER.Mechanisms._form_name(s2.catalytic, e.from) in ("E", "F"))
+        @test ER.Mechanisms._form_name(s2.catalytic, iso.from) == "F"  # where P leaves
+        @test ER.Mechanisms._form_name(s2.catalytic, iso.to)   == "E"  # where A enters
     end
 
     @testset "Mechanism canonicalizes step order" begin
@@ -1754,7 +1749,6 @@ end
     end
 
     @testset "an allosteric mechanism holds its catalytic mechanism, states and sites" begin
-        cm = _testhelper_re_mm
         am = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -1769,10 +1763,11 @@ end
         @test _testhelper_is_allosteric(am)
 
         # Its catalytic scheme is the plain mechanism's of the same steps.
-        @test am.catalytic == cm.catalytic
+        @test am.catalytic == _testhelper_re_mm.catalytic
+        re_mm = _testhelper_re_mm.catalytic
         @test (am.catalytic.substrates, am.catalytic.products,
                am.catalytic.modifiers) ==
-              (cm.catalytic.substrates, cm.catalytic.products, cm.catalytic.modifiers)
+              (re_mm.substrates, re_mm.products, re_mm.modifiers)
 
         # allosteric_states and multiplicity extracted from CS
         @test am.allosteric.allosteric_states[1] === :EqualAI
@@ -2335,11 +2330,10 @@ end
             (E + I ⇌ E(I), F + I ⇌ F(I))
         end
     end
-    m = ss
-    label(f) = m.catalytic.nodes[f].conformation
-    mirror = only(m.catalytic.steps[ks] for ks in m.catalytic.groups
+    label(f) = ss.catalytic.nodes[f].conformation
+    mirror = only(ss.catalytic.steps[ks] for ks in ss.catalytic.groups
                   if length(ks) == 2 &&
-                     all(k -> ER.Mechanisms._is_iso(m.catalytic.steps[k]), ks))
+                     all(k -> ER.Mechanisms._is_iso(ss.catalytic.steps[k]), ks))
     @test all(e -> label(e.from) == :F && label(e.to) == :E, mirror)
     @test !occursin("Wegscheider", rate_equation_string(ss))
     # Writing both mirrored steps the other way round, in the other order, changes nothing.
@@ -2354,7 +2348,7 @@ end
             (E(I) <--> F(I), E <--> F)
             (E + I ⇌ E(I), F + I ⇌ F(I))
         end
-    end) == m
+    end) == ss
 
     # At rapid equilibrium the same cycle would pin K_F_to_E to 1 on its own; the shared
     # orientation leaves it fitted.
@@ -2612,9 +2606,8 @@ end
             (E(I) + J <--> E(J) + I, F(I) + J <--> E(J) + I)
         end
     end
-    mm = mixed
-    @test _testhelper_exchanges(mm) == [([J], [I]), ([J], [I])]
-    _testhelper_check_stored_orientation(mm)
+    @test _testhelper_exchanges(mixed) == [([J], [I]), ([J], [I])]
+    _testhelper_check_stored_orientation(mixed)
     @test (@enzyme_mechanism begin
         substrates: A
         products: P
@@ -2628,7 +2621,7 @@ end
             E + J ⇌ E(J)
             (E(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)
         end
-    end) == mm
+    end) == mixed
     @test occursin("k_EI_J_to_EJ_I", rate_equation_string(mixed))
     _testhelper_check_law_against_oracle(mixed)
 
@@ -2865,12 +2858,11 @@ end
                 E(P) ⇌ E + P      :: EqualAI
             end
         end
-        am = m
-        firsts = _testhelper_first_steps(_testhelper_graph(am))
+        firsts = _testhelper_first_steps(_testhelper_graph(m))
         # tag each group by the metabolite its step binds
         tags = [!_testhelper_is_binding(s) ? cat_tag :
                 only(s.consumed) === :S ? s_tag : p_tag for s in firsts]
-        _testhelper_admission_reads(am, tags)
+        _testhelper_admission_reads(m, tags)
     end
 
     # no :OnlyA anywhere -> admitted
@@ -2915,10 +2907,9 @@ end
     end
     # every binding :OnlyA, catalysis :EqualAI -> balanced -> valid
     function _testhelper_both_bindings_onlya(m)
-        am = m
         tags = [_testhelper_is_binding(s) ? :OnlyA : :EqualAI
-                for s in _testhelper_first_steps(_testhelper_graph(am))]
-        _testhelper_admission_reads(am, tags)
+                for s in _testhelper_first_steps(_testhelper_graph(m))]
+        _testhelper_admission_reads(m, tags)
     end
     @test _testhelper_both_bindings_onlya(mixed_uni_re_ss) == (NO, nothing)
     @test _testhelper_both_bindings_onlya(mixed_uni_ss_re) == (NO, nothing)
@@ -2940,10 +2931,9 @@ end
                 E(P) ⇌ E + P          :: EqualAI
             end
         end
-        bu_am = biuni
         # Tag :OnlyA the groups named by (free form, bound metabolite); every
         # other group is :EqualAI. The chemical step's key is (:EAB, nothing).
-        bu = _testhelper_graph(bu_am)
+        bu = _testhelper_graph(biuni)
         # Each group's key: the form its first step starts from, and the metabolite it
         # binds (`nothing` for the chemical step).
         bu_keys = [(Symbol(bu.forms[s.from]),
@@ -2951,7 +2941,7 @@ end
                    for s in _testhelper_first_steps(bu)]
         _testhelper_tags(onlya_keys...) =
             [key in onlya_keys ? :OnlyA : :EqualAI for key in bu_keys]
-        _testhelper_verdict(t) = _testhelper_admission_reads(bu_am, t)
+        _testhelper_verdict(t) = _testhelper_admission_reads(biuni, t)
 
         # the square alone trips nothing: no :OnlyA anywhere -> admitted
         @test _testhelper_verdict(_testhelper_tags()) == (NO, nothing)
@@ -3326,9 +3316,8 @@ end
         allosteric_regulators: I
         oligomeric_state: 2
     end
-    m = _testhelper_re_mm
     m_on_rxn = only(_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
-    @test m_on_rxn == m && hash(m_on_rxn) == hash(m)
+    @test m_on_rxn == _testhelper_re_mm && hash(m_on_rxn) == hash(_testhelper_re_mm)
     am = @enzyme_mechanism begin
         substrates: S
         products: P

@@ -41,8 +41,7 @@ end
         m = spec.mechanism
         _testhelper_is_allosteric(m) || continue
         fp = parameters(m)
-        am = m
-        reg = Tuple(K for st in (:A, :I) for K in _testhelper_regulator_constants(am, st))
+        reg = Tuple(K for st in (:A, :I) for K in _testhelper_regulator_constants(m, st))
         cat = fp[1:end - 1 - count(in(fp), reg)]
         @test issorted(collect(cat); by = string)
         @test fp == (cat..., filter(in(fp), reg)..., :L)

@@ -13,10 +13,9 @@ is the solve's flat order, `_flat_edges`), with `L` and the regulator constants 
 random.
 """
 function _testhelper_solve_point(m, rng)
-    mech = m
-    g = _testhelper_graph(mech)
-    sys = _testhelper_JS.Derivation._joint_system(mech)
-    edges = _testhelper_JS.Derivation._flat_edges(mech.catalytic)
+    g = _testhelper_graph(m)
+    sys = _testhelper_JS.Derivation._joint_system(m)
+    edges = _testhelper_JS.Derivation._flat_edges(m.catalytic)
     M, pivots = _testhelper_JS.Derivation._reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
     x = zeros(BigFloat, n)
@@ -50,8 +49,8 @@ function _testhelper_solve_point(m, rng)
     L = big(0)
     if allo
         L = exp(4 * big(rand(rng)) - 2)
-        for K in [_testhelper_regulator_constants(mech, :A);
-                  _testhelper_regulator_constants(mech, :I)]
+        for K in [_testhelper_regulator_constants(m, :A);
+                  _testhelper_regulator_constants(m, :I)]
             vals[K] = exp(4 * big(rand(rng)) - 2)
         end
     end
@@ -72,9 +71,8 @@ end
 
 @testset "Joint thermodynamic solve" begin
     @testset "the priority key orders the columns" begin
-        mech = _testhelper_mm_ss
-        sys = EnzymeRates.Derivation._joint_system(mech)
-        describe(c) = (_testhelper_edge_text(mech, c.step), c.slot)
+        sys = EnzymeRates.Derivation._joint_system(_testhelper_mm_ss)
+        describe(c) = (_testhelper_edge_text(_testhelper_mm_ss, c.step), c.slot)
         # The isomerization goes first, its reverse rate (against the reaction) before
         # its forward one; then the two bindings' constants that run against the
         # reaction, the release of S and the uptake of P (a product binding's uptake runs
@@ -292,17 +290,16 @@ end
                 (D <--> E, D(S) <--> E(S))
             end
         end
-        m = tied_mm
         # Groups and steps in canonical order: the steps at free E first, then by form.
-        @test [_testhelper_edge_text(m, k)
-               for k in EnzymeRates.Derivation._flat_edges(m.catalytic)] ==
+        @test [_testhelper_edge_text(tied_mm, k)
+               for k in EnzymeRates.Derivation._flat_edges(tied_mm.catalytic)] ==
               ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
-        label(f) = m.catalytic.nodes[f].conformation
+        label(f) = tied_mm.catalytic.nodes[f].conformation
         tied =
-            only(ks for ks in m.catalytic.groups if length(ks) == 2)
-        @test all(k -> label(m.catalytic.steps[k].from) === :E &&
-                       label(m.catalytic.steps[k].to) === :D, tied)
+            only(ks for ks in tied_mm.catalytic.groups if length(ks) == 2)
+        @test all(k -> label(tied_mm.catalytic.steps[k].from) === :E &&
+                       label(tied_mm.catalytic.steps[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
         @test (@enzyme_mechanism begin
             substrates: S
@@ -314,8 +311,8 @@ end
                 D + S <--> D(S)
                 (E <--> D, E(S) <--> D(S))
             end
-        end) == m
-        _testhelper_check_stored_orientation(m)
+        end) == tied_mm
+        _testhelper_check_stored_orientation(tied_mm)
         _testhelper_check_law_against_oracle(tied_mm)
     end
 

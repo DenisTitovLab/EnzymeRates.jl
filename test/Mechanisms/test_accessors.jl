@@ -40,8 +40,7 @@
     am = EnzymeRates.Mechanism(
         base.catalytic, EnzymeRates.Mechanisms.Allostery(allosteric_states, 2, [site]))
     @test am.allosteric.allosteric_states == allosteric_states
-    m_allo = am
-    params_allo = parameters(m_allo)
+    params_allo = parameters(am)
     @test any(occursin("_I_", string(p)) for p in params_allo)
     @test any(occursin("reg", string(p)) for p in params_allo)
     @test :L in params_allo
@@ -49,9 +48,9 @@
     values_allo = NamedTuple{params_allo}(ntuple(_ -> 1.0, length(params_allo)))
     dep_allo, _ = _testhelper_dependent_param_exprs(am)
     @test !isempty(dep_allo)
-    @test Set(keys(dependent_parameter_values(m_allo, values_allo, 1.0))) ==
+    @test Set(keys(dependent_parameter_values(am, values_allo, 1.0))) ==
           Set(keys(dep_allo))
-    @test isdisjoint(keys(dependent_parameter_values(m_allo, values_allo, 1.0)),
+    @test isdisjoint(keys(dependent_parameter_values(am, values_allo, 1.0)),
                      params_allo)
 end
 
@@ -131,10 +130,9 @@ end
         @test issorted(collect(keys(all_p))[length(p) + 1:end])
         # Every step constant the law reads, in each conformation, is among the keys; the
         # regulator constants and L are fitted, so p holds them.
-        mech = m
-        states = _testhelper_is_allosteric(mech) ? (:A, :I) : (:None,)
+        states = _testhelper_is_allosteric(m) ? (:A, :I) : (:None,)
         @test issubset((n for st in states
-                        for ns in _testhelper_edge_names(mech, st) for n in ns),
+                        for ns in _testhelper_edge_names(m, st) for n in ns),
                        keys(all_p))
     end
 end

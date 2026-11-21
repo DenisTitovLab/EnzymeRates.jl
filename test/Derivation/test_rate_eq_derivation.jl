@@ -140,15 +140,14 @@ step. A ligand of regulatory site `j` (the written order of `raw`'s sites) gives
 `m`'s catalytic graph. Every entry of `all_params` passes through.
 """
 function _testhelper_written_params(m, all_params::NamedTuple; raw)
-    mech = m
-    allo = _testhelper_is_allosteric(mech)
-    g = _testhelper_graph(mech)
+    allo = _testhelper_is_allosteric(m)
+    g = _testhelper_graph(m)
     c = _testhelper_canonicalize(raw)
-    c.scheme == mech.catalytic ||
+    c.scheme == m.catalytic ||
         error("raw writes another mechanism than m")
     # The test reader's steps run group by group, each group in edge order.
     flat = reduce(
-        vcat, mech.catalytic.groups)
+        vcat, m.catalytic.groups)
     out = Pair{Symbol, Any}[]
     for i in eachindex(c.edge_of)
         s = g.steps[findfirst(==(c.edge_of[i]), flat)]
@@ -174,13 +173,13 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
         end
     end
     if allo
-        for (pos, site) in enumerate(mech.allosteric.regulatory_sites)
+        for (pos, site) in enumerate(m.allosteric.regulatory_sites)
             j = _testhelper_positional_site_idx(site, pos, raw.regulatory_sites)
             for (lig, tag) in zip(site.ligands,
                                   site.allosteric_states)
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
-                    K = EnzymeRates.Derivation._regulator_constant(mech, lig, tag, inactive)
+                    K = EnzymeRates.Derivation._regulator_constant(m, lig, tag, inactive)
                     K === nothing ||
                         push!(out, Symbol("K_", lig, suffix, "_reg", j) => all_params[K])
                 end
@@ -1061,7 +1060,7 @@ const _testhelper_fused_cases = [
     # form 1, roots its own segment. A's modifier copy comes before Ab there: the table
     # sorts A's copy just after A, before Ab. The law in lowest terms does not depend on the
     # root.
-    em = @enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, Ab
         products: P
         modifiers: A
@@ -1076,7 +1075,6 @@ const _testhelper_fused_cases = [
             E(A) <--> E(; residual = A - P) + P
         end
     end
-    m = em
     form(text) =
         only(f for f in eachindex(m.catalytic.nodes)
              if ER.Mechanisms._form_name(m.catalytic, f) == text)
@@ -1089,7 +1087,7 @@ const _testhelper_fused_cases = [
     @test s.segment_of[a_copy] == s.segment_of[ab] == s.segment_of[e]
     covalent = form("E_res_plusA_minusP")
     @test s.segments[s.segment_of[covalent]] == [covalent]
-    _testhelper_check_law_against_oracle(em)
+    _testhelper_check_law_against_oracle(m)
 end
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
@@ -1098,7 +1096,7 @@ end
     # Q·K/B relative to E. Reducing the polynomials to lowest terms in the
     # concentrations multiplies them by B, so free E weighs B in the reduced
     # denominator; the MWC law reads this weight as free E's (`_cross_weights`).
-    em = @enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
             E + A ⇌ E(A)
@@ -1109,7 +1107,6 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    m = em
     s = EnzymeRates.Derivation._solve(m)
     L = EnzymeRates.Derivation._law(m, s)
     @test L.trees[1] * L.shift == EnzymeRates.Derivation._term(
@@ -1150,8 +1147,8 @@ end
 end
 
 @testset "fused steps derive the mass-action rate" begin
-    for em in _testhelper_fused_cases
-        _testhelper_check_law_against_oracle(em)
+    for m in _testhelper_fused_cases
+        _testhelper_check_law_against_oracle(m)
     end
     # The B group holds the fused E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q).
     # Fitted: A (2) + B (1) + P (2) + Q (1) − 1 Haldane = 5.
@@ -1203,14 +1200,13 @@ const _testhelper_tc_cases = (
     (; tc_ss, tc_re_outer, tc_re_step, two_in) = _testhelper_tc_cases
     @test length(parameters(tc_ss)) == 5
     @test length(parameters(tc_re_outer)) == 3
-    for em in (tc_ss, tc_re_outer, tc_re_step, two_in)
-        _testhelper_check_law_against_oracle(em)
+    for m in (tc_ss, tc_re_outer, tc_re_step, two_in)
+        _testhelper_check_law_against_oracle(m)
     end
     # canonical orientation: the substrate side is `from`
-    m = tc_ss
-    e = only(e for e in m.catalytic.steps
+    e = only(e for e in tc_ss.catalytic.steps
              if !ER.Mechanisms._is_iso(e) && !ER.Mechanisms._is_binding(e))
-    @test ER.Mechanisms._form_name(m.catalytic, e.from) == "EA" &&
+    @test ER.Mechanisms._form_name(tc_ss.catalytic, e.from) == "EA" &&
           e.taken_up == [ER.Mechanisms.Metabolite(:B, false)]
     @test :k_EA_B_to_EQ_P in _testhelper_step_constant_names(tc_ss)
     @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
@@ -1241,16 +1237,16 @@ end
     @test tc_backwards == _testhelper_tc_cases.tc_ss
     @test ER.rate_equation_string(tc_backwards) ==
           ER.rate_equation_string(_testhelper_tc_cases.tc_ss)
-    ems = Any[spec.mechanism for spec in MECHANISM_TEST_SPECS
+    mechanisms = Any[spec.mechanism for spec in MECHANISM_TEST_SPECS
               if !_testhelper_is_allosteric(spec.mechanism)]
-    append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
-    for em in ems
-        m = em
+    append!(mechanisms, _testhelper_fused_cases, values(_testhelper_tc_cases),
+            [tc_backwards])
+    for m in mechanisms
         for flipped in _testhelper_variants(_testhelper_written(m))
             m2 = _testhelper_build(flipped)
             @test m2 == m
             @test ER.rate_equation_string(m2) ==
-                  ER.rate_equation_string(em)
+                  ER.rate_equation_string(m)
         end
     end
     for spec in MECHANISM_TEST_SPECS
@@ -1331,19 +1327,19 @@ end
 @testset "§5a I-state parameters are all defined (regression)" begin
     # A renamed spec would silently empty the name filter.
     @test length(_LDH_ISTATE_MECHS) == 3
-    for em in _LDH_ISTATE_MECHS
-        pnames = parameters(em)
-        mets = Tuple(EnzymeRates.metabolites(em))
-        prods = Set(_testhelper_products(em))
+    for m in _LDH_ISTATE_MECHS
+        pnames = parameters(m)
+        mets = Tuple(EnzymeRates.metabolites(m))
+        prods = Set(_testhelper_products(m))
         params = NamedTuple{pnames}(ntuple(_ -> 1.3, length(pnames)))
         # No UndefVarError: the @generated body compiles and evaluates finite at
         # products = 0 (initial-rate conditions).
         concs0 = NamedTuple{mets}(
             ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
-        @test isfinite(compile_rate_equation(em)(concs0, params, 20000.0))
+        @test isfinite(compile_rate_equation(m)(concs0, params, 20000.0))
         # DEFINED ⊇ REFERENCED on the rendered transcript.
         @test isempty(
-            _testhelper_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
+            _testhelper_undefined_rhs_symbols(EnzymeRates.rate_equation_string(m)))
     end
 end
 
@@ -1623,8 +1619,7 @@ end
             F(P) <--> E + P
         end
     end
-    mech = m
-    @test any(d -> denominator(d.keq) == 3, EnzymeRates.Derivation._solve(mech).dependents)
+    @test any(d -> denominator(d.keq) == 3, EnzymeRates.Derivation._solve(m).dependents)
     roots = [(name, rhs) for (name, rhs) in _testhelper_body_locals(m)
              if occursin(r"^x\d+[mp]3$", String(name))]
     @test !isempty(roots)
@@ -2056,7 +2051,7 @@ end
     @testset "a constant thermodynamics pins to 1 prints as 1" begin
         # I binds E and F under one dissociation constant, so the cycle E → E(I) → F → E
         # forces K_E_to_F = 1 and leaves no other constant in its row.
-        em = @enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -2069,16 +2064,16 @@ end
             end
         end
         @test occursin("# Wegscheider constraints:\nK_E_to_F = 1\n",
-                       rate_equation_string(em))
-        @test :K_E_to_F ∉ parameters(em)
-        _testhelper_check_law_against_oracle(em)
+                       rate_equation_string(m))
+        @test :K_E_to_F ∉ parameters(m)
+        _testhelper_check_law_against_oracle(m)
         # The generated rate equation folds the pinned constant into its coefficients
         # and stays allocation-free.
-        syms = parameters(em)
+        syms = parameters(m)
         params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
-        @test dependent_parameter_values(em, params, 1.5).K_E_to_F == 1
+        @test dependent_parameter_values(m, params, 1.5).K_E_to_F == 1
         allocs, _ = _testhelper_test_rate_equation_performance(
-            em, params, 1.5, (A = 1.0, P = 0.5, I = 0.2))
+            m, params, 1.5, (A = 1.0, P = 0.5, I = 0.2))
         @test allocs == 0
     end
 
@@ -2227,12 +2222,11 @@ end
         end
         regulatory_site(2): I::OnlyI
     end
-    am = allo
     @test _testhelper_laplacian_tree_count(
-        am.catalytic, EnzymeRates.Mechanisms.steps_in_active_conformation(am)) == 9
+        allo.catalytic, EnzymeRates.Mechanisms.steps_in_active_conformation(allo)) == 9
     @test _testhelper_laplacian_tree_count(
-        am.catalytic, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)) == 9
-    @test EnzymeRates.Derivation.rate_equation_term_count(am) == 18
+        allo.catalytic, EnzymeRates.Mechanisms.steps_in_inactive_conformation(allo)) == 9
+    @test EnzymeRates.Derivation.rate_equation_term_count(allo) == 18
 end
 
 @testset "Rate equation too large error" begin
@@ -2460,14 +2454,13 @@ end
     # The guard checks the names of a graph built without the label check. The uptake
     # constant of the :EqualAI step A(Eb) <--> A + Eb is k_A_Eb_to_AEb, the name of the
     # active constant of the :NonequalAI step E(b) <--> A(Eb).
-    am_a = _testhelper_unchecked(_testhelper_relabelled_raw(:A))
-    conformation_a = am_a
+    conformation_a = _testhelper_unchecked(_testhelper_relabelled_raw(:A))
     clash_a = ErrorException("Mechanism: constants of this mechanism's rate " *
                              "equation share a name (k_A_Eb_to_AEb). Rename a metabolite " *
                              "or a conformation label so that each constant has a name " *
                              "of its own.")
-    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, am_a)
-    @test_throws clash_a EnzymeRates.Derivation.check_valid_rate_equation(am_a)
+    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, conformation_a)
+    @test_throws clash_a EnzymeRates.Derivation.check_valid_rate_equation(conformation_a)
     params = (K_Eb_to_E_b = 1.0, K_A_to_E = 2.0, k_A_Eb_to_AEb = 3.0, k_AEb_to_A_Eb = 4.0,
               k_I_Eb_to_AEb = 0.5, L = 10.0)
     @test_throws clash_a parameters(conformation_a)
@@ -2484,13 +2477,12 @@ end
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
     # :NonequalAI step's inactive constant.
-    am_i = _testhelper_unchecked(_testhelper_relabelled_raw(:I))
-    conformation_i = am_i
+    conformation_i = _testhelper_unchecked(_testhelper_relabelled_raw(:I))
     clash_i = ErrorException("Mechanism: constants of this mechanism's rate " *
                              "equation share a name (k_I_Eb_to_IEb). Rename a metabolite " *
                              "or a conformation label so that each constant has a name " *
                              "of its own.")
-    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, am_i)
+    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, conformation_i)
     @test_throws clash_i parameters(conformation_i)
     @test_throws clash_i rate_equation_string(conformation_i)
 
@@ -2758,7 +2750,7 @@ end
     @testset "_testhelper_edge_names and the regulator constants" begin
         flat_names(am, state) = reduce(vcat, _testhelper_edge_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
-        aem = @enzyme_mechanism begin
+        am = @enzyme_mechanism begin
             substrates: S
             products:   P
             oligomeric_state: 2
@@ -2769,7 +2761,6 @@ end
             end
             regulatory_site(1): R::NonequalAI
         end
-        am = aem
         # Catalytic side: every step of the inactive law takes its inactive name, the
         # :EqualAI iso its one shared name.
         @test Set(flat_names(am, :I)) ==
@@ -2783,7 +2774,7 @@ end
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid. The inactive conformation keeps no form but E, so its law has
         # no step and the :OnlyA reg ligand no inactive constant.
-        aem_skip = @enzyme_mechanism begin
+        am_skip = @enzyme_mechanism begin
             substrates: S
             products:   P
             oligomeric_state: 2
@@ -2794,7 +2785,6 @@ end
             end
             regulatory_site(1): R::OnlyA
         end
-        am_skip = aem_skip
         @test all(isempty, _testhelper_edge_names(am_skip, :I))
         @test isempty(_testhelper_regulator_constants(am_skip, :I))
         @test _testhelper_regulator_names(am_skip) == [:K_A_Rreg]

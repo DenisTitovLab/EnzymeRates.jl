@@ -4,10 +4,9 @@
 # The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete
 # mechanism.
 function _testhelper_normalizer(m)
-    mech = m
-    L = EnzymeRates.Derivation._law(mech)
+    L = EnzymeRates.Derivation._law(m)
     EnzymeRates.Derivation._normalizer(
-        L.D, L.vars, EnzymeRates.Derivation._substrate_vars(mech, L.vars)), L, mech
+        L.D, L.vars, EnzymeRates.Derivation._substrate_vars(m, L.vars)), L, m
 end
 
 # The concentration monomial of law `L` with the exponents `x => e`.
@@ -596,9 +595,8 @@ end
         end
         regulatory_site(2): R::NonequalAI
     end
-    am = pp
-    law = EnzymeRates.Derivation._law(am, EnzymeRates.Derivation._solve(am))
-    subs = EnzymeRates.Derivation._substrate_vars(am, law.vars)
+    law = EnzymeRates.Derivation._law(pp, EnzymeRates.Derivation._solve(pp))
+    subs = EnzymeRates.Derivation._substrate_vars(pp, law.vars)
     @test (
         EnzymeRates.Derivation._normalizer(law.active.D, law.active.vars, subs).rule,
         EnzymeRates.Derivation._normalizer(law.inactive.D, law.inactive.vars, subs).rule) ==
@@ -678,22 +676,21 @@ end
               "v = (Q_A + L * Q_I) * (S - P / Keq) / (D_A + L * D_I)"
         @test "D_A = 1 + dA_S * S" in split(coef, '\n')
         @test d_i_coefficient in split(coef, '\n')
-        am = m
-        cm = am.catalytic
+        cm = m.catalytic
         onlyi =
-            [String(x) for (k, ns) in enumerate(_testhelper_edge_names(am, :I))
-             if am.allosteric.allosteric_states[cm.steps[k].group] === :OnlyI
+            [String(x) for (k, ns) in enumerate(_testhelper_edge_names(m, :I))
+             if m.allosteric.allosteric_states[cm.steps[k].group] === :OnlyI
              for x in ns]
         d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))
         @test !isempty(onlyi)
         @test !any(x -> occursin(x, d_a), onlyi)
         @test any(x -> occursin(x, d_i), onlyi)
-        s = EnzymeRates.Derivation._solve(am)
+        s = EnzymeRates.Derivation._solve(m)
         rng = Random.MersenneTwister(500 + i)
         for _ in 1:2
-            point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
+            point, concs, params = _testhelper_law_inputs(m, s.fitted, rng)
             exact = setprecision(BigFloat, 256) do
-                _testhelper_limit_law(am, point, concs, Set{Symbol}(); rng)
+                _testhelper_limit_law(m, point, concs, Set{Symbol}(); rng)
             end
             for text in (full, coef)
                 v = _testhelper_eval_rate_string(text, params, concs, params[:Keq])

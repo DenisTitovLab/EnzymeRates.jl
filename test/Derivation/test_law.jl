@@ -442,8 +442,7 @@ end
                 E + P ⇌ E(P)           :: EqualAI
             end
         end))
-    for (n, em) in enumerate(mechs)
-        am = em
+    for (n, am) in enumerate(mechs)
         s = EnzymeRates.Derivation._solve(am)
         A = EnzymeRates.Derivation._law(am, s)
         @test A.n == n
@@ -503,10 +502,9 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end
-    am = inert
-    @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(am))
-    s = EnzymeRates.Derivation._solve(am)
-    A = EnzymeRates.Derivation._law(am, s)
+    @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(inert))
+    s = EnzymeRates.Derivation._solve(inert)
+    A = EnzymeRates.Derivation._law(inert, s)
     @test EnzymeRates.Derivation._flip_only(A.inactive) &&
           !EnzymeRates.Derivation._flip_only(A.active)
     @test iszero(A.inactive.Q) && A.inactive.D == one(EnzymeRates.Derivation._Poly)
@@ -514,11 +512,11 @@ end
           isempty(A.inactive.shift)
     @test A.fA == one(EnzymeRates.Derivation._Poly) &&
           A.fI == one(EnzymeRates.Derivation._Poly)
-    @test EnzymeRates.Derivation.rate_equation_term_count(am) == 1
+    @test EnzymeRates.Derivation.rate_equation_term_count(inert) == 1
     rng = Random.MersenneTwister(77)
     for _ in 1:3
-        point, concs, params = _testhelper_law_inputs(am, s.fitted, rng)
-        oracle = _testhelper_steady_state_rate(am, point, concs)
+        point, concs, params = _testhelper_law_inputs(inert, s.fitted, rng)
+        oracle = _testhelper_steady_state_rate(inert, point, concs)
         law = _testhelper_evaluate_law(A, merge(params, concs))
         @test abs(law - oracle) <= big(10)^-20 * abs(oracle)
     end
@@ -549,7 +547,7 @@ end
     # counts 4,320 + 4,320 = 8,640: over the cap of 5,000, though each conformation is
     # under it. The engine refuses it before any polynomial product, with
     # RateEquationTooLargeError's message.
-    em = @enzyme_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -568,7 +566,6 @@ end
             E(P) + B <--> E(B, P)    :: EqualAI
         end
     end
-    am = em
     cm = am.catalytic
     amask, imask = EnzymeRates.Mechanisms.steps_in_active_conformation(am),
         EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)
@@ -580,5 +577,5 @@ end
     @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
                  EnzymeRates.Derivation._law(am))
     @test_throws "has more than 5000 polynomial terms" EnzymeRates.Derivation._law(am)
-    @test_throws EnzymeRates.Derivation.RateEquationTooLargeError rate_equation_string(em)
+    @test_throws EnzymeRates.Derivation.RateEquationTooLargeError rate_equation_string(am)
 end

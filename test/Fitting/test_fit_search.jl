@@ -39,10 +39,9 @@ _testhelper_scales_table(mets, s, r) =
 # own factor, `Keq` by those factors to their stoichiometry and each fitted parameter by the
 # move of its centre multiplies the rate by exactly the factor on the rate reference.
 function _testhelper_check_centres_match_law(mechanism, rng)
-    m = mechanism
-    rate = compile_rate_equation(m)
-    mets = Tuple(metabolites(m))
-    catalytic = m.catalytic
+    rate = compile_rate_equation(mechanism)
+    mets = Tuple(metabolites(mechanism))
+    catalytic = mechanism.catalytic
     s = Dict(x => exp(randn(rng)) for x in mets)
     f = Dict(x => exp(2 * randn(rng)) for x in mets)
     sf = Dict(x => s[x] * f[x] for x in mets)
@@ -50,10 +49,10 @@ function _testhelper_check_centres_match_law(mechanism, rng)
     keq_factor = prod(f[x] for x in catalytic.products) /
                  prod(f[x] for x in catalytic.substrates)
     centres(scales, rate) = EnzymeRates.Fitting._log_centres(
-        FittingProblem(m, _testhelper_scales_table(mets, scales, rate), 1.0))
+        FittingProblem(mechanism, _testhelper_scales_table(mets, scales, rate), 1.0))
     move = centres(sf, g * r) .- centres(s, r)
-    params, Keq = _testhelper_random_independent_params(m; rng)
-    fitted = parameters(m)
+    params, Keq = _testhelper_random_independent_params(mechanism; rng)
+    fitted = parameters(mechanism)
     scaled = merge(params, NamedTuple{fitted}(Tuple(params[k] * exp(move[i])
                                                     for (i, k) in enumerate(fitted))))
     concs = NamedTuple{mets}(Tuple(exp(randn(rng)) for _ in mets))

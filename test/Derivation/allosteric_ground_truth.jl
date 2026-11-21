@@ -864,9 +864,8 @@ end
         end
     end
     _testhelper_check_law_against_oracle(half2_ss)
-    am = half2_ss
 
-    inactive = ER.Derivation._law(am).inactive
+    inactive = ER.Derivation._law(half2_ss).inactive
     @test !iszero(inactive.trees[1] * inactive.shift)
 
     fp = parameters(half2_ss)

@@ -2560,20 +2560,19 @@ end
             E(P) + Q ⇌ E(P, Q)                  :: EqualAI
         end
     end
-    am = both_readings
-    p = _testhelper_edge(am, "E + P <--> EP")              # leads away: distance 0 to 1
-    b = _testhelper_edge(am, "EA + B <--> EPQ")            # distance 1 to 1
-    a = _testhelper_edge(am, "EP + A ⇌ EAP")               # rapid equilibrium, 1 to 1
+    p = _testhelper_edge(both_readings, "E + P <--> EP")      # leads away: distance 0 to 1
+    b = _testhelper_edge(both_readings, "EA + B <--> EPQ")    # distance 1 to 1
+    a = _testhelper_edge(both_readings, "EP + A ⇌ EAP")       # rapid equilibrium, 1 to 1
     L, S = D._LOSES_FORWARD, D._STOPPED
     for (reading, name, at_p, at_b) in (
             (D._ALL_LOSE_AFFINITY, :all_lose_affinity, L, L),
             (D._OUTWARD_LOSE_AFFINITY, :outward_lose_affinity, L, S),
             (D._ALL_STOPPED, :all_stopped, S, S))
-        off = D._built_reading(am, reading)[:, 2]
+        off = D._built_reading(both_readings, reading)[:, 2]
         @test off[p] === at_p && off[b] === at_b
         @test off[a] === D._LOSES_FORWARD                     # a fast step is read one way
-        @test _testhelper_reading(D._built_reading(am, reading))[:, 2] ==
-              _testhelper_reading(am, name)[:, 2]
+        @test _testhelper_reading(D._built_reading(both_readings, reading))[:, 2] ==
+              _testhelper_reading(both_readings, name)[:, 2]
     end
     # The same need with the substrates' roles swapped and the P binding at E(B) :OnlyI.
     both_readings_only_i = @_testhelper_unguarded @enzyme_mechanism begin

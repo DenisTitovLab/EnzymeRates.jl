@@ -1039,27 +1039,25 @@ end
                                              (:bibi, (E_, E_, E_, N_, E_, N_), 2),
                                              (:uu_ss, (E_, E_, E_, N_), 3)))
         m = eval(Meta.parse(_testhelper_iso_text(family, tags; n)))
-        am = m
         fitted = _testhelper_dependent_param_exprs(m)[2]
         rng = Random.MersenneTwister(100 + i)
-        point, concs, params = _testhelper_law_inputs(am, fitted, rng)
-        exact = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
+        point, concs, params = _testhelper_law_inputs(m, fitted, rng)
+        exact = setprecision(() -> _testhelper_protomer_rate(m, point, concs; n),
                              BigFloat, 256)
         @test abs(_testhelper_law_value(m, params, concs) - exact) <=
               big(10)^-20 * abs(exact)
     end
     # A flip at the other free form gives another law: the law tells the flip form.
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, N_))))
-    am = m
-    eprime = only(f for f in 2:length(am.catalytic.nodes)
-                  if EnzymeRates.Mechanisms._is_free(am.catalytic.nodes[f]))
+    eprime = only(f for f in 2:length(m.catalytic.nodes)
+                  if EnzymeRates.Mechanisms._is_free(m.catalytic.nodes[f]))
     fitted = _testhelper_dependent_param_exprs(m)[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
-        point, concs, params = _testhelper_law_inputs(am, fitted, rng)
+        point, concs, params = _testhelper_law_inputs(m, fitted, rng)
         law = _testhelper_law_value(m, params, concs)
-        at_e = _testhelper_steady_state_rate(am, point, concs)
-        at_eprime = _testhelper_steady_state_rate(am, point, concs; flip = eprime)
+        at_e = _testhelper_steady_state_rate(m, point, concs)
+        at_eprime = _testhelper_steady_state_rate(m, point, concs; flip = eprime)
         @test abs(law - at_e) <= big(10)^-20 * abs(at_e)
         @test abs(law - at_eprime) > big(10)^-4 * abs(at_e)
     end
@@ -1068,8 +1066,7 @@ end
     # r_c = [D_c]/[E_c]. So L means [E_I]/[E_A].
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, E_);
                                              extra = "D ⇌ E :: NonequalAI")))
-    am = m
-    cm = am.catalytic
+    cm = m.catalytic
     d = only(f for f in 2:length(cm.nodes)
              if EnzymeRates.Mechanisms._is_free(cm.nodes[f]) &&
                 cm.nodes[f].conformation === :D)
@@ -1077,9 +1074,9 @@ end
     fitted = _testhelper_dependent_param_exprs(m)[2]
     rng = Random.MersenneTwister(202)
     for _ in 1:3
-        point, concs, params = _testhelper_law_inputs(am, fitted, rng)
+        point, concs, params = _testhelper_law_inputs(m, fitted, rng)
         ratio(c) = cm.steps[kd].from == d ? 1 / point.K[kd, c] : point.K[kd, c]
-        at_d = _testhelper_steady_state_rate(am, merge(point, (L = point.L * ratio(2) /
+        at_d = _testhelper_steady_state_rate(m, merge(point, (L = point.L * ratio(2) /
                                                                ratio(1),)),
                                              concs; flip = d)
         @test abs(_testhelper_law_value(m, params, concs) - at_d) <=
@@ -1112,14 +1109,13 @@ end
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         label in (:copy_group_bridge, :essential_activator) && continue
         @testset "$label" begin
-            em = am
             fitted = _testhelper_dependent_param_exprs(am)[2]
-            @test parameters(em) == fitted
+            @test parameters(am) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,
                                                           Random.MersenneTwister(600 + i))
             c64, p64, keq64 = _testhelper_float64_inputs(fitted, params, concs,
-                                                         EnzymeRates.metabolites(em))
-            @test isapprox(compile_rate_equation(em)(c64, p64, keq64),
+                                                         EnzymeRates.metabolites(am))
+            @test isapprox(compile_rate_equation(am)(c64, p64, keq64),
                            Float64(_testhelper_law_value(am, params, concs)); rtol = 1e-12)
         end
     end
