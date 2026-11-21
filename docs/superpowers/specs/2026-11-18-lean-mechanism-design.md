@@ -397,10 +397,12 @@ end
   (the maintainer, 2026-11-20): `rapid_equilibrium_segments` keeps it, and the guard in
   `Derivation`, its one outside caller, walks its own network of both conformations
   itself.
-- **Which state excludes a step in which conformation** has one owner,
-  `Mechanisms.excludes(state, conformation)`, which stays public. `Derivation` and
-  `Enumeration` both need the steps a conformation excludes by their state, beside the
-  steps that still run, and each builds that mask from `excludes`.
+- **`Mechanisms.excludes(state, conformation)` is removed** (the maintainer,
+  2026-11-20). It restates what the states' names say: `:OnlyI` is absent from the active
+  conformation and `:OnlyA` from the inactive. Each of its five callers compares the
+  state itself (`state === :OnlyI`). `Derivation` and `Enumeration` both need the steps a
+  conformation excludes by their state, beside the steps that still run, and each builds
+  that mask with the same comparison. The states stay Symbols.
 - **Enumeration predicts the rate law from the graph itself** (the maintainer's decision,
   2026-11-20; decision 7). It calls `steps_in_active_conformation`,
   `steps_in_inactive_conformation`, `rapid_equilibrium_segments` and `has_turnover_cycle`
@@ -410,7 +412,7 @@ Public names of `Mechanisms` after the change, from 25: `Mechanism`, `CatalyticS
 `Allostery`, `Step`, `RegulatorySite`, `EnzymeReaction`, `Reactant`, `Regulator`,
 `metabolites`, `step_text`, `steps_in_active_conformation`,
 `steps_in_inactive_conformation`, `rapid_equilibrium_segments`, `has_turnover_cycle`,
-`has_unbalanced_cycle`, `excludes`: 16. The builder removes
+`has_unbalanced_cycle`: 15. The builder removes
 `has_unbalanced_cycle` if each module can own its use.
 
 Exports after the change: `Mechanism` and `compile_rate_equation` join;
