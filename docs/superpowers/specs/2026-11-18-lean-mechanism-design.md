@@ -97,8 +97,8 @@ form, identify's keyword arguments.
    kind either way, so the guard may read it as stopped too, and tries three fixed
    choices (added after the gate and the enumeration tests, on the maintainer's
    decisions). Built, and kept as the first three readings of approach 5.
-5. **Energy levels (chosen).** Every cut-off group of forms lies higher in energy; an
-   excluded step between two groups loses its uphill rate in either direction, or stops
+5. **Energy levels (chosen).** Every cut-off island of forms lies higher in energy; an
+   excluded step between two islands loses its uphill rate in either direction, or stops
    if steady-state; the guard searches for a reading that passes its checks (decision 2).
    It admits everything approach 4 does, most allosteric ping-pongs that stop both
    half-reactions, and about a thousand mechanisms more in the populations measured. It
@@ -178,17 +178,20 @@ A form is only a name, so the constructor orients each step from the graph (the
 maintainer's rule, 2026-11-20). The stored direction names the step's constants and
 decides whether a rapid-equilibrium isomerization's constant is `K` or `1/K`.
 
-| Step | Stored direction |
-|:--|:--|
-| Takes up or gives off one metabolite | As the uptake. |
-| Exchanges several metabolites | Left to the builder; it reproduces today's. |
-| Isomerization on a turnover cycle | The way the reaction runs, substrates to products: along the shortest cycle through the step that turns the reaction over. |
-| Isomerization on no such cycle, or on one each way of equal length | Away from the free enzyme: the end fewer steps from it comes first. |
-| Still tied | The earlier form first. |
+The first row that decides gives the direction:
 
-**The isomerizations of one kinetic group turn together.** The steps of a group share
-their constants, so which way its members correspond is a fact about the mechanism, and
-the graph does not hold it. In `(Estar <--> E, EstarA <--> EA)` the change of
+| Step | Stored direction (`from` to `to`) |
+|:--|:--|
+| Only takes up, or only gives off, metabolites | As the uptake. |
+| Takes up some and gives off others | The way the reaction runs: the direction that takes up substrates and gives off products. |
+| Neither row decides: an isomerization, or an exchange such as one modifier for another | The way the reaction runs: along the shortest cycle through the step that turns the reaction over. |
+| No such cycle, or one each way of equal length | Away from the free enzyme: `from` is the end fewer steps from it. |
+| Both ends equally far | `from` is the end whose form comes first in `enzyme_forms`. |
+
+**The steps of one kinetic group turn together.** The steps of a group share their
+constants. Steps that take up or give off metabolites all take up and give off the same
+ones, and that fixes how the members correspond. For isomerizations it is a fact about
+the mechanism that the graph does not hold. In `(Estar <--> E, EstarA <--> EA)` the change of
 conformation has one pair of constants at both forms, yet the reaction runs through the
 two steps in opposite directions. The table orients one member, and the others keep the
 directions they were written in relative to it. That member is the one nearest the free
@@ -207,6 +210,11 @@ write, 32 turn, in at most 25 fixtures. Each is alone in its kinetic group, and 
 change of conformation or a step off the cycle, which today falls back to the order of
 the forms. All 46 that share a group keep today's direction; in three groups the table
 alone would turn the members apart, which is why a group turns together.
+
+Of the steps that take up some metabolites and give off others, the second row gives the
+stored direction of all 913 enumerated ones and of 100 of the 121 the tests write. One
+turns (`E(S) + P ⇌ E(P) + S`, stored today against the reaction). The other 20 exchange
+one modifier for another and fall to the later rows, where at most two turn.
 
 Removed: `AllostericMechanism`, `EnzymeMechanism`, `AllostericEnzymeMechanism`,
 `AbstractEnzymeMechanism`, `EnzymeForm`, `Metabolite`, `catalytic`, `compile_mechanism`,
@@ -241,31 +249,33 @@ holds in each conformation. The guard reads this from the graph, not from the fo
 contents, and a step keeps its kind (rapid equilibrium or steady state) in both
 conformations.
 
-The picture is energy. The steps a conformation keeps join the forms into groups. Free E's
-group holds the law's forms. Every other group is cut off: in that conformation it lies
-higher in energy, and so holds no enzyme. Then:
+The picture is energy. The steps a conformation does not exclude join the forms into
+**islands**: sets of forms joined to each other by such steps. An island is not a kinetic
+group and not a rapid-equilibrium segment. Free E's island holds the law's forms. Every
+other island is cut off: in that conformation it lies higher in energy, and so holds no
+enzyme. Then:
 
 | Excluded step | How it is switched off |
 |:--|:--|
-| Between two groups | It loses its uphill rate and keeps its downhill rate: the far side is higher. A rapid-equilibrium step stays fast. |
-| Between two groups, steady state | It may be stopped instead: both rates vanish. |
-| Inside one group, steady state | It is stopped. |
-| Inside one group, rapid equilibrium | Fault. Its two sides have one energy, so thermodynamics pins its equilibrium constant, and it could be switched off only by turning slow. |
+| Between two islands | It loses its uphill rate and keeps its downhill rate: the far side is higher. A rapid-equilibrium step stays fast. |
+| Between two islands, steady state | It may be stopped instead: both rates vanish. |
+| Inside one island, steady state | It is stopped. |
+| Inside one island, rapid equilibrium | Fault. Its two sides have one energy, so thermodynamics pins its equilibrium constant, and it could be switched off only by turning slow. |
 
-Which group lies above which is not given. A **reading** chooses, for each excluded step
-between two groups, which side is higher, or, for a steady-state step, that it stops. A
+Which island lies above which is not given. A **reading** chooses, for each excluded step
+between two islands, which side is higher, or, for a steady-state step, that it stops. A
 reading is consistent when the steps that lose, each pointing uphill:
 
 1. close no cycle, so energies exist;
-2. never point into free E's group, since nothing lies below it; and
-3. lead from free E's group to every group, so every cut-off group lies above it and has a
-   step by which it empties.
+2. never point into free E's island, since nothing lies below it; and
+3. lead from free E's island to every island, so every cut-off island lies above it and
+   has a step by which it empties.
 
 The law is the same under every reading, since the law drops the excluded steps. The guard
 admits the mechanism when some consistent reading passes the face checks below.
 
 Why a step loses its uphill rate: the law assumes the cut-off forms are empty, and a step
-into a higher group that kept its uphill rate would fill it. "Loses its affinity" is the
+into a higher island that kept its uphill rate would fill it. "Loses its affinity" is the
 case in which the step is a binding and its bound side is the higher one.
 
 Why a rapid-equilibrium step may lose in either direction but never stop: the maintainer's
@@ -273,7 +283,7 @@ principle. Rapid equilibrium and steady state differ more than 100-fold, and tur
 rapid-equilibrium step into the slowest step of the other conformation is not a reasonable
 approximation. A mechanism that needs it is written with that step steady-state.
 
-Why thermodynamics holds: each group has one energy level, and every excluded step's
+Why thermodynamics holds: each island has one energy level, and every excluded step's
 equilibrium constant shifts by the difference between its two ends' levels. The shifts
 cancel around every cycle.
 
@@ -282,9 +292,9 @@ Four examples, each in the inactive conformation, the unlisted steps `:EqualAI`:
 | Mechanism | Verdict |
 |:--|:--|
 | `E + S ⇌ ES :: OnlyA`, `ES <--> EP :: OnlyA`, `E + P ⇌ EP` | Admitted. `ES` is cut off: S binding loses its uptake, and the chemistry loses its rate into `ES` or stops. |
-| `E + S ⇌ ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Fault. `ES` stays in free E's group, made from P, so S binding is inside one group and a rapid-equilibrium step cannot be stopped. |
-| `E + S <--> ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Admitted. The steady-state binding is inside one group and is stopped. Enumeration does not build this one (decision 5). |
-| Ping-pong `E + A ⇌ EA`, `EA <--> FP :: OnlyA`, `F + P ⇌ FP`, `F + B ⇌ FB`, `FB ⇌ EQ :: OnlyA`, `E + Q ⇌ EQ` (F the modified enzyme) | Admitted. `F`, `FP` and `FB` are one cut-off group: `EA → FP` and `EQ → FB` vanish, their reverses keep their rates, and the group empties through both halves. |
+| `E + S ⇌ ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Fault. `ES` stays in free E's island, made from P, so S binding is inside one island and a rapid-equilibrium step cannot be stopped. |
+| `E + S <--> ES :: OnlyA`, `ES <--> EP`, `E + P ⇌ EP` | Admitted. The steady-state binding is inside one island and is stopped. Enumeration does not build this one (decision 5). |
+| Ping-pong `E + A ⇌ EA`, `EA <--> FP :: OnlyA`, `F + P ⇌ FP`, `F + B ⇌ FB`, `FB ⇌ EQ :: OnlyA`, `E + Q ⇌ EQ` (F the modified enzyme) | Admitted. `F`, `FP` and `FB` are one cut-off island: `EA → FP` and `EQ → FB` vanish, their reverses keep their rates, and the island empties through both halves. |
 
 #### Built
 
@@ -303,32 +313,32 @@ later stages must not change a verdict (see "Tests").
   (the maintainer's decision):
 
   ```julia
-  eq = compile_rate_equation(m)   # compiles once
-  v = eq(concs, params, Keq)      # fast, no allocation
+  rate = compile_rate_equation(m)   # compiles once
+  v = rate(concs, params, Keq)    # fast, no allocation
   ```
 
   `Keq` is its own argument and `E_total` is gone (decision 7).
 
-  `eq` is a callable object whose type carries the graph (`Sig`), so its call is generated
+  `rate` is a callable object whose type carries the graph (`Sig`), so its call is generated
   per mechanism as `rate_equation` is today. `Sig` holds the graph as nested tuples of
   Symbols, Ints and Bools; the builder falls back to an integer encoding only if Julia
   rejects that as a type parameter. No dependency is added.
 - `rate_equation(m, concs, params)` is removed altogether (the maintainer's decision): one
   way to evaluate a law, and no slow path. Users who want the law in other code copy
   `rate_equation_string`.
-- `FittingProblem(m, data)` compiles inside and keeps both the mechanism and `eq`. Fitting
-  reads the parameter names and the metabolite names as compile-time constants from `eq`
-  (`parameters(eq)`, `metabolites(eq)`), as `loss!` needs; `parameters(m)` and
+- `FittingProblem(m, data)` compiles inside and keeps both the mechanism and `rate`. Fitting
+  reads the parameter names and the metabolite names as compile-time constants from `rate`
+  (`parameters(rate)`, `metabolites(rate)`), as `loss!` needs; `parameters(m)` and
   `metabolites(m)` on a mechanism are ordinary functions.
 - Plotting compiles once per plot. Tests evaluate a law through `compile_rate_equation`.
-- The speed, allocation, compile-budget and type-stability tests move to `eq`.
+- The speed, allocation, compile-budget and type-stability tests move to `rate`.
 
 Interface compared, as `.claude/CLAUDE.md` asks:
 
 | Sketch | Caller writes | Trade-off |
 |:--|:--|:--|
-| A function returning a callable (chosen) | `eq = compile_rate_equation(m)`, then `eq(concs, params, Keq)` | One name, one way to evaluate. |
-| A compiled object passed to `rate_equation` | `rate_equation(eq, concs, params)` | Keeps a second name, and invites a slow `rate_equation(m, …)` beside it. |
+| A function returning a callable (chosen) | `rate = compile_rate_equation(m)`, then `rate(concs, params, Keq)` | One name, one way to evaluate. |
+| A compiled object passed to `rate_equation` | `rate_equation(rate, concs, params)` | Keeps a second name, and invites a slow `rate_equation(m, …)` beside it. |
 | Fitting builds the type itself | `Derivation.CompiledRateEquation{Derivation.sig(m)}()` | Exposes the encoding to Fitting. |
 
 ### 4. One macro
@@ -573,8 +583,8 @@ graph functions both modules use stay public in `Mechanisms` (decision 5).
 parameters(m)                                # the constants a fit estimates
 parameter_units(m)                           # their units, for Fitting
 dependent_parameter_values(m, params, Keq)
-eq = compile_rate_equation(m)
-eq(concs, params, Keq)                       # the rate per unit enzyme
+rate = compile_rate_equation(m)
+rate(concs, params, Keq)                       # the rate per unit enzyme
 ```
 
 - **`Keq` is its own argument** (the maintainer's design). It is a property of the
@@ -590,11 +600,13 @@ eq(concs, params, Keq)                       # the rate per unit enzyme
   `dependent_parameter_values`, and the printed equation shows their relations.
 - **A fit's `params`** holds exactly `parameters(m)`; today it also carries `Keq`.
 - **`rate_equation_string`** shows `Keq` as an input of its own.
-- **A function that takes data takes `Keq` as a required keyword** (the maintainer,
-  2026-11-20): `test_rate_equation(m, params, data; Keq, absolute)` and
-  `plot_rate_equation_on_data(m, params, data; Keq, ...)`, as `FittingProblem(m, data;
-  Keq)` has. Both read it from `params` today. `Keq` is a keyword where data are given
-  and a positional argument where the law is evaluated.
+- **`Keq` is the last positional argument wherever `params` is passed** (the
+  maintainer, 2026-11-20): `rate(concs, params, Keq)`,
+  `dependent_parameter_values(m, params, Keq)`,
+  `test_rate_equation(m, params, data, Keq; absolute)` and
+  `plot_rate_equation_on_data(m, params, data, Keq; ...)`. The last two read it from
+  `params` today. The plot's method for a user's own rate function takes no `Keq`:
+  `plot_rate_equation_on_data(f, params, data; ...)`.
 
 `parameter_units(m)` returns each fitted constant's units as integer powers:
 
@@ -623,8 +635,8 @@ Interface compared, as `.claude/CLAUDE.md` asks:
 
 | Sketch | Caller writes | Trade-off |
 |:--|:--|:--|
-| `Keq` as an argument, one list (chosen) | `eq(concs, params, Keq)`; `parameters(m)` | `parameters(m)` is exactly what `params` holds, and the signature shows what is not fitted. |
-| `Keq` inside `params`, one list | `eq(concs, params)`; `parameters(m)` | One argument fewer, but `parameters(m)` no longer lists everything `params` must hold. |
+| `Keq` as an argument, one list (chosen) | `rate(concs, params, Keq)`; `parameters(m)` | `parameters(m)` is exactly what `params` holds, and the signature shows what is not fitted. |
+| `Keq` inside `params`, one list | `rate(concs, params)`; `parameters(m)` | One argument fewer, but `parameters(m)` no longer lists everything `params` must hold. |
 | Two kinds | `parameters(m)` for the law's inputs, `parameters(m, FittedParameters())` for a fit's | Keeps an export and a second meaning of `parameters`. |
 | Today | three kinds, `E_total` merged in by every caller | |
 
@@ -690,13 +702,16 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
   and form names. Every `@allosteric_mechanism` and every call-notation form in
   `docs/src/`, `README.md` and the docstrings is translated, and the doctests pass.
 - **Evaluating a law.** Every page that calls `rate_equation(m, concs, params)` shows
-  `eq = compile_rate_equation(m)` and `eq(concs, params, Keq)`. `E_total` leaves the
+  `rate = compile_rate_equation(m)` and `rate(concs, params, Keq)`. `E_total` leaves the
   text, with one sentence where the rate is first defined: the law gives the rate per
   unit enzyme.
 - **`docs/src/developer.md`:** the data model, the module tables and the diagram
   (regenerated by `julia test/update_module_map.jl`), what `Enumeration` keeps in a
   candidate, and the parameter interface.
 - **`docs/src/identify/enumeration_engine.md`** as decision 6 says.
+- **Islands.** `docs/src/developer.md` and `docs/src/deriving/mwc_allostery.md` call the
+  sets of forms that a conformation's steps join "groups", which reads as kinetic groups.
+  Both say "islands", as decision 2 does.
 - **`.claude/CLAUDE.md`:** the module map, the bullets under it (the stored fields, the
   names reachable without a promise, `compile_mechanism`), and the enumeration test rule
   in form names.
@@ -706,8 +721,8 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
 
 ## Left to the builder
 
-- The canonical order of forms and steps, and the orientation of a step that exchanges
-  several metabolites.
+- The canonical order of forms and steps. It may not depend on the writing, since the
+  last row of the table of stored directions reads it.
 - How the shortest turnover cycle through an isomerization is found, and how a tie
   between two members of a group equally near the free enzyme is broken; neither may
   depend on the writing.
@@ -737,7 +752,8 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
   rate per unit enzyme; `parameters(m)` lists the fitted constants only, and the three
   kind types are gone; a fit's `params` no longer holds `Keq`;
   `dependent_parameter_values` takes `Keq` as an argument;
-  `plot_rate_equation_on_data` and `test_rate_equation` take `Keq` as a required keyword;
+  `plot_rate_equation_on_data` and `test_rate_equation` take `Keq` as their last
+  positional argument;
   `@allosteric_mechanism`,
   `EnzymeMechanism` and `AllostericEnzymeMechanism` are gone.
 - **The progress log** no longer counts the children skipped for each size limit
