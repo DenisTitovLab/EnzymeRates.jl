@@ -1,5 +1,5 @@
-# ABOUTME: Tests for the reference scale of relative fits: the reference anchors a problem
-# ABOUTME: takes, the default scale without one, the fit they scale, and test_rate_equation.
+# ABOUTME: Tests for the scales of a fit: the reference anchors of a relative fit, the
+# ABOUTME: constants its scale multiplies, the starting values, and test_rate_equation.
 using EnzymeRates: test_rate_equation
 using Random
 using OptimizationCMAEvolutionStrategy
@@ -199,4 +199,31 @@ using OptimizationCMAEvolutionStrategy
             mm, without, mm_data, 2.0)
     end
 
+end
+
+@testset "starting values are unchanged" begin
+    # Each spec's log centres at the typical rate and concentrations of
+    # `_testhelper_typical_table`, against the values pinned before Fitting read its
+    # constants' units from `parameter_units`.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        fp = FittingProblem(m, _testhelper_typical_table(m), 2.0)
+        pinned = _testhelper_typical_log_centres[spec.name]
+        @test first.(pinned) == collect(parameters(m))
+        @test EnzymeRates.Fitting._log_centres(fp) ≈ last.(pinned) atol = 1e-12
+    end
+end
+
+@testset "a relative fit's scale multiplies exactly the rate constants" begin
+    # The steady-state rate constants, named k_…, take the factor; every other fitted
+    # constant (a K, a regulator's constant, L) keeps its value.
+    for spec in MECHANISM_TEST_SPECS
+        m = spec.mechanism
+        ks = parameters(m)
+        params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))
+        scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 10.0)
+        @test keys(scaled) == ks
+        @test [scaled[k] / params[k] for k in ks] ==
+              [startswith(String(k), "k_") ? 10.0 : 1.0 for k in ks]
+    end
 end
