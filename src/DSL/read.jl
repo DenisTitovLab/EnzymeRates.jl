@@ -102,7 +102,7 @@ _positive_int(v, what) = v isa Integer && !(v isa Bool) && v >= 1 ? Int(v) :
 Parse `R` entries, optionally tagged with a regulator type, `R::Activator` or
 `R::Inhibitor`, into `(kind, name, effect)`; an untagged `R` has effect
 `:unspecified`. A multiplicity list such as `R(1, 2)` is an error: a regulator takes the
-`oligomeric_state:` multiplicities. `Regulator` rejects a type tag on a
+reaction's `oligomeric_state:` values. `Regulator` rejects a type tag on a
 competitive inhibitor.
 """
 function _parse_regulator_entries(values, kind::Symbol)

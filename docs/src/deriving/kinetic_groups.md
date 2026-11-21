@@ -14,7 +14,7 @@ step-group binds the steps into one kinetic group:
 
 ```julia
 steps: begin
-    (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))   # both Q-binding steps share one constant
+    (E + Q ⇌ EQ, EA + Q ⇌ EAQ)   # both Q-binding steps share one constant
     ...
 end
 ```
@@ -22,13 +22,17 @@ end
 The steps of a group must take up and give off the same metabolites and carry
 one flag, all rapid-equilibrium or all steady-state. Every binding of one
 metabolite is the same kind of step, whether or not it runs chemistry: a fused
-binding of `B` (`E(A) + B ⇌ E(P, Q)`) may share a group with a plain one
-(`E(Q) + B ⇌ E(B, Q)`). Every isomerization is one kind, and a Theorell–Chance
-step cannot share a group with a binding. A group of conformational changes, such
-as `F <--> E` and its mirror `F(I) <--> E(I)` at the inhibitor-bound forms, shares
-one direction, so its steps must switch between the same two conformations. Each
-reaction appears once, in one group. Building a mechanism that breaks these rules
-raises an error.
+binding of `B` (`EA + B ⇌ EPQ`) may share a group with a plain one
+(`EQ + B ⇌ EBQ`). Every isomerization is one kind, and a Theorell–Chance
+step cannot share a group with a binding. Each reaction appears once, in one group.
+Building a mechanism that breaks these rules raises an error.
+
+The isomerizations of one group share their constants in the direction each is written.
+Write a group of conformational changes, such as `F <--> E` and its mirror `FI <--> EI` at
+the inhibitor-bound forms, with every step the same way round, from the forms of one
+conformation to those of the other. Turning one of them round writes another mechanism,
+in which the forward constant of one step is the reverse constant of the other; the
+package cannot tell which you meant, since a form's name means nothing to it.
 
 This is a modeling choice, distinct from the thermodynamic reduction
 ([Thermodynamic constraints](@ref)). The reduction also removes parameters, but
@@ -39,11 +43,11 @@ thermodynamics leaves independent.
 ## An example: a two-substrate, two-product mechanism
 
 Consider a random-order reaction `A + B ⇌ P + Q` with two abortive complexes:
-`E(A, Q)`, where the enzyme binds substrate `A` together with the product `Q` of
-the other half-reaction, and `E(B, P)`, its mirror. Like the catalytic
-complexes, each abortive complex forms either way — `E(A, Q)` by `Q` binding
-`E(A)` or `A` binding `E(Q)`. Every metabolite therefore binds the enzyme in
-several places: `A` binds free `E`, the `E(B)` complex, and `E(Q)`, and the same
+`EAQ`, where the enzyme binds substrate `A` together with the product `Q` of
+the other half-reaction, and `EBP`, its mirror. Like the catalytic
+complexes, each abortive complex forms either way — `EAQ` by `Q` binding
+`EA` or `A` binding `EQ`. Every metabolite therefore binds the enzyme in
+several places: `A` binds free `E`, the `EB` complex, and `EQ`, and the same
 holds for `B`, `P`, and `Q`.
 
 With every step in its own group, each of those bindings gets its own constant:
@@ -73,7 +77,7 @@ print(rate_equation_string(ungrouped))
 ```
 
 There are nine independent constants, with form-specific names: `K_EA_to_E_A` for `A`
-on free E, `K_EAB_to_EA_B` and `K_EAQ_to_EA_Q` for `B` and `Q` on `E(A)`, and similar
+on free E, `K_EAB_to_EA_B` and `K_EAQ_to_EA_Q` for `B` and `Q` on `EA`, and similar
 families for the others. Four more bindings are not fit at all but fixed by Wegscheider
 relations (`K_EAB_to_EB_A`, `K_EAQ_to_EQ_A`, `K_EBP_to_EP_B`, `K_EPQ_to_EQ_P`), since
 each catalytic and abortive loop closes a thermodynamic cycle.

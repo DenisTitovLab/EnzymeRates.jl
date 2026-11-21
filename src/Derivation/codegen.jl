@@ -249,8 +249,9 @@ steps by the King–Altman/Cha method, so one call gives the turnover of the who
 mechanism, not the rate of one step.
 
 `params` holds the constants a fit estimates, [`parameters`](@ref)`(rate)`, the same names
-as `parameters(m)`, and `concs` the concentrations of [`metabolites`](@ref)`(rate)`; both
-are tuples of Symbols. The law computes each dependent constant from `params` and `Keq` by
+as `parameters(m)`, and `concs` the concentrations of
+[`metabolites`](@ref EnzymeRates.Mechanisms.metabolites)`(rate)`; both are tuples of
+Symbols. The law computes each dependent constant from `params` and `Keq` by
 its Haldane or Wegscheider relation. Both `NamedTuple`s are read by name, so their fields
 may come in any order, and fields the law does not read are ignored.
 

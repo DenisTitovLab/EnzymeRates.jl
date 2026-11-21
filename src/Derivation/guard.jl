@@ -1,4 +1,4 @@
-# ABOUTME: The well-posedness guard the macros, parser, exits and derivation entries run:
+# ABOUTME: The well-posedness guard the macro, parser, exits and derivation entries run:
 # ABOUTME: its verdicts, networks and faces, its search for a reading, and classes 1 to 3.
 
 """
@@ -12,7 +12,7 @@ fault. The one-argument form throws an error whose message (`_guard_message`) na
 step at fault by its DSL line, or the names its constants share, and returns `true`
 otherwise; the `Bool` form returns the verdict (`false` on a fault) instead of
 throwing. It reads the reaction graph through masks and builds nothing. The mechanism
-macros and the parser call the one-argument form, and every derivation entry runs its
+macro and the parser call the one-argument form, and every derivation entry runs its
 check (`_derivation_input`, `_well_posed`). Both read the verdict through the memo
 (`_Memo`). The constructors and the Sig decoder do not call it, so code that builds a
 mechanism internally never trips a check meant for the mechanisms it returns.
@@ -48,8 +48,8 @@ segment whose lowest forms split (`_SPLIT`), a law segment chain with several cl
 classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
 interior (class 4), each excluded step switched off as a reading says (`_Reading`), a
 rapid-equilibrium step that a conformation excludes and the reading cannot switch off or
-stops (`_FAST_STEP_PINNED`; the guard reports it only for a step inside one group, which no
-reading switches off), steps that lose a direction and, each pointing uphill, close a
+stops (`_FAST_STEP_PINNED`; the guard reports it only for a step inside one island, which
+no reading switches off), steps that lose a direction and, each pointing uphill, close a
 directed cycle or point into free E's component (`_ARC_CYCLE`), forms free E's component
 does not reach along those steps (`_ISLAND`), or an active conformation that no longer
 turns the reaction over (`_NO_ACTIVE_TURNOVER`); on a face, in admission's face condition,
@@ -452,7 +452,7 @@ conformation 1's outer, each in its order. When a conformation has more than
 it searches none of them, so its verdict depends on no order. A rejection reports, in
 order: a fast cycle that turns the reaction over under the first built reading
 (`_RE_TURNOVER`), fast under every consistent reading too; an excluded rapid-equilibrium
-step inside one group (`_FAST_STEP_PINNED`), which no reading switches off; the verdict of
+step inside one island (`_FAST_STEP_PINNED`), which no reading switches off; the verdict of
 the first consistent reading tried; or, when it tried none, an active conformation that
 turns nothing over (`_NO_ACTIVE_TURNOVER`), else that there are too many readings to
 search (`_TOO_MANY_READINGS`).
@@ -512,8 +512,8 @@ function _guard_with_reading(am::Mechanisms.Mechanism)
                 reading = first_reading)
     end
     # With no built reading consistent, the search's first reading is the one to report.
-    # Each conformation has a consistent column: rank its groups by their distance from
-    # free E's, ties by label, and let each excluded step between two groups lose toward
+    # Each conformation has a consistent column: rank its islands by their distance from
+    # free E's, ties by label, and let each excluded step between two islands lose toward
     # the later one.
     if isempty(reported)
         reported = hcat(active.columns[1], inactive.columns[1])

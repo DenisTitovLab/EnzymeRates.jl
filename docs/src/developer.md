@@ -4,9 +4,9 @@ This page is for maintainers and contributors. It documents the internal
 architecture of EnzymeRates.jl; the exported names live on the
 [API Reference](@ref) page.
 
-The package keeps two parallel mechanism representations, split along a
-deliberate performance boundary. **Singleton types** drive the compile-time
-rate-equation derivation; **concrete types** drive the mechanism enumeration.
+A mechanism is one plain value, `Mechanism`, everywhere in the package. Only its
+compiled rate law has a type of its own, a **singleton callable** that drives the
+compile-time derivation; the enumeration and everything else work on the plain value.
 The two halves and the optimizer layer are described below.
 
 ## Modules
@@ -76,11 +76,10 @@ with `Keq`, the `absolute` flag and the reference anchors; `FittingProblem` and
 **`Mechanisms`** is the data model. It holds reactions (`EnzymeReaction`) and mechanisms
 (`Mechanism`: a `CatalyticScheme` and its `Allostery`) as plain values whose fields any
 module reads with dots. Its constructors put a mechanism in canonical form and check it,
-and `show` prints a mechanism as the macro block that builds it. It hides canonical form,
-the representation checks. A mechanism stores facts about its own graph (step groups and
-kinds, which steps run toward products, the allosteric conformation masks), and
-`Mechanisms` also answers the graph analyses that read them: rapid-equilibrium segments,
-turnover and unbalanced cycles, and the species present.
+and `show` prints a mechanism as the macro block that builds it. It hides canonical form
+and the representation checks. A mechanism stores its graph and nothing derived from it;
+`Mechanisms` answers the graph analyses that two modules read: the steps each
+conformation runs, rapid-equilibrium segments, and turnover and unbalanced cycles.
 
 **`Derivation`** turns a mechanism into its rate law. It decides whether the law is
 defined (the guard), solves the thermodynamic constraints, names the parameters, and
@@ -98,8 +97,8 @@ structural filters that prune the search and the check of the reaction's names.
 
 **`DSL`** reads the macro language: `@enzyme_reaction`, `@enzyme_mechanism`, which
 writes plain and allosteric mechanisms alike, and `parse_mechanism`, which reads a
-mechanism's printed text back. It hides the parser. The macros run the guard, so they
-cannot live in `Mechanisms`.
+mechanism's printed text back. It hides the parser. `@enzyme_mechanism` runs the guard,
+so the DSL cannot live in `Mechanisms`.
 
 **`Plotting`** draws a rate equation over the rates it was fitted to, with
 `plot_rate_equation_on_data`. It hides the preparation of each panel: the choice of x
@@ -158,7 +157,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
 | `metabolites` | The rate law's concentration names | Derivation, Fitting, | ✓ |
 | | | Plotting, top level | |
-| `step_text` | A step as the macros write it: `E + A ⇌ EA` | Derivation, Enumeration | |
+| `step_text` | A step as the macro writes it: `E + A ⇌ EA` | Derivation, Enumeration | |
 | `steps_in_active_conformation` | The steps the active conformation runs | Derivation, Enumeration | |
 | `steps_in_inactive_conformation` | The steps the inactive conformation runs | Derivation, Enumeration | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
@@ -245,11 +244,11 @@ fields do not store, such as `step_text(m.catalytic, k)`.
 | `Allostery` | `allosteric_states::Vector{Symbol}` | one per kinetic group: `:OnlyA`, |
 | | | `:OnlyI`, `:EqualAI` or `:NonequalAI`; |
 | | | empty for a plain mechanism |
-| | `oligomeric_state::Int` | the number of catalytic subunits |
+| | `oligomeric_state::Int` | the subunits that change conformation together |
 | | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
 | `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
 | | `multiplicity::Int` | the number of such sites |
-| | `allosteric_states::Vector{Symbol}` | one tag per ligand |
+| | `allosteric_states::Vector{Symbol}` | one allosteric state per ligand |
 | `Reactant` | `name::Symbol` | the substrate's or product's name |
 | | `atoms::Vector{Pair{Symbol,Int}}` | its atoms, `element => count` |
 | `Regulator` | `name::Symbol` | the regulator's name |
@@ -323,9 +322,10 @@ underscore. The test also parses this page and fails when a table under
 A mechanism's rate equation is derived once, at compile time, by the
 King–Altman/Cha method in `@generated` functions (`src/Derivation/codegen.jl`).
 To make that possible, `compile_rate_equation(m)` returns a **singleton callable**,
-`_CompiledRateEquation{Sig}`, whose one type parameter, `Sig`, encodes the mechanism's
-canonical reaction graph as a tuple of integers (`_sig_of`), so the order or direction in
-which the steps were written does not change the resulting type. The compiler
+`_CompiledRateEquation{Sig}`, whose one type parameter, `Sig`, encodes the whole
+mechanism in canonical form, its catalytic scheme and its allostery, as nested tuples of
+Symbols, Ints and Bools (`_sig_of`), so the order or direction in which the steps were
+written does not change the resulting type. The compiler
 specializes the derivation per type, so the symbolic King–Altman work runs once per
 mechanism and session rather than at every call. The mechanism itself is a plain value;
 only its compiled law carries a type of its own.
@@ -366,7 +366,7 @@ pays for its generated bodies and the derivation they run, and for the methods t
 specialize on it: Base's `text/plain` display and `FittingProblem` and `loss!` below. A
 compiled law prints one line (`compiled rate equation`), whatever its Sig. A mechanism
 prints as the macro block that builds it (`show`, `src/Mechanisms/text.jl`);
-`DSL.parse_mechanism` reads that text back through the macros' walker and checks, never
+`DSL.parse_mechanism` reads that text back through the macro's walker and checks, never
 evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
 `FittingProblem` holds the mechanism and its compiled law, and `loss!` specializes on the
 law's type on purpose: it then reads `parameters(rate)` and `metabolites(rate)` as
@@ -377,6 +377,22 @@ constants and calls the law without dispatch. The optimizer never sees that type
 solver compile once per optimizer, not once per mechanism.
 
 ### Parameters
+
+The parameter interface is five calls, all in `Derivation`:
+
+```julia
+parameters(m)                                # the constants a fit estimates
+parameter_units(m)                           # their units, for Fitting
+dependent_parameter_values(m, params, Keq)   # the constants the law computes
+rate = compile_rate_equation(m)
+rate(concs, params, Keq)                     # the rate per unit enzyme
+```
+
+`parameters(m)` is exactly the names a fit's `params` holds: `Keq` is given, never fitted,
+and is the last positional argument wherever it is taken, never a keyword. The law has no
+enzyme concentration; a caller who wants an absolute rate multiplies by it.
+`parameters(rate)` and `metabolites(rate)` give the compiled law's names as compile-time
+constants, which `loss!` needs.
 
 One type family in `src/Derivation/names.jl`, the union `_Parameter`, describes every
 constant a fit estimates, and the joint solve lists them in `parameters(m)` order
@@ -394,7 +410,8 @@ rate constant in its stored direction; at slot 2, a steady-state step's rate con
 reverse direction. The step's flag says which. A K on a steady-state step or a k on a
 rapid-equilibrium one constructs but has no name: `_name` errors on it. `_name(p, m)`
 renders the name from the step's sides and the kept member of its kinetic class, and
-derives the conformation tag from `inactive` and the group's or ligand's allosteric tag.
+derives the conformation's prefix (`A_`, `I_` or none) from `inactive` and the group's or
+ligand's allosteric state.
 `parameters` returns these names as Symbols, and the rate law takes them at compile time.
 
 `parameter_units(m)` gives each one's units from its step or ligand, as integer powers of
@@ -490,10 +507,10 @@ reads: its own, or for such a variant its active law's when that law holds every
 constant but `L`. The variant reads that fit when a mechanism with that law was fitted in
 an earlier batch or is fitted in the variant's own (`_process_batch`).
 
-Identify asks one mechanism four questions in a row: `check_valid_rate_equation`,
-`parameters`, `rate_equation_string` and `rate_equation_dedup_key`. A private memo (`_Memo`,
+Identify asks one mechanism three questions in a row: `parameters`,
+`rate_equation_string` and `rate_equation_dedup_key`. A private memo (`_Memo`,
 `src/Derivation/memo.jl`) keeps the guard verdict, joint solve and law of the last
-concrete mechanism asked about, matched by `===`, so each is derived once for all four.
+mechanism asked about, matched by `===`, so each is derived once for all three.
 The memo holds one mechanism in the task's local storage, so it never grows and tasks
 share nothing. A compiled law's generated methods never read it.
 
@@ -535,21 +552,23 @@ class 3 (`_check_face`: closed classes, bottomless segments, the aggregated chai
 limit test modulo 2^61 − 1 where structure decides nothing) and admission's face condition
 (`_admission_face`, below).
 
-**Readings.** The steps a conformation keeps join the forms into groups
-(`exclusion_components`), and every group but free E's is cut off: it lies higher in energy
-and holds no enzyme of that conformation. A reading (`_SwitchOff` per step and conformation)
-switches off each excluded step. One between two groups loses the rate of its uphill
-direction (`_LOSES_FORWARD`, `_LOSES_REVERSE`) and keeps the other and its kind, so a
-rapid-equilibrium step stays fast; at steady state it may stop instead (`_STOPPED`). One
-inside a group stops at steady state, and at rapid equilibrium no reading switches it off
+**Readings.** The steps a conformation keeps join the forms into **islands**: sets of
+forms joined to each other by those steps (`exclusion_components`), neither kinetic groups
+nor rapid-equilibrium segments. Every island but free E's is cut off: it lies higher in
+energy and holds no enzyme of that conformation. A reading (`_SwitchOff` per step and
+conformation) switches off each excluded step. One between two islands loses the rate of
+its uphill direction (`_LOSES_FORWARD`, `_LOSES_REVERSE`) and keeps the other and its kind,
+so a rapid-equilibrium step stays fast; at steady state it may stop instead (`_STOPPED`).
+One inside an island stops at steady state, and at rapid equilibrium no reading switches it
+off
 (`_FAST_STEP_PINNED`): its two sides lie at one energy, so thermodynamics fixes its
 equilibrium constant, and a step keeps its kind in both conformations. A reading is
 consistent (`_interior_verdict`) when every excluded rapid-equilibrium step loses a
 direction, none stopped or left unswitched (`_CANNOT_SWITCH_OFF`), which is how a built
 reading becomes inconsistent; when the steps that lose, each pointing uphill, close no
-directed cycle over the groups and never point into free E's group, so energies exist that
-rise along them with every cut-off group above free E's; and when they lead from free E's
-group to every group, so every cut-off group has a step by which it empties. The law is the
+directed cycle over the islands and never point into free E's island, so energies exist
+that rise along them with every cut-off island above free E's; and when they lead from free
+E's island to every island, so every cut-off island has a step by which it empties. The law is the
 same under every reading, since it drops the excluded steps; class 2 sees the same fast
 transitions under every consistent reading, every rapid-equilibrium step's; and class 3 and
 the active conformation's turnover read no reading. Only three faults of admission's face
@@ -562,12 +581,12 @@ order of `_SlowUptakeReading`). In each, only an excluded step that takes up one
 into a cut-off form loses, toward its bound side (its affinity); every other excluded step
 stops at steady state and cannot be switched off at rapid equilibrium. The steady-state
 uptakes all lose their affinity; or those that lead away from free E do (their bound side's
-group lies more such uptakes from free E's than their unbound side's) and the others stop;
+island lies more such uptakes from free E's than their unbound side's) and the others stop;
 or all stop. The built readings are cheap and decide most mechanisms. A fast cycle that
 turns the reaction over under one of them is fast under every consistent reading
 (`_RE_TURNOVER`), and any other fault of the first consistent one but those three holds
 under every consistent reading, so either ends the guard. Next it reports an excluded
-rapid-equilibrium step inside one group, which no reading switches off. Then it searches
+rapid-equilibrium step inside one island, which no reading switches off. Then it searches
 each conformation's consistent columns (`_consistent_columns`) and every pair of them, one
 column per conformation, in a fixed order, against admission's face condition alone, class 3
 having passed once on the law network. When a conformation has more than
@@ -642,8 +661,8 @@ energy-level rule agrees with the oracles").
 **Faults.** A verdict's fault is one of: two constants of the law share a name, which the
 guard checks first (`_SHARED_NAME`, `_shared_constant_names`); no cycle turns the
 reaction over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's
-`_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`, `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded rapid-equilibrium step inside one group
-(`_FAST_STEP_PINNED`); an active conformation that turns nothing over
+`_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`, `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded
+rapid-equilibrium step inside one island (`_FAST_STEP_PINNED`); an active conformation that turns nothing over
 (`_NO_ACTIVE_TURNOVER`); on a face, admission's `_EPS_NONUNIQUE`, `_FILLED`, `_PUMPED` or
 `_BRIDGE`; or too many readings to search with no consistent built reading
 (`_TOO_MANY_READINGS`). An inconsistent reading is never reported. `_admission_message`
@@ -651,16 +670,15 @@ writes the admission faults' text and offers each fix whose variant passes the g
 the pinned step, its group made steady-state, or the steps that join its sides tagged
 `:OnlyA` (`:OnlyI` in the active conformation).
 
-The macros, the parser and the
-derivation entry throw; `init_mechanisms`, `seed_mechanisms` and both methods of
-`Enumeration.candidate_mechanisms` drop. The flip move runs it on each candidate it builds,
-the split move on each candidate whose count rises, and the tagging move on each tag set
-its base search tries.
+On a mechanism the guard rejects, the macro, the parser and the derivation entries throw;
+`init_mechanisms`, `seed_mechanisms` and both methods of `Enumeration.candidate_mechanisms`
+drop it. The flip move runs the guard on each candidate it builds, the split move on each
+candidate whose count rises, and the tagging move on each tag set its base search tries.
 
 ## Enumeration engine architecture
 
-Mechanism enumeration uses the **concrete type** `Mechanism` (`src/Mechanisms/types.jl`):
-a `CatalyticScheme` and its `Allostery`. A `CatalyticScheme` is a reaction graph in
+Mechanism enumeration works on the plain value `Mechanism` (`src/Mechanisms/types.jl`),
+inside candidates (below): a `CatalyticScheme` and its `Allostery`. A `CatalyticScheme` is a reaction graph in
 canonical form: its `metabolites` by name (the substrates, then the products, then the
 modifiers, each sorted), its `substrates` and `products` as indices into them, its
 `enzyme_forms` by name (free E first, then sorted), and its `steps` (`Step`: two form
@@ -673,7 +691,7 @@ reaction, and `==` and `hash` read these fields alone, alike in every process. A
 oligomeric state and the regulatory sites. Every module reads these fields with dots (see
 [The mechanism data model](@ref)).
 
-The macros, the parser and the enumeration build a mechanism from names and steps.
+The macro, the parser and the enumeration build a mechanism from names and steps.
 `CatalyticScheme(metabolites, enzyme_forms, substrates, products, steps)` takes the names in
 any order and each step in either direction with its kinetic group label (1, 2, …, each
 used), builds the canonical graph (`_canonical`) and checks it;
@@ -753,7 +771,7 @@ mechanism (`_shared_constant_names`). The enumerator, which names the forms it b
 their contents, refuses a reaction whose names spell one string two ways, such as `NAD`,
 `P` and `NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Whether a mechanism's rate law is
 defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
-[Well-posedness guard](@ref)). The macros, the parser and every derivation entry throw on a
+[Well-posedness guard](@ref)). The macro, the parser and every derivation entry throw on a
 mechanism it rejects (`check_valid_rate_equation`), and the enumerator's exits and its
 flip, split and tagging searches drop one
 (`check_valid_rate_equation(Bool, m)`). The constructors and the Sig decoder do
@@ -846,7 +864,7 @@ inside a move's own search.
 above 1, and the moves
 that can give such a mechanism a non-hyperbolic catalytic scheme consult
 `_hyperbolic_catalysis`: `_expand_to_allosteric` promotes a non-hyperbolic
-parent at multiplicity 1 only, and above one subunit the tagging and change-tag
+parent at oligomeric state 1 only, and above one subunit the tagging and change-tag
 moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
 (`_expand_re_to_ss`), drop a child that fails the predicate. On an
 allosteric mechanism the predicate reads each conformation's law

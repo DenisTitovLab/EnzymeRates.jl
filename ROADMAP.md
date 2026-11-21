@@ -7,25 +7,35 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Known issues
 
-- **The stored facts make the ter-ter `init_mechanisms` slower and larger.**
-  Each `Mechanism` stores its modifiers, groups, step kinds, directions toward products and
-  step sides. Across the 251,107 mechanisms the ter-ter `init_mechanisms` testset retains,
-  the live heap grew 48% (1,272 to 1,883 MiB) and the peak resident set from 2.3 to 3.1 GB.
-  The extra garbage collection makes the call about 20% slower (94 s to 117 s on Julia 1.13);
-  its time limit of 400 s excludes garbage collection, about 23% of the call on CI, since a
-  slow macOS runner reached 430 s with it and a fast one took 77 s. The step sides cost most:
-  two strings per step, 668 of the 5,408 retained bytes per mechanism. Denis raised the
-  limit instead of taking one of three measured options: (A) keep already-sorted input
-  vectors instead of copying them, which lets a mechanism share the caller's vectors (72 s,
-  24% under the time before the facts were stored); (B) compute `step_sides` on demand
-  (102 s, 13% under the time with the facts, 8% over the time before them); (D) reuse the
-  variants the flip search in `_seed_variants` already builds (with A and B, 51 s, 45%
-  under the time before the facts). No benchmark or pin yet covers the live bytes of a held
-  result set.
+- **The ter-ter starting set is large to hold.**
+  The ter-ter `init_mechanisms` testset retains 251,107 mechanisms. When each `Mechanism`
+  stored its modifiers, groups, step kinds, directions toward products and step sides, the
+  live heap grew 48% (1,272 to 1,883 MiB), the peak resident set from 2.3 to 3.1 GB, and
+  the extra garbage collection made the call about 20% slower (94 s to 117 s on Julia
+  1.13); its time limit of 400 s excludes garbage collection, about 23% of the call on CI,
+  since a slow macOS runner reached 430 s with it and a fast one took 77 s. The step sides
+  cost most: two strings per step, 668 of the 5,408 retained bytes per mechanism. Denis
+  raised the limit instead of taking one of three measured options: (A) keep
+  already-sorted input vectors instead of copying them; (B) compute `step_sides` on
+  demand; (D) reuse the variants the flip search in `_seed_variants` already builds.
+  A mechanism now stores no facts: a catalytic scheme holds its metabolites, its forms'
+  names, its substrates and products and its steps, and an allostery its states, its
+  oligomeric state and its sites. Computing a conformation's steps on demand in place of
+  its four stored masks left the enumeration test file at 137.0 and 138.4 s against 135.7
+  and 133.8 s, the admission test file at 87.9 and 92.6 s against 89.1 and 89.2 s, and the
+  ter-ter `init_mechanisms` line at 52.4 and 52.3 s against 54.0 and 53.6 s. The lean
+  graph then took that line from 56.1 to 44.1 s and the enumeration test file from 123.2
+  and 124.2 s to 110.8 and 111.3 s (Julia 1.13.4, one process at a time), and builds a
+  mechanism 1.5-2.5× faster (1.90 to 1.29 µs for Michaelis–Menten, 28.9 to 11.5 µs for a
+  ter-ter seed of 27 forms and 55 steps).
+  TASK-17-NUMBERS: the live heap and the peak resident set of the ter-ter testset, and the
+  time of `candidate_mechanisms` on the ter-ter reaction, measured on the lean graph;
+  then keep this entry with those numbers or retire it. No benchmark or pin yet covers the
+  live bytes of a held result set.
   - **On Julia 1.11 the full suite can peak above 4 GB.**
     With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB (3.84-3.86
-    GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, after the stored facts
-    grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before). The ter-ter
+    GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, when the
+    stored facts grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before them). The ter-ter
     `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
     1 GB of garbage. No test value retains the garbage: a full collection after the testset
     frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the
@@ -37,12 +47,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     enumeration test file took 1,165 s, 600 s of it in garbage collection, against 273 s on
     Ubuntu. A `--heap-size-hint=2500M` on macOS gave 25.6 and 32.4 minutes in two runs,
     inside the range without it, and slows Ubuntu and Windows to about 20 minutes. macOS
-    runner speed varies about 30% between runs, so one run proves nothing. The next step is
-    to measure which stored fields hold the memory; a change to the `Mechanism`
-    representation needs the maintainer's approval.
+    runner speed varies about 30% between runs, so one run proves nothing. These runs
+    predate the lean graph, which stores no facts; measure macOS again before acting.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
-  `E(I) + J <--> E(J) + I` does when `E(J)` binds nothing more, no net flux crosses it, so
+  `EI + J <--> EJ + I` does when `EJ` binds nothing more, no net flux crosses it, so
   only the ratio of its two rate constants enters the rate law.
   `parameters(m)` lists both, and the law carries their common factor
   uncancelled in numerator and denominator. One constant, the step's equilibrium
@@ -56,7 +65,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Fits run in parallel only across `pmap` workers, each of which builds its own problem.
 - **A rapid-equilibrium isomerization of a covalent intermediate can be unidentifiable.**
   In 5 of 751 enumerated plain mechanisms in the derivation probes, an isomerization such
-  as `E(B; residual = A - P) ⇌ E(Q)` joins two forms whose rapid-equilibrium weights
+  as `EB_res_plusA_minusP ⇌ EQ` joins two forms whose rapid-equilibrium weights
   carry the same concentrations, so the data determine only a combination of its
   constant and its neighbour's, and `parameters(m)` lists one constant
   more than the identifiable rank. The exact rank under Ideas would count it.
@@ -193,11 +202,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   in the suite reaches this path; the fix (print the header before `_process_batch` and let
   `log` only indent) needs an identify fixture that does.
 - **A hand-built step that does not balance fails only inside the joint solve.**
-  A step whose sides take up and give off different net metabolites, such as `E(P) → E`
+  A step whose sides take up and give off different net metabolites, such as `EP → E`
   taking up `P`, passes the `Mechanism` constructor and the guard. It fails later, in the
   joint solve, with "Cycle 1 produces metabolite change not proportional to net
   reaction". The constructor or the guard should reject it with a message that names the
-  step. Only hand-built mechanisms meet this: the macros and the enumerator write balanced
+  step. Only hand-built mechanisms meet this: the macro and the enumerator write balanced
   steps.
 - **A regulator measured only at saturating levels gets an arbitrary K.**
   With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
@@ -233,12 +242,20 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Shrink the module interfaces.**
   The package aims at deep modules: few public names, simple arguments, the complexity
-  inside (`.claude/CLAUDE.md`). Four places fall short. Priority: high.
-  - **`Mechanisms` has 25 public names.**
-    Some serve one caller and expose how it works: `segment_walk` and `present_species`
-    are used only by `Derivation`, `check_conformation_label` and `check_decodable_names`
-    only by `DSL`, and `has_unbalanced_cycle` takes six vectors. Each either moves to its
-    one caller or folds into a function that hides it.
+  inside (`.claude/CLAUDE.md`). The lean mechanism took `Mechanisms` from 25 public names
+  to 15, `Derivation` from 16 to 9 and `Enumeration` to two, `CandidateMechanism` and
+  `candidate_mechanisms`. Five places still fall short. Priority: high.
+  - **`has_unbalanced_cycle` takes six vectors.**
+    `Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)` is a union-find
+    whose two callers, Enumeration's seed screen and Derivation's admission, pass the
+    working arrays it fills. A signature on a catalytic scheme and a mask, as
+    `has_turnover_cycle` has, would hide them.
+  - **Two modules count which way a step runs.**
+    The count of substrates taken up and products given off that orients a step is made
+    in `Mechanisms` (`_orientation`, the second row of the table of stored directions) and
+    again in `Derivation` (`_priority_key`, "stored against the reaction"). One owner needs
+    a sixteenth public name in `Mechanisms`, or `_priority_key` reading the direction
+    another way, which moves fitted names.
   - **`identify_rate_equation` has at least 18 keyword arguments,** such as
     `eq_complexity_filter = 337`. Each becomes an internal constant unless users have a
     real reason to change it, as they do for optimizer settings.
@@ -251,8 +268,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     callers make from an Int, and lacks the leading underscore. `_admitting_reading` and
     `_admission` are called only by tests. Of `_eps_network`'s callers, only
     `_every_step_cures` passes a `re` other than `_re_flags(m)`, and it could build its
-    variant with `_with_steps` instead. Three words, component, group and part, name the
-    forms a conformation's kept steps join.
+    variant with `_with_steps` instead. The docs call the forms a conformation's kept
+    steps join an island; the code calls them a component, a group and a part.
 - **Decide what the guard keeps that no measured mechanism needs.**
   Whether each part below goes is the maintainer's decision: he chose the three built
   readings, and guard code does not go on a search alone. Priority: medium.
@@ -292,12 +309,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Make per-regulator multiplicities such as `A(1, 2)` work.**
   `@enzyme_reaction` rejects a regulator's multiplicity list such as `A(1, 2)`; the
   syntax returns with this feature. `_expand_to_allosteric` and
-  `_expand_add_allosteric_regulator` give every regulatory site the catalytic
-  multiplicity. The derivation already powers each site by its own multiplicity, so only
-  the DSL (`_parse_regulator_entries`, `src/DSL/read.jl`; `Regulator`,
-  `src/Mechanisms/types.jl`) and enumeration change: those two moves, and
+  `_expand_add_allosteric_regulator` give every regulatory site the mechanism's
+  oligomeric state as its multiplicity. The derivation already powers each site by its
+  own multiplicity, so only the DSL (`_parse_regulator_entries`, `src/DSL/read.jl`;
+  `Regulator`, `src/Mechanisms/types.jl`) and enumeration change: those two moves, and
   `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
-  Keep a bare `A` at the catalytic multiplicity, widen only on an explicit list, and
+  Keep a bare `A` at the oligomeric state, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/Enumeration/moves.jl`) has no gain test, unlike
@@ -330,9 +347,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
-  "switch-product = 1" constraint row comes first. An `EnzymeForm` carries its conformation
-  label, and `_requires_hyperbolic_catalysis` (`src/Enumeration/filters.jl`) is the
-  extension hook. Two-conformation kinetic cooperativity stays parked: on PGK data no
+  "switch-product = 1" constraint row comes first. The enumerator's record of a form
+  (`_FormRecord`, `src/Enumeration/record.jl`) carries its conformation label, and
+  `_requires_hyperbolic_catalysis` (`src/Enumeration/filters.jl`) is the extension hook.
+  The enumerator builds the label `E` only, so until iso mechanisms are enumerated only
+  tests reach the code of its moves for other labels, such as the split of a kinetic group
+  by conformation. Two-conformation kinetic cooperativity stays parked: on PGK data no
   conformational model beat MWC with steady-state steps at equal parameter count, so
   reopen it only for a dataset whose curvature MWC cannot fit. Revisit allosteric
   ping-pong with this work: a flip at a second free form is the same question (see the
@@ -452,7 +472,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Move dead-end decorations out of `init_mechanisms` into an expansion move.** It is not
   clear this saves time, since the move would have to run again on every child.
 - **Separate the metabolite names inside enzyme-form names (`Ac + CoA ⇌ AcCoA`).**
-  `@enzyme_reaction` rejects a reaction whose names spell one name two ways and names both
+  The enumerator rejects a reaction whose names spell one name two ways and names both
   spellings, and renaming one metabolite removes the collision, so no separator is needed.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
   BlackBoxOptim users meet the warning, `test/Fitting/test_fitting.jl` captures it, and the

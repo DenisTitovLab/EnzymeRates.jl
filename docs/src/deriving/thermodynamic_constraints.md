@@ -38,8 +38,8 @@ K_EA_to_E_A * K_EAB_to_EA_B = K_EB_to_E_B * K_EAB_to_EB_A
 
 When the other constants of a loop cancel, the loop fixes the remaining one at 1
 and its line reads `K_E_to_F = 1`. An inhibitor that binds conformations `E` and
-`F` into one complex `E(I)` (`E + I ⇌ E(I)` and `F + I ⇌ E(I)`) under one shared
-dissociation constant does this: the loop `E → E(I) → F → E` forces `E` and `F`
+`F` into one complex `EI` (`E + I ⇌ EI` and `F + I ⇌ EI`) under one shared
+dissociation constant does this: the loop `E → EI → F → E` forces `E` and `F`
 to equal weight.
 
 ## How the constraints are found
@@ -64,25 +64,27 @@ becomes dependent:
 
 1. **Conformation.** In an allosteric mechanism, the inactive conformation's own
    constants go before the active ones.
-2. **Kind of step.** Isomerizations (steps that exchange no metabolite, on-enzyme
-   chemistry included) go first, then other chemistry (a binding that also converts, a
-   Theorell–Chance step), then plain bindings.
-3. **Occupancy.** Steps whose two enzyme forms both hold a metabolite go before steps
-   that touch free E or a form that holds only a covalent residual.
+2. **Kind of step.** Isomerizations (steps that take up and give off nothing, on-enzyme
+   chemistry included) go first, then steps that move more than one metabolite (a
+   Theorell–Chance step), then bindings, which take up or give off one metabolite,
+   whether or not they also convert.
+3. **Occupancy.** Steps neither of whose enzyme forms is free E go before steps that
+   touch free E.
 4. **Speed.** Steady-state constants go before rapid-equilibrium ones.
 5. **Direction.** Within a steady-state step, the rate constant that runs against the
-   reaction goes first: the reverse rate, except that for the binding of a product the
-   uptake runs against the reaction. So in `E(S) <--> E + P`, stored as the binding
-   `E + P → E(S)`, the product uptake is dependent and the catalytic rate stays fitted.
+   reaction goes first: the reverse rate, except for a step stored against the reaction,
+   such as the release of a product, which is stored as its uptake. So in
+   `ES <--> E + P`, stored as the binding `E + P → ES`, the product uptake is dependent
+   and the catalytic rate stays fitted.
 
 The free-enzyme binding constants a biochemist measures therefore stay independent
-whenever a cycle leaves them free. Ties go to a content key built from the forms and
-metabolites of each step, never from the order in which steps were written, so two
-mechanisms that differ only in step order, step direction or how the kinetic groups were
-labelled have the same dependents. A kinetic group's constant takes the name of the step
-the solve keeps, so splitting a group whose parts the cycles already tie changes no
-fitted name. The key reads metabolite names, though: renaming a metabolite can change
-which of two tied constants is dependent.
+whenever a cycle leaves them free. Ties go to the names of each step's forms and
+metabolites, never to the order in which steps were written, so two mechanisms that
+differ only in step order, step direction or how the kinetic groups were labelled have
+the same dependents. A kinetic group's constant takes the name of the step the solve
+keeps, so splitting a group whose parts the cycles already tie changes no fitted name.
+The order reads names, though: renaming a metabolite or an enzyme form can change which
+of two tied constants is dependent.
 
 ## A concrete example
 

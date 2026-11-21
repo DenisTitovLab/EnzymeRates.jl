@@ -116,7 +116,7 @@ end
 Whether the enumerator may only give this mechanism a catalytic scheme that
 passes `_hyperbolic_catalysis`. True when a conformational equilibrium sits over
 a catalytic site with more than one subunit: the equilibrium then raises every
-catalytic-site binding to the power of the multiplicity. Over one subunit, as for every
+catalytic-site binding to the power of the oligomeric state. Over one subunit, as for every
 plain mechanism, it only reweights each enzyme form and adds no power of its own.
 """
 _requires_hyperbolic_catalysis(m::Mechanisms.Mechanism) = m.allosteric.oligomeric_state > 1

@@ -164,7 +164,7 @@ function _priority_key(m::Mechanisms.CatalyticScheme, k::Int, slot::Int, block::
      sort!([e.taken_up; e.given_off]), k)
 end
 
-"""Each kinetic group's allosteric tag, `:None` for a plain mechanism, whose groups are
+"""Each kinetic group's allosteric state, `:None` for a plain mechanism, whose groups are
 numbered 1 to the largest `group` of its steps."""
 _solve_tags(m::Mechanisms.Mechanism) =
     _is_allosteric(m) ? m.allosteric.allosteric_states :
@@ -178,7 +178,7 @@ _in_active_law(cm::Mechanisms.CatalyticScheme, k::Int, tags::Vector{Symbol}, law
                alaw::BitVector) =
     alaw[k] || (tags[cm.steps[k].kinetic_group] === :EqualAI && law[k])
 
-"""Whether the steps of a group with allosteric tag `tag` take their own constants in the
+"""Whether the steps of a group with allosteric state `tag` take their own constants in the
 inactive conformation: those of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group do; an
 `:EqualAI` group's read the active ones."""
 _has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA, :OnlyI)
@@ -295,7 +295,7 @@ end
 """
     _regulator_constant(am, lig, tag, inactive) -> Union{Symbol, Nothing}
 
-The dissociation-constant name of the ligand named `lig` (allosteric tag `tag`) of `am`
+The dissociation-constant name of the ligand named `lig` (allosteric state `tag`) of `am`
 in the active (`inactive = false`) or inactive conformation, or `nothing` when the
 ligand is absent from that conformation (`:OnlyI` in the active state, `:OnlyA` in the
 inactive one). An `:EqualAI` ligand has one bare name in both conformations

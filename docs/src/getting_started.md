@@ -29,24 +29,23 @@ m = @enzyme_mechanism begin
         EP ⇌ E + P
     end
 end
-
-m isa EnzymeMechanism
 ```
 
 `⇌` marks a rapid-equilibrium binding step, described by one equilibrium
 constant K. `<-->` marks a steady-state interconversion, described by
-independent forward and reverse rate constants. The result is an
-`EnzymeMechanism` value. The expression `m isa EnzymeMechanism` (rather than
-`typeof(m)`) is shown deliberately: the `Sig` type parameter encodes the mechanism
-as a long tuple of integers, so `isa` is the useful check. Displayed, `m` prints as the
-block that builds it, with its lists sorted and its steps in canonical order.
+independent forward and reverse rate constants. `E` is the free enzyme, and every other
+name on a side of a step that is not a metabolite names an enzyme form: `ES` and `EP` here.
+The name is yours to choose, but it is part of the constants' names, so a name that says
+what the form holds keeps the rate law readable. The result is a `Mechanism`, a plain
+value: displayed, `m` prints as the block that builds it, with its lists sorted and its
+steps in canonical order.
 
-An enzyme form's name joins its bound metabolites' names without a separator
-(`E(S)` is `ES`), so two forms could render one name: with `Ac`, `CoA` and
-`AcCoA`, E with Ac and CoA bound and E with AcCoA bound would both be `EAcCoA`.
-`@enzyme_reaction` therefore rejects names that spell one string two ways, and
-its error names both spellings (`Ac + CoA and AcCoA both spell AcCoA`). Rename
-one, for example `Acetyl`.
+When the package names forms itself, in the mechanism search, it joins the bound
+metabolites' names without a separator (`EAB`), so two forms could render one name:
+with `Ac`, `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound would both
+be `EAcCoA`. The search therefore stops at its start on a reaction whose names spell one
+string two ways, and its error names both spellings (`Ac + CoA and AcCoA both spell
+AcCoA`). Rename one, for example `Acetyl`.
 
 ---
 
@@ -74,34 +73,39 @@ print(rate_equation_string(m; coefficients = true))
 `rate_equation_string` prints the law in its independent constants, each denominator term
 dimensionless whenever the law has a normalizer (see [Normalization](@ref));
 `coefficients = true` prints it in named coefficients, each defined in the fitted constants
-before the `v` line. Both texts run as Julia code once `params` and `concs` are bound.
-`coefficient_values = false` (with `coefficients = true`) leaves the definitions out, which
-makes the text shorter and easier to read but unable to run.
-`parameters(m)` returns the independent parameter symbols. `metabolites(m)`
-returns the concentration symbols the rate equation expects. `Keq` is the
+before the `v` line. Both texts run as Julia code once `params`, `concs` and `Keq` are
+bound. `coefficient_values = false` (with `coefficients = true`) leaves the definitions out,
+which makes the text shorter and easier to read but unable to run.
+`parameters(m)` returns the names of the constants a fit estimates. `metabolites(m)`
+returns the concentration names the rate equation expects. `Keq` is the
 **equilibrium constant** of the overall reaction — the ratio of product to
 substrate concentrations once the reaction has reached equilibrium, fixed by
-the reaction's thermodynamics. It is always user-supplied; the package never
-estimates it from data.
+the reaction's thermodynamics. It is an input of its own, not a parameter: you always
+supply it, and the package never estimates it from data.
 
 ---
 
 ## Evaluate the rate equation numerically
 
-Supply a `NamedTuple` of parameters and a `NamedTuple` of concentrations:
+`compile_rate_equation(m)` compiles the rate equation once into a function. Call it with a
+`NamedTuple` of concentrations, a `NamedTuple` of parameters and `Keq`:
 
 ```@example getting-started
+rate = compile_rate_equation(m)
+
 params = (
     K_ES_to_E_S = 1.0,
     K_EP_to_E_P = 1.0,
     k_ES_to_EP = 10.0,
-    Keq = 2.0,
-    E_total = 1.0,
 )
 concs = (S = 2.0, P = 0.5)
 
-rate_equation(m, concs, params)
+rate(concs, params, 2.0)
 ```
+
+The rate equation gives the rate per unit enzyme; multiply by the enzyme concentration
+for an absolute rate. Compile once, outside a loop: the first call derives and compiles
+the law, and every later call is fast and allocates nothing.
 
 ---
 
@@ -121,24 +125,25 @@ for g in 1:3, _ in 1:8
     s = 0.1 + 9.9 * rand()
     p = 0.1 + 9.9 * rand()
     push!(groups, "G$g")
-    push!(Rate, rate_equation(m, (S = s, P = p), params) * (1 + 0.05 * randn()))
+    push!(Rate, rate((S = s, P = p), params, 2.0) * (1 + 0.05 * randn()))
     push!(Svals, s); push!(Pvals, p)
 end
 data = (group = groups, Rate = Rate, S = Svals, P = Pvals)
 reference = [(S = Svals[1], P = Pvals[1]) => Rate[1]]
 
-fp = FittingProblem(m, data; Keq = 2.0, reference)
-fitted, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1, maxtime = 2.0)
+fp = FittingProblem(m, data, 2.0; reference)
+fitted, loss, retcode = fit_rate_equation(fp, CMAEvolutionStrategyOpt();
+                                          n_restarts = 1, maxtime = 2.0)
 retcode
 ```
 
-The data table has a `group` column identifying measurement batches that share
-one `E_total`, a `Rate` column with measured rates, and one column per
-metabolite or regulator name (here `S` and `P`). `Keq` is a required keyword,
-always user-supplied. The fit removes each group's arbitrary scale, and `reference`, a
+The data table has a `group` column identifying measurement batches made with one
+amount of enzyme, a `Rate` column with measured rates, and one column per
+metabolite or regulator name (here `S` and `P`). `Keq`, the third argument, is required
+and always user-supplied. The fit removes each group's arbitrary scale, and `reference`, a
 turnover at stated concentrations (here the first data row), sets the scale of the
-returned rate constants (omit it and the largest predicted rate over the data rows, at
-`E_total = 1`, is scaled to 1); see [Normalized vs absolute rate](@ref).
+returned rate constants (omit it and the largest rate per unit enzyme predicted over the
+data rows is scaled to 1); see [Normalized vs absolute rate](@ref).
 
 ### Units and the search box
 
@@ -167,7 +172,7 @@ Build an `IdentifyRateEquationProblem` from the reaction and data, then run
 in seconds:
 
 ```@example getting-started
-prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0, reference)
+prob = IdentifyRateEquationProblem(rxn, data, 2.0; reference)
 
 results = identify_rate_equation(prob;
     min_beam_width = 1,

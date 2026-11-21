@@ -302,8 +302,8 @@ end
 
 """
 Print `r` as the `@enzyme_reaction` text that builds it: each reactant with its atoms as
-one formula, the competitive inhibitors and allosteric regulators, the catalytic
-multiplicities unless they are the default 1, and the shared catalytic sites.
+one formula, the competitive inhibitors and allosteric regulators, the oligomeric states
+unless they are the default 1, and the shared catalytic sites.
 """
 function Base.show(io::IO, r::EnzymeReaction)
     mults = r.allowed_oligomeric_states

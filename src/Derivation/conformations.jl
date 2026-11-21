@@ -82,10 +82,10 @@ the uptake, vanishes (`_LOSES_FORWARD`). At steady state it loses its affinity o
 stopped as `r` says (`_SlowUptakeReading`). Any other excluded step keeps its kind, rapid
 equilibrium or steady state, as every step does in both conformations: a steady-state one
 is stopped, and a rapid-equilibrium one is not switched off (`_CANNOT_SWITCH_OFF`).
-Thermodynamics pins the equilibrium constant only of such a step inside one group; one
-between two groups could lose a direction, as the search tries (`_consistent_columns`),
-but the built readings let only an uptake lose. A plain mechanism has one conformation,
-which runs every step.
+Thermodynamics pins the equilibrium constant only of such a step inside one island (the
+forms the kept steps join); one between two islands could lose a direction, as the search
+tries (`_consistent_columns`), but the built readings let only an uptake lose. A plain
+mechanism has one conformation, which runs every step.
 """
 function _built_reading(am::Mechanisms.Mechanism,
                         r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)

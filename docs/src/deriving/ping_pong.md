@@ -8,12 +8,10 @@ The enzyme returns to its original form only at the end of the full cycle.
 
 ## A ping-pong bi-bi example
 
-A covalently modified enzyme form is written by giving the enzyme a `residual = …`
-keyword — an arithmetic expression over the declared metabolites that lists the
-atoms it has **gained** (with `+`) and is **committed to release** (with `-`).
-Here substrate `A` binds, product `P` leaves a modified enzyme
-`E(; residual = A - P)` carrying `A`'s atoms, substrate `B` binds the modified
-form, and product `Q` leaves to regenerate free `E`:
+A covalently modified enzyme form is an enzyme form like any other, written by its
+name. Here substrate `A` binds, product `P` leaves a modified enzyme
+`E_res_plusA_minusP` carrying the atoms `A` gave and `P` did not take, substrate `B`
+binds the modified form, and product `Q` leaves to regenerate free `E`:
 
 ```@example pingpong
 using EnzymeRates
@@ -52,5 +50,8 @@ The coefficient form names each coefficient by the concentrations it multiplies:
 print(rate_equation_string(m; coefficients = true))
 ```
 
-The residual-bearing forms take descriptive names such as `E_res_plusA_minusP` (the
-modified free enzyme) and `EB_res_plusA_minusP` (with `B` additionally bound).
+The modified forms carry the names the mechanism search gives them:
+`E_res_plusA_minusP` (the modified free enzyme, its residual the atoms it has **gained**
+from `A` less those it is **committed to release** in `P`) and `EB_res_plusA_minusP`
+(with `B` additionally bound). Any other names give the same law, its constants named
+after them.

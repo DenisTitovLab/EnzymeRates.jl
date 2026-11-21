@@ -20,13 +20,12 @@ vectors. The required columns are:
 Call `metabolites(mechanism)` to find which concentration columns your data
 needs before constructing the problem.
 
-!!! note "No `E_total` column"
-    The fitter evaluates every prediction at `E_total = 1`, comparing your
-    `Rate` against the per-enzyme turnover — in effect it fits `Rate / E_total`.
-    The default relative mode needs no action here: per-group centering cancels
-    each group's enzyme amount. For absolute mode (`absolute = true`),
-    first divide each rate by the enzyme amount used in its group. See
-    [Normalized vs absolute rate](@ref) for the full explanation.
+!!! note "No enzyme-concentration column"
+    The rate equation gives the rate per unit enzyme, so the fitter compares your
+    `Rate` against the per-enzyme turnover. The default relative mode needs no action
+    here: per-group centering cancels each group's enzyme amount. For absolute mode
+    (`absolute = true`), first divide each rate by the enzyme amount used in its group.
+    See [Normalized vs absolute rate](@ref) for the full explanation.
 
 ```@example fitting
 using EnzymeRates
@@ -58,30 +57,30 @@ on a concentration grid, then wraps it in a `FittingProblem`.
 
 ```@example fitting
 # The independent (fitted) constants of uni_uni: k_ES_to_E_P, k_ES_to_E_S, k_E_S_to_ES
-true_params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 5.0, k_E_S_to_ES = 10.0,
-               Keq = 2.0, E_total = 1.0)
+true_params = (k_ES_to_E_P = 3.0, k_ES_to_E_S = 5.0, k_E_S_to_ES = 10.0)
+Keq = 2.0
+rate = compile_rate_equation(uni_uni)
 
 concs_list = [(S = s, P = p) for s in (0.5, 1.0, 2.0, 5.0, 10.0) for p in (0.1, 0.5)]
 
 data = (
     group = fill("G1", length(concs_list)),
-    Rate  = [rate_equation(uni_uni, c, true_params) for c in concs_list],
+    Rate  = [rate(c, true_params, Keq) for c in concs_list],
     S     = [c.S for c in concs_list],
     P     = [c.P for c in concs_list],
 )
 
-fp = FittingProblem(uni_uni, data; Keq = 2.0,
+fp = FittingProblem(uni_uni, data, Keq;
                     reference = [(S = data.S[1], P = data.P[1]) => data.Rate[1]])
 ```
 
 `Keq`, the **equilibrium constant** of the overall reaction (the
 product-to-substrate concentration ratio at equilibrium, fixed by reaction
-thermodynamics), is a required keyword argument and is always user-supplied —
+thermodynamics), is the third argument, required and always user-supplied —
 the package never estimates it from data. For most enzyme reactions `Keq` is
 known — measured directly, or computed from a resource such as
-[eQuilibrator](https://equilibrator.weizmann.ac.il). The constructor also accepts a concrete
-`Mechanism` or `AllostericMechanism` and compiles it once at construction, so
-the fitting hot path pays no compilation overhead.
+[eQuilibrator](https://equilibrator.weizmann.ac.il). The constructor compiles the
+mechanism's rate equation once, so the fitting hot path pays no compilation overhead.
 
 `reference` sets the scale of the fitted rate constants in relative mode, the default: the
 fit returns constants that reproduce each anchor's turnover. Without one, the constants are
@@ -117,8 +116,8 @@ result.retcode isa Symbol
 result.params
 ```
 
-`result.params` holds the fitted constants and the problem's `Keq`, so it can go to
-`plot_rate_equation_on_data` as it is, and to `rate_equation` once `E_total` is merged in.
+`result.params` holds the fitted constants, the names of `parameters(uni_uni)`, so it goes
+to `rate(concentrations, result.params, Keq)` and to `plot_rate_equation_on_data` as it is.
 
 The fit runs `n_restarts` independent optimizations from random initial points
 and returns the best. Multiple restarts are necessary because finding the global
@@ -152,13 +151,13 @@ scale without a `reference`, absolute mode, and how to score a fit on other data
 panel per `group`. In a panel the x axis is the metabolite with the most distinct
 concentrations in that group, and each combination of the other metabolites'
 concentrations is a series with its own colour and marker. It never fits: it draws the
-rate equation at the parameters you pass, which hold `Keq` as a fit's `params` does. It
-needs a Makie backend, loaded here with `using CairoMakie`.
+rate equation at the parameters and the `Keq` you pass. It needs a Makie backend, loaded
+here with `using CairoMakie`.
 
 ```@example fitting
 using CairoMakie
 
-fig = plot_rate_equation_on_data(uni_uni, result.params, data)
+fig = plot_rate_equation_on_data(uni_uni, result.params, data, Keq)
 save("fit_on_data.png", fig)
 nothing # hide
 ```
@@ -181,8 +180,9 @@ separate series that share one curve, which shows that the rate equation misses 
 effect.
 
 To draw a rate equation of your own in place of a mechanism's, pass a function of the
-concentrations and the parameters. It receives one row's concentrations as a `NamedTuple`,
-and the parameters as you gave them, in any form.
+concentrations and the parameters, and no `Keq`: the function holds its own. It receives
+one row's concentrations as a `NamedTuple`, and the parameters as you gave them, in any
+form.
 
 ```@example fitting
 reversible_michaelis_menten(concentrations, params) =

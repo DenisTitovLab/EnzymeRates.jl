@@ -4,8 +4,8 @@ EnzymeRates derives rate equations symbolically with the King–Altman schematic
 method [KingAltman1956](@cite), extended by Cha's rapid-equilibrium treatment
 [Cha1968](@cite). What makes this practical is Julia's metaprogramming: the
 whole derivation runs **at compile time** inside `@generated` functions. The
-first time [`rate_equation`](@ref) is evaluated for a given mechanism, the
-package performs the full symbolic derivation once and writes the resulting
+first time the function [`compile_rate_equation`](@ref) returns for a mechanism is called,
+the package performs the full symbolic derivation once and writes the resulting
 closed-form expression directly into the compiled method. Every later call is
 just that expression — a plain arithmetic formula with no symbolic machinery
 left behind, no heap allocations, and a runtime on the order of **100 ns** on a

@@ -36,20 +36,19 @@ end
 
 # A concrete MWC mechanism to generate the data. A binds only the active
 # conformation (:OnlyA), which makes it an allosteric activator.
-generator = @allosteric_mechanism begin
+generator = @enzyme_mechanism begin
     substrates: S
     products:   P
-    catalytic_multiplicity: 2
-    allosteric_regulators: A
+    oligomeric_state: 2
     steps: begin
-        E + S ⇌ ES         :: EqualAI
-        ES <--> EP       :: OnlyA
-        EP ⇌ E + P         :: EqualAI
+        E + S ⇌ ES     :: EqualAI
+        ES <--> EP     :: OnlyA
+        EP ⇌ E + P     :: EqualAI
     end
     regulatory_site(2): A::OnlyA
 end
 
-println("fitted params: ", parameters(generator, FittedParameters()))
+println("fitted params: ", parameters(generator))
 println("metabolites:   ", metabolites(generator))
 ```
 
@@ -57,7 +56,7 @@ The mechanism has five independent parameters: the binding constants
 `K_ES_to_E_S` and `K_EP_to_E_P` (shared by both conformations, `:EqualAI`),
 the active-state catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator
 binding constant `K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`.
-`Keq` is user-supplied and `E_total` is absorbed into the rate scale.
+`Keq` is user-supplied, and the rate is per unit enzyme.
 [Mechanisms with allosteric regulators](@ref) covers the allosteric-state tags
 and the partition-function structure.
 
@@ -77,7 +76,8 @@ rate of exactly zero has no logarithm, and the loss works in log space.
 ```@example identify_fast
 Keq = 10.0
 true_params = (K_ES_to_E_S = 1.0, K_EP_to_E_P = 1.0, k_A_ES_to_EP = 5.0,
-               K_A_Areg = 1.0, L = 100.0, Keq = Keq, E_total = 1.0)
+               K_A_Areg = 1.0, L = 100.0)
+rate = compile_rate_equation(generator)
 
 concs = [(S = s, P = p, A = a)
          for s in (0.3, 1.0, 3.0, 10.0) for p in (0.1, 0.5)
@@ -85,7 +85,7 @@ concs = [(S = s, P = p, A = a)
 groups = [i ≤ length(concs) ÷ 2 ? "G1" : "G2" for i in eachindex(concs)]
 
 data = (group = groups,
-        Rate  = [rate_equation(generator, c, true_params) for c in concs],
+        Rate  = [rate(c, true_params, Keq) for c in concs],
         S = [c.S for c in concs],
         P = [c.P for c in concs],
         A = [c.A for c in concs])
@@ -112,15 +112,15 @@ value becomes one cross-validation fold, so at least two groups are required.
 - In relative mode, the default, `reference` is optional: anchors
   `concentrations => turnover` in the reaction's metabolites, which set the scale of
   every fit's rate constants (see [Normalized vs absolute rate](@ref)). Without it the
-  largest rate a mechanism predicts over the data rows, at `E_total = 1`, is scaled to 1.
+  largest rate per unit enzyme a mechanism predicts over the data rows is scaled to 1.
   Each anchor's concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
 
 The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
 rejects a metabolite named `L`, the conformational constant of the allosteric
-mechanisms the search fits, the other names a rate equation keeps (`E_total`, `Keq`,
-`N`, `params`, `concs`, `v`) and any name holding `_`.
+mechanisms the search fits, the other names a rate equation keeps (`Keq`, `N`, `params`,
+`concs`, `v`), the free enzyme's name `E` and any name holding `_`.
 
-`Keq` is a required keyword argument, always user-supplied, positive and finite; the
+`Keq`, the third argument, is required, always user-supplied, positive and finite; the
 package never estimates it from data. Most enzyme reactions have a known `Keq` —
 measure it directly, or compute it from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il).
@@ -133,7 +133,7 @@ Random.seed!(123)   # reproducible multi-start fits
 
 # The rates are per-enzyme turnover, so the first row anchors the scale.
 reference = [(S = data.S[1], P = data.P[1], A = data.A[1]) => data.Rate[1]]
-prob = IdentifyRateEquationProblem(rxn, data; Keq = Keq, reference)
+prob = IdentifyRateEquationProblem(rxn, data, Keq; reference)
 
 results = identify_rate_equation(prob;
     optimizer       = CMAEvolutionStrategyOpt(),
@@ -205,15 +205,14 @@ refine it.
 results.best
 ```
 
-`results.best` is an `AbstractEnzymeMechanism`, displayed as the macro block that builds
-it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
+`results.best` is a `Mechanism`, displayed as the macro block that builds it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
 
 ```@example identify_fast
 print(rate_equation_string(results.best))
 ```
 
 On noiseless data the search recovers the generating MWC mechanism. Its law ends
-`v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)`: each
+`v = (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)`: each
 conformation's denominator is squared because the enzyme is a dimer, the activator's site
 `W_A = (1 + A / K_A_Areg)^2` weighs the active conformation alone, and there is no `Q_I`,
 since the inactive conformation does not catalyze. The Haldane relation, printed as a

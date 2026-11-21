@@ -18,29 +18,29 @@ an over-simple model whose better CV score is within noise.
 
 ## Running the search
 
-[The enumeration engine](@ref) generates every candidate the beam fits.
-`init_mechanisms` builds the starting mechanisms (or `seed_mechanisms` starts
-from fully-regulated ones when a reaction's regulators are required), and
-`expand_mechanisms` grows each survivor through single moves — splitting a shared
-rate constant, flipping a rapid-equilibrium group to steady state, adding a
-regulator, or making the enzyme allosteric. Every move yields slightly more
-complex children, so the beam meets candidates in order of increasing complexity.
+[The enumeration engine](@ref) generates every candidate the beam fits, through
+`EnzymeRates.Enumeration.candidate_mechanisms`. Called with the reaction, it returns the
+starting mechanisms (fully regulated ones when a reaction's regulators are required);
+called with the reaction and a survivor, it returns the survivor's children by single
+moves — splitting a shared rate constant, flipping a rapid-equilibrium group to steady
+state, adding a regulator, or making the enzyme allosteric. Every move yields slightly
+more complex children, so the beam meets candidates in order of increasing complexity.
 
 The beam first fits every starting mechanism, each at its own parameter count.
-A degenerate starting mechanism is expanded instead of fitted: its rate at zero
+A degenerate seed is not among them: its rate at zero
 products ignores some substrate or never saturates, or the same holds for
 products, so it is not worth a fit, but it is the only parent of mechanisms that
 are not degenerate. Every seed with two chemistry isomerizations, such as a
 ping-pong seed, is one: a seed holds one steady-state step, so its other
 isomerization sits at rapid equilibrium with the steps on both its sides. The
-beam replaces such a mechanism at once by its children that are not degenerate
-and fits them beside the other starting mechanisms
-(`Enumeration.starting_mechanisms`). Only a flip of a rapid-equilibrium group to steady
-state can cure it, by turning that isomerization steady state or every step on one of its
-sides; the other moves keep which steps are at rapid equilibrium, so their children
-stay degenerate and are not fitted. The children's rows, like the starting mechanisms'
-rows, name no parent, and the degenerate mechanism gets a row of its own only when its
-expansion fails. A degenerate mechanism that a move builds is fitted like any other.
+enumeration replaces such a seed at once by its children that are not degenerate,
+which the beam fits beside the other starting mechanisms. Only a flip of a
+rapid-equilibrium group to steady state can cure it, by turning that isomerization steady
+state or every step on one of its sides; the other moves keep which steps are at rapid
+equilibrium, so their children stay degenerate and are not fitted. The children's rows,
+like the starting mechanisms' rows, name no parent, and the degenerate mechanism gets no
+row of its own: an error in its expansion stops the search at its start. A degenerate
+mechanism that a move builds is fitted like any other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
 constants share a key, count once at the key's lowest loss, and share one fit, which each
@@ -134,7 +134,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 
 `IdentifyRateEquationResults` exposes exactly two fields:
 
-- `best::AbstractEnzymeMechanism` — the selected mechanism.
+- `best::Mechanism` — the selected mechanism.
 - `cv_results::DataFrame` — LOOCV results for every candidate that entered
   cross-validation.
 
@@ -145,7 +145,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `n_params` | Actual fitted-parameter count. |
 | `parent_n_params` | Fitted-parameter count of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `loss` | Training loss (ranks which equations enter LOOCV). |
-| `mechanism` | The mechanism as the `@enzyme_mechanism` or `@allosteric_mechanism` block that builds it, the text `show` prints. `EnzymeRates.DSL.parse_mechanism(text)` reads it back without evaluating it. |
+| `mechanism` | The mechanism as the `@enzyme_mechanism` block that builds it, the text `show` prints. `EnzymeRates.DSL.parse_mechanism(text)` reads it back without evaluating it. |
 | `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String, :fit_source_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e` or `f`) as a number. |
 | `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `rate_equation` | The printed law in named coefficients without their definitions (`rate_equation_string(m; coefficients = true, coefficient_values = false)`). This text names the coefficients without defining them and does not run. `best_equation.csv` holds the full form. To print the full form from a row, call `rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients = true)`. |

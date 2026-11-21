@@ -20,30 +20,30 @@ The mechanism stores it as each step's `rapid_equilibrium` flag.
   as `K_<bound>_to_<free>` (for example, `K_ES_to_E_S`). A binding is any step
   that takes up exactly one metabolite and gives off none, so a fused binding,
   whose bound form is not its free form with the metabolite added, is named the
-  same way: `E(A) + B ⇌ E(P, Q)` gives `K_EPQ_to_EA_B`. A step that gives off
+  same way: `EA + B ⇌ EPQ` gives `K_EPQ_to_EA_B`. A step that gives off
   one metabolite and takes up none is the binding it reverses: the fused
-  release `E(A, B) ⇌ E(Q) + P` binds `P` into `E(A, B)`, with dissociation
+  release `EAB ⇌ EQ + P` binds `P` into `EAB`, with dissociation
   constant `K_EAB_to_EQ_P` = [EQ]·[P]/[EAB].
 - An **RE isomerization step** contributes one parameter: an equilibrium
-  constant, named in the canonical direction as `K_<from>_to_<to>` (for
+  constant, named in its stored direction as `K_<from>_to_<to>` (for
   example, `K_ES_to_EP`).
 - An **SS binding step** contributes two rate constants, one per direction:
   `k_<free>_to_<bound>` and `k_<bound>_to_<free>` (for example,
   `k_E_S_to_ES` and `k_ES_to_E_S`).
 - An **SS isomerization step** contributes two directed rate constants:
   `k_<from>_to_<to>` and `k_<to>_to_<from>`.
-- Every other step — a Theorell–Chance step (`E(A) + B <--> E(Q) + P`), or one
+- Every other step — a Theorell–Chance step (`EA + B <--> EQ + P`), or one
   with several metabolites on a side — is named by its two sides, as an
   isomerization is. A side is a step's enzyme form followed by its free
-  metabolites. The mechanism, not the order the step is written in, decides
-  which side is `<from>` (the side carrying more substrate or, failing that,
-  less product; on a tie, the metabolites the mechanism's steps exchange at
-  each form, and failing that the form that comes first in the mechanism's
-  form order: free `E`, then the other forms by conformation label, bound
-  metabolites and residual), so writing the step backwards gives the same
-  names: at rapid equilibrium the
-  Theorell–Chance step above gives `K_EA_B_to_EQ_P`. Such a constant can carry
-  concentration units, as for a step that gives off two metabolites.
+  metabolites. The mechanism, not the direction the step is written in, decides
+  which side is `<from>`: the step is stored the way the reaction runs, the way it takes
+  up more substrates and gives off more products. An isomerization, or an exchange of
+  one modifier for another, runs the way the shortest cycle through it that turns the
+  reaction over runs; with no such cycle it runs away from free `E`, and with both ends
+  equally far, from the form whose name comes first. So writing the step backwards
+  gives the same names: at rapid equilibrium the Theorell–Chance step above gives
+  `K_EA_B_to_EQ_P`. Such a constant can carry concentration units, as for a step that
+  gives off two metabolites.
 
 ## A concrete comparison
 
@@ -70,7 +70,7 @@ end
 parameters(re)
 ```
 
-Six parameters, and a compact rate law:
+Four parameters, and a compact rate law:
 
 ```@example revss
 print(rate_equation_string(re))
@@ -92,7 +92,7 @@ end
 parameters(ss)
 ```
 
-Nine parameters — each binding step trades its single `K` for an independent
+Seven parameters — each binding step trades its single `K` for an independent
 forward/reverse rate-constant pair — and the rate law is far larger:
 
 ```@example revss
@@ -130,8 +130,8 @@ out of the rate matrix as pre-equilibrium segments, giving the familiar
 An RE label does not always claim that a binding is fast. Take a *chain*: an
 isomerization alone in its kinetic group, between two forms that each have
 exactly one other step, a binding into that form alone in its group. Those two
-bindings are the chain's *flanks*. The uni-uni mechanism `E + S ⇌ E(S)`, `E(S) <--> E(P)`,
-`E(P) ⇌ E + P` is one chain. When the isomerization is steady state, the rest of
+bindings are the chain's *flanks*. The uni-uni mechanism `E + S ⇌ ES`, `ES <--> EP`,
+`EP ⇌ E + P` is one chain. When the isomerization is steady state, the rest of
 the mechanism sees the chain only through its flux and the enzyme it holds, and
 rapid-equilibrium flanks already give every rate law that steady-state flanks
 give. An RE flank's constant is then an apparent constant, a Michaelis-type

@@ -39,7 +39,7 @@ is one named `E`, the name of the free enzyme form; a name is an identifier that
 keyword. The mechanism search names an enzyme form by joining its bound metabolites'
 names without a separator, so the names may not spell one string two ways: with `Ac`,
 `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound would both be
-`EAcCoA`. `@enzyme_reaction` rejects such a reaction and names both spellings
+`EAcCoA`. The search rejects such a reaction when it starts and names both spellings
 (`Ac + CoA and AcCoA both spell AcCoA`); rename one (`Acetyl`). A reactant bound where it
 does not react is written `Xmod` in a form's name, which counts as a name too.
 
@@ -130,7 +130,8 @@ allosteric states: every statement of `steps:` ends with one, a step after its r
 side, a parenthesized group after its closing parenthesis, and `(step,) :: State` for a
 group of one. Some statements with a state and others without is an error. Only an
 allosteric mechanism takes:
-- `oligomeric_state:` (default 1), the number of catalytic subunits.
+- `oligomeric_state:` (default 1), the number of catalytic subunits, which change
+  conformation together.
 - `regulatory_site(n): X::State, Y::State`, one regulatory site, present `n` times, and
   its ligands in any order, each with its state. A ligand sits on one site line. It binds
   only its regulatory site, unless `modifiers:` lists it too, which lets it bind the
@@ -152,11 +153,11 @@ It also rejects a law with no value there (0/0).
 
 A step with a state is switched off in the conformation that lacks it, and it keeps its
 kind, rapid equilibrium or steady state, in both. The steps that conformation keeps join
-the forms into groups, and every group but free E's lies higher in energy and holds no
-enzyme: a switched-off step between two groups loses its rate uphill and keeps its rate
-downhill, or, at steady state, may stop; one inside a group stops at steady state, and at
-rapid equilibrium cannot be switched off, so the macro rejects it. The macro looks for
-energies of the groups under which the rate law is the limit, and rejects the states when
+the forms into islands, and every island but free E's lies higher in energy and holds no
+enzyme: a switched-off step between two islands loses its rate uphill and keeps its rate
+downhill, or, at steady state, may stop; one inside an island stops at steady state, and
+at rapid equilibrium cannot be switched off, so the macro rejects it. The macro looks for
+energies of the islands under which the rate law is the limit, and rejects the states when
 it finds none (under each, a face's steady state depends on where the enzyme starts, or
 the macro cannot show that the limit does not depend on how fast the switched-off
 constants vanish), or when the states allow more choices than it searches and none of the
@@ -201,13 +202,13 @@ julia> am = @enzyme_mechanism begin
            modifiers: I
            oligomeric_state: 2
            steps: begin
-               E + A ⇌ EA                          :: EqualAI
-               EA + B ⇌ EAB                    :: NonequalAI
-               EAB <--> EPQ                  :: OnlyA
-               EPQ ⇌ EQ + P                    :: EqualAI
-               EQ ⇌ E + Q                          :: EqualAI
-               (E + I ⇌ EI, EA + I ⇌ EAI)    :: EqualAI
-               EQ + P ⇌ EPmodQ          :: EqualAI
+               E + A ⇌ EA                   :: EqualAI
+               EA + B ⇌ EAB                 :: NonequalAI
+               EAB <--> EPQ                 :: OnlyA
+               EPQ ⇌ EQ + P                 :: EqualAI
+               EQ ⇌ E + Q                   :: EqualAI
+               (E + I ⇌ EI, EA + I ⇌ EAI)   :: EqualAI
+               EQ + P ⇌ EPmodQ              :: EqualAI
            end
            regulatory_site(2): X::OnlyA, Y::OnlyI
        end;

@@ -153,14 +153,14 @@ end
 
 The ways conformation `c` of `am` may switch off the steps it excludes that admission's
 interior accepts (`_interior_verdict`), each a column of a `_Reading`, in the search's
-order. The steps `c` keeps join the forms into groups (`exclusion_components`), and every
-group but free E's lies higher. An excluded step inside one group is stopped, or, at rapid
-equilibrium, no way switches it off: `pinned` is then the first such step, and `columns`
-is empty. An excluded step between two groups loses its stored direction unless that
-points into free E's group, loses its reverse unless that does, or, at steady state, is
-stopped, in that order; the columns run through these choices with the last step changing
-fastest. With more than `_MAX_CHOICES_PER_CONFORMATION` choices, `too_many` holds and
-`columns` is empty.
+order. The steps `c` keeps join the forms into islands (`exclusion_components`), and every
+island but free E's lies higher. An excluded step inside one island is stopped, or, at
+rapid equilibrium, no way switches it off: `pinned` is then the first such step, and
+`columns` is empty. An excluded step between two islands loses its stored direction unless
+that points into free E's island, loses its reverse unless that does, or, at steady state,
+is stopped, in that order; the columns run through these choices with the last step
+changing fastest. With more than `_MAX_CHOICES_PER_CONFORMATION` choices, `too_many`
+holds and `columns` is empty.
 """
 function _consistent_columns(am::Mechanisms.Mechanism, c::Int)
     steps = am.catalytic.steps
@@ -303,7 +303,7 @@ function _admission_message(am::Mechanisms.Mechanism, v::_Verdict,
     # The fixes `found` as one sentence of alternatives; nothing when there are none.
     offer(found) = isempty(found) ? "" : " " * uppercasefirst(join(found, ", or ")) * "."
     if v.fault === _FAST_STEP_PINNED
-        # The guard reports the fault only for a step inside one group, whose sides the
+        # The guard reports the fault only for a step inside one island, whose sides the
         # steps conformation `c` keeps join.
         joins = _kept_path(am, c, m.steps[k].from, m.steps[k].to)
         msg = "Mechanism: in the $conf conformation the rapid-equilibrium step " *

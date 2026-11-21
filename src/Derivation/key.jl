@@ -31,7 +31,7 @@ The polynomials of law `L` in role order, the units (`H`, fixed by the reaction,
 then each group of components that rescale together without changing the rate), and a
 header naming the law's shape: `H`, then `(Q, D)` for a plain law; for an MWC law `H`, each
 conformation's `(Q, D, free-E weight)` and each regulatory site's binding polynomials in
-both conformations, the header naming the catalytic and the site multiplicities.
+both conformations, the header naming the oligomeric state and the site multiplicities.
 """
 _key_parts(L::_Law) = (_Poly[L.H, L.Q, L.D], [[1], [2, 3]], "plain")
 

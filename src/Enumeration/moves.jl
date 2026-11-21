@@ -104,8 +104,8 @@ one phantom per such group, and its flux-carrying supersets are the smallest
 identifiable relaxations. The non-degenerate mechanisms beyond a set that counts as failed
 stay reachable — through the other cut orders of the same ring, or through the extended
 set when no other order gains. Every other flag, the declared
-names and, for an allosteric mechanism, the tags, multiplicity and regulatory sites are
-kept; each child goes through the checked constructor.
+names and, for an allosteric mechanism, the allosteric states, oligomeric state and
+regulatory sites are kept; each child goes through the checked constructor.
 
 A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
 more than one catalytic subunit) keeps only the children whose laws pass
@@ -400,7 +400,7 @@ copy its shared group pinned), and a split of a group that forms a copy's
 twins can break the gauge, so the copy rule is decided on each child: a child with a
 redundant copy group (`_redundant_copy_groups`) is not emitted; its family is that of
 the same split without the copy.
-The declared names and, for an allosteric mechanism, the multiplicity and regulatory
+The declared names and, for an allosteric mechanism, the oligomeric state and regulatory
 sites are kept; both parts of a split group inherit its allosteric state. Each
 child is the parent's steps regrouped (`_apply_bipartitions`), through the checked
 constructor, since a regrouping can turn a tied group's member.
@@ -625,7 +625,7 @@ form of `m` keeps its segment and offsets; but the complexes sort in among `m`'s
 `m`'s form indices do not hold in the child. Only the new group is tested: `m` holds no
 redundant copy group (the parent rule), and in each of about 218,000 enumerated parents
 checked, the placement made no older copy redundant (an empirical finding, not a proof). An
-allosteric child takes its copy's group tagged `:EqualAI`, with `m`'s multiplicity and
+allosteric child takes its copy's group tagged `:EqualAI`, with `m`'s oligomeric state and
 regulatory sites, and runs `_redundant_copy_groups` only when every complex of the copy has
 a twin in the active state (`_all_twin`), which redundancy needs. Each child is built
 through the checked constructor (`_candidate`).
@@ -728,9 +728,9 @@ end
 Whether `_enumerator_keeps` accepts the plain mechanism of candidate `c` with the tags
 `tags`, one per kinetic group, over one catalytic subunit with no regulatory site: tagging
 bases pass the test every other candidate passes. Neither the guard's checks nor
-`_kept_forms_keep_a_binding` read the multiplicity or the sites, so every child the tagging
-move builds on these tags gets the same verdict at the exits, up to the limit test's random
-draw, whose seed hashes the mechanism.
+`_kept_forms_keep_a_binding` read the oligomeric state or the sites, so every child the
+tagging move builds on these tags gets the same verdict at the exits, up to the limit
+test's random draw, whose seed hashes the mechanism.
 """
 _valid_tagging(c::CandidateMechanism, tags::Vector{Symbol}) =
     _enumerator_keeps(_candidate(c, tags, 1, Mechanisms.RegulatorySite[]).mechanism)
@@ -798,22 +798,22 @@ without a regulator.
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable
     from `m`.
-  * K-type: a nonempty set of binding groups set `:OnlyA` on top of a base, and on top
-    of the every-chemistry set when that set is no base, since a tagged binding can
-    restore its limit; each is emitted bare, and the exits drop those
-    `_enumerator_keeps` refuses. Over more than one catalytic subunit the conformational
-    equilibrium enters the rate with the multiplicity's power. Over one subunit the inactive
-    conformation is a dead-end branch of the free enzyme, and `L` is a phantom in some
-    K-type variants and not in others. In every K-type variant of the rapid-equilibrium
-    ordered bi-bi seed a rescaling of the active state's constants absorbs it, whatever
-    that conformation binds. In the merged ordered bi-bi whose B group mixes a fused and
-    a plain binding it is a phantom only in the variants whose inactive conformation
-    binds nothing: no rescaling absorbs an A or Q binding kept there. Binding nothing is
-    not enough: in a random-order merged bi-bi, whose A group takes A up at E and at
-    EB under one rate constant, `L` shows in every K-type variant. identify keeps every
-    K-type variant in the frontier, since its children can carry laws its parent's children
-    lack. A variant that `_is_phantom` (`src/Derivation/key.jl`) flags is not fitted when
-    another mechanism holds the fit of its law at `L = 0`: it reads that fit, with `L = 0`.
+  * K-type: a nonempty set of binding groups set `:OnlyA` on top of a base, and on top of
+    the every-chemistry set when that set is no base, since a tagged binding can restore its
+    limit; each is emitted bare, and the exits drop those `_enumerator_keeps` refuses. Over
+    more than one catalytic subunit the conformational equilibrium enters the rate with the
+    oligomeric state as its power. Over one subunit the inactive conformation is a dead-end
+    branch of the free enzyme, and `L` is a phantom in some K-type variants and not in
+    others. In every K-type variant of the rapid-equilibrium ordered bi-bi seed a rescaling
+    of the active state's constants absorbs it, whatever that conformation binds. In the
+    merged ordered bi-bi whose B group mixes a fused and a plain binding it is a phantom
+    only in the variants whose inactive conformation binds nothing: no rescaling absorbs an
+    A or Q binding kept there. Binding nothing is not enough: in a random-order merged
+    bi-bi, whose A group takes A up at E and at EB under one rate constant, `L` shows in
+    every K-type variant. identify keeps every K-type variant in the frontier, since its
+    children can carry laws its parent's children lack. A variant that `_is_phantom`
+    (`src/Derivation/key.jl`) flags is not fitted when another mechanism holds the fit of
+    its law at `L = 0`: it reads that fit, with `L = 0`.
   * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric regulator at
     a new site, one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the
     every-chemistry base the inactive state binds substrate and product as the active state
@@ -828,14 +828,14 @@ group, and so no K-type, or when `_enumerator_keeps` refuses every K-type.
 
 For each value in `rxn`'s `allowed_oligomeric_states`, the move emits
 the K-types, then the V-types, at that `oligomeric_state`. Every variant
-composes `m`'s graph, which it shares, with its tags, multiplicity and sites. The
-variants are distinct by construction: each differs from the others in its tags, its
-regulatory site or its multiplicity.
+composes `m`'s graph, which it shares, with its allosteric states, oligomeric state and
+sites. The variants are distinct by construction: each differs from the others in its
+allosteric states, its regulatory site or its oligomeric state.
 
 A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
 steady-state binding, or a substrate that traps a steady-state intermediate in
 an abortive complex, whose own equation carries concentration powers) emits
-variants at multiplicity 1 only: above one subunit the conformational
+variants at oligomeric state 1 only: above one subunit the conformational
 equilibrium would add a second source of powers
 (`_requires_hyperbolic_catalysis`). Above one subunit a variant is also dropped when
 either conformation's law fails the test: on a base that stops one half-reaction, a
@@ -966,7 +966,7 @@ not already `:NonequalAI`. The chemistry groups (those holding a chemistry step,
 `_chemistry_groups`) relax **together**, one variant setting every non-`:NonequalAI`
 chemistry group to `:NonequalAI` at once, so a fully live inactive conformation is one
 move from every V-type, the tagging move's one-half bases included. The base catalytic
-steps, multiplicity, and untouched tags are preserved.
+steps, oligomeric state, and untouched allosteric states are preserved.
 
 The chemistry relaxation is tried only while no binding group is `:OnlyA`. Beside an
 `:OnlyA` binding the restored chemistry can join the binding's two sides in the inactive
