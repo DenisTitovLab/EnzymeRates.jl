@@ -15,18 +15,26 @@ integer encoding of a compiled type, although the rate equation depends on none 
 
 The rate equation depends only on a reaction graph: which forms exist, which steps join
 them, what each step takes up and gives off, which steps are fast and which share
-constants. This design makes that graph the whole mechanism.
+constants. This design makes that graph the mechanism. An allosteric mechanism adds its
+allosteric states, its oligomeric state and its regulatory sites.
 
 ## Words used here
 
-- **Conformation:** the active or the inactive shape of the enzyme (MWC).
-- **Allosteric state** of a kinetic group: one of `:OnlyA`, `:OnlyI`, `:EqualAI`,
-  `:NonequalAI`, written after `::` in the macro.
+- **Conformation:** the active or the inactive shape of the enzyme (MWC). A
+  **conformation label** is something else: the prefix of a form in the enumerator's
+  record (`E`, `Estar`, `F`), which tells apart forms of the enzyme that an isomerization
+  joins.
+- **Kinetic group:** steps that share their constants.
+- **Allosteric state** of a kinetic group, or of a regulatory site's ligand: one of
+  `:OnlyA`, `:OnlyI`, `:EqualAI`, `:NonequalAI`, written after `::` in the macro. The
+  `oligomeric_state` is unrelated: the number of subunits.
 - **Excluded step:** a step that does not run in a conformation because of its group's
   allosteric state: an `:OnlyA` step in the inactive conformation, an `:OnlyI` step in
   the active one.
 - **Cut-off form:** a form that the steps still running in a conformation do not join to
   free E.
+- **Island:** in a conformation, a set of forms joined to each other by the steps the
+  conformation does not exclude (decision 2).
 
 ## Goals
 
@@ -39,12 +47,8 @@ constants. This design makes that graph the whole mechanism.
 
 ## Non-goals
 
-An earlier draft left three designs for later. They are now decisions 6 (what Enumeration
-needs to know about a form) and 7 (Derivation's interface to its callers, `E_total` and
-the parameter kinds).
-
-Outside this design: new enumeration moves, iso mechanisms, a flip at a covalent
-form, identify's keyword arguments.
+Outside this design: new enumeration moves, iso mechanisms, a flip at a covalent form,
+and identify's keyword arguments other than `Keq` (decision 7).
 
 ## Anti-goals
 
@@ -69,9 +73,10 @@ form, identify's keyword arguments.
 
 ### What the mechanism stores
 
-1. **Lean graph only (chosen).** The one thing `Derivation` reads from form contents
-   today is whether an excluded step is a plain binding. A rule read from the graph
-   replaces that (decision 2).
+1. **Lean graph only (chosen).** The guard read one thing from form contents: whether an
+   excluded step is a plain binding. The rule of decision 2, now built, reads the graph.
+   The constant names and `_priority_key` still read contents; decision 5 replaces those
+   reads.
 2. **Lean graph plus one Bool per step** ("this uptake also does the chemistry"). Keeps
    today's verdicts exactly. Rejected: the Bool encodes a naming convention, not a fact.
    A merged complex is one node that stands for both `E(A, B)` and `E(P, Q)`, and today's
@@ -90,7 +95,7 @@ form, identify's keyword arguments.
    numerical limit. Rejected as it stands: it lets a rapid-equilibrium step be the slowest
    step in the other conformation, which today's guard also does for a step that is not a
    plain binding.
-4. **As 3, and a step keeps its kind in both conformations (chosen).** The maintainer's
+4. **As 3, and a step keeps its kind in both conformations (built first).** The maintainer's
    principle: rapid equilibrium and steady state differ more than 100-fold, and a step
    does not jump from the fastest kind in one conformation to slower than every
    steady-state step in the other. A steady-state uptake into a cut-off form keeps its
@@ -111,9 +116,8 @@ form, identify's keyword arguments.
    rule at every public entry point: drop `Sig` before internal work.
 2. **Plain `Mechanism` and a separate compiled rate equation (chosen).** The pattern of
    ModelingToolkit and Catalyst: the model is a value, and code is generated when a problem
-   is built. One concrete type everywhere inside the package. Chosen because the maintainer
-   expects no user to need a fast rate function outside a fit: a user who wants the law in
-   another model copies the printed equation.
+   is built. One concrete type everywhere inside the package. A user who wants a fast
+   rate function outside a fit calls `compile_rate_equation` (decision 3).
 3. **Typed only.** Rejected on measurement: a type costs 1.2 KB that is never freed (a
    value costs 1.8 KB and is freed), a type parameter cannot hold vectors, so every read
    decodes (72 µs today), and Enumeration would keep a value form anyway.
@@ -146,7 +150,7 @@ end
 
 struct Allostery
     allosteric_states::Vector{Symbol} # one per kinetic group; empty for a plain mechanism
-    oligomeric_state::Int             # subunits that change conformation together; 1 if plain
+    oligomeric_state::Int             # subunits that change conformation together
     regulatory_sites::Vector{RegulatorySite}
 end
 
@@ -156,7 +160,8 @@ struct Mechanism
 end
 ```
 
-- A mechanism is plain when `allosteric.allosteric_states` is empty.
+- A mechanism is plain when `allosteric.allosteric_states` is empty; its
+  `oligomeric_state` is then 1.
 - `oligomeric_state` replaces `catalytic_multiplicity` (the maintainer, 2026-11-20), in
   the field and in the mechanism macro. `@enzyme_reaction` already writes
   `oligomeric_state:`; the reaction's field `allowed_catalytic_multiplicities` becomes
@@ -164,18 +169,23 @@ end
   catalytic scheme. A regulatory site keeps its `multiplicity`.
 - `RegulatorySite` names its ligands' states `allosteric_states` too, in place of
   `mwc_tags`: both hold the same four values.
-- A metabolite that is neither a substrate nor a product is a modifier. A reactant that
-  binds as a modifier (substrate inhibition) is a step that takes up that reactant; the
-  graph has no separate modifier copy.
-- The free enzyme is the first form. Nothing inside the package reads its name; the macro
-  decides which written form it is (decision 4).
-- Two writings of one mechanism (step order, written direction, group order, order of the
-  forms) are `==` and hash alike. Form names are part of a mechanism's identity. The
-  constructor chooses each step's stored direction (below).
-- The constructor checks representation only: indices in range, every form joined to the
-  free enzyme, distinct names, uniform kinetic groups, one known allosteric state per
-  group. It does not run the guard, and it has no rule about which groups may be `:OnlyI`
-  (decision 2).
+- `CatalyticScheme.metabolites` holds the metabolites the steps take up or give off. One
+  that is neither a substrate nor a product is a modifier. A regulatory site's ligands
+  are named in the site, and are listed there only if a step also binds them.
+  `metabolites(m)` lists both, the sites' ligands last, as today.
+- A reactant that binds as a modifier (substrate inhibition) is a step that takes up that
+  reactant; the graph has no separate modifier copy.
+- The free enzyme is the form named `E`, stored first. The constructor requires it, so
+  that a mechanism built directly prints as text the macro reads back (decision 4).
+  Nothing else in the package reads a form's name.
+- Two writings of one mechanism are `==` and hash alike. Step order, group order, the
+  order of the forms and the written direction of a step do not matter, with one
+  exception: the direction of an isomerization relative to the others of its kinetic
+  group (below). Form names are part of a mechanism's identity.
+- The constructor checks representation only: indices in range, a form named `E`, every
+  form joined to it, distinct names, uniform kinetic groups, one known allosteric state
+  per group. It does not run the guard, which alone decides which groups may be
+  `:OnlyI`.
 
 #### Which way a step is stored
 
@@ -188,43 +198,48 @@ The first row that decides gives the direction:
 | Step | Stored direction (`from` to `to`) |
 |:--|:--|
 | Only takes up, or only gives off, metabolites | As the uptake. |
-| Takes up some and gives off others | The way the reaction runs: the direction that takes up substrates and gives off products. |
-| Neither row decides: an isomerization, or an exchange such as one modifier for another | The way the reaction runs: along the shortest cycle through the step that turns the reaction over. |
+| Takes up some and gives off others | The way the reaction runs. Count the substrates the step takes up and the products it gives off, less the substrates it gives off and the products it takes up. The direction in which the count is positive is stored. |
+| The count is zero (one modifier for another), or the step is an isomerization | The way the reaction runs: along the shortest cycle through the step that turns the reaction over. |
 | No such cycle, or one each way of equal length | Away from the free enzyme: `from` is the end fewer steps from it. |
 | Both ends equally far | `from` is the end whose form comes first in `enzyme_forms`. |
 
 **The steps of one kinetic group turn together.** The steps of a group share their
 constants. Steps that take up or give off metabolites all take up and give off the same
 ones, and that fixes how the members correspond. For isomerizations it is a fact about
-the mechanism that the graph does not hold. In `(Estar <--> E, EstarA <--> EA)` the change of
-conformation has one pair of constants at both forms, yet the reaction runs through the
-two steps in opposite directions. The table orients one member, and the others keep the
-directions they were written in relative to it. That member is the one nearest the free
-enzyme among those the direction of the reaction decides, or among all of them when it
-decides none (the maintainer's choice, 2026-11-20). So
-turning a whole group as written changes nothing, and turning one member against its
-group writes a different mechanism, one that shares other constants. Nothing can check
-that a group is written aligned: the writer aligns it, as the enumerator and the
-translated fixtures do.
+the mechanism that the graph does not hold. In `(Estar <--> E, EstarA <--> EA)` the
+enzyme's isomerization has one pair of constants at both forms, yet the reaction runs
+through the two steps in opposite directions. The table orients one member and the others
+follow it: steps with metabolites by their lists, isomerizations by the directions they
+were written in relative to it. That member is the one nearest the free enzyme among
+those the direction of the reaction decides, or among all of them when it decides none
+(the maintainer's choice, 2026-11-20). So turning a whole group as written changes
+nothing, and turning one isomerization against its group writes a different mechanism,
+one that shares other constants. Nothing can check that a group is written aligned: the
+writer aligns it, as the enumerator and the translated fixtures do.
 
 Checked on today's data model
 (`claude-scratchpad/lean-mechanism-spike/orientation/`): the table gives the stored
 direction of all 3,566 isomerizations in the seeds and first expansions of four reactions
 and in 3,000 ter-ter seeds. Of the 1,301 isomerizations in the mechanisms the tests
-write, 32 turn, in at most 25 fixtures. Each is alone in its kinetic group, and is a
-change of conformation or a step off the cycle, which today falls back to the order of
-the forms. All 46 that share a group keep today's direction; in three groups the table
-alone would turn the members apart, which is why a group turns together.
+write, 32 turn, in at most 25 fixtures. Each is alone in its kinetic group, and is an
+isomerization of the enzyme itself (`E <--> F`) or a step off the cycle, which today
+falls back to the order of the forms. All 46 that share a group keep today's direction;
+in three groups the table alone would turn the members apart, which is why a group turns
+together.
 
 Of the steps that take up some metabolites and give off others, the second row gives the
-stored direction of all 913 enumerated ones and of 100 of the 121 the tests write. One
-turns (`E(S) + P ⇌ E(P) + S`, stored today against the reaction). The other 20 exchange
-one modifier for another and fall to the later rows, where at most two turn.
+stored direction of all 913 enumerated ones. Of the 121 the tests write, it gives today's
+direction for 100 and turns one (`E(S) + P ⇌ E(P) + S`, stored today against the
+reaction). The other 20 exchange one modifier for another and fall to the later rows,
+where at most two turn.
 
-Removed: `AllostericMechanism`, `EnzymeMechanism`, `AllostericEnzymeMechanism`,
-`AbstractEnzymeMechanism`, `EnzymeForm`, `Metabolite`, `catalytic`, `compile_mechanism`,
-`check_conformation_label`, the stored facts (`modifiers`, `groups`, `step_kinds`,
-`toward_products`, `step_sides`, the four step masks) and the integer encoding of names.
+Removed from the public names of `Mechanisms`: `AllostericMechanism`, `EnzymeMechanism`,
+`AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `EnzymeForm`, `Metabolite`,
+`catalytic`, `compile_mechanism`, `check_conformation_label`, `form_text` (a form is its
+name) and, by decisions 5 and 6, `excludes`, `present_species`, `segment_walk` and
+`check_decodable_names`. Also removed: the stored facts (`modifiers`, `groups`,
+`step_kinds`, `toward_products`, `step_sides`, the four step masks) and today's integer
+encoding of a mechanism in a type parameter.
 
 ### 2. The guard's rule for excluded steps
 
@@ -262,7 +277,7 @@ enzyme. Then:
 
 | Excluded step | How it is switched off |
 |:--|:--|
-| Between two islands | It loses its uphill rate and keeps its downhill rate: the far side is higher. A rapid-equilibrium step stays fast. |
+| Between two islands | It loses its uphill rate and keeps its downhill rate, toward the side the reading puts lower. A rapid-equilibrium step stays fast. |
 | Between two islands, steady state | It may be stopped instead: both rates vanish. |
 | Inside one island, steady state | It is stopped. |
 | Inside one island, rapid equilibrium | Fault. Its two sides have one energy, so thermodynamics pins its equilibrium constant, and it could be switched off only by turning slow. |
@@ -277,7 +292,8 @@ reading is consistent when the steps that lose, each pointing uphill:
    has a step by which it empties.
 
 The law is the same under every reading, since the law drops the excluded steps. The guard
-admits the mechanism when some consistent reading passes the face checks below.
+admits the mechanism when some consistent reading passes the guard's face checks
+(`docs/src/deriving/mwc_allostery.md`).
 
 Why a step loses its uphill rate: the law assumes the cut-off forms are empty, and a step
 into a higher island that kept its uphill rate would fill it. "Loses its affinity" is the
@@ -307,34 +323,36 @@ This decision is built (0.11.0). The search for a reading, the face checks, the
 comparison with the earlier guard and the evidence are in `docs/src/developer.md` (the
 guard), `docs/src/deriving/mwc_allostery.md` ("How an excluded step is switched off") and
 `ROADMAP.md`; the gate's numbers are in
-`claude-scratchpad/lean-mechanism-spike/gate/report.md` on the maintainer's machine. The
-later stages must not change a verdict (see "Tests").
+`claude-scratchpad/lean-mechanism-spike/gate/report.md` on the maintainer's machine. What
+is left to build must not change a verdict (see "Tests").
 
 ### 3. Compiling
 
-- `Mechanism` has no type parameter. The macro, Enumeration and `identify_rate_equation`
-  return plain mechanisms.
+- `Mechanism` has no type parameter. The macro and `identify_rate_equation` return plain
+  mechanisms; Enumeration returns candidates that each hold one (decision 6).
 - `Derivation` owns code generation. Its one function for it is exported by the package
   (the maintainer's decision):
 
   ```julia
   rate = compile_rate_equation(m)   # compiles once
-  v = rate(concs, params, Keq)    # fast, no allocation
+  v = rate(concs, params, Keq)      # fast, no allocation
   ```
 
   `Keq` is its own argument and `E_total` is gone (decision 7).
 
-  `rate` is a callable object whose type carries the graph (`Sig`), so its call is generated
-  per mechanism as `rate_equation` is today. `Sig` holds the graph as nested tuples of
-  Symbols, Ints and Bools; the builder falls back to an integer encoding only if Julia
-  rejects that as a type parameter. No dependency is added.
+  `rate` is a callable object whose type carries the whole mechanism (`Sig`: the
+  catalytic scheme and the allostery), so its call is generated per mechanism as
+  `rate_equation` is today. `Sig` holds it as nested tuples of Symbols, Ints and Bools;
+  the builder falls back to an integer encoding only if Julia rejects that as a type
+  parameter. No dependency is added.
 - `rate_equation(m, concs, params)` is removed altogether (the maintainer's decision): one
   way to evaluate a law, and no slow path. Users who want the law in other code copy
   `rate_equation_string`.
-- `FittingProblem(m, data, Keq)` compiles inside and keeps both the mechanism and `rate`. Fitting
-  reads the parameter names and the metabolite names as compile-time constants from `rate`
-  (`parameters(rate)`, `metabolites(rate)`), as `loss!` needs; `parameters(m)` and
-  `metabolites(m)` on a mechanism are ordinary functions.
+- `FittingProblem(m, data, Keq)` compiles inside and keeps both the mechanism and `rate`.
+  Fitting reads the parameter names and the metabolite names as compile-time constants
+  from `rate` (`parameters(rate)`, `metabolites(rate)`), as `loss!` needs. `Derivation`
+  gives the two functions a method for the compiled rate; they are methods, not new
+  names. `parameters(m)` and `metabolites(m)` on a mechanism are ordinary functions.
 - Plotting compiles once per plot. Tests evaluate a law through `compile_rate_equation`.
 - The speed, allocation, compile-budget and type-stability tests move to `rate`.
 
@@ -369,9 +387,12 @@ end
 
 - A name on a step side that is not a declared metabolite is a form name, used as written.
   Each side holds exactly one form.
-- **The free enzyme is the form named `E`.** This is the only place a form's name carries
-  meaning. The macro's docstring states it, and a mechanism with no form named `E` gets an
-  error that states it.
+- **The free enzyme is the form named `E`.** This is the only meaning a form's name
+  carries, and the constructor requires it (decision 1). The macro's docstring states it,
+  and a mechanism with no form named `E` gets an error that states it.
+- **`allosteric_regulators:` is gone from the mechanism macro.** A regulatory site names
+  its ligands, so the line repeated them. `modifiers:` stays: a name on a step side must
+  be told from a form name. `@enzyme_reaction` keeps its `allosteric_regulators:`.
 - A mechanism is allosteric when its steps carry allosteric states: every statement has
   one or none has.
 - `X::Mod` and the call notation `E(A, B; residual = A - P)` are gone. A step that binds a
@@ -388,8 +409,12 @@ end
 - **`Derivation`** computes from the graph, in internal functions, what it reads today
   from stored facts: the kinetic groups, what a step is by its shape (no metabolite, one
   taken up, or an exchange), and the constant names from the form and metabolite names
-  (`K_EAB_to_EA_B`, `k_ES_to_EP`), built at the last step of derivation. It rejects a
-  mechanism whose constants would share a name.
+  (`K_EAB_to_EA_B`, `k_ES_to_EP`), built at the last step of derivation.
+  `check_valid_rate_equation` rejects a mechanism whose constants would share a name.
+- **`mod` leaves the metabolite part of a constant's name.** Today a step that binds a
+  reactant's modifier copy writes the metabolite as `Smod` in its constants' names. The
+  lean step takes up the reactant, so that part is the bare `S`. The form's name still
+  tells the two bindings apart (`ESmod` beside `ES`), so no two constants share a name.
 - **The dependent constants.** `_priority_key` reads step kinds and form contents to pick
   which constants are dependent. It will read the step's shape and canonical order
   instead. The law is unchanged, but some fitted-parameter names change; the pull request
@@ -406,7 +431,8 @@ end
   propose it. It keeps a child only if, in each conformation, every form that stays and
   has bindings into it has one that still runs.
 - **How Enumeration gets form contents.** It keeps its own record of them beside each
-  mechanism it builds (decision 6). Nothing in `src/` reads a form name back.
+  mechanism it builds (decision 6). Nothing in `src/` reads a form's contents from its
+  name.
 - **`Mechanisms`** keeps only what two modules use. `present_species` becomes private:
   it is five lines, and `Derivation` writes its own. `segment_walk` becomes private too
   (the maintainer, 2026-11-20): `rapid_equilibrium_segments` keeps it, and the guard in
@@ -427,18 +453,19 @@ Public names of `Mechanisms` after the change, from 25: `Mechanism`, `CatalyticS
 `Allostery`, `Step`, `RegulatorySite`, `EnzymeReaction`, `Reactant`, `Regulator`,
 `metabolites`, `step_text`, `steps_in_active_conformation`,
 `steps_in_inactive_conformation`, `rapid_equilibrium_segments`, `has_turnover_cycle`,
-`has_unbalanced_cycle`: 15. The builder removes
-`has_unbalanced_cycle` if each module can own its use.
+`has_unbalanced_cycle`: 15. The last stays because Enumeration's seeds and Derivation's
+admission both call it. Decision 1 lists the 14 names that go.
 
-Exports after the change: `Mechanism` and `compile_rate_equation` join;
+Exports after the change: `Mechanism` and `compile_rate_equation` join.
 `EnzymeMechanism`, `AllostericEnzymeMechanism`, `@allosteric_mechanism`, `rate_equation`,
-`IndependentParameters`, `FittedParameters` and `AllParameters` leave.
+`IndependentParameters`, `FittedParameters` and `AllParameters` are removed, not only
+unexported.
 
 ### 6. Enumeration's interface: candidates
 
 Decided with the maintainer on 2026-11-20. His principle: the enumerator relies only on
 the arguments of `identify_rate_equation`, and everything else about it is internal.
-`identify_rate_equation` is its only caller, and it expands only mechanisms the
+`identify_rate_equation` is its only caller in `src/`, and it expands only mechanisms the
 enumerator built.
 
 #### What the moves read from a form
@@ -485,7 +512,9 @@ candidate_mechanisms(reaction, parent::CandidateMechanism; max_param_count,
                      eq_complexity_filter) -> Vector{CandidateMechanism}
 ```
 
-Every keyword is a keyword of `identify_rate_equation`, passed through unchanged.
+Every keyword is a keyword of `identify_rate_equation`, passed through unchanged. Each
+has a default that limits nothing: no size limit, and no optional regulator. Identify
+owns the defaults a search uses (20 and 337) and always passes all four.
 
 - The first method returns the mechanisms the search fits first (today's
   `starting_mechanisms`). It works out which regulators are required from the reaction
@@ -501,19 +530,21 @@ Every keyword is a keyword of `identify_rate_equation`, passed through unchanged
   today: a mechanism over a limit was never fitted or expanded.
 - Two candidates are `==` and hash alike when their mechanisms are. Form names are built
   from the contents, so equal mechanisms hold equal records.
-- Errors: the reaction has no catalytic cycle; no mechanism binds every required
-  regulator; an internal check fails (atom conservation, the emission rules). Identify
-  catches the error of one parent's expansion and records it, as today.
-- These two names replace `starting_mechanisms` and `expand_mechanisms` as the public
-  names of `Enumeration`. Both names need the maintainer's approval; this section is the
-  request. `init_mechanisms`, `seed_mechanisms` and the moves stay internal, and the
-  tests call them qualified as they do today.
+- Errors: the reaction has no catalytic cycle; its metabolite names could give two forms
+  one name (the first method checks this); no mechanism binds every required regulator;
+  an internal check fails (atom conservation, the emission rules). Identify catches the
+  error of one parent's expansion and records it, as today.
+- The function and the type replace `starting_mechanisms` and `expand_mechanisms` as the
+  public names of `Enumeration`, and those two are gone. `init_mechanisms`,
+  `seed_mechanisms` and the moves stay internal, and the tests call them qualified as
+  they do today. A test that called `expand_mechanisms` or `starting_mechanisms` calls
+  the method that replaces it with the default keywords, so nothing is dropped for size.
 
 Interface compared, as `.claude/CLAUDE.md` asks:
 
 | Sketch | Caller writes | Trade-off |
 |:--|:--|:--|
-| One function, two methods (chosen) | `candidate_mechanisms(rxn; optional…)`, then `candidate_mechanisms(rxn, parent)` | One name. Identify passes the user's keyword arguments through and knows nothing of seeds, tiers or moves. |
+| One function, two methods (chosen) | `candidate_mechanisms(rxn; optional…)`, then `candidate_mechanisms(rxn, parent)` | One function. Identify passes the user's keyword arguments through and knows nothing of seeds, tiers or moves. |
 | Two functions on candidates | `starting_mechanisms(rxn, required_allo, required_comp)`, `expand_mechanisms(parents, rxn)` | Today's shape. Identify computes the required sets and wraps each parent in a vector. |
 | A candidate that holds its reaction | `candidate_mechanisms(rxn; optional…)`, then `children(parent)` | A shorter second call, but two names, and every candidate sent to a worker carries the reaction. |
 
@@ -537,14 +568,15 @@ Interface compared, as `.claude/CLAUDE.md` asks:
 - **Step kinds and kinetic groups** (a plain binding, a binding that also does the
   chemistry, an isomerization, an exchange; the steps of each group) are computed inside
   Enumeration from the graph and its record.
-- Its reads of the rate law's properties from the graph stay as decision 5 has them until
-  the Derivation-interface design.
+- Its predictions of the rate law from the graph stay in Enumeration (decision 7).
 
 #### Identify
 
 Identify holds candidates. It fits, deduplicates and reports `candidate.mechanism`, hands
 a candidate back to get its children, and returns plain mechanisms to the user.
-`_required_regulators` moves into Enumeration.
+`_required_regulators` moves into Enumeration. Identify's own private record of a
+candidate (`_Candidate`, whose `mechanism` field is text) gets a name and field names that
+cannot be confused with `CandidateMechanism`.
 
 The enumerator keeps proposing mechanisms that differ only in the allosteric state of a
 kinetic group whose steps a conformation has cut off anyway (354 of the 2,125 allosteric
@@ -552,15 +584,14 @@ candidates in the bi-bi seeds and their first expansion). They share one law, id
 fits it once, and their children may differ (the maintainer, 2026-11-20). `==` and `hash`
 tell them apart.
 
-#### Calls made by the designer, for the maintainer to check
+#### Consequences
 
 - **The starting call throws on an enumerator bug** (confirmed by the maintainer,
-  2026-11-20). Today `starting_mechanisms` returns
-  `(mechanisms, failures)`, and a degenerate seed whose flip expansion throws becomes a
-  failure row while the search goes on without it. With one return shape for both
-  methods, such an error stops the run at its start, seconds in. A parent's expansion
-  error mid-search is still recorded and the run goes on. If wrong: the first method
-  returns the pair again.
+  2026-11-20). Today `starting_mechanisms` returns `(mechanisms, failures)`, and a
+  degenerate seed whose flip expansion throws becomes a failure row while the search goes
+  on without it. With one return shape for both methods, such an error stops the run at
+  its start, seconds in. A parent's expansion error mid-search is still recorded and the
+  run goes on.
 - **`docs/src/identify/enumeration_engine.md`** keeps describing what the search
   proposes, organized by the starting set and the moves. It stops presenting
   `init_mechanisms`, `seed_mechanisms` and `expand_mechanisms` as functions to call, and
@@ -575,9 +606,9 @@ Decided with the maintainer on 2026-11-20.
 | Caller | What it asks | How |
 |:--|:--|:--|
 | Fitting | The law's value, the fitted names, a starting scale for each parameter, which constants are rate constants | 8 names. It also reads step fields and `step_kinds` to work out each parameter's units. |
-| Identify | Per candidate: term count, validity, fitted names, the law's text, the dedup key | 5 functions |
+| Identify | Per candidate: term count, validity, fitted names, the law's text, the dedup key | 5 functions and a kind type |
 | Enumeration | Validity and the fitted-parameter count | 2 functions |
-| Plotting, the macro | The law's value and names; validity | 3 names |
+| Plotting, the macro | The law's value and names; validity | 3 names and a kind type |
 
 #### Enumeration keeps predicting the rate law from the graph
 
@@ -595,7 +626,7 @@ parameters(m)                                # the constants a fit estimates
 parameter_units(m)                           # their units, for Fitting
 dependent_parameter_values(m, params, Keq)
 rate = compile_rate_equation(m)
-rate(concs, params, Keq)                       # the rate per unit enzyme
+rate(concs, params, Keq)                     # the rate per unit enzyme
 ```
 
 - **`Keq` is its own argument** (the maintainer's design). It is a property of the
@@ -606,7 +637,7 @@ rate(concs, params, Keq)                       # the rate per unit enzyme
   absolute rate multiplies by the enzyme concentration. Inside the package it was always
   1. It leaves the parameters, the printed equation and the docs.
 - **One parameter list.** `IndependentParameters`, `FittedParameters` and `AllParameters`
-  leave the exports. The dependent constants' names are the keys of
+  are removed. The dependent constants' names are the keys of
   `dependent_parameter_values`, and the printed equation shows their relations.
 - **A fit's `params`** holds exactly `parameters(m)`; today it also carries `Keq`.
 - **`rate_equation_string`** shows `Keq` as an input of its own.
@@ -615,9 +646,11 @@ rate(concs, params, Keq)                       # the rate per unit enzyme
   `dependent_parameter_values(m, params, Keq)`,
   `test_rate_equation(m, params, data, Keq; absolute)`,
   `plot_rate_equation_on_data(m, params, data, Keq; ...)`,
-  `FittingProblem(m, data, Keq; absolute, reference)` and
-  `IdentifyRateEquationProblem(reaction, data, Keq; ...)`. The test and the plot read it
-  from `params` today, and the two problems take it as a keyword. The plot's method for a user's own rate function takes no `Keq`:
+  `FittingProblem(m, data, Keq; absolute, reference)`,
+  `IdentifyRateEquationProblem(reaction, data, Keq; ...)` and
+  `Data.RateData(table, metabolite_names, Keq; ...)`. The test and the plot read it from
+  `params` today, and the other three take it as a keyword. The plot's method for a
+  user's own rate function takes no `Keq`:
   `plot_rate_equation_on_data(f, params, data; ...)`.
 
 `parameter_units(m)` returns each fitted constant's units as integer powers:
@@ -685,10 +718,10 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
   The enumeration rule in `.claude/CLAUDE.md` ("write chemistry the enumerator's way") is
   rewritten in form names.
 - **Enumeration tests keep their rules** (the maintainer's decision, 2026-11-20): every
-  parent and every expected child is written inline with the macro, and the children are
-  asserted exactly. A test helper, `_testhelper_candidate(mechanism)`, turns a written
-  parent into a candidate by reading its form names under the enumerator's naming rule,
-  and errors on a name it cannot read. It states the rule itself and does not call the
+  parent and every expected child is written inline with the macro, and the children,
+  from the move or the method under test, are asserted exactly. A test helper,
+  `_testhelper_candidate(mechanism)`, turns a written parent into a candidate by reading
+  its form names under the enumerator's naming rule, and errors on a name it cannot read. It states the rule itself and does not call the
   package's. Children are compared by their mechanisms:
   `Set(c.mechanism for c in children) == Set(expected)`.
 - **The oracles stay independent.** The test helpers that model an excluded step
@@ -700,10 +733,11 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
   of a guard verdict, of an admitting reading and of an enumerator population passes
   after the fixtures are translated, with the same counts. A pin that would have to
   change stops the work and goes to the maintainer. The exceptions are named in this
-  document: some fitted-parameter names (decision 5), `E_total` and `Keq` (decision 7),
-  and the constants of the isomerizations that decision 1 turns. In those fixtures, about
-  25 across eight test files, a constant is renamed after the other direction and a
-  rapid-equilibrium constant becomes its inverse; the law is the same function.
+  document: some fitted-parameter names (decision 5: the constants `_priority_key` picks,
+  and `mod` leaving a name), `E_total` and `Keq` (decision 7), and the constants of the
+  steps that decision 1 turns: 32 isomerizations and at most three exchanges, in about 25
+  fixtures across eight test files. There a constant is renamed after the other direction
+  and a rapid-equilibrium constant becomes its inverse; the law is the same function.
 - **The gate script still runs.** `claude-scratchpad/lean-mechanism-spike/gate/` compares
   guard verdicts across ten populations. It is brought to the lean graph and rerun once
   at the end: every verdict must equal the one stage 1 gave.
@@ -724,18 +758,22 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
 - **Islands.** `docs/src/developer.md` and `docs/src/deriving/mwc_allostery.md` call the
   sets of forms that a conformation's steps join "groups", which reads as kinetic groups.
   Both say "islands", as decision 2 does.
-- **`.claude/CLAUDE.md`:** the module map, the bullets under it (the stored fields, the
-  names reachable without a promise, `compile_mechanism`), and the enumeration test rule
-  in form names.
+- **`.claude/CLAUDE.md`:** the module map and the bullets under it (the stored fields,
+  the names reachable without a promise, `compile_mechanism`, the shared `E_total`); the
+  Julia-style bullet on `EnzymeMechanism{Sig}`; the "`rate_equation` speed" guard; the
+  rules for Derivation tests and enumeration-engine tests, which name
+  `@allosteric_mechanism`, `expand_mechanisms` and the call notation.
 - **`ROADMAP.md`:** the stored-facts known issue is measured again and retired or
   updated; "Shrink the module interfaces" is updated for `Mechanisms`, `Derivation` and
-  `Enumeration`.
+  `Enumeration`; a note says that only tests reach the enumerator's code for other
+  conformation labels until iso mechanisms are enumerated (decision 6).
 
 ## Left to the builder
 
-- The canonical order of forms and steps. It may not depend on the writing, since the
-  last row of the table of stored directions reads it.
-- How the shortest turnover cycle through an isomerization is found, and how a tie
+- The canonical order of forms, steps and kinetic groups. It may not depend on the
+  writing, since the last row of the table of stored directions reads it.
+- Whether `Sig` needs the integer encoding (decision 3).
+- How the shortest turnover cycle through a step is found, and how a tie
   between two members of a group equally near the free enzyme is broken; neither may
   depend on the writing.
 - The replacement rule in `_priority_key`.
@@ -766,21 +804,21 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
   `dependent_parameter_values` takes `Keq` as an argument;
   `plot_rate_equation_on_data`, `test_rate_equation`, `FittingProblem` and
   `IdentifyRateEquationProblem` take `Keq` as their last positional argument;
-  `catalytic_multiplicity` is `oligomeric_state`;
-  `@allosteric_mechanism`,
+  `catalytic_multiplicity` is `oligomeric_state`, `allowed_catalytic_multiplicities` is
+  `allowed_oligomeric_states` and `mwc_tags` is `allosteric_states`; a mechanism is
+  written with form names (`EA`, not `E(A)`), its free enzyme is named `E`, and `X::Mod`
+  and `allosteric_regulators:` leave the mechanism macro; `@allosteric_mechanism`,
   `EnzymeMechanism` and `AllostericEnzymeMechanism` are gone.
 - **The progress log** no longer counts the children skipped for each size limit
   (decision 7).
 - **An enumerator bug in the starting set** stops a run at its start (decision 6).
 - **Fitted-parameter names** change for some mechanisms (decision 5), and the constants
-  of a change of conformation are named in the direction the reaction runs (decision 1).
+  of the steps decision 1 turns are named after the other direction.
 - **A kinetic group of isomerizations** is aligned by its writer; today the constructor
   aligns it by the conformation labels (decision 1).
 - **Saved mechanism text** from earlier versions does not parse (decision 4).
-- **The decodability check** moves from `@enzyme_reaction` to the start of enumeration
-  (decision 6).
+- **The decodability check** moves from the `EnzymeReaction` constructor and the
+  mechanism macro to the start of enumeration (decision 6).
 - **All of the refactor lands in one pull request** (the maintainer's decision,
-  2026-11-20): stage 1, the three later designs, and stages 2 and 3.
+  2026-11-20): stage 1 and everything this document specifies.
 - **Version.** The change is breaking: 0.11.0, bumped once.
-- **`ROADMAP.md`.** The stored-facts known issue is measured again and retired or updated;
-  "Shrink the module interfaces" is updated for `Mechanisms`.
