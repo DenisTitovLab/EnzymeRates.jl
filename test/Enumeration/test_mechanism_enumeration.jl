@@ -778,6 +778,68 @@ for (S, P, existing, n) in [
 end
 end
 
+@testset "_is_plain_binding and _copy_change read a step's two form records" begin
+    # Ordered bi-bi whose last substrate binds straight into the product-bound form, with
+    # A's modifier copy at E and E(Q), and Q binding at the copy's form too: the mirror of
+    # E + Q ⇌ E(Q), in its group.
+    fused = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: A
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(P, Q)
+            E(Q) + P ⇌ E(P, Q)
+            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
+            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+        end
+    end
+    # A Theorell–Chance step takes up B and gives off P in one step.
+    tc = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(Q) + P
+            E + Q ⇌ E(Q)
+        end
+    end
+    # An isomerization takes up and gives off nothing.
+    iso = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end
+    plain = EnzymeRates.Enumeration._is_plain_binding
+    copies = EnzymeRates.Enumeration._copy_change
+    # Candidate `m` and its step written `text`.
+    at(m, text) = (_testhelper_candidate(m),
+                   only(k for k in eachindex(m.catalytic.steps)
+                        if EnzymeRates.Mechanisms.step_text(m.catalytic, k) == text))
+    # A plain binding of a reactant.
+    c, k = at(fused, "E + A ⇌ E(A)")
+    @test (plain(c, k), copies(c, k, :A)) == (true, 0)
+    # The fused binding: B binds into E(P, Q), not into E(A, B).
+    c, k = at(fused, "E(A) + B <--> E(P, Q)")
+    @test (plain(c, k), copies(c, k, :B)) == (false, 0)
+    # A binding of the modifier copy: one more copy of A, the productive A unchanged.
+    c, k = at(fused, "E + A::Mod ⇌ E(A::Mod)")
+    @test (plain(c, k), copies(c, k, :A)) == (true, 1)
+    c, k = at(fused, "E(Q) + A::Mod ⇌ E(A::Mod, Q)")
+    @test (plain(c, k), copies(c, k, :A), copies(c, k, :Q)) == (true, 1, 0)
+    # The mirror: Q binds productively beside the copy, which stays.
+    c, k = at(fused, "E(A::Mod) + Q ⇌ E(A::Mod, Q)")
+    @test (plain(c, k), copies(c, k, :Q), copies(c, k, :A)) == (true, 0, 0)
+    c, k = at(tc, "E(A) + B <--> E(Q) + P")
+    @test (plain(c, k), copies(c, k, :B), copies(c, k, :P)) == (false, 0, 0)
+    c, k = at(iso, "E(S) <--> E(P)")
+    @test (plain(c, k), copies(c, k, :S), copies(c, k, :P)) == (false, 0, 0)
+end
+
 # ─── _forms_where_free ──────────────────────────────────────────────────
 @testset "_forms_where_free" begin
 @testset "_forms_where_free" begin
