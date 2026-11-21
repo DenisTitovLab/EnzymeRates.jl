@@ -268,6 +268,143 @@ end
     end
 end
 
+@testset "fitted names before the graph-only rule" begin
+    # parameters(m) of every MECHANISM_TEST_SPECS entry, written out: the names a fit
+    # estimates, in parameters order.
+    pinned = Dict(
+        "Uni-Uni" =>
+            (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
+        "Segel Uni Uni" =>
+            (:k_EA_to_EP, :k_EA_to_E_A, :k_EP_to_E_P, :k_E_A_to_EA, :k_E_P_to_EP),
+        "Segel Iso Uni Uni" =>
+            (:k_EA_to_EP, :k_EA_to_E_A, :k_EP_to_F_P, :k_E_A_to_EA, :k_E_to_F,
+             :k_F_P_to_EP, :k_F_to_E),
+        "Segel Ordered Uni Bi" =>
+            (:k_EA_to_EQ_P, :k_EA_to_E_A, :k_EQ_to_E_Q, :k_E_A_to_EA, :k_E_Q_to_EQ),
+        "Segel Ordered Bi Bi" =>
+            (:k_EAB_to_EA_B, :k_EAB_to_EQ_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EQ_to_E_Q,
+             :k_E_A_to_EA, :k_E_Q_to_EQ),
+        "Segel Theorell-Chance Bi Bi" =>
+            (:k_EA_B_to_EQ_P, :k_EA_to_E_A, :k_EQ_to_E_Q, :k_E_A_to_EA, :k_E_Q_to_EQ),
+        "Segel Ping Pong Bi Bi" =>
+            (:k_EA_to_E_A, :k_EA_to_F_P, :k_E_A_to_EA, :k_E_Q_to_FB, :k_FB_to_E_Q,
+             :k_FB_to_F_B, :k_F_B_to_FB),
+        "Segel Ordered Ter Bi" =>
+            (:k_EABC_to_EAB_C, :k_EABC_to_EQ_P, :k_EAB_C_to_EABC, :k_EAB_to_EA_B,
+             :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EQ_to_E_Q, :k_E_A_to_EA, :k_E_Q_to_EQ),
+        "Segel Ordered Ter Ter" =>
+            (:k_EABC_to_EAB_C, :k_EABC_to_EQR_P, :k_EAB_C_to_EABC, :k_EAB_to_EA_B,
+             :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EQR_to_ER_Q, :k_ER_Q_to_EQR, :k_ER_to_E_R,
+             :k_E_A_to_EA, :k_E_R_to_ER),
+        "Segel Bi Uni Uni Uni PP Ter Bi" =>
+            (:k_EAB_to_EA_B, :k_EAB_to_F_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_E_A_to_EA,
+             :k_E_Q_to_FC, :k_FC_to_E_Q, :k_FC_to_F_C, :k_F_C_to_FC),
+        "Random-order Bi-Bi" =>
+            (:k_EAB_to_EA_B, :k_EAB_to_EPQ, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EB_A_to_EAB,
+             :k_EB_to_E_B, :k_EPQ_to_EQ_P, :k_EQ_P_to_EPQ, :k_EQ_to_E_Q, :k_E_A_to_EA,
+             :k_E_B_to_EB, :k_E_Q_to_EQ),
+        "Numerator: random chem-SS (RE/SS)" =>
+            (:K_EP_to_E_P, :K_ES1_to_E_S1, :K_ES2_to_E_S2, :k_ES1S2_to_EP,
+             :k_ES1S2_to_ES1_S2, :k_ES1_S2_to_ES1S2, :k_ES2_S1_to_ES1S2),
+        "Numerator: RE-chemistry" =>
+            (:K_EP1_to_E_P1, :K_EP2_to_E_P2, :K_ES1_to_E_S1, :K_ES2_to_E_S2,
+             :k_EP1P2_to_EP1_P2, :k_EP1P2_to_EP2_P1, :k_EP1_P2_to_EP1P2,
+             :k_ES1S2_to_ES1_S2, :k_ES1_S2_to_ES1S2, :k_ES2_S1_to_ES1S2),
+        "Numerator: redundant SS-bind" =>
+            (:K_EP_to_E_P, :K_ES1S2_to_ES1_S2, :K_ES1_to_E_S1, :K_ES2_to_E_S2,
+             :k_ES1S2_to_EP, :k_ES2_S1_to_ES1S2),
+        "Segel Bi Uni Uni Bi PP Ter Ter" =>
+            (:k_EAB_to_EA_B, :k_EAB_to_F_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_ER_to_E_R,
+             :k_E_A_to_EA, :k_E_R_to_ER, :k_FC_to_ER_Q, :k_FC_to_F_C, :k_F_C_to_FC,
+             :k_F_P_to_EAB),
+        "Segel Bi Bi Uni Uni PP Ter Ter" =>
+            (:k_EAB_to_EA_B, :k_EAB_to_FQ_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_E_A_to_EA,
+             :k_E_R_to_FC, :k_FC_to_E_R, :k_FC_to_F_C, :k_FQ_to_F_Q, :k_F_C_to_FC,
+             :k_F_Q_to_FQ),
+        "Segel Hexa Uni Ping Pong" =>
+            (:k_EA_to_E_A, :k_EA_to_F_P, :k_E_A_to_EA, :k_E_R_to_GC, :k_FB_to_F_B,
+             :k_FB_to_G_Q, :k_F_B_to_FB, :k_F_P_to_EA, :k_GC_to_E_R, :k_GC_to_G_C,
+             :k_G_C_to_GC),
+        "RE Uni-Uni" =>
+            (:K_EA_to_E_A, :k_EA_to_E_P),
+        "RE Ordered Bi-Bi" =>
+            (:K_EAB_to_EA_B, :K_EA_to_E_A, :k_EAB_to_EQ_P, :k_EQ_to_E_Q, :k_E_Q_to_EQ),
+        "RE Random Bi-Bi" =>
+            (:K_EA_to_E_A, :K_EB_to_E_B, :k_EAB_to_EA_B, :k_EAB_to_EPQ, :k_EA_B_to_EAB,
+             :k_EB_A_to_EAB, :k_EPQ_to_EQ_P, :k_EQ_P_to_EPQ, :k_EQ_to_E_Q, :k_E_Q_to_EQ),
+        "Competitive Inhibitor" =>
+            (:K_EP_to_E_P, :K_ER_to_E_R, :K_ES_to_E_S, :k_ES_to_EP),
+        "Non-competitive Inhibitor" =>
+            (:K_EP_to_E_P, :K_ER_to_E_R, :K_ES_to_E_S, :k_ES_to_EP),
+        "Uncompetitive Inhibitor" =>
+            (:K_EP_to_E_P, :K_ERS_to_ES_R, :K_ES_to_E_S, :k_ES_to_EP),
+        "Essential Activator" =>
+            (:K_EPR_to_ER_P, :K_ERS_to_ER_S, :K_ER_to_E_R, :k_ERS_to_EPR),
+        "Non-essential Activator" =>
+            (:K_EP_to_E_P, :K_ER_to_E_R, :K_ES_to_E_S, :k_ERS_to_EPR, :k_ES_to_EP),
+        "Activator + Competitive Inhibitor" =>
+            (:K_EA_to_E_A, :K_EI_to_E_I, :K_EP_to_E_P, :K_ES_to_E_S, :k_EAS_to_EAP,
+             :k_ES_to_EP),
+        "MWC Dimer [AllostericEnzymeMechanism]" =>
+            (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :K_I_EP_to_E_P, :K_I_ES_to_E_S,
+             :k_A_ES_to_EP, :k_I_ES_to_EP, :L),
+        "Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]" =>
+            (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :K_I_EP_to_E_P, :K_I_ES_to_E_S,
+             :k_A_ES_to_EP, :k_I_ES_to_EP, :K_A_Ireg, :K_I_Ireg, :L),
+        "Two Competitive Inhibitors" =>
+            (:K_EI1_to_E_I1, :K_EI2_to_E_I2, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP),
+        "Two Non-competitive Inhibitors" =>
+            (:K_EI1_to_E_I1, :K_EI2_to_E_I2, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP),
+        "Non-competitive + Competitive Inhibitor" =>
+            (:K_EI1_to_E_I1, :K_EI2_to_E_I2, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP),
+        "Uncompetitive + Competitive Inhibitor" =>
+            (:K_EI1S_to_ES_I1, :K_EI2_to_E_I2, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP),
+        "Two Same-site Inhibitors" =>
+            (:K_EI1_to_E_I1, :K_EI2_to_E_I2, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP),
+        "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" =>
+            (:K_A_EP1_to_E_P1, :K_A_EP2_to_E_P2, :K_A_ES1_to_E_S1, :K_A_ES2_to_E_S2,
+             :K_I_EP1_to_E_P1, :K_I_EP2_to_E_P2, :K_I_ES1_to_E_S1, :K_I_ES2_to_E_S2,
+             :k_A_ES1S2_to_EP1P2, :k_I_ES1S2_to_EP1P2, :K_A_R1reg, :K_A_R2reg, :K_A_R3reg,
+             :K_I_R1reg, :K_I_R2reg, :K_I_R3reg, :L),
+        "PFK-1" =>
+            (:K_A_EF6P_to_E_F6P, :K_EADP_to_E_ADP, :K_EATP_to_E_ATP, :K_EF16BP_to_E_F16BP,
+             :k_A_EATPF6P_to_EADPF16BP, :K_A_ADPreg, :K_Pireg, :K_A_F26BPreg, :K_I_ATPreg,
+             :K_I_Citratereg, :K_I_F26BPreg, :L),
+        "HK" =>
+            (:K_A_EATP_to_E_ATP, :K_EADP_to_E_ADP, :K_EG6P_to_E_G6P,
+             :K_EG6Pmod_to_E_G6Pmod, :K_EGlucose_to_E_Glucose,
+             :k_A_EATPGlucose_to_EADPG6P, :K_Pireg, :K_I_G6Preg, :L),
+        "PK" =>
+            (:K_A_EPEP_to_E_PEP, :K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
+             :K_EPyruvate_to_E_Pyruvate, :k_A_EADPPEP_to_EATPPyruvate, :K_A_F16BPreg,
+             :K_I_ATPreg, :L),
+        "m_all" =>
+            (:K_A_EP1_to_E_P1, :K_A_ES1_to_E_S1, :K_EP2_to_E_P2, :K_ES2_to_E_S2,
+             :K_I_EP1_to_E_P1, :K_I_ES1_to_E_S1, :k_A_ES1S2_to_EP1P2, :k_I_ES1S2_to_EP1P2,
+             :K_A_R1reg, :K_R2reg, :K_I_R1reg, :L),
+        "m_OnlyA_prod" =>
+            (:K_A_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :L),
+        "LDH i-state NonequalAI 6-group, steady-state NAD group" =>
+            (:K_EPyruvate_to_E_Pyruvate, :k_A_ELactate_to_E_Lactate,
+             :k_A_ENADHPyruvate_to_ELactateNAD, :k_A_ENADH_to_E_NADH,
+             :k_A_E_Lactate_to_ELactate, :k_A_E_NADH_to_ENADH, :k_ENAD_to_E_NAD,
+             :k_E_NAD_to_ENAD, :k_I_ELactate_to_E_Lactate, :L),
+        "LDH i-state NonequalAI 5-group" =>
+            (:K_A_ELactate_to_E_Lactate, :K_ENADHPyruvate_to_ENADH_Pyruvate,
+             :K_ENAD_to_E_NAD, :K_I_ELactate_to_E_Lactate,
+             :k_A_ENADHPyruvate_to_ELactateNAD, :k_A_ENADH_to_E_NADH,
+             :k_A_E_NADH_to_ENADH, :L),
+        "LDH i-state EqualAI-NonequalAI 6-group" =>
+            (:K_ELactateNAD_to_ENAD_Lactate, :K_ENADH_to_E_NADH, :K_ENAD_to_E_NAD,
+             :K_EPyruvate_to_E_Pyruvate, :k_A_ENADPyruvate_to_EPyruvate_NAD,
+             :k_ENADHPyruvate_to_ELactateNAD, :k_I_ENADPyruvate_to_EPyruvate_NAD, :L)
+    )
+    @test Set(keys(pinned)) == Set(spec.name for spec in MECHANISM_TEST_SPECS)
+    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
+        @test parameters(spec.mechanism) == pinned[spec.name]
+    end
+end
+
 @testset "name(p, ::AllostericMechanism) chokepoint" begin
     aem = @allosteric_mechanism begin
         substrates: S
