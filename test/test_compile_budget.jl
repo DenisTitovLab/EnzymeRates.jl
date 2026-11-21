@@ -321,8 +321,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
 
     # Wall-clock: the rate law's body-build (first call pays @generated cost). The
     # per-call runtime gate is separately enforced by test_rate_eq_derivation.jl's
-    # _testhelper_test_rate_equation_performance (0 allocs, <120ns per call) for every
-    # mechanism in MECHANISM_TEST_SPECS.
+    # _testhelper_test_rate_equation_performance (0 allocs, under 50 ns + 0.5 ns per
+    # denominator term per call) for every mechanism in MECHANISM_TEST_SPECS.
     @testset "wall-clock: the rate law's body-build (first call)" begin
         @info "rate law first-call wall-clock: $(t_first)s " *
               "(budget: $RATE_EQUATION_WALLCLOCK_BUDGET_S s)"
