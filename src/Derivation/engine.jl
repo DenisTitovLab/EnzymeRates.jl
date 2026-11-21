@@ -123,7 +123,7 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
     re = [k for k in eachindex(m.steps)
           if mask[k] && m.steps[k].rapid_equilibrium]
-    nforms = length(m.nodes)
+    nforms = length(m.enzyme_forms)
     alpha = fill(_Mono(), nforms)
     placed = falses(nforms)
     # Whether edge k joins form v to a placed form.

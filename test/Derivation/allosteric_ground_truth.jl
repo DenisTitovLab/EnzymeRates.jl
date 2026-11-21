@@ -1113,7 +1113,7 @@ end
     v = reported.verdict
     @test (v.fault, v.face, v.conformation) == (ER.Derivation._PUMPED, 2, 2)
     msg = ER.Derivation._guard_message(dead)
-    @test occursin("feeds the forms E(; residual = ATP - F16BP) of the inactive " *
+    @test occursin("feeds the forms E_res_plusATP_minusF16BP of the inactive " *
                    "conformation, which leave only through the vanishing step " *
                    "E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)",
                    msg)

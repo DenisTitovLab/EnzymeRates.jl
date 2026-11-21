@@ -120,8 +120,9 @@ or gives off each substrate and product, and binds each modifier.
 
 Constants are named after the forms a step joins, each form written as its label and
 its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_to_EP` and
-`k_EP_to_ES` for `E(S) <--> E(P)`. A modifier copy writes `Smod`, and a residual
-`_res_plusA_minusP`.
+`k_EP_to_ES` for `E(S) <--> E(P)`. A form writes a modifier copy as `Smod` and a residual
+as `_res_plusA_minusP`; a constant writes the metabolite a step takes up or gives off by
+its name alone (`K_ESSmod_to_ES_S`).
 
 When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
 sit, with an error that names the steps at fault: no cycle of steps turns substrates into
@@ -152,7 +153,7 @@ julia> m = @enzyme_mechanism begin
 julia> foreach(println, parameters(m))
 K_EI_to_E_I
 K_EP_to_E_P
-K_ESSmod_to_ES_Smod
+K_ESSmod_to_ES_S
 K_ES_to_E_S
 k_ES_to_EP
 ```
@@ -242,7 +243,7 @@ K_A_EAB_to_EA_B
 K_EA_to_E_A
 K_EI_to_E_I
 K_EPQ_to_EQ_P
-K_EPmodQ_to_EQ_Pmod
+K_EPmodQ_to_EQ_P
 K_EQ_to_E_Q
 K_I_EAB_to_EA_B
 k_A_EAB_to_EPQ

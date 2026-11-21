@@ -30,13 +30,13 @@ function exclusion_components(am::Mechanisms.AllostericMechanism, c::Symbol)
     excluded = _excluded_steps(am, c === :active ? 1 : c === :inactive ? 2 :
         throw(ArgumentError("a conformation is :active or :inactive, not :$c")))
     m = am.catalytic
-    parent = collect(eachindex(m.nodes))
+    parent = collect(eachindex(m.enzyme_forms))
     for (k, e) in enumerate(m.steps)
         excluded[k] && continue
         a, b = _union_find_root(parent, e.from), _union_find_root(parent, e.to)
         a == b || (parent[max(a, b)] = min(a, b))
     end
-    [_union_find_root(parent, f) for f in eachindex(m.nodes)]
+    [_union_find_root(parent, f) for f in eachindex(m.enzyme_forms)]
 end
 
 function _union_find_root(parent::Vector{Int}, i::Int)

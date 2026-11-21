@@ -32,7 +32,7 @@ difference for it: that double-counts metabolites already accounted for by the b
 and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
 """
 function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
-    forms = eachindex(m.nodes)
+    forms = eachindex(m.enzyme_forms)
     path = [zeros(Int, length(flat)) for _ in forms]   # signed tree edges from the root
     seen, tree = falses(length(forms)), falses(length(flat))
     for root in forms

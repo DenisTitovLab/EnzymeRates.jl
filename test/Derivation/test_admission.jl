@@ -749,7 +749,7 @@ end
            _testhelper_edge(ldh, "EP + Q ⇌ EPQ"))
     @test EnzymeRates.Derivation._guard_message(ldh) ==
           "Mechanism: at zero P and Q, the rapid-equilibrium step E(P) + Q ⇌ E(P, Q) " *
-          "fills the forms {E(P)}, which no rapid-equilibrium step running there " *
+          "fills the forms {EP}, which no rapid-equilibrium step running there " *
           "empties, so the rate law misweights them. Make that step's kinetic group " *
           "steady-state."
     verdicts = _testhelper_respeed_verdicts(ldh; rng = Random.MersenneTwister(1))
@@ -860,7 +860,7 @@ end
     end
     @test EnzymeRates.Derivation._face_message("Mechanism", ldh,
                                                _testhelper_face_verdicts(ldh)[7]) ==
-          "Mechanism: at zero Q, the forms {E, E(A)} and {E(P)} of one rapid-equilibrium " *
+          "Mechanism: at zero Q, the forms {E, EA} and {EP} of one rapid-equilibrium " *
           "segment are joined only by steps that take up a zeroed metabolite " *
           "(E + Q ⇌ E(Q) and E(P) + Q ⇌ E(P, Q)), so the rate law cannot weight one " *
           "against the other."
@@ -890,10 +890,10 @@ end
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._SPLIT, 3, 0)
     @test EnzymeRates.Derivation._guard_message(am) ==
           "AllostericMechanism: at zero ATP and F6P, the forms " *
-          "{E(; residual = ATP - F16BP) (active), " *
-          "E(F16BP; residual = ATP - F16BP) (active)} and " *
-          "{E(; residual = ATP - F16BP) (inactive), " *
-          "E(F16BP; residual = ATP - F16BP) (inactive)} of one rapid-equilibrium segment " *
+          "{E_res_plusATP_minusF16BP (active), " *
+          "EF16BP_res_plusATP_minusF16BP (active)} and " *
+          "{E_res_plusATP_minusF16BP (inactive), " *
+          "EF16BP_res_plusATP_minusF16BP (inactive)} of one rapid-equilibrium segment " *
           "are joined only by steps that take up a zeroed metabolite " *
           "(E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)), so " *
           "the rate law cannot weight one against the other."
@@ -916,8 +916,8 @@ end
     at_Q = _testhelper_face_verdicts(ldh)[7]
     @test (at_Q.fault, at_Q.conformation) == (EnzymeRates.Derivation._SPLIT, 0)
     @test EnzymeRates.Derivation._face_message("AllostericMechanism", ldh, at_Q) ==
-          "AllostericMechanism: at zero Q, the forms {E (active), E(A) (active), " *
-          "E (inactive), E(A) (inactive)} and {E(P) (active)} and {E(P) (inactive)} of " *
+          "AllostericMechanism: at zero Q, the forms {E (active), EA (active), " *
+          "E (inactive), EA (inactive)} and {EP (active)} and {EP (inactive)} of " *
           "one rapid-equilibrium segment are joined only by steps that take up a zeroed " *
           "metabolite (E + Q ⇌ E(Q) and E(P) + Q ⇌ E(P, Q)), so the rate law cannot " *
           "weight one against the other."
@@ -956,8 +956,8 @@ end
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._SPLIT, 2, 2)
     @test EnzymeRates.Derivation._guard_message(am) ==
           "AllostericMechanism: at zero P and Q in the inactive conformation, the forms " *
-          "{E(B, X; residual = A - P), E(X; residual = A - P)} and " *
-          "{E(B, Y; residual = A - P), E(Y; residual = A - P)} of one rapid-equilibrium " *
+          "{EBX_res_plusA_minusP, EX_res_plusA_minusP} and " *
+          "{EBY_res_plusA_minusP, EY_res_plusA_minusP} of one rapid-equilibrium " *
           "segment are joined only by steps that take up a zeroed metabolite " *
           "(E(X; residual = A - P) + P ⇌ E(P, X; residual = A - P) and " *
           "E(Y; residual = A - P) + P ⇌ E(P, Y; residual = A - P)), so the rate law " *
@@ -984,7 +984,7 @@ end
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._BOTTOMLESS, 5, 0)
     @test EnzymeRates.Derivation._guard_message(tc_re) ==
           "AllostericMechanism: at zero P and X, the rapid-equilibrium segment " *
-          "{E (active), E (inactive), E(X) (inactive), F(X) (inactive)} has no form " *
+          "{E (active), E (inactive), EX (inactive), FX (inactive)} has no form " *
           "whose weight keeps the segment's lowest power of each zeroed metabolite, so " *
           "the forms' shares depend on how those concentrations vanish and the rate is " *
           "0/0 there."
@@ -1103,7 +1103,7 @@ end
     @test (v.fault, v.face) == (EnzymeRates.Derivation._BOTTOMLESS, 2)
     @test EnzymeRates.Derivation._guard_message(terbot) ==
           "Mechanism: at zero P, Q and R, the rapid-equilibrium segment " *
-          "{E(P), E(P, Q), E(P, R), E(P, Q, R), E(Q), E(R), E(Q, R)} has no form whose " *
+          "{EP, EPQ, EPR, EPQR, EQ, ER, EQR} has no form whose " *
           "weight keeps the segment's lowest power of each zeroed metabolite, so the " *
           "forms' shares depend on how those concentrations vanish and the rate is 0/0 " *
           "there."
@@ -1152,7 +1152,7 @@ end
     @test (v.fault, v.face) == (bottomless, 2)
     @test EnzymeRates.Derivation._guard_message(entered) ==
           "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
-          "{E(P), E(P, Q), E(Q)} has no form whose weight keeps the segment's lowest " *
+          "{EP, EPQ, EQ} has no form whose weight keeps the segment's lowest " *
           "power of each zeroed metabolite, so the forms' shares depend on how those " *
           "concentrations vanish and the rate is 0/0 there. Make the kinetic group of " *
           "E(P) + Q ⇌ E(P, Q) steady-state."
@@ -1290,19 +1290,19 @@ end
                       weighted.nodes[e.to].conformation)
     @test v.edge == leaving
     @test EnzymeRates.Derivation._face_message("Mechanism", weighted, v) ==
-          "Mechanism: at zero P, the forms {F(S)} keep enzyme away from free E: every " *
+          "Mechanism: at zero P, the forms {FS} keep enzyme away from free E: every " *
           "step that leaves them takes up a zeroed metabolite " *
           "($(EnzymeRates.Mechanisms.step_text(weighted, leaving))), so the steady " *
           "state is not unique."
     # An allosteric message names the conformation the closed set lies in.
     at_P, at_PX = _testhelper_face_verdicts(detour)[[2, 5]]
     @test EnzymeRates.Derivation._face_message("AllostericMechanism", detour, at_P) ==
-          "AllostericMechanism: at zero P in the inactive conformation, the forms {F(P)} " *
+          "AllostericMechanism: at zero P in the inactive conformation, the forms {FP} " *
           "keep enzyme away from free E: every step that leaves them takes up a zeroed " *
           "metabolite (F(P) + P <--> E(P, P)), so the steady state is not unique."
     @test EnzymeRates.Derivation._face_message("AllostericMechanism", detour, at_PX) ==
           "AllostericMechanism: at zero P and X in the active conformation, the forms " *
-          "{F(P)} keep enzyme away from free E: every step that leaves them takes up a " *
+          "{FP} keep enzyme away from free E: every step that leaves them takes up a " *
           "zeroed metabolite (F(P) + P <--> E(P, P) and F(P) + X <--> F(P, X)), so the " *
           "steady state is not unique."
 end
@@ -1563,7 +1563,7 @@ end
           (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_DIFFER, 1,
            _testhelper_edge(mixed, "ES + I ⇌ EIS"))
     @test EnzymeRates.Derivation._face_message("Mechanism", mixed, v) ==
-          "Mechanism: at zero I and S, the forms {E(S)} hold enzyme, but the " *
+          "Mechanism: at zero I and S, the forms {ES} hold enzyme, but the " *
           "rapid-equilibrium step E(S) + I ⇌ E(I, S) that joins them to the rest of " *
           "their segment takes up a zeroed metabolite, so the rate law misweights them. " *
           "Make that step's kinetic group steady-state."
@@ -2758,10 +2758,10 @@ end
     @test D._admission_message(filled, v, r) ==
           "AllostericMechanism: at zero A and B, in the inactive conformation the :OnlyA " *
           "rapid-equilibrium step E(; residual = A - P) + B ⇌ E(B; residual = A - P) " *
-          "runs one way into E(; residual = A - P), at a rate that vanishes yet grows " *
-          "with the rapid-equilibrium speed, and the forms E(; residual = A - P), " *
-          "E(P; residual = A - P) leave only through the slower step " *
-          "E(A) <--> E(P; residual = A - P), so E(; residual = A - P) fills faster than " *
+          "runs one way into E_res_plusA_minusP, at a rate that vanishes yet grows " *
+          "with the rapid-equilibrium speed, and the forms E_res_plusA_minusP, " *
+          "EP_res_plusA_minusP leave only through the slower step " *
+          "E(A) <--> E(P; residual = A - P), so E_res_plusA_minusP fills faster than " *
           "it empties and its weight depends on how fast the tagged step vanishes. Make " *
           "the kinetic group of E(; residual = A - P) + B ⇌ E(B; residual = A - P) " *
           "steady-state."
@@ -4208,9 +4208,9 @@ end
     @test _testhelper_agrees(v.fault, _testhelper_respeed_verdicts(
         with_i; rng = Random.MersenneTwister(38), law = :limit)[v.face])
     @test EnzymeRates.Derivation._guard_message(with_i) ==
-          "AllostericMechanism: at zero I, the forms {E (active), E(A) (active), " *
-          "E(A, B) (active), E(P) (active), E (inactive), E(P) (inactive)} and " *
-          "{E(A, B) (inactive)} of one rapid-equilibrium segment are joined only by " *
+          "AllostericMechanism: at zero I, the forms {E (active), EA (active), " *
+          "EAB (active), EP (active), E (inactive), EP (inactive)} and " *
+          "{EAB (inactive)} of one rapid-equilibrium segment are joined only by " *
           "steps that take up a zeroed metabolite (E + I ⇌ E(I) and " *
           "E(A, B) + I ⇌ E(A, B, I)), so the rate law cannot weight one against the other."
     @test EnzymeRates.Derivation._guard(with_i_untagged) ==
@@ -4296,7 +4296,7 @@ end
     @test D._admission_message(both, v, built) ==
           "AllostericMechanism: at zero A and B, " *
           "$(EnzymeRates.Mechanisms.step_text(both.catalytic, feed)) feeds the forms " *
-          "E(; residual = A - P) of the inactive conformation, which leave only through " *
+          "E_res_plusA_minusP of the inactive conformation, which leave only through " *
           "the vanishing step $(EnzymeRates.Mechanisms.step_text(both.catalytic, half1)) " *
           "while nothing runs back the way it came, so admission cannot show that their " *
           "weight does not depend on how fast that step vanishes."
@@ -4493,7 +4493,7 @@ end
     @test D._admission_message(shared_half1, v, built) ==
           "AllostericMechanism: at zero A and B, " *
           "$(shared_line("E_res_plusA_minusP + B <--> EB_res_plusA_minusP")) feeds the " *
-          "forms E(; residual = A - P), E(I; residual = A - P) of the inactive " *
+          "forms E_res_plusA_minusP, EI_res_plusA_minusP of the inactive " *
           "conformation, which leave only through the vanishing steps " *
           "$(shared_line("E_res_plusA_minusP + P <--> EA")); " *
           "$(shared_line("EI_res_plusA_minusP + P <--> EAI")) while nothing runs back " *
@@ -4616,7 +4616,7 @@ end
     @test _testhelper_agrees(v.fault, _testhelper_respeed_verdicts(
         am; rng = Random.MersenneTwister(44), law = :limit)[v.face])
     @test EnzymeRates.Derivation._guard_message(am) ==
-          "AllostericMechanism: at zero I, the forms {E (active), E(S) (active), " *
+          "AllostericMechanism: at zero I, the forms {E (active), ES (active), " *
           "E (inactive)} and {F (active)} of one rapid-equilibrium segment are joined " *
           "only by steps that take up a zeroed metabolite (E + I ⇌ E(I) and " *
           "F + I ⇌ F(I)), so the rate law cannot weight one against the other."
@@ -4629,7 +4629,7 @@ end
                                                faces, 2)
     @test (w.fault, w.face, w.conformation) == (EnzymeRates.Derivation._PUMPED, 2, 2)
     @test EnzymeRates.Derivation._admission_message(am, w, built) ==
-          "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, F(I) of " *
+          "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, FI of " *
           "the inactive conformation, which leave only through the vanishing steps " *
           "E(I) ⇌ F(I); F <--> E while nothing runs back the way it came, so admission " *
           "cannot show that their weight does not depend on how fast those steps vanish."
@@ -4659,7 +4659,7 @@ end
         v.fault, _testhelper_epath_verdict(stranded_ss; rng,
                                            face = _testhelper_faces(stranded_ss)[2]))
     @test EnzymeRates.Derivation._admission_message(stranded_ss, v, built_ss) ==
-          "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, F(I) of " *
+          "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, FI of " *
           "the inactive conformation, which leave only through the vanishing steps " *
           "E(I) <--> F(I); F <--> E while nothing runs back the way it came, so " *
           "admission cannot show that their weight does not depend on how fast those " *
@@ -4940,7 +4940,7 @@ end
     @test (v.fault, v.face, v.conformation) == (PU, 5, 2)
     @test EnzymeRates.Derivation._admission_message(bs1, v, built) ==
           "AllostericMechanism: at zero I and P, F + P ⇌ F(P) runs one way among the " *
-          "forms F, F(P), F(S) of the inactive conformation, which leave only through " *
+          "forms F, FP, FS of the inactive conformation, which leave only through " *
           "the vanishing step E <--> F while nothing runs back the way it came, so " *
           "admission cannot show that their weight does not depend on how fast that " *
           "step vanishes."
@@ -5797,7 +5797,7 @@ end
     # The class the message names, E(I) of the active conformation, which only the
     # vanishing I binding at E(S) feeds, holds no form of the law networks.
     @test EnzymeRates.Derivation._guard_message(fz) ==
-          "AllostericMechanism: at zero P, the forms E(I) (active) hold the enzyme they " *
+          "AllostericMechanism: at zero P, the forms EI (active) hold the enzyme they " *
           "receive and are reached only through tagged steps, so the steady state " *
           "depends on where the enzyme starts."
     eps = EnzymeRates.Derivation._eps_network(
@@ -6032,7 +6032,7 @@ end
         j_release; rng = Random.MersenneTwister(92), law = :limit)[v.face])
     @test EnzymeRates.Derivation._guard_message(j_release) ==
           "AllostericMechanism: at zero I and J in the inactive conformation, the forms " *
-          "{E(I)} keep enzyme away from free E: every step that leaves them takes up a " *
+          "{EI} keep enzyme away from free E: every step that leaves them takes up a " *
           "zeroed metabolite (E(I) + J ⇌ E(I, J)), so the steady state is not unique."
     # At steady state the built readings stop that J binding, so E(I) is reached only
     # through a step that vanishes both ways: an island on the :OnlyI binding's unbound
@@ -6062,7 +6062,7 @@ end
         island; rng = Random.MersenneTwister(93), law = :limit)[v.face])
     @test EnzymeRates.Derivation._guard_message(island) ==
           "AllostericMechanism: at zero I and J in the inactive conformation, the forms " *
-          "{E(I)} keep enzyme away from free E: every step that leaves them takes up a " *
+          "{EI} keep enzyme away from free E: every step that leaves them takes up a " *
           "zeroed metabolite (E(I) + J <--> E(I, J)), so the steady state is not unique."
 end
 

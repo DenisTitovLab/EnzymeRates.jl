@@ -105,7 +105,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     # Forms that lie in different conformations name each form's conformation.
     label(u) = v.conformation == 0 ? _conformation_suffix(net, u) : ""
     forms(nodes) =
-        "{" * join([Mechanisms.form_text(m, _form_of(net, u)) * label(u) for u in nodes],
+        "{" * join([String(m.enzyme_forms[_form_of(net, u)]) * label(u) for u in nodes],
                    ", ") * "}"
     lines(edges) = join([Mechanisms.step_text(m, k) for k in edges], ", ", " and ")
     if v.fault === _NONUNIQUE

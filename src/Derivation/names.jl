@@ -58,6 +58,18 @@ The constant of the reaction `a → b`: `prefix`, the state tag, then
 _render_reaction(prefix::String, (a, b)::Tuple{String, String}, state::Symbol) =
     Symbol(prefix, _state_tag(state), a, "_to_", b)
 
+"""The two sides of step `k` of `m` in its stored direction, which name its constants: each
+side is its form's name (`enzyme_forms`), then the name of each metabolite the step takes
+up or gives off there, in name order, joined by `_` (`EA_B` for `EA + B`). A reactant's
+modifier copy is written as the reactant; the form it binds into keeps the copy's name
+(`ESmod`), so the two bindings name their constants apart."""
+function _sides(m::Mechanisms.Mechanism, k::Int)
+    e = m.steps[k]
+    side(f, held) =
+        join([String(m.enzyme_forms[f]); sort!([String(x.name) for x in held])], "_")
+    (side(e.from, e.taken_up), side(e.to, e.given_off))
+end
+
 """
 The sides that name constant `slot` of edge `k` of `m`'s catalytic graph in `state`: those
 of the kept member of its kinetic class (`kept`, `_kept_members(m)`). An `:EqualAI`
@@ -70,9 +82,9 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm = Mechanisms.catalytic(m)
     g = cm.steps[k].group
     group_tag = m isa Mechanisms.AllostericMechanism ? m.allosteric_states[g] : :None
-    group_tag === (state === :I ? :OnlyA : :OnlyI) && return cm.step_sides[k]
+    group_tag === (state === :I ? :OnlyA : :OnlyI) && return _sides(cm, k)
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
-    cm.step_sides[kept[(g, slot, inactive)]]
+    _sides(cm, kept[(g, slot, inactive)])
 end
 
 """The conformation tag of `p` in `m`, the one its name takes: `:None` in a plain

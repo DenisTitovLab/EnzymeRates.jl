@@ -210,7 +210,7 @@ catalytic graph that conformation `c` keeps, in path order; empty when `a == b`.
 pass two forms those edges join."""
 function _kept_path(am::Mechanisms.AllostericMechanism, c::Int, a::Int, b::Int)
     m = Mechanisms.catalytic(am)
-    nforms = length(m.nodes)
+    nforms = length(m.enzyme_forms)
     via = zeros(Int, nforms)
     seen = falses(nforms)
     seen[a] = true
@@ -330,7 +330,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
         s = _face_sets(eps, law.present, face)
         if v.fault === _EPS_NONUNIQUE
             outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
-            forms = [Mechanisms.form_text(m, _form_of(eps, u)) *
+            forms = [String(m.enzyme_forms[_form_of(eps, u)]) *
                      _conformation_suffix(eps, u) for u in outside]
             return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
@@ -345,8 +345,8 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
             pool = _reached(_successors(eps, s.n0 .& eps.fast), [filled])
             ways = unique!([eps.edge[t] for t in eachindex(eps.from)
                             if s.alive[t] && pool[eps.from[t]] && !pool[eps.to[t]]])
-            name = Mechanisms.form_text(m, _form_of(eps, filled))
-            pooled = [Mechanisms.form_text(m, _form_of(eps, u)) for u in findall(pool)]
+            name = String(m.enzyme_forms[_form_of(eps, filled)])
+            pooled = [String(m.enzyme_forms[_form_of(eps, u)]) for u in findall(pool)]
             leave = length(pooled) == 1 ? "$name leaves" :
                     "the forms $(join(pooled, ", ")) leave"
             msg = "AllostericMechanism: $(phrase)in the $conf conformation the $tag " *
@@ -368,7 +368,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
             inside = s.stranded[_node(eps, from, c)] && s.stranded[_node(eps, to, c)]
             return "AllostericMechanism: $(phrase)$(line(k)) " *
                    (inside ? "runs one way among" : "feeds") * " the forms " *
-                   "$(join([Mechanisms.form_text(m, _form_of(eps, u))
+                   "$(join([String(m.enzyme_forms[_form_of(eps, u)])
                             for u in basin], ", ")) of " *
                    "the $conf conformation, $out."
         elseif c == 0

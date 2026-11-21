@@ -83,7 +83,7 @@ end
          group = 4, names = [:k_ES_to_EP, :k_EP_to_ES], inactive_names = Symbol[]),
         (from = 6, to = 5, consumed = [:P], released = Symbol[], consumed_modifier = [true],
          released_modifier = Bool[], rapid_equilibrium = true, group = 5,
-         names = [:K_EPmodS_to_ES_Pmod], inactive_names = Symbol[])]
+         names = [:K_EPmodS_to_ES_P], inactive_names = Symbol[])]
     @test (g.tags, g.inactive, g.oligomeric_state, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test g.active == 1:6

@@ -241,7 +241,7 @@ end
         end
     end
     @test parameters(modifier_copy) ==
-          (:K_EPSmod_to_EP_Smod, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
+          (:K_EPSmod_to_EP_S, :K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
     @test D.parameter_units(modifier_copy) ==
           (rate = [0, 0, 0, 1], concentrations = [1 0; 0 1; 1 0; 0 0])
 
@@ -394,7 +394,7 @@ end
              :K_I_Citratereg, :K_I_F26BPreg, :L),
         "HK" =>
             (:K_A_EATP_to_E_ATP, :K_EADP_to_E_ADP, :K_EG6P_to_E_G6P,
-             :K_EG6Pmod_to_E_G6Pmod, :K_EGlucose_to_E_Glucose,
+             :K_EG6Pmod_to_E_G6P, :K_EGlucose_to_E_Glucose,
              :k_A_EATPGlucose_to_EADPG6P, :K_Pireg, :K_I_G6Preg, :L),
         "PK" =>
             (:K_A_EPEP_to_E_PEP, :K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
@@ -693,7 +693,7 @@ end
             E + A::Mod ⇌ E(A::Mod)
         end
     end
-    @test issubset([:K_EAmod_to_E_Amod, :K_EA_to_E_A],
+    @test issubset([:K_EAmod_to_E_A, :K_EA_to_E_A],
                    _testhelper_step_constant_names(inh))
     _testhelper_check_law_against_oracle(inh)
     # The allosteric state tag follows the prefix: a :NonequalAI binding has an
@@ -741,7 +741,7 @@ end
                                   for ks in pm.groups)
 end
 
-@testset "a modifier-only name is bare in constant names, a reactant's copy is Xmod" begin
+@testset "a modifier-only name is bare, a reactant's copy is Xmod in its form's name" begin
     # I binds only as a modifier, so nothing else carries its name.
     modifier_only = @enzyme_mechanism begin
         substrates: S
@@ -757,7 +757,8 @@ end
     @test _testhelper_step_constant_names(modifier_only) ==
           Set([:K_ES_to_E_S, :k_ES_to_EP, :k_EP_to_ES, :K_EP_to_E_P, :K_EI_to_E_I])
     _testhelper_check_law_against_oracle(modifier_only)
-    # P is a product that also binds as a modifier, so its modifier copy reads Pmod.
+    # P is a product that also binds as a modifier: the form its modifier copy binds
+    # into reads Pmod, and the constant names the metabolite it takes up, P.
     reactant_copy = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -773,7 +774,7 @@ end
     end
     @test _testhelper_step_constant_names(reactant_copy) ==
           Set([:K_EA_to_E_A, :K_EAB_to_EA_B, :k_EAB_to_EPQ, :k_EPQ_to_EAB,
-               :K_EPQ_to_EQ_P, :K_EQ_to_E_Q, :K_EPmodQ_to_EQ_Pmod])
+               :K_EPQ_to_EQ_P, :K_EQ_to_E_Q, :K_EPmodQ_to_EQ_P])
     _testhelper_check_law_against_oracle(reactant_copy)
 end
 

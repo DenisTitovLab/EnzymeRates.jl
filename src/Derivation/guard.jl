@@ -226,7 +226,7 @@ gives off nothing.
 """
 function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
                   fast::BitMatrix, vanish_forward::BitMatrix, vanish_reverse::BitMatrix)
-    nf, ncopies = length(m.nodes), size(use, 2)
+    nf, ncopies = length(m.enzyme_forms), size(use, 2)
     names = _guard_names(m)
     nt = 2 * count(use) + (ncopies == 2 ? 2 : 0)
     from, to, edge, conformation = zeros(Int, nt), zeros(Int, nt), zeros(Int, nt),
@@ -267,13 +267,13 @@ function _law_network(m::Mechanisms.Mechanism)
     n = length(m.steps)
     fast = falses(n, 1)
     fast[:, 1] .= _re_flags(m)
-    _network(m, trues(length(m.nodes)), trues(n, 1), fast, falses(n, 1),
+    _network(m, trues(length(m.enzyme_forms)), trues(n, 1), fast, falses(n, 1),
              falses(n, 1))
 end
 function _law_network(am::Mechanisms.AllostericMechanism)
     m = Mechanisms.catalytic(am)
     re = _re_flags(m)
-    n, nf = length(m.steps), length(m.nodes)
+    n, nf = length(m.steps), length(m.enzyme_forms)
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for c in 1:2
         mask = _conformation_steps(am, c)
@@ -307,8 +307,8 @@ function _eps_network(mech::_AnyMech, re::BitVector, reading::_Reading)
         vanish_forward[k, c] = o !== _RUNS && o !== _LOSES_REVERSE
         vanish_reverse[k, c] = o !== _RUNS && o !== _LOSES_FORWARD
     end
-    _network(m, trues(dims[2] * length(m.nodes)), trues(dims), fast, vanish_forward,
-             vanish_reverse)
+    _network(m, trues(dims[2] * length(m.enzyme_forms)), trues(dims), fast,
+             vanish_forward, vanish_reverse)
 end
 
 """

@@ -16992,8 +16992,8 @@ end
     end
     @test D._guard_message(d_flip) ==
           "AllostericMechanism: at zero P and Q, E(; residual = B + D - Q) + Q ⇌ " *
-          "E(Q; residual = B + D - Q) feeds the forms E(; residual = B + D - Q), " *
-          "E(A; residual = B + D - Q) of the inactive conformation, which leave only " *
+          "E(Q; residual = B + D - Q) feeds the forms E_res_plusB_plusD_minusQ, " *
+          "EA_res_plusB_plusD_minusQ of the inactive conformation, which leave only " *
           "through the vanishing step E(A; residual = B + D - Q) <--> E(P) while " *
           "nothing runs back the way it came, so admission cannot show that their " *
           "weight does not depend on how fast that step vanishes."

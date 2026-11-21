@@ -1676,7 +1676,7 @@ end
         end
         @test m isa EnzymeMechanism
         @test parameters(m) == (:K_EIS_to_ES_I, :K_EP_to_E_P,
-            :K_EPmod_to_E_Pmod, :K_ES_to_E_S, :k_ES_to_EP)
+            :K_EPmod_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
         @test metabolites(m) == (:S, :P, :I)
         _testhelper_check_law_against_oracle(m)
     end
@@ -1702,7 +1702,7 @@ end
         @test am isa AllostericEnzymeMechanism
         @test EnzymeRates.AllostericMechanism(am).oligomeric_state == 2
         @test parameters(am) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
-            :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_Pmod, :K_EQ_to_E_Q,
+            :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_P, :K_EQ_to_E_Q,
             :K_I_EAB_to_EA_B, :k_A_EAB_to_EPQ, :K_A_Xreg, :K_I_Yreg, :L)
         @test metabolites(am) == (:A, :B, :P, :Q, :I, :X, :Y)
         _testhelper_check_law_against_oracle(am)

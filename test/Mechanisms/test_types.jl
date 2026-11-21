@@ -599,7 +599,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                        "each zeroed metabolite", msg)
         @test msg ==
               "Mechanism: at zero P and Q, the rapid-equilibrium segment " *
-              "{E(P), E(P, Q), E(Q)} has no form whose weight keeps the segment's lowest " *
+              "{EP, EPQ, EQ} has no form whose weight keeps the segment's lowest " *
               "power of each zeroed metabolite, so the forms' shares depend on how those " *
               "concentrations vanish and the rate is 0/0 there. Make the kinetic group " *
               "of E(P) + Q ⇌ E(P, Q) steady-state."
@@ -2485,9 +2485,9 @@ end
 end
 
 @testset "two forms whose constants would share a name are rejected" begin
-    # P's modifier copy bound to E and the modifier Pmod bound to E would both name their
-    # constants EPmod, so K_EPmod_to_E_Pmod would name both bindings. P::Mod and Pmod
-    # spell one name, so the macro rejects them before it builds the mechanism.
+    # P's modifier copy bound to E and the modifier Pmod bound to E would both render the
+    # form EPmod, after which their constants are named. P::Mod and Pmod spell one name,
+    # so the macro rejects them before it builds the mechanism.
     @test_throws ErrorException(
         "Mechanism: P::Mod and Pmod both spell Pmod: enzyme forms and their constants " *
         "join the names of the metabolites they bind without a separator, so two forms " *
@@ -2555,7 +2555,7 @@ end
     end
     @test _testhelper_step_constant_names(pinh) ==
           Set([:K_EPinh_to_E_Pinh, :k_EPinh_to_EP, :k_EP_to_EPinh, :K_EP_to_E_P,
-               :K_EPmod_to_E_Pmod])
+               :K_EPmod_to_E_P])
     _testhelper_check_law_against_oracle(pinh)
 end
 
@@ -2928,9 +2928,9 @@ end
                                            face = Set([:A, :B]), reading = reported))
     @test ER.Derivation._guard_message(am) ==
           "AllostericMechanism: at zero A and B, in the inactive conformation the :OnlyA " *
-          "rapid-equilibrium step E(B) + A ⇌ E(P, Q) runs one way into E(B), at a rate " *
-          "that vanishes yet grows with the rapid-equilibrium speed, and E(B) leaves " *
-          "only through the slower step E + B <--> E(B), so E(B) fills faster than it " *
+          "rapid-equilibrium step E(B) + A ⇌ E(P, Q) runs one way into EB, at a rate " *
+          "that vanishes yet grows with the rapid-equilibrium speed, and EB leaves " *
+          "only through the slower step E + B <--> E(B), so EB fills faster than it " *
           "empties and its weight depends on how fast the tagged step vanishes."
     # With the fused binding steady-state in a group of its own, the inactive
     # conformation stops it, and admission reads each edge: the abortive bindings reach

@@ -195,7 +195,7 @@ concentrations `conc` per name, zero on the face.
 """
 function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueStream)
     m = Mechanisms.catalytic(mech)
-    nf, names = length(m.nodes), _guard_names(m)
+    nf, names = length(m.enzyme_forms), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
     excluded(k, c) = _excluded_steps(mech, c)[k]
