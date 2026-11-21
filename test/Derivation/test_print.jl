@@ -513,12 +513,13 @@ end
           "k_F_P_to_EAB * Keq + k_EAB_to_F_P * k_EA_B_to_EAB * k_E_A_to_EA * " *
           "k_F_C_to_FC) / (k_EAB_to_F_P + k_FC_to_E_Q)^2"
     @test _testhelper_n_text(power) ==
-          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * k_EP_res_plusA_minusP_to_E_A " *
-          "* k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + " *
-          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * k_EQ_to_E_Q * " *
-          "k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + " *
-          "k_EP_res_plusA_minusP_to_E_A * k_EQ_to_E_Q * k_E_Q_to_EQ * Keq + " *
-          "k_EP_res_plusA_minusP_to_E_A^2 * k_E_Q_to_EQ * Keq"
+          "K_EBP_res_plusA_minusP_to_EQ_P * " *
+          "k_EP_res_plusA_minusP_B_to_EBP_res_plusA_minusP * " *
+          "k_EP_res_plusA_minusP_to_E_A * k_E_A_to_EP_res_plusA_minusP + " *
+          "K_EBP_res_plusA_minusP_to_EQ_P * " *
+          "k_EP_res_plusA_minusP_B_to_EBP_res_plusA_minusP * k_EQ_to_E_Q * " *
+          "k_E_A_to_EP_res_plusA_minusP + k_EP_res_plusA_minusP_to_E_A * k_EQ_to_E_Q * " *
+          "k_E_Q_to_EQ * Keq + k_EP_res_plusA_minusP_to_E_A^2 * k_E_Q_to_EQ * Keq"
     @test _testhelper_n_text(bi_uni_uni_bi) ==
           "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_EAB_to_EA_B * k_EA_to_E_A * k_ER_Q_to_FC " *
           "* k_E_R_to_ER * k_F_P_to_EAB * Keq + k_EAB_to_F_P * k_EA_B_to_EAB * " *
@@ -772,14 +773,15 @@ end
     t2 = rate_equation_string(half2)
     @test heads(t2) == ["N_A", "Q_A", "D_A", "N_I", "D_I", "F_A", "F_I"]
     @test "F_A = F6P / (K_A_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P " *
-          "* k_EATP_to_EF16BP_res_plusATP_minusF16BP * N_A) + F16BP * " *
-          "k_EF16BP_res_plusATP_minusF16BP_to_EATP / " *
-          "(K_EF16BP_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F16BP * " *
-          "k_A_EF6P_res_plusATP_minusF16BP_to_EADP * " *
-          "k_EATP_to_EF16BP_res_plusATP_minusF16BP * N_A)" in split(t2, '\n')
+          "* k_EATP_to_EF16BP_res_plusATP_minusF16BP * N_A) + F16BP * K_EADP_to_E_ADP / " *
+          "(K_A_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P * " *
+          "K_EATP_to_E_ATP * k_A_EADP_to_EF6P_res_plusATP_minusF16BP * Keq * N_A)" in
+          split(t2, '\n')
     @test "F_I = F16BP / " *
-          "(K_EF16BP_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F16BP * " *
-          "k_EATP_to_EF16BP_res_plusATP_minusF16BP * N_I)" in split(t2, '\n')
+          "(K_A_EF6P_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F6P * " *
+          "K_EATP_to_E_ATP * " *
+          "K_EF16BP_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F16BP * " *
+          "k_A_EADP_to_EF6P_res_plusATP_minusF16BP * Keq * N_I)" in split(t2, '\n')
     @test last(split(t2, '\n')) == "v = (F_I * Q_A) * (ATP * F6P - ADP * " *
                                     "F16BP / Keq) / (F_I * D_A + L * F_A * D_I)"
     ti = rate_equation_string(inert)

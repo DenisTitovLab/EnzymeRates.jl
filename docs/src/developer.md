@@ -438,7 +438,10 @@ each further member of a kinetic class to its first. The columns come ordered by
 `_priority_key` (`_ordered_columns`), which reads the graph alone: the conformation
 block, the step's shape (an isomerization, a step with more than one metabolite, a
 binding), whether neither of its forms is free E, steady state before rapid equilibrium,
-the constant that runs against the reaction, then the step's place in the stored order.
+the constant that runs against the reaction, then the places of the step's forms and
+metabolites in the order the lean graph stores them (free E, then the forms by name; the
+metabolites in `metabolites(m)` order), so the fitted constants do not follow the order in
+which steps happen to be stored.
 The solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
@@ -460,11 +463,11 @@ the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 in content order (conformation label, bound metabolites, residual); an edge that neither
 chemistry nor graph context orients runs from the earlier form; and a tied group's lead
-turns the group's other tied edges to match it (`_align_tied_groups!`). The order's last
-tie-break is each step's place in the stored order. The canonical form thus decides the
-dependents and so the fitted names: a change to it changes fitted names. Constants are
-named from the forms' names (`enzyme_forms`) and the bare names of the metabolites a step
-takes up or gives off, so a reactant's modifier copy reads as the reactant there.
+turns the group's other tied edges to match it (`_align_tied_groups!`). The forms' names
+and the step's metabolites, not its stored place, break the priority's last ties.
+Constants are named from the forms' names (`enzyme_forms`) and the bare names of the
+metabolites a step takes up or gives off, so a reactant's modifier copy reads as the
+reactant there.
 
 ### The law, its code, its text and its key
 

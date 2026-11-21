@@ -79,8 +79,7 @@ end
     rate_scale = EnzymeRates.Fitting._rate_scale
     optimizer = CMAEvolutionStrategyOpt()
 
-    # Fitted: k_E_S_to_ES, k_E_P_to_ES, k_ES_to_E_P, all of which the data determine. At
-    # Keq = 2 the Haldane relation gives the release rate of S, k_ES_to_E_S = 50.
+    # Fitted: k_E_S_to_ES, k_ES_to_E_S, k_ES_to_E_P, all of which the data determine.
     steady_state = @enzyme_mechanism begin
         substrates: S
         products:   P
@@ -89,7 +88,7 @@ end
             E(S) <--> E + P
         end
     end
-    steady_state_params = (k_E_S_to_ES = 1e7, k_E_P_to_ES = 2e7, k_ES_to_E_P = 200.0)
+    steady_state_params = (k_E_S_to_ES = 1e7, k_ES_to_E_S = 50.0, k_ES_to_E_P = 200.0)
     steady_state_axes = (S = [1e-6, 1e-5, 1e-4, 1e-3], P = [1e-5, 3e-4, 1e-3])
 
     # Fitted: K_ES_to_E_S, k_ES_to_E_P.
@@ -248,7 +247,7 @@ end
         # each fitted constant carries.
         laws = (
             (steady_state, steady_state_params,
-             (k_E_S_to_ES = -1, k_E_P_to_ES = -1, k_ES_to_E_P = 0)),
+             (k_E_S_to_ES = -1, k_ES_to_E_S = 0, k_ES_to_E_P = 0)),
             (rapid_binding, (K_ES_to_E_S = 2e-5, k_ES_to_E_P = 200.0),
              (K_ES_to_E_S = 1, k_ES_to_E_P = 0)),
         )
@@ -391,7 +390,7 @@ end
         @test s[:P] ≈ 1e-5 rtol = 1e-12
         names = parameters(steady_state)
         centre = log_centres(fp)
-        expected = (k_E_S_to_ES = log(4.0) - log(1e-8), k_E_P_to_ES = log(4.0) - log(1e-5),
+        expected = (k_E_S_to_ES = log(4.0) - log(1e-8), k_ES_to_E_S = log(4.0),
                     k_ES_to_E_P = log(4.0))
         @test centre ≈ [expected[k] for k in names]
 

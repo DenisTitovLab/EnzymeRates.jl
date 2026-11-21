@@ -41,9 +41,9 @@ end
 @testset "Fitting" begin
 
     # ── Helper: build a Uni-Uni mechanism ─────────────────────────────────────
-    # Fitted: k_E_S_to_ES, k_E_P_to_ES, k_ES_to_E_P. The true points below put
-    # k_ES_to_E_P = 5 at Keq = 2, so the Haldane-derived release rate of S is
-    # k_ES_to_E_S = k_E_S_to_ES·k_ES_to_E_P/(Keq·k_E_P_to_ES) = 25.
+    # Fitted: k_E_S_to_ES, k_ES_to_E_S, k_ES_to_E_P. The true points below put
+    # k_ES_to_E_P = 5 at Keq = 2, so the Haldane-derived product rebinding rate is
+    # k_E_P_to_ES = k_E_S_to_ES·k_ES_to_E_P/(Keq·k_ES_to_E_S) = 1.
     uni_uni = @enzyme_mechanism begin
         substrates: S
         products:   P
@@ -55,7 +55,7 @@ end
 
     # True point and 5-point concentration grid shared by the uni-uni testsets below.
     Keq_val = 2.0
-    true_params = (k_E_S_to_ES = 10.0, k_E_P_to_ES = 1.0, k_ES_to_E_P = 5.0)
+    true_params = (k_E_S_to_ES = 10.0, k_ES_to_E_S = 25.0, k_ES_to_E_P = 5.0)
     concs5 = [
         (S = 1.0, P = 0.1),
         (S = 2.0, P = 0.1),
@@ -594,13 +594,13 @@ end
         _testhelper_stub_fit(u; kwargs...) = fit_rate_equation(
             FittingProblem(uni_uni, data, Keq_val; kwargs...),
             _testhelper_ConstantStubOpt(u); n_restarts=1)
-        # Every raw constant is exp(0) = 1, so at Keq = 2 the release rate of S is 1/2
-        # and v = (S − P/2)/(3/2 + S + P): 2/5 at S = 1 alone. A turnover of 2 there
-        # scales every fitted constant, each a rate constant, by 5.
+        # Every raw constant is exp(0) = 1, so at Keq = 2 the product rebinding rate is
+        # 1/2 and v = (S − P/2)/(2 + S + P/2): 1/3 at S = 1 alone. A turnover of 2 there
+        # scales every fitted constant, each a rate constant, by 6.
         rel = _testhelper_stub_fit(0.0; reference=[(S = 1.0,) => 2.0])
         @test keys(rel) == (:params, :loss, :retcode, :at_bound)
         @test keys(rel.params) == pn
-        @test all(k -> isapprox(rel.params[k], 5.0; rtol=1e-12), pn)
+        @test all(k -> isapprox(rel.params[k], 6.0; rtol=1e-12), pn)
         @test rel.retcode === :Success && isfinite(rel.loss)
         # The product alone runs the law backwards, against a forward reference turnover:
         # no factor matches it, so the fit fails without throwing and keeps its constants.

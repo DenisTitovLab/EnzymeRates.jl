@@ -260,10 +260,10 @@ end
 
 @testset "five spec keys are pinned" begin
     # A key is the same in every process and Julia version (spec section 2, criterion 3).
-    # These digests were read and checked on Julia 1.12.5 and 1.13.1, those of Uni-Uni
-    # and Segel Ping Pong Bi Bi on 1.13.4.
+    # These digests were read and checked on Julia 1.12.5 and 1.13.1, that of Segel Ping
+    # Pong Bi Bi on 1.13.4.
     pinned = ("Uni-Uni" =>
-                  "1f955295209a9a1efbcb0ab34e6d9d712ddf521cf001c35997d3cac0ace774a4",
+                  "e654c0e40f4ecd1af22ade6f28d2307f9bb15b90e6a409efbdf2ef8fb3ec0fb5",
               "Segel Ordered Bi Bi" =>
                   "8709d323651f7c90d4139f4b0f459c3275d245cfc6e0157510a794a82e3c0a39",
               "Random-order Bi-Bi" =>

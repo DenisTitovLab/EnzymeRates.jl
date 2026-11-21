@@ -5194,7 +5194,7 @@ _testhelper_typical_table(m) =
 const _testhelper_typical_log_centres = Dict(
     "Uni-Uni" => [
         :k_ES_to_E_P => 1.0986122886681098,
-        :k_E_P_to_ES => 5.703782474656201,
+        :k_ES_to_E_S => 1.0986122886681098,
         :k_E_S_to_ES => 3.401197381662155,
     ],
     "Segel Uni Uni" => [
@@ -5345,9 +5345,9 @@ const _testhelper_typical_log_centres = Dict(
         :k_E_R_to_FC => 14.914122846632383,
         :k_FC_to_E_R => 1.0986122886681098,
         :k_FC_to_F_C => 1.0986122886681098,
+        :k_FQ_P_to_EAB => 10.308952660644291,
         :k_FQ_to_F_Q => 1.0986122886681098,
         :k_F_C_to_FC => 8.006367567650246,
-        :k_F_Q_to_FQ => 12.611537753638338,
     ],
     "Segel Hexa Uni Ping Pong" => [
         :k_EA_to_E_A => 1.0986122886681098,

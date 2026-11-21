@@ -90,7 +90,7 @@ end
         @test M[1, end] == -1
     end
 
-    @testset "shape, free E, flag, direction and place rank in that order" begin
+    @testset "shape, free E, flag, direction, then forms and metabolites by name" begin
         # Every step at steady state: a binding at free E, a binding off free E, an
         # isomerization, a Theorell–Chance exchange, the releases of P and Q, each stored as
         # its uptake, and an isomerization of free E.
@@ -119,14 +119,14 @@ end
             end
         end)
         _testhelper_key(x, text, slot, block) =
-            EnzymeRates.Derivation._priority_key(x, _testhelper_edge(x, text), slot, block)
+            EnzymeRates.Derivation._priority_key(x, _testhelper_edge(x, text), slot, block,
+                                                 EnzymeRates.Derivation._lean_ranks(x))
         key(text, slot, block) = _testhelper_key(m, text, slot, block)
         at_free_E, off_free_E = "E + A <--> EA", "EA + B <--> EAB"
         # block first: an inactive copy outside the law before any other column
         @test key(at_free_E, 1, 2) > key(off_free_E, 2, 1) > key(off_free_E, 2, 0)
         # shape next: an isomerization, then a step with more than one metabolite, then a
-        # binding. The three tie on every later field but their place, so shape alone
-        # orders them.
+        # binding. The three tie on the next three fields, so shape alone orders them.
         iso, exchange = "EAB <--> EPQ", "EA + B <--> EQ + P"
         @test key(iso, 2, 0) > key(exchange, 2, 0) > key(off_free_E, 2, 0)
         @test key(iso, 2, 0)[3:5] == key(exchange, 2, 0)[3:5] == key(off_free_E, 2, 0)[3:5]
@@ -140,10 +140,47 @@ end
         @test key(off_free_E, 1, 0) > _testhelper_key(m_re, "EA + B ⇌ EAB", 1, 0)
         @test key(off_free_E, 2, 0) > key(off_free_E, 1, 0)
         @test key("E + Q <--> EQ", 1, 0) > key("E + Q <--> EQ", 2, 0)
-        # then the place in the stored order, the later step first
-        q, a = _testhelper_edge(m, "E + Q <--> EQ"), _testhelper_edge(m, at_free_E)
+        # then the places of the step's two forms in the order the lean graph stores them,
+        # E first and then by name (EA, EAB, EPQ, EQ, F), the later forms first
         @test key("E + Q <--> EQ", 1, 0)[1:5] == key(at_free_E, 2, 0)[1:5]
-        @test (key("E + Q <--> EQ", 1, 0) > key(at_free_E, 2, 0)) == (q > a)
+        @test key("E + Q <--> EQ", 1, 0)[6:7] == (1, 5)
+        @test key(at_free_E, 2, 0)[6:7] == (1, 2)
+        @test key("E + Q <--> EQ", 1, 0) > key(at_free_E, 2, 0)
+        # then, between two steps of the same forms, the places of their metabolites in
+        # metabolites(m), the later first: in the steady-state uni-uni the uptake of P into
+        # E(S), which runs against the reaction, goes before the release of S
+        uni = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S <--> E(S)
+                E(S) <--> E + P
+            end
+        end)
+        p_uptake = _testhelper_key(uni, "E + P <--> ES", 1, 0)
+        s_release = _testhelper_key(uni, "E + S <--> ES", 2, 0)
+        @test p_uptake[1:7] == s_release[1:7]
+        @test (p_uptake[8], s_release[8]) == ([2], [1]) && p_uptake > s_release
+        # the stored place comes last
+        @test key(at_free_E, 1, 0)[end] == _testhelper_edge(m, at_free_E)
+    end
+
+    @testset "the fitted constants do not follow the order the steps are stored in" begin
+        # The constructors store the steps of a mechanism in one order, so each spec's
+        # steps are reversed here in a graph built without them: the solve fits the same
+        # constants.
+        for spec in MECHANISM_TEST_SPECS
+            m = _testhelper_lift(spec.mechanism)
+            cm = EnzymeRates.Mechanisms.catalytic(m)
+            reordered = EnzymeRates.Mechanisms._unchecked_mechanism(
+                cm.substrates, cm.products, cm.nodes, reverse(cm.steps))
+            x = m isa EnzymeRates.AllostericMechanism ?
+                EnzymeRates.AllostericMechanism(reordered, m.allosteric_states,
+                                                m.oligomeric_state, m.regulatory_sites) :
+                reordered
+            @test EnzymeRates.Derivation._solve(x).fitted ==
+                  EnzymeRates.Derivation._solve(m).fitted
+        end
     end
 
     @testset "a modifier copy keys after the reactant of its name" begin

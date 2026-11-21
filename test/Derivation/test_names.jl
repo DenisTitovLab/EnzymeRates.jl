@@ -128,8 +128,7 @@ end
     @test D.parameter_units(ER.Mechanism(uni_uni)) == D.parameter_units(uni_uni)
 
     # Steady-state bindings: a rate constant is the rate over what it takes up in its own
-    # direction, so the binding of S has [S]⁻¹, the uptake of P into E(S) [P]⁻¹ and the
-    # release of P none.
+    # direction, so the binding of S has [S]⁻¹ and each release none.
     ss_bindings = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -138,9 +137,9 @@ end
             E(S) <--> E + P
         end
     end)
-    @test parameters(ss_bindings) == (:k_ES_to_E_P, :k_E_P_to_ES, :k_E_S_to_ES)
+    @test parameters(ss_bindings) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
     @test D.parameter_units(ss_bindings) ==
-          (rate = [1, 1, 1], concentrations = [0 0; 0 -1; -1 0])
+          (rate = [1, 1, 1], concentrations = [0 0; 0 0; -1 0])
     # A release's reverse rate constant binds the product: [P]⁻¹.
     ss_uni_uni = @enzyme_mechanism begin
         substrates: S
@@ -296,7 +295,7 @@ end
     # estimates, in parameters order.
     pinned = Dict(
         "Uni-Uni" =>
-            (:k_ES_to_E_P, :k_E_P_to_ES, :k_E_S_to_ES),
+            (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
         "Segel Uni Uni" =>
             (:k_EA_to_EP, :k_EA_to_E_A, :k_EP_to_E_P, :k_E_A_to_EA, :k_E_P_to_EP),
         "Segel Iso Uni Uni" =>
@@ -342,8 +341,8 @@ end
              :k_F_P_to_EAB),
         "Segel Bi Bi Uni Uni PP Ter Ter" =>
             (:k_EAB_to_EA_B, :k_EAB_to_FQ_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_E_A_to_EA,
-             :k_E_R_to_FC, :k_FC_to_E_R, :k_FC_to_F_C, :k_FQ_to_F_Q, :k_F_C_to_FC,
-             :k_F_Q_to_FQ),
+             :k_E_R_to_FC, :k_FC_to_E_R, :k_FC_to_F_C, :k_FQ_P_to_EAB, :k_FQ_to_F_Q,
+             :k_F_C_to_FC),
         "Segel Hexa Uni Ping Pong" =>
             (:k_EA_to_E_A, :k_EA_to_F_P, :k_E_A_to_EA, :k_E_R_to_GC, :k_FB_to_F_B,
              :k_FB_to_G_Q, :k_F_B_to_FB, :k_F_P_to_EA, :k_GC_to_E_R, :k_G_C_to_GC,

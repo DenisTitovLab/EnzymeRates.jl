@@ -142,10 +142,11 @@ gives off more than one metabolite; 1 a binding); whether neither of its forms i
 steady state before rapid equilibrium; a steady-state constant that runs against the
 reaction (for a binding of a product, stored as its uptake, the uptake; for every other
 step its reverse rate, since the constructor stores it the way the reaction runs); then
-the step's place in the stored order, the earlier kept. The key decides which constants
-are fitted, never the law.
+the places of its two forms in `ranks.forms`, the earlier place first, and of its
+metabolites in `ranks.metabolites` (`_lean_ranks`), the earlier places kept; last its
+stored place `k`. The key decides which constants are fitted, never the law.
 """
-function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int)
+function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int, ranks)
     e = m.steps[k]
     held = length(e.taken_up) + length(e.given_off)
     shape = held == 0 ? 3 : held == 1 ? 1 : 2
@@ -154,7 +155,23 @@ function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int)
     binds_product = held == 1 && !isempty(e.taken_up) &&
                     insorted(only(e.taken_up).name, m.products)
     against = ss && (slot == 2) != binds_product
-    (block, shape, off_free_E, ss, against, k)
+    # Steps that tie on every fact above are told apart by names: the places of their
+    # forms and metabolites in the order the lean graph stores them. The order in which
+    # steps happen to be stored changes as forms are renamed and steps turned, and the
+    # fitted constants must not change with it; `k` decides only between two steps with
+    # the same forms and metabolites.
+    first_form, last_form = minmax(ranks.forms[e.from], ranks.forms[e.to])
+    places = sort!([ranks.metabolites[x.name] for x in [e.taken_up; e.given_off]])
+    (block, shape, off_free_E, ss, against, first_form, last_form, places, k)
+end
+
+"""The places of the forms and the metabolites of `m` in the order the lean graph stores
+them: free E first, then the other forms by name; the metabolites in `metabolites(m)`
+order, a modifier copy at its reactant's place."""
+function _lean_ranks(m::Mechanisms.Mechanism)
+    by_name = sortperm(String.(m.enzyme_forms[2:end]))
+    (; forms = invperm([1; by_name .+ 1]),
+     metabolites = Dict(x => i for (i, x) in enumerate(Mechanisms.metabolites(m))))
 end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
@@ -203,7 +220,8 @@ function _ordered_columns(m::_AnyMech)
     end
     block(c) = c.inactive ? (law[c.step] ? 1 : 2) :
                _in_active_law(cm, c.step, tags, law, alaw) ? 0 : 2
-    priorities = [_priority_key(cm, c.step, c.slot, block(c)) for c in columns]
+    ranks = _lean_ranks(cm)
+    priorities = [_priority_key(cm, c.step, c.slot, block(c), ranks) for c in columns]
     (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
 end
 
