@@ -25,6 +25,13 @@ _copies(held::Vector{Mechanisms.Metabolite}, name::Symbol) =
 """The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)
 
+"""The kinetic groups of `m`, numbered by their steps' `group`: each group's steps, in step
+order."""
+function _kinetic_groups(m::Mechanisms.Mechanism)
+    G = maximum(e -> e.group, m.steps; init = 0)
+    [findall(e -> e.group == g, m.steps) for g in 1:G]
+end
+
 include("conformations.jl")
 include("names.jl")
 include("rate_eq_derivation.jl")

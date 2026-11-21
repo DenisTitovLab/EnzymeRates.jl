@@ -143,7 +143,7 @@ function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int,
 end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
-_solve_tags(m::Mechanisms.Mechanism) = fill(:None, length(m.groups))
+_solve_tags(m::Mechanisms.Mechanism) = fill(:None, length(_kinetic_groups(m)))
 _solve_tags(am::Mechanisms.AllostericMechanism) = am.allosteric_states
 
 """Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
@@ -289,7 +289,7 @@ end
 
 """The steps group by group, each group in step order: the order the joint solve and the
 derivation read them in."""
-_flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, m.groups; init = Int[])
+_flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, _kinetic_groups(m); init = Int[])
 """Whether step `k` of `m` binds a product: it takes up one product, not as a modifier."""
 _binds_product(m::Mechanisms.Mechanism, k::Int) =
     m.step_kinds[k] in (:binding, :fused_binding) &&
