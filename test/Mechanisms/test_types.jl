@@ -128,6 +128,21 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.Mechanism(
             EQP + I ⇌ EQPI
         end
     end))
+    # Misspelt in the release of P, EQP reaches E through EQ, so the connectivity check
+    # passes it; EPQ becomes a dead end, and the guard finds no step cycle that turns the
+    # reaction over. The checks catch this misspelling, but by its consequence.
+    @test_throws(ErrorException("Mechanism: no cycle of steps turns substrates into " *
+                                "products, so the rate is zero everywhere."),
+                 eval(:(@enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ EA
+            EA + B <--> EPQ
+            EQP ⇌ EQ + P
+            EQ ⇌ E + Q
+        end
+    end)))
 
     # Call notation and a modifier copy are errors that name what to write.
     @test_throws "write `ES`" eval(:(@enzyme_mechanism begin

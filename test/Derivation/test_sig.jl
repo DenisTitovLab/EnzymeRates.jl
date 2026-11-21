@@ -36,33 +36,33 @@ const ER = EnzymeRates
     @test _testhelper_decode(ER.Derivation._sig_of(wide)) == wide
 end
 
-"""Uni-uni whose substrate's name holds `n` characters: a Sig no other test decodes."""
-_testhelper_long_named(n) = let S = Symbol("S", "x"^(n - 1)), ES = Symbol("ES", "x"^(n - 1))
-    _testhelper_build(EnzymeRates.DSL.raw_mechanism(:(begin
-        substrates: $S
-        products: P
-        steps: begin
-            E + $S ⇌ $ES
-            $ES <--> EP
-            EP ⇌ E + P
-        end
-    end)))
+"""Uni-uni with `n` modifiers, `I1` to `In`, each binding free E alone at rapid
+equilibrium: a Sig whose type no other test decodes, its length set by `n`."""
+function _testhelper_n_modifiers(n)
+    mods = [Symbol("I", i) for i in 1:n]
+    forms = [:E, :EP, :ES, [Symbol("E", x) for x in mods]...]
+    steps = [ER.Mechanisms.Step(1, 3, [1], Int[], true, 1),
+             ER.Mechanisms.Step(3, 2, Int[], Int[], false, 2),
+             ER.Mechanisms.Step(1, 2, [2], Int[], true, 3),
+             [ER.Mechanisms.Step(1, 3 + i, [2 + i], Int[], true, 3 + i) for i in 1:n]...]
+    _testhelper_plain_mechanism([:S; :P; mods], forms, [1], [2], steps)
 end
 
 @testset "the Sig decoder compiles once, whatever the mechanism" begin
     # A compiled law's generated methods decode its Sig without specializing on its type,
     # so the decoder compiles once: after one decode, decoding the Sigs of three other
-    # mechanisms adds no method instance.
+    # mechanisms, each of a Sig type of its own, adds no method instance.
     instances(f) = count(_ -> true, Base.specializations(only(methods(f))))
-    _testhelper_allosteric_long_named(n) =
-        ER.Mechanism(_testhelper_long_named(n).catalytic,
-                     ER.Mechanisms.Allostery([:EqualAI, :EqualAI, :OnlyA], 2,
-                                             EnzymeRates.Mechanisms.RegulatorySite[]))
+    _testhelper_allosteric_n_modifiers(n) =
+        ER.Mechanism(_testhelper_n_modifiers(n).catalytic,
+                     ER.Mechanisms.Allostery(fill(:EqualAI, n + 3), 2,
+                                             ER.Mechanisms.RegulatorySite[]))
     decoder = ER.Derivation._mechanism_from_sig
-    for build in (_testhelper_long_named, _testhelper_allosteric_long_named)
-        lengths = (301, 401, 501, 601)
-        sigs = [typeof(compile_rate_equation(build(n))).parameters[1] for n in lengths]
-        @test _testhelper_decode(sigs[1]) == build(lengths[1])
+    for build in (_testhelper_n_modifiers, _testhelper_allosteric_n_modifiers)
+        counts = 41:44
+        sigs = [typeof(compile_rate_equation(build(n))).parameters[1] for n in counts]
+        @test allunique(typeof.(sigs))
+        @test _testhelper_decode(sigs[1]) == build(first(counts))
         before = instances(decoder)
         foreach(_testhelper_decode, sigs[2:4])
         @test instances(decoder) == before

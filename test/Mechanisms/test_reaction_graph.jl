@@ -349,6 +349,10 @@ _testhelper_walk(block) = EnzymeRates.DSL.raw_mechanism(block)
         unlabelled(steps) = [(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium)
                              for e in steps]
         @test unlabelled(x.catalytic.steps) == unlabelled(c.steps)
+        # The same partition of the steps into kinetic groups, numbered by first step.
+        groups(s) = Set(Set(ks) for ks in _testhelper_group_members(s))
+        @test groups(x.catalytic) == groups(c)
+        @test unique(e.kinetic_group for e in x.catalytic.steps) == 1:length(groups(c))
         other = _testhelper_build(_testhelper_rewrite(spec.raw))
         @test other == x && hash(other) == hash(x)
     end
@@ -565,6 +569,11 @@ end
     # Steps: a self-loop, a metabolite taken up and given off.
     @test_throws(ErrorException("Step: both ends are the form ES; a step joins two forms"),
                  _testhelper_uniuni(Symbol[], M.Step(2, 2, none, none, false, 4)))
+    @test_throws(ErrorException("Step: both ends are the form EA; a step joins two forms"),
+                 _testhelper_plain_mechanism(
+                     [:A, :P], [:E, :EA], [1], [2],
+                     [M.Step(1, 2, [1], none, true, 1), M.Step(2, 1, none, [2], false, 2),
+                      M.Step(2, 2, none, none, false, 3)]))
     @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
                  _testhelper_build(_testhelper_walk(:(begin
                      substrates: A, B
@@ -665,7 +674,9 @@ end
             ES <--> EP
             EP <--> E + P
         end)))
-    # No form named E: no step at all, or a free form named F.
+    # No form named E: no step at all, a free form named F, forms whose names start with
+    # E but are not E, or a ping-pong whose free form is F and whose covalent forms'
+    # names start with E.
     no_E = ArgumentError("Mechanism: no enzyme form is named `E`; the free enzyme is the " *
                          "form named `E`")
     @test_throws no_E _testhelper_plain_mechanism([:S, :P], Symbol[], [1], [2], M.Step[])
@@ -676,6 +687,26 @@ end
             F + S ⇌ FS
             FS <--> FP
             FP ⇌ F + P
+        end
+    end)))
+    @test_throws no_E _testhelper_build(_testhelper_walk(:(begin
+        substrates: S
+        products: P
+        steps: begin
+            F + S ⇌ ES
+            ES <--> EP
+            EP ⇌ F + P
+        end
+    end)))
+    @test_throws no_E _testhelper_build(_testhelper_walk(:(begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            F + A ⇌ FA
+            FA <--> E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> FQ
+            FQ ⇌ F + Q
         end
     end)))
     # Forms that no steps join to free E: an isomerization between unreached forms.
