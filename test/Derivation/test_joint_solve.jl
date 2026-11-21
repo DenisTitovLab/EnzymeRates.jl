@@ -78,7 +78,8 @@ end
         # The isomerization goes first, its reverse rate (against the reaction) before
         # its forward one; then the two bindings' constants that run against the
         # reaction, the release of S and the uptake of P (a product binding's uptake runs
-        # against it), the larger content key first (S sorts after P); then the others.
+        # against it), the later step in the stored order first (the binding of S, whose
+        # form E(S) comes after E(P)); then the others.
         @test describe.(sys.columns) == [("ES <--> EP", 2), ("ES <--> EP", 1),
                                          ("E + S <--> ES", 2), ("E + P <--> EP", 1),
                                          ("E + S <--> ES", 1), ("E + P <--> EP", 2)]
@@ -416,7 +417,7 @@ end
     @testset "every spec stores its steps in the direction the orientation tiers give" begin
         # The solve reads each stored step as the physical-forward direction of its
         # constants: the rate constant against the reaction is the reverse one, and the
-        # content key reads the step as stored. The constructor orients every step by
+        # priority key reads the step as stored. The constructor orients every step by
         # the tiers and turns each tied group with its lead, so orienting the stored
         # steps again leaves each one as stored, and writing every step the other way
         # round, in the reverse order, builds the same mechanism.

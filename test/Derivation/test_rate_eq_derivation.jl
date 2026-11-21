@@ -1763,8 +1763,8 @@ end
     _testhelper_check_law_against_oracle(folded)
     @test _testhelper_reference_lines_match(folded)
     # S binds E and Estar under one constant, so the square of the two isomerizations
-    # ties their equilibrium constants; the isomerization between occupied forms is the
-    # dependent one.
+    # ties their equilibrium constants; the isomerization neither of whose forms is free E
+    # is the dependent one.
     iso_tie = @enzyme_mechanism begin
         substrates: S
         products: P
