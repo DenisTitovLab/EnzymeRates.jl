@@ -292,10 +292,7 @@ end
                 E(A, B) <--> E + P + Q
             end
         end
-        # The release of P and Q is stored as the uptake it reverses, so the release
-        # constant k_EAB_to_E_P_Q = 300 is the dependent one, and the uptake constant takes
-        # the value the Haldane relation gives at Keq = 20: 1e10 · 300 / (100 · 20).
-        params = (k_E_A_B_to_EAB = 1e10, k_EAB_to_E_A_B = 100.0, k_E_P_Q_to_EAB = 1.5e9)
+        params = (k_E_A_B_to_EAB = 1e10, k_EAB_to_E_A_B = 100.0, k_EAB_to_E_P_Q = 300.0)
         @test issetequal(keys(params), parameters(two_in))
         table = _testhelper_noiseless_table(two_in, params, 20.0,
             (A = [1e-5, 3e-5, 1e-4, 3e-4], B = [1e-4, 1e-3], P = [1e-4, 1e-3],

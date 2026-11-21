@@ -140,6 +140,18 @@ end
         @test key(off_free_E, 1, 0) > _testhelper_key(m_re, "EA + B ⇌ EAB", 1, 0)
         @test key(off_free_E, 2, 0) > key(off_free_E, 1, 0)
         @test key("E + Q <--> EQ", 1, 0) > key("E + Q <--> EQ", 2, 0)
+        # A release of two products is stored as its uptake, E + P + Q → E(A, B), which
+        # runs against the reaction, so its forward rate is the constant against it.
+        two = EnzymeRates.Mechanism(@enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A + B <--> E(A, B)
+                E(A, B) <--> E + P + Q
+            end
+        end)
+        @test _testhelper_key(two, "E + P + Q <--> EAB", 1, 0)[5] &&
+              !_testhelper_key(two, "E + P + Q <--> EAB", 2, 0)[5]
         # then the places of the step's two forms in the order the lean graph stores them,
         # E first and then by name (EA, EAB, EPQ, EQ, F), the later forms first
         @test key("E + Q <--> EQ", 1, 0)[1:5] == key(at_free_E, 2, 0)[1:5]

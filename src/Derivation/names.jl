@@ -140,8 +140,11 @@ column with a larger key becomes dependent sooner. In turn: the block; the step'
 (3 an isomerization, which takes up and gives off nothing; 2 a step that takes up or
 gives off more than one metabolite; 1 a binding); whether neither of its forms is free E;
 steady state before rapid equilibrium; a steady-state constant that runs against the
-reaction (for a binding of a product, stored as its uptake, the uptake; for every other
-step its reverse rate, since the constructor stores it the way the reaction runs); then
+reaction (for a step stored against the reaction, the forward rate: as stored, it takes
+up fewer substrates and gives off fewer products than it gives off substrates and takes
+up products, as a product binding or a release of products, stored as its uptake, does;
+for every other step its reverse rate, since the constructor stores it the way the
+reaction runs, or the reaction gives it no direction); then
 the places of its two forms in `ranks.forms`, the earlier place first, and of its
 metabolites in `ranks.metabolites` (`_lean_ranks`), the earlier places kept; last its
 stored place `k`. The key decides which constants are fitted, never the law.
@@ -152,9 +155,10 @@ function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int, r
     shape = held == 0 ? 3 : held == 1 ? 1 : 2
     off_free_E = e.from != 1 && e.to != 1
     ss = !e.rapid_equilibrium
-    binds_product = held == 1 && !isempty(e.taken_up) &&
-                    insorted(only(e.taken_up).name, m.products)
-    against = ss && (slot == 2) != binds_product
+    net(list) = count(x -> insorted(x.name, m.substrates), list) -
+                count(x -> insorted(x.name, m.products), list)
+    stored_against = net(e.taken_up) - net(e.given_off) < 0
+    against = ss && (slot == 2) != stored_against
     # Steps that tie on every fact above are told apart by names: the places of their
     # forms and metabolites in the order the lean graph stores them. The order in which
     # steps happen to be stored changes as forms are renamed and steps turned, and the
