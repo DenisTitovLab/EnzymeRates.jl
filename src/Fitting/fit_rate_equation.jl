@@ -2,7 +2,7 @@
 # ABOUTME: scale: FittingProblem, the loss, multi-start fits and test_rate_equation.
 
 """
-    FittingProblem{M, R, D}
+    FittingProblem{R, D}
 
 Holds pre-processed experimental data and mechanism info for fitting
 rate constants.
@@ -21,8 +21,8 @@ rate constants.
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
-struct FittingProblem{M<:Mechanisms.Mechanism, R, D<:NamedTuple}
-    mechanism::M
+struct FittingProblem{R, D<:NamedTuple}
+    mechanism::Mechanisms.Mechanism
     rate::R
     rate_data::Data.RateData{D}
     group_point_indexes::Vector{Vector{Int}}
@@ -69,7 +69,7 @@ concentrations use the same one. K and k then carry that unit: a K in mM, a seco
 k per mM per time. See "Units and the search box" in the Getting Started page for how the
 fit searches around the concentrations in your data.
 """
-function FittingProblem(@nospecialize(mechanism::Mechanisms.Mechanism), table, Keq::Real;
+function FittingProblem(mechanism::Mechanisms.Mechanism, table, Keq::Real;
                         absolute::Bool=false, reference=nothing)
     rate = Derivation.compile_rate_equation(mechanism)
     rate_data = Data.RateData(table, Mechanisms.metabolites(mechanism), Keq; absolute,
@@ -79,7 +79,7 @@ function FittingProblem(@nospecialize(mechanism::Mechanisms.Mechanism), table, K
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
-    FittingProblem{typeof(mechanism), typeof(rate), typeof(data)}(
+    FittingProblem{typeof(rate), typeof(data)}(
         mechanism, rate, rate_data, collect(values(group_map)),
         log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
 end
@@ -346,17 +346,14 @@ function _log_centres(@nospecialize(fp::FittingProblem))
 end
 
 """
-    _scale_rate_constants(mechanism, params, factor) -> NamedTuple
+    _scale_rate_constants(m, params, factor) -> NamedTuple
 
-`params` with every fitted rate constant of `mechanism`, each constant whose units hold
+`params` with every fitted rate constant of mechanism `m`, each constant whose units hold
 the rate (`Derivation.parameter_units`), multiplied by `factor`, every other entry
 unchanged. A common factor on those constants multiplies every rate by the same factor and
 leaves the binding constants, `L` and the regulatory constants alone.
 """
-function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    # The caller does not specialize on the mechanism; the type asserted lets the
-    # Derivation calls below dispatch without a run-time lookup.
-    m = mechanism::Mechanisms.Mechanism
+function _scale_rate_constants(m::Mechanisms.Mechanism, params::NamedTuple, factor::Real)
     names = Derivation.parameters(m)
     rate = Derivation.parameter_units(m).rate
     rate_constants = Set{Symbol}()

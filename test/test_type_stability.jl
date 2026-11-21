@@ -165,10 +165,8 @@ include("type_stability_harness.jl")
             @_testhelper_no_dispatch Fit.loss!(::Vector{Float64}, problem(m))
             @_testhelper_dispatches_in error_messages solver_boundary fit_rate_equation(
                 problem(m), optimizer)
-            # `_scale_rate_constants` takes a `@nospecialize` mechanism, so it compiles for
-            # `Any`, not for a concrete type.
             @_testhelper_dispatches_in error_messages Fit._scale_rate_constants(
-                ::Any, floats(parameters(m)), 1.0)
+                m, floats(parameters(m)), 1.0)
         end
         # `fit_rate_equation` takes a `@nospecialize` problem, so this is what compiles.
         @_testhelper_dispatches_in error_messages solver_boundary fit_rate_equation(
