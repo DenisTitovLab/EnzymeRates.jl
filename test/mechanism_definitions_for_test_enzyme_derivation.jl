@@ -953,9 +953,20 @@ function _testhelper_phantom_map_holds(am; rng)
 end
 
 """The candidate (`Enumeration.CandidateMechanism`) of the mechanism `m`, a `Mechanism` or
-an `AllostericMechanism`, written by hand, to hand to `candidate_mechanisms` as a
-parent."""
-_testhelper_candidate(m) = EnzymeRates.Enumeration.CandidateMechanism(m)
+an `AllostericMechanism`, written by hand, to hand to `candidate_mechanisms` or a move as a
+parent: its record of each form is the package's reading of the form's contents
+(`Enumeration._form_records`)."""
+_testhelper_candidate(m) =
+    EnzymeRates.Enumeration.CandidateMechanism(m, EnzymeRates.Enumeration._form_records(m))
+
+"""The mechanism of each candidate of `cs`, in order."""
+_testhelper_mechanisms(cs) = [c.mechanism for c in cs]
+
+"""The mechanisms of the candidates that `move`, an internal function of `Enumeration`,
+returns for the candidate of the written parent `parent` (`_testhelper_candidate`) and the
+arguments `args`."""
+_testhelper_move(move, parent, args...) =
+    _testhelper_mechanisms(move(_testhelper_candidate(parent), args...))
 
 """The mechanisms of the children (`candidate_mechanisms`) of each mechanism of `parents`
 by every expansion move, parent by parent."""
@@ -968,7 +979,7 @@ _testhelper_children(rxn, parents) =
 (`_testhelper_children`) reach, without duplicates."""
 function _testhelper_population(rxn, rounds)
     level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
-        m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)]
+        m for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))]
     mechs = copy(level)
     for _ in 1:rounds
         level = unique!(_testhelper_children(rxn, level))
@@ -2438,10 +2449,11 @@ end
 # guard rejects.
 _testhelper_plain_moves(m, rxn) =
     append!(Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
-            EnzymeRates.Enumeration._expand_re_to_ss(m),
-            EnzymeRates.Enumeration._expand_split_kinetic_group(m),
-            EnzymeRates.Enumeration._expand_add_dead_end_regulator(m, rxn),
-            EnzymeRates.Enumeration._expand_to_allosteric(m, rxn))
+            _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m),
+            _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m),
+            _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m,
+                             rxn),
+            _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn))
 
 """
 Whether admission's existence test in the inactive conformation (`_admission_interior`:

@@ -32,21 +32,22 @@ function _crosses_sides(m::Mechanisms.Mechanism, k::Int, subs::Vector{Symbol},
 end
 
 """
-Whether some chemistry node of graph `m`, edge `k` at rapid equilibrium where `re[k]`
-holds, is left both by a rapid-equilibrium edge that releases a substrate and by one that
-releases a product (condition C). A chemistry node is a merged complex (a form entered by
-a fused binding of a substrate) with every form joined to it by RE isomerizations, a set
-of forms joined to each other by RE isomerizations, or an RE Theorell–Chance step. An RE
-edge leaves a node through a node form F and releases M when traversing it away from F
-gives M off: F is its `to` form and M is consumed, or F is its `from` form and M is
-released. An RE Theorell–Chance node leaves through its own edge in both directions.
-Then the chemistry sits in rapid equilibrium with both sides and some reactant is not
-needed at zero products or substrates. A reactant's modifier copy counts as its reactant.
-Only the edges `on` flags count (`_degenerate`).
+Whether some chemistry node of the catalytic graph `m` of candidate `c`, edge `k` at rapid
+equilibrium where `re[k]` holds, is left both by a rapid-equilibrium edge that releases a
+substrate and by one that releases a product (condition C). A chemistry node is a merged
+complex (a form entered by a fused binding of a substrate) with every form joined to it by
+RE isomerizations, a set of forms joined to each other by RE isomerizations, or an RE
+Theorell–Chance step. An RE edge leaves a node through a node form F and releases M when
+traversing it away from F gives M off: F is its `to` form and M is consumed, or F is its
+`from` form and M is released. An RE Theorell–Chance node leaves through its own edge in
+both directions. Then the chemistry sits in rapid equilibrium with both sides and some
+reactant is not needed at zero products or substrates. A reactant's modifier copy counts as
+its reactant. Only the edges `on` flags count (`_degenerate`).
 """
 function _chemistry_equilibrates_both_sides(
-        m::Mechanisms.Mechanism, re::BitVector,
-        on::BitVector = trues(length(m.steps)))
+        c::CandidateMechanism, re::BitVector,
+        on::BitVector = trues(length(Mechanisms.catalytic(c.mechanism).steps)))
+    m = Mechanisms.catalytic(c.mechanism)
     re = re .& on
     subs, prods = m.substrates, m.products
     releases(node, side) = any(eachindex(m.steps)) do k
@@ -57,28 +58,27 @@ function _chemistry_equilibrates_both_sides(
     end
     # The forms joined by RE isomerizations, one node per segment; a merged complex
     # outside every RE isomerization is a node of its own.
-    isos = BitVector([re[k] && m.step_kinds[k] === :isomerization
-                      for k in eachindex(m.steps)])
+    isos = BitVector([re[k] && _is_iso(m.steps[k]) for k in eachindex(m.steps)])
     s = Mechanisms.rapid_equilibrium_segments(m, isos, isos)
-    nodes = [s.segments; [[x] for x in _merged_complexes(m, subs, on)
+    nodes = [s.segments; [[x] for x in _merged_complexes(c, subs, on)
                           if s.segment_of[x] == 0]]
     any(node -> releases(node, subs) && releases(node, prods), nodes) ||
         any(k -> re[k] && _crosses_sides(m, k, subs, prods), eachindex(m.steps))
 end
 
-"""Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
-direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
-(`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own flags,
-over the steps the active conformation runs (`steps_in_active_conformation`): every edge
-of a plain mechanism, and the edges its tags keep of an allosteric one. The beam expands a
-degenerate seed without fitting it (`_base_tier`)."""
-function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
-    cm = Mechanisms.catalytic(m)
+"""Whether the mechanism of candidate `c` is degenerate by the structural conditions V and
+C: no maximal rate in one direction (`_has_vmax`), or chemistry in rapid equilibrium with
+both sides (`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own
+flags, over the steps the active conformation runs (`steps_in_active_conformation`): every
+edge of a plain mechanism, and the edges its tags keep of an allosteric one. The beam
+expands a degenerate seed without fitting it (`_base_tier`)."""
+function _degenerate(c::CandidateMechanism)
+    cm = Mechanisms.catalytic(c.mechanism)
     re = _rapid_equilibrium_flags(cm)
-    on = Mechanisms.steps_in_active_conformation(m)
+    on = Mechanisms.steps_in_active_conformation(c.mechanism)
     !(_has_vmax(cm, re, cm.substrates, on) &&
       _has_vmax(cm, re, cm.products, on)) ||
-        _chemistry_equilibrates_both_sides(cm, re, on)
+        _chemistry_equilibrates_both_sides(c, re, on)
 end
 
 """
@@ -94,7 +94,7 @@ when its law is the limit, so a user may write one; the enumerator does not buil
 """
 _kept_forms_keep_a_binding(::Mechanisms.Mechanism) = true
 function _kept_forms_keep_a_binding(am::Mechanisms.AllostericMechanism)
-    steps, n = am.catalytic.steps, length(am.catalytic.nodes)
+    steps, n = am.catalytic.steps, length(am.catalytic.enzyme_forms)
     for (law, excluded_state) in ((Mechanisms.steps_in_active_conformation(am), :OnlyI),
                                   (Mechanisms.steps_in_inactive_conformation(am), :OnlyA))
         # Per form: some binding enters it; some binding the conformation runs does. A
@@ -123,23 +123,28 @@ _requires_hyperbolic_catalysis(::Mechanisms.Mechanism) = false
 _requires_hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
     am.oligomeric_state > 1
 
-"""Whether `m` passes `_hyperbolic_catalysis` where it `_requires_hyperbolic_catalysis`;
-true where it does not."""
-_hyperbolic_where_required(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
-    !_requires_hyperbolic_catalysis(m) || _hyperbolic_catalysis(m)
+"""Whether candidate `c` passes `_hyperbolic_catalysis` where its mechanism
+`_requires_hyperbolic_catalysis`; true where it does not."""
+_hyperbolic_where_required(c::CandidateMechanism) =
+    !_requires_hyperbolic_catalysis(c.mechanism) || _hyperbolic_catalysis(c)
 
 """
-    _hyperbolic_catalysis(m::Mechanism, on = trues(length(m.steps))) -> Bool
+    _hyperbolic_catalysis(c::CandidateMechanism, on::BitVector) -> Bool
+    _hyperbolic_catalysis(c::CandidateMechanism) -> Bool
 
-Whether the King–Altman denominator of `m`'s catalytic scheme has degree at most
-1 in every substrate and product concentration. Every binding of a substrate or
-product at its catalytic site counts, abortive complexes included. Edges touching
-a form that holds a modifier are left out (a mask of the catalytic-site edges): a
-modifier binds a site of its own by definition, so the powers its binding adds,
-including those of a reactant's modifier copy, are a separate source that
-conformational mechanisms keep. Only the edges `on` flags count, and
-`rapid_equilibrium_segments` leaves out the forms they do not keep, so an allosteric
-mechanism's test can read each conformation's law.
+Whether the King–Altman denominator of the catalytic scheme `m` of candidate `c` has degree
+at most 1 in every substrate and product concentration. Every binding of a substrate or
+product at its catalytic site counts, abortive complexes included. Edges touching a form
+that holds a modifier are left out (a mask of the catalytic-site edges): a modifier binds a
+site of its own by definition, so the powers its binding adds, including those of a
+reactant's modifier copy, are a separate source that conformational mechanisms keep. Only
+the edges `on` flags count, and `rapid_equilibrium_segments` leaves out the forms they do
+not keep, so an allosteric mechanism's test can read each conformation's law. Without `on`,
+the test reads every edge of a plain mechanism, and each conformation's law of an allosteric
+one (`steps_in_active_conformation`, `steps_in_inactive_conformation`): a conformation that
+runs part of the catalytic graph can carry a power the whole graph lacks, as a ping-pong's
+abortive complexes put A² into the inactive law once that conformation stops one
+half-reaction.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
@@ -154,10 +159,10 @@ scoring edges. An arborescence toward `S` containing given edges exists iff
 every segment still reaches `S` once each given edge's source keeps that edge
 as its only way out (`_all_reach`).
 """
-function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
-                               on::BitVector = trues(length(m.steps)))
-    on_site = on .& BitVector([!(_holds_modifier(m, e.from) || _holds_modifier(m, e.to))
-                               for e in m.steps])
+function _hyperbolic_catalysis(c::CandidateMechanism, on::BitVector)
+    m = Mechanisms.catalytic(c.mechanism)
+    on_site = on .& BitVector([isempty(c.forms[e.from].copies) &&
+                               isempty(c.forms[e.to].copies) for e in m.steps])
     s = Mechanisms.rapid_equilibrium_segments(m, on_site)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
@@ -193,19 +198,13 @@ function _hyperbolic_catalysis(m::Mechanisms.Mechanism,
     true
 end
 
-"""
-    _hyperbolic_catalysis(am::AllostericMechanism) -> Bool
-
-Whether each conformation's law of `am` (`steps_in_active_conformation`,
-`steps_in_inactive_conformation`) passes `_hyperbolic_catalysis`. A conformation that runs
-part of the catalytic graph can carry a power the whole graph lacks: a ping-pong's
-abortive complexes can put A² into the inactive law once that conformation stops one
-half-reaction.
-"""
-_hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
-    all(mask -> _hyperbolic_catalysis(Mechanisms.catalytic(am), mask),
-        (Mechanisms.steps_in_active_conformation(am),
-         Mechanisms.steps_in_inactive_conformation(am)))
+function _hyperbolic_catalysis(c::CandidateMechanism)
+    m = c.mechanism
+    m isa Mechanisms.Mechanism && return _hyperbolic_catalysis(c, trues(length(m.steps)))
+    all(mask -> _hyperbolic_catalysis(c, mask),
+        (Mechanisms.steps_in_active_conformation(m),
+         Mechanisms.steps_in_inactive_conformation(m)))
+end
 
 """
 Whether every segment of the segment graph reaches `root` when each edge in
@@ -252,14 +251,14 @@ conformational state."""
 _one_state_class(h::Int, t::Int) = _GaugeClass(h, t, 1)
 
 """
-    _productive_twin(m, mask) -> (site, ligand) -> Int
+    _productive_twin(c, mask) -> (site, ligand) -> Int
 
-The productive form of the sub-graph of `m` whose edges `mask` keeps, a form that holds
-no modifier, whose weight is proportional to that of the complex a modifier named
-`ligand` forms at form `site` by a rapid-equilibrium step, or 0 when none is: a form of
-the site's rapid-equilibrium segment with the complex's offsets
-(`rapid_equilibrium_segments`; the modifier counts as its name, so a reactant's copy as
-the reactant), the one of the complex's composition when several are, else the first in form
+The productive form of the sub-graph of the catalytic graph `m` of candidate `c` whose edges
+`mask` keeps, a form that holds no modifier, whose weight is proportional to that of the
+complex a modifier named `ligand` forms at form `site` by a rapid-equilibrium step, or 0
+when none is: a form of the site's rapid-equilibrium segment with the complex's offsets
+(`rapid_equilibrium_segments`; the modifier counts as its name, so a reactant's copy as the
+reactant), the one of the complex's composition when several are, else the first in form
 order. Within a segment rapid equilibrium fixes each weight relative to another as a
 constant times the metabolites bound along the route between them, so equal offsets mean
 proportional weights, and steady-state data see only their sum. The offsets reach a copy
@@ -275,18 +274,19 @@ the sites that pin either copy may keep both constants separable, so such a matc
 makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end move
 builds are found on that mechanism (`_dead_end_child`).
 """
-function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
+function _productive_twin(c::CandidateMechanism, mask::BitVector)
+    m = Mechanisms.catalytic(c.mechanism)
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
     # A form's bound names, sorted, its conformation and its residual.
-    composition(f) = ([x.name for x in m.nodes[f].bound], m.nodes[f].conformation,
-                      (m.nodes[f].added, m.nodes[f].subtracted))
+    composition(f) = (sort!([c.forms[f].productive; c.forms[f].copies]), c.forms[f].label,
+                      (c.forms[f].adds, c.forms[f].subtracts))
     function (site::Int, ligand::Symbol)
         n = searchsortedfirst(names, ligand)
         n <= length(names) && names[n] === ligand || return 0
         twins = [f for f in s.segments[s.segment_of[site]]
-                 if !_holds_modifier(m, f) &&
+                 if isempty(c.forms[f].copies) &&
                     all(x -> s.offsets[x, f] == s.offsets[x, site] + (x == n),
                         axes(s.offsets, 1))]
         isempty(twins) && return 0
@@ -297,52 +297,52 @@ function _productive_twin(m::Mechanisms.Mechanism, mask::BitVector)
     end
 end
 
-"""Whether form `x` of `m` holds a modifier copy."""
-_holds_modifier(m::Mechanisms.Mechanism, x::Int) =
-    any(x -> x.modifier, m.nodes[x].bound)
-
-"""The name of the modifier copy that step `k` of `m` binds (a `:binding` or
-`:fused_binding` step), or `nothing` when the step binds no modifier copy."""
-function _bound_copy(m::Mechanisms.Mechanism, k::Int)
-    t = m.steps[k].taken_up
-    m.step_kinds[k] in (:binding, :fused_binding) && any(x -> x.modifier, t) ?
-        only(t).name : nothing
+"""The name of the modifier copy that step `k` of candidate `c` binds (a binding,
+`_is_binding`, that takes up a copy, `_copy_change`), or `nothing` when the step binds no
+modifier copy."""
+function _bound_copy(c::CandidateMechanism, k::Int)
+    e = Mechanisms.catalytic(c.mechanism).steps[k]
+    _is_binding(e) || return nothing
+    x = only(e.taken_up).name
+    _copy_change(c, k, x) > 0 ? x : nothing
 end
 
 """
-Whether the edges `ks` of one kinetic group of `m` bind a modifier, and only at sites
-whose complex has a productive twin (`twin`, a `_productive_twin` of one state's graph).
+Whether the edges `ks` of one kinetic group of candidate `c` bind a modifier, and only at
+sites whose complex has a productive twin (`twin`, a `_productive_twin` of one state's
+graph).
 """
-function _all_twin(m::Mechanisms.Mechanism, ks::Vector{Int}, twin)
-    ligand = _bound_copy(m, first(ks))
-    ligand !== nothing && all(k -> twin(m.steps[k].from, ligand) != 0, ks)
+function _all_twin(c::CandidateMechanism, ks::Vector{Int}, twin)
+    ligand = _bound_copy(c, first(ks))
+    steps = Mechanisms.catalytic(c.mechanism).steps
+    ligand !== nothing && all(k -> twin(steps[k].from, ligand) != 0, ks)
 end
 
 """
-    _gauge_rescaling(m, members, g, twin, label)
+    _gauge_rescaling(c, members, g, twin, label)
         -> Union{Dict{Int, Tuple{_GaugeClass, _GaugeClass}}, Nothing}
 
-The dwell gauge of the modifier copy bound by kinetic group `g` of `m`, in one
-conformational state's graph, whose groups hold the edges `m.groups` lists: the rescaling
-each nonempty kinetic group needs, or `nothing` when the gauge does not exist. It does not
-exist when group `g` binds no modifier or a complex it forms has no productive twin
-(`_all_twin`, with `twin` a `_productive_twin` of that graph), or when some group would
-need two rescalings. The gauge gives every form a factor σ: ρ_T to each twin T, one factor
-s to every complex of the copy and 1 to every other form. Multiplying a rapid-equilibrium
-group's K by σ(from)/σ(to), and a steady-state group's forward constant by σ(from) and its
-reverse by σ(to), divides each form's weight by its factor and leaves every flux as it
-was. A twin's weight is a constant multiple of its complexes', so the factors can keep
-each twin's total with its complexes, and the rate law, unchanged while K* moves: the
+The dwell gauge of the modifier copy bound by kinetic group `g` of the catalytic graph `m`
+of candidate `c`, in one conformational state's graph, whose groups hold the edges `members`
+lists: the rescaling each nonempty kinetic group needs, or `nothing` when the gauge does not
+exist. It does not exist when group `g` binds no modifier or a complex it forms has no
+productive twin (`_all_twin`, with `twin` a `_productive_twin` of that graph), or when some
+group would need two rescalings. The gauge gives every form a factor σ: ρ_T to each twin T,
+one factor s to every complex of the copy and 1 to every other form. Multiplying a
+rapid-equilibrium group's K by σ(from)/σ(to), and a steady-state group's forward constant by
+σ(from) and its reverse by σ(to), divides each form's weight by its factor and leaves every
+flux as it was. A twin's weight is a constant multiple of its complexes', so the factors can
+keep each twin's total with its complexes, and the rate law, unchanged while K* moves: the
 copy's constant is a phantom. A kinetic group shares its constants, so every group, the
-copy's own included, must have one ratio σ(from)/σ(to) over its edges (rapid
-equilibrium), or one σ(from) and one σ(to) (steady state). The copy's group, at 1 on each
-site, holds all its complexes at the one factor s, and a complex never takes its twin's
-factor: its weight moves opposite to the twin's. A rapid-equilibrium mirror edge, between
-two complexes, therefore has ratio 1, as its parent edge between two sites has, whatever
-the twins; a steady-state mirror needs s beside its parent edge's 1, and the gauge fails.
-When each site binds the copied ligand at rapid equilibrium, the gauge is the merge of
-each complex into its twin, the twin's binding group taking K_h + K* in place of K_h, and
-the family is that of the mechanism without the copy.
+copy's own included, must have one ratio σ(from)/σ(to) over its edges (rapid equilibrium),
+or one σ(from) and one σ(to) (steady state). The copy's group, at 1 on each site, holds all
+its complexes at the one factor s, and a complex never takes its twin's factor: its weight
+moves opposite to the twin's. A rapid-equilibrium mirror edge, between two complexes,
+therefore has ratio 1, as its parent edge between two sites has, whatever the twins; a
+steady-state mirror needs s beside its parent edge's 1, and the gauge fails. When each site
+binds the copied ligand at rapid equilibrium, the gauge is the merge of each complex into
+its twin, the twin's binding group taking K_h + K* in place of K_h, and the family is that
+of the mechanism without the copy.
 
 The ρ are generic numbers, equal only where the structure makes them equal: twins
 formed from their sites by RE bindings of the copied ligand in one kinetic group h, each
@@ -354,20 +354,19 @@ one number. A group's rescaling is the pair of its ends' classes, `_NO_RESCALING
 for the factor 1, and two of them for a rapid-equilibrium group whose two ends scale
 alike. The test is bookkeeping over the edges, with no parameters and no numerics.
 """
-function _gauge_rescaling(m::Mechanisms.Mechanism, members::Vector{Vector{Int}}, g::Int,
+function _gauge_rescaling(c::CandidateMechanism, members::Vector{Vector{Int}}, g::Int,
                           twin, label)
-    _all_twin(m, members[g], twin) || return nothing
-    ligand = _bound_copy(m, first(members[g]))::Symbol
+    m = Mechanisms.catalytic(c.mechanism)
+    _all_twin(c, members[g], twin) || return nothing
+    ligand = _bound_copy(c, first(members[g]))::Symbol
     twin_of = Dict(m.steps[k].to => twin(m.steps[k].from, ligand)
                    for k in members[g])
     # The rapid-equilibrium bindings of the ligand itself, not of a modifier copy.
     binding_group = Dict{Tuple{Int, Int}, Int}()
     for (h, ks) in enumerate(members), k in ks
-        t = m.steps[k].taken_up
-        m.steps[k].rapid_equilibrium &&
-            m.step_kinds[k] in (:binding, :fused_binding) &&
-            !any(x -> x.modifier, t) && _copies(t, ligand) == 1 &&
-            (binding_group[(m.steps[k].from, m.steps[k].to)] = h)
+        e = m.steps[k]
+        e.rapid_equilibrium && _is_binding(e) && only(e.taken_up).name === ligand &&
+            _copy_change(c, k, ligand) == 0 && (binding_group[(e.from, e.to)] = h)
     end
     class = Dict{Int, _GaugeClass}(complex => label(g, 0) for complex in keys(twin_of))
     for k in members[g]
@@ -392,19 +391,19 @@ function _gauge_rescaling(m::Mechanisms.Mechanism, members::Vector{Vector{Int}},
 end
 
 """
-    _redundant_copy_groups(m) -> Vector{Int}
+    _redundant_copy_groups(c) -> Vector{Int}
 
-Kinetic groups of `m` that bind a modifier redundantly: in every conformational state
-where the copy binds, every complex has a productive twin, a form whose weight is
-proportional to the complex's (`_productive_twin`, `_all_twin`), and the dwell gauge
-exists over the states together (`_gauge_rescaling`). The gauge then moves the copy's
-constant along a direction the rate law cannot see, so the copy adds a phantom, and the
-mechanism's family is its family without the copy (`_gauge_rescaling`). A copy group
-whose complexes all have twins but whose gauge fails is not redundant: a group that forms
-or leaves a twin also binds where no copy does (a shared group that pins the existing
-binding), a group holds a step that leaves a complex beside one that leaves another form
-(a second copy bound at the complex and at a twin), or a mirror is steady-state. The gauge
-is the proof that the copy's constant is invisible, and without it the constant may be
+Kinetic groups of the mechanism `m` of candidate `c` that bind a modifier redundantly: in
+every conformational state where the copy binds, every complex has a productive twin, a form
+whose weight is proportional to the complex's (`_productive_twin`, `_all_twin`), and the
+dwell gauge exists over the states together (`_gauge_rescaling`). The gauge then moves the
+copy's constant along a direction the rate law cannot see, so the copy adds a phantom, and
+the mechanism's family is its family without the copy (`_gauge_rescaling`). A copy group
+whose complexes all have twins but whose gauge fails is not redundant: a group that forms or
+leaves a twin also binds where no copy does (a shared group that pins the existing binding),
+a group holds a step that leaves a complex beside one that leaves another form (a second
+copy bound at the complex and at a twin), or a mirror is steady-state. The gauge is the
+proof that the copy's constant is invisible, and without it the constant may be
 identifiable. Two copies that are twins only of each other, neither pinned, pass the test
 and carry a phantom: the rule admits them.
 
@@ -421,30 +420,31 @@ group and the copy are both `:EqualAI` (one K_h, one K*). The copy's complexes s
 factor in both states when the copy is `:EqualAI` (one K*). Every other class is a number
 per state.
 """
-function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
-                                          Mechanisms.AllostericMechanism})
+function _redundant_copy_groups(c::CandidateMechanism)
+    m = c.mechanism
     cm = Mechanisms.catalytic(m)
-    members = cm.groups
-    any(ks -> _bound_copy(cm, first(ks)) !== nothing, members) || return Int[]
+    members = _kinetic_groups(cm)
+    any(ks -> _bound_copy(c, first(ks)) !== nothing, members) || return Int[]
     if m isa Mechanisms.Mechanism
-        twin = _productive_twin(cm, trues(length(cm.steps)))
+        twin = _productive_twin(c, trues(length(cm.steps)))
         return [g for g in eachindex(members)
-                if _gauge_rescaling(cm, members, g, twin, _one_state_class) !== nothing]
+                if _gauge_rescaling(c, members, g, twin, _one_state_class) !== nothing]
     end
     am = m::Mechanisms.AllostericMechanism
     equal(h) = am.allosteric_states[h] === :EqualAI
     masks = (Mechanisms.steps_in_active_conformation(am),
              Mechanisms.steps_in_inactive_conformation(am))
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
-    twins = [_productive_twin(cm, mask) for mask in masks]
-    unscaled(c) = Dict(h => (_NO_RESCALING, _NO_RESCALING)
-                       for h in eachindex(kept[c]) if !isempty(kept[c][h]))
+    twins = [_productive_twin(c, mask) for mask in masks]
+    # `s` indexes the conformational state: 1 active, 2 inactive.
+    unscaled(s) = Dict(h => (_NO_RESCALING, _NO_RESCALING)
+                       for h in eachindex(kept[s]) if !isempty(kept[s][h]))
     filter(collect(eachindex(members))) do g
-        all(c -> isempty(kept[c][g]), 1:2) && return false
+        all(s -> isempty(kept[s][g]), 1:2) && return false
         one_number(h) = h > 0 && equal(h) && equal(g)
         label(state) = (h, t) -> _GaugeClass(h, t, one_number(h) ? 0 : state)
-        rescaling(c) = isempty(kept[c][g]) ? unscaled(c) :
-                       _gauge_rescaling(cm, kept[c], g, twins[c], label(c))
+        rescaling(s) = isempty(kept[s][g]) ? unscaled(s) :
+                       _gauge_rescaling(c, kept[s], g, twins[s], label(s))
         active = rescaling(1)
         active === nothing && return false
         inactive = rescaling(2)
@@ -472,20 +472,18 @@ function _net_atoms(reaction::Mechanisms.EnzymeReaction, plus, minus)
 end
 
 """
-    _assert_emission_rules(m)
+    _assert_emission_rules(c::CandidateMechanism)
 
-The two rules every mechanism the moves emit satisfies, checked on a parent before
+The two rules every mechanism the moves emit satisfies, checked on a parent candidate before
 it is expanded. Every steady-state kinetic group holds an edge that carries net flux
-(`_flux_carrying_groups` on the catalytic graph, an allosteric mechanism's active
-state). No kinetic group binds a competitive inhibitor redundantly
-(`_redundant_copy_groups`). A parent must obey both because a flip tests only the groups
-it flips. The split, the dead-end move, and `_expand_change_allo_state` filter their
-children; the other moves preserve both rules.
+(`_flux_carrying_groups` on the catalytic graph, an allosteric mechanism's active state). No
+kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A parent
+must obey both because a flip tests only the groups it flips. The split, the dead-end move,
+and `_expand_change_allo_state` filter their children; the other moves preserve both rules.
 """
-function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
-                                          Mechanisms.AllostericMechanism})
-    cm = Mechanisms.catalytic(m)
-    members = cm.groups
+function _assert_emission_rules(c::CandidateMechanism)
+    cm = Mechanisms.catalytic(c.mechanism)
+    members = _kinetic_groups(cm)
     # A group as its steps' DSL lines (`step_text`).
     label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
     flux = _flux_carrying_groups(cm, _rapid_equilibrium_flags(cm))
@@ -495,7 +493,7 @@ function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
             "step that carries net flux, so its two constants enter the rate only as " *
             "their ratio; write the group at rapid equilibrium")
     end
-    for g in _redundant_copy_groups(m)
+    for g in _redundant_copy_groups(c)
         error("candidate_mechanisms: kinetic group {" * label(g) * "} binds a " *
               "competitive inhibitor only where the complex duplicates a productive " *
               "form, and a dwell gauge absorbs its constant into the existing binding's; " *
@@ -505,30 +503,28 @@ function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
 end
 
 """
-    _assert_atom_conserving(m, rxn::EnzymeReaction)
+    _assert_atom_conserving(c::CandidateMechanism, rxn::EnzymeReaction)
 
-Assert every edge of an enumerated mechanism `m`'s catalytic graph conserves the atoms
-that reaction `rxn` gives its metabolites: the atoms of its source form plus those it
-takes up equal the atoms of its target form plus those it gives off, a form carrying the
-atoms of its bound metabolites and of its residual's added substrates, less those of its
-residual's subtracted products, each read from the reaction's inventory by name
-(`_net_atoms`). Errors on the first edge that does not, group by group, naming its forms
-and the metabolites it exchanges. This is the enumeration-path guardrail against
-atom-non-conserving covalent intermediates; it is intentionally NOT a `Mechanism`
-constructor check, since a hand-written `@enzyme_mechanism` block carries no atoms and
-may fold steps.
+Assert every edge of the catalytic graph of an enumerated candidate `c` conserves the atoms
+that reaction `rxn` gives its metabolites: the atoms of its source form plus those it takes
+up equal the atoms of its target form plus those it gives off, a form carrying the atoms of
+its bound metabolites and of its residual's added substrates, less those of its residual's
+subtracted products, each read from the reaction's inventory by name (`_net_atoms`). Errors
+on the first edge that does not, group by group, naming its forms and the metabolites it
+exchanges. This is the enumeration-path guardrail against atom-non-conserving covalent
+intermediates; it is intentionally NOT a `Mechanism` constructor check, since a hand-written
+`@enzyme_mechanism` block carries no atoms and may fold steps.
 """
-function _assert_atom_conserving(m::Union{Mechanisms.Mechanism,
-                                           Mechanisms.AllostericMechanism},
-                                 rxn::Mechanisms.EnzymeReaction)
-    cm = Mechanisms.catalytic(m)
+function _assert_atom_conserving(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
+    cm = Mechanisms.catalytic(c.mechanism)
     names(v::Vector{Mechanisms.Metabolite}) = Symbol[x.name for x in v]
-    # The names counted on one side of an edge: `form`'s bound metabolites and residual
-    # additions, the residual subtractions of the `other` form, and the free metabolites.
+    # The names counted on one side of an edge: `form`'s bound metabolites, productive or
+    # copies, and residual additions, the residual subtractions of the `other` form, and
+    # the free metabolites.
     side(form::Int, other::Int, free::Vector{Mechanisms.Metabolite}) =
-        [names(cm.nodes[form].bound); cm.nodes[form].added;
-         cm.nodes[other].subtracted; names(free)]
-    for ks in cm.groups, k in ks
+        [c.forms[form].productive; c.forms[form].copies; c.forms[form].adds;
+         c.forms[other].subtracts; names(free)]
+    for ks in _kinetic_groups(cm), k in ks
         f, t = cm.steps[k].from, cm.steps[k].to
         taken, given = cm.steps[k].taken_up, cm.steps[k].given_off
         diff = _net_atoms(rxn, side(t, f, given), side(f, t, taken))

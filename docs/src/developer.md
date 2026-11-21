@@ -703,12 +703,20 @@ number of times, and each step in either direction with its kinetic group label 
 each used); `AllostericMechanism(substrates, products, nodes, steps, allosteric_states,
 multiplicity, sites)` takes the tag of each written group label. Both build the canonical
 graph (`_canonicalize`) and check it; the macros check the names under `modifiers:`
-themselves. The seeds write their topologies, dead ends and bases as nodes and steps; the
-moves copy a parent's `m.nodes` and `m.steps` with new flags, groups or bound inhibitors
-(`_regrouped`, `_with_flags`, `_dead_end_graph`). The moves that tag a mechanism or change
-its regulatory sites compose the parent's catalytic graph with other tags or sites through
-the composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)`, which
-runs only its tag and site checks. Going `from → to`, a step takes up
+themselves. The enumeration works on candidates (`CandidateMechanism`): a mechanism and
+its own record of each form (`_FormRecord`, `src/Enumeration/record.jl`: the form's
+conformation label, the names it binds productively and as modifier copies, and its
+residual). Its moves read a form's contents from the record alone, and tell a step that
+binds a modifier copy from one that binds the reactant by the difference between its two
+forms' records. The seeds write their topologies, dead ends and bases as records and steps;
+the moves copy a parent's records and steps with new flags, groups or bound inhibitors
+(`_regrouped`, `_with_flags`, `_dead_end_graph`). One function, `_candidate`, builds every
+candidate, the only place in `Enumeration` that calls a mechanism constructor, and
+`_form_records` reads the records of a mechanism written by hand, the only place that reads
+a form's contents from a mechanism. The moves that tag a mechanism or change its regulatory
+sites compose the parent's catalytic graph with other tags or sites through the
+composition constructor, `AllostericMechanism(m, tags, multiplicity, sites)`, which runs
+only its tag and site checks. Going `from → to`, a step takes up
 the metabolites in `taken_up` and gives off those in `given_off`. Steps are classified by
 these lists. A binding takes up exactly one metabolite and gives off none. It is plain
 (`:binding`) when its target form is its source form with that metabolite added, the
@@ -719,9 +727,9 @@ The constructor rejects a binding whose forms match a plain binding by name but 
 such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
 Every edge but a plain binding (a `step_kinds` entry other than `:binding`) is chemistry;
-the allosteric moves (`_chemistry_groups`, in `Enumeration`) and `_merged_complexes` read
-`step_kinds` to tell catalysis from binding; the derivation and the guard read none, and
-tell a step's shape from its lists. The derivation reads every binding alike, so a fused
+the allosteric moves (`_chemistry_groups`, in `Enumeration`) and `_merged_complexes` tell
+catalysis from binding by the records of a step's two forms (`_is_plain_binding`); the
+derivation and the guard read no step kind, and tell a step's shape from its lists. The derivation reads every binding alike, so a fused
 binding's rapid-equilibrium constant is a dissociation constant and its steady-state pair a
 binding and a release rate constant. Every step's constants are named by the two sides of
 its kinetic class's kept member — each side's enzyme form followed by its free metabolites

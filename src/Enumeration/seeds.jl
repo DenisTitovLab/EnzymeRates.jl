@@ -6,6 +6,10 @@
 """Whether step `s` takes up and gives off nothing: an isomerization."""
 _is_iso(s::Mechanisms.Step) = isempty(s.taken_up) && isempty(s.given_off)
 
+"""Whether step `s` takes up one metabolite and gives off none: a binding, plain or fused
+(`_is_plain_binding`)."""
+_is_binding(s::Mechanisms.Step) = isempty(s.given_off) && length(s.taken_up) == 1
+
 """`steps` with their group labels renumbered 1, 2, … in order of first occurrence."""
 function _numbered_groups(steps::Vector{Mechanisms.Step})
     number = Dict{Int, Int}()
@@ -16,14 +20,15 @@ function _numbered_groups(steps::Vector{Mechanisms.Step})
 end
 
 """
-The written graph of `steps` between `nodes`, as `(; nodes, steps)`: the nodes some step
-joins, in the order of `nodes`, and `steps` with their ends indexing them.
+The written graph of `steps` between the forms whose records are `forms`, as
+`(; forms, steps)`: the records of the forms some step joins, in the order of `forms`, and
+`steps` with their ends indexing them.
 """
-function _trimmed(nodes::Vector{Mechanisms.EnzymeForm}, steps::Vector{Mechanisms.Step})
+function _trimmed(forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step})
     used = sort!(unique!([x for e in steps for x in (e.from, e.to)]))
-    at = zeros(Int, length(nodes))
+    at = zeros(Int, length(forms))
     at[used] = eachindex(used)
-    (; nodes = nodes[used],
+    (; forms = forms[used],
      steps = Mechanisms.Step[Mechanisms.Step(at[e.from], at[e.to], e.taken_up, e.given_off,
                                              e.rapid_equilibrium, e.group) for e in steps])
 end
@@ -48,10 +53,10 @@ function _weak_orderings(items::Vector{Symbol})
 end
 
 """
-    _catalytic_topologies(reaction) -> Vector{@NamedTuple{nodes, steps}}
+    _catalytic_topologies(reaction) -> Vector{@NamedTuple{forms, steps}}
 
 Build catalytic cycle topologies by constructive backtracking. Each topology is a written
-graph (`_trimmed`), each of its nodes once: steps forming one or more complete catalytic
+graph (`_trimmed`), each of its forms once: steps forming one or more complete catalytic
 cycles (E -> ... -> E), every release written as the binding it reverses, so every
 binding takes its metabolite up. Each step's group is 0, for `_seed_groups` to label.
 Errors when the reaction has none.
@@ -59,21 +64,20 @@ Errors when the reaction has none.
 function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     sub_names = Symbol[s.name for s in reaction.substrates]
     prod_names = Symbol[p.name for p in reaction.products]
-    forms = Mechanisms.EnzymeForm[]
-    index = Dict{Mechanisms.EnzymeForm, Int}()
+    forms = _FormRecord[]
+    index = Dict{_FormRecord, Int}()
 
-    # The index in `forms` of the form on :E binding `on_subs` and `on_prods` after a
-    # route consumed `consumed` and released `released`, the form added when new. Its
-    # covalent residual adds the consumed substrates not bound and subtracts the released
-    # and bound products; it has none exactly when their atoms cancel (no covalent
-    # residue remains).
+    # The index in `forms` of the record of the form on :E binding `on_subs` and
+    # `on_prods` after a route consumed `consumed` and released `released`, the form added
+    # when new. Its covalent residual adds the consumed substrates not bound and subtracts
+    # the released and bound products; it has none exactly when their atoms cancel (no
+    # covalent residue remains).
     function form(consumed, released, on_subs, on_prods)
         added, subtracted = setdiff(consumed, on_subs), [released; on_prods]
-        bound = sort!(Mechanisms.Metabolite[Mechanisms.Metabolite.(on_subs, false);
-                                            Mechanisms.Metabolite.(on_prods, false)])
+        bound = sort!([on_subs; on_prods])
         n = isempty(_net_atoms(reaction, added, subtracted)) ?
-            Mechanisms.EnzymeForm(:E, bound, Symbol[], Symbol[]) :
-            Mechanisms.EnzymeForm(:E, bound, sort!(added), sort!(subtracted))
+            _FormRecord(:E, bound, Symbol[], Symbol[], Symbol[]) :
+            _FormRecord(:E, bound, Symbol[], sort!(added), sort!(subtracted))
         get!(() -> (push!(forms, n); length(forms)), index, n)
     end
 
@@ -87,7 +91,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # names itself is boxed.
     paths = Vector{Mechanisms.Step}[]
     function walk!(self, cur, consumed, released, on_subs, on_prods, path)
-        if isempty(forms[cur].bound) && length(consumed) == length(sub_names) &&
+        if isempty(forms[cur].productive) && length(consumed) == length(sub_names) &&
                 length(released) == length(prod_names)
             push!(paths, copy(path))
             return
@@ -169,16 +173,16 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
         Symbol[s.taken_up[1].name for s in path
                if !isempty(s.taken_up) && s.taken_up[1].name in names]
     # A form's place in the canonical form order: free E first, then by label, bound
-    # metabolites, residual additions and residual subtractions.
+    # metabolites, residual additions and residual subtractions. A topology binds no
+    # modifier, so its bound metabolites are its productive ones.
     key(x::Int) = (f = forms[x];
-                   (!(isempty(f.bound) && isempty(f.added) && isempty(f.subtracted) &&
-                      f.conformation === :E),
-                    f.conformation, f.bound, f.added, f.subtracted))
+                   (!(isempty(f.productive) && isempty(f.adds) && isempty(f.subtracts) &&
+                      f.label === :E),
+                    f.label, f.productive, f.adds, f.subtracts))
     form_pair(s) = (key(s.from), key(s.to))
     sorted_iso_pats = sort!(collect(keys(iso_groups));
                             by = pat -> (length(pat), sort([form_pair(s) for s in pat])))
-    result = @NamedTuple{nodes::Vector{Mechanisms.EnzymeForm},
-                         steps::Vector{Mechanisms.Step}}[]
+    result = @NamedTuple{forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step}}[]
     for iso_pat in sorted_iso_pats
         group = [(path, route_order(path, sub_names), route_order(path, prod_names))
                  for path in iso_groups[iso_pat]]
@@ -231,11 +235,11 @@ end
 
 """
     _expand_substrate_product_dead_ends(topos, reaction)
-        -> Vector{@NamedTuple{nodes, steps}}
+        -> Vector{@NamedTuple{forms, steps}}
 
 For each catalytic topology, a written graph, enumerate substrate/product dead-end
 form combinations and return each resulting mechanism as a written graph: the topology's
-nodes and the dead-end forms after them, each once, and the steps between them. A
+forms and the dead-end forms after them, each once, and the steps between them. A
 dead-end form is a catalytic form with one more
 substrate or product bound, subject to:
 - The resulting form binds at least one substrate AND
@@ -258,8 +262,7 @@ cycle and leaves no isomerization a dead-end parallel, so bindings are the only 
 the dead-end forms need.
 """
 function _expand_substrate_product_dead_ends(
-    topos::Vector{@NamedTuple{nodes::Vector{Mechanisms.EnzymeForm},
-                              steps::Vector{Mechanisms.Step}}},
+    topos::Vector{@NamedTuple{forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step}}},
     reaction::Mechanisms.EnzymeReaction,
 )
     sub_names = Set(s.name for s in reaction.substrates)
@@ -275,12 +278,12 @@ function _expand_substrate_product_dead_ends(
     patterns = filter(pat -> all(in(pat), reaction.shared_catalytic_site),
                       _competition_patterns(sub_names, prod_names))
 
-    result = @NamedTuple{nodes::Vector{Mechanisms.EnzymeForm},
-                         steps::Vector{Mechanisms.Step}}[]
+    result = @NamedTuple{forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step}}[]
     for topo in topos
-        forms = copy(topo.nodes)
+        forms = copy(topo.forms)
         index = Dict(f => x for (x, f) in enumerate(forms))
-        held(x::Int) = Set(y.name for y in forms[x].bound)
+        # A topology binds no modifier, so a form's bound names are its productive ones.
+        held(x::Int) = Set(forms[x].productive)
         catalytic = unique!([x for s in topo.steps for x in (s.from, s.to)])
         dead_ends = Int[]
         for x in catalytic, m in mets
@@ -291,9 +294,8 @@ function _expand_substrate_product_dead_ends(
             (isempty(subs) || isempty(prods) || subs == sub_names || prods == prod_names) &&
                 continue
             f = forms[x]
-            d = Mechanisms.EnzymeForm(f.conformation,
-                                      sort!([f.bound; Mechanisms.Metabolite(m, false)]),
-                                      f.added, f.subtracted)
+            d = _FormRecord(f.label, sort!([f.productive; m]), f.copies, f.adds,
+                            f.subtracts)
             push!(dead_ends, get!(() -> (push!(forms, d); length(forms)), index, d))
         end
         # Several catalytic forms can give the same dead end.
@@ -322,8 +324,8 @@ function _expand_substrate_product_dead_ends(
             steps = copy(topo.steps)
             for (i, x1) in enumerate(xs), (j, x2) in enumerate(xs)
                 f1, f2 = forms[x1], forms[x2]
-                f1.conformation == f2.conformation &&
-                    (f1.added, f1.subtracted) == (f2.added, f2.subtracted) &&
+                f1.label === f2.label &&
+                    (f1.adds, f1.subtracts) == (f2.adds, f2.subtracts) &&
                     length(hs[j]) == length(hs[i]) + 1 && issubset(hs[i], hs[j]) &&
                     !((x1, x2) in edges) || continue
                 met = only(setdiff(hs[j], hs[i]))
@@ -382,7 +384,8 @@ function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vec
     length(at_x) == 2 && all(j -> steps[j].to == x && isempty(steps[j].given_off) &&
                                   length(steps[j].taken_up) == 1, at_x) ||
         return nothing
-    binds_substrate(j) = (y = only(steps[j].taken_up); !y.modifier && y.name in substrates)
+    # A seed binds no modifier copy, so a binding of a substrate's name binds the substrate.
+    binds_substrate(j) = only(steps[j].taken_up).name in substrates
     entry, release = steps[sort(at_x; by = j -> !binds_substrate(j))]
     entry.from == release.from && return nothing
     keep = [!(j in at_x) for j in eachindex(steps)]
@@ -391,31 +394,37 @@ function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vec
                                   maximum(e -> e.group, steps) + 1)]
 end
 
-"""The merged complexes of graph `m`, each once: the forms that a fused binding of a
-substrate enters, a `:fused_binding` (`step_kinds`) that takes up a metabolite named in
-`subs`. Only the edges `on` flags count."""
-_merged_complexes(m::Mechanisms.Mechanism, subs::Vector{Symbol},
-                  on::BitVector = trues(length(m.steps))) =
-    unique(m.steps[k].to for k in eachindex(m.steps)
-           if on[k] && m.step_kinds[k] === :fused_binding &&
-              _holds(m.steps[k].taken_up, subs))
+"""The merged complexes of the catalytic graph of candidate `c`, each once: the forms that a
+fused binding of a substrate enters, a binding that is not plain (`_is_binding`,
+`_is_plain_binding`) and takes up a metabolite named in `subs`. Only the edges `on`
+flags count."""
+function _merged_complexes(c::CandidateMechanism, subs::Vector{Symbol},
+                           on::BitVector = trues(length(
+                               Mechanisms.catalytic(c.mechanism).steps)))
+    steps = Mechanisms.catalytic(c.mechanism).steps
+    unique(steps[k].to for k in eachindex(steps)
+           if on[k] && _is_binding(steps[k]) && !_is_plain_binding(c, k) &&
+              _holds(steps[k].taken_up, subs))
+end
 
 """
-The tests of `_seed_variants` that build nothing, for the graph `m` of one base of a
-seed: a function of a candidate's rapid-equilibrium flags (one per edge of `m`, some
-turned steady state) that is true when the candidate has no rapid-equilibrium turnover
-cycle (`has_turnover_cycle`), a maximal rate both ways (`_has_vmax`) and no chemistry in
-equilibrium with both sides (`_chemistry_equilibrates_both_sides`). Each edge's ends,
-uptake weight and reactants are read once per base, so a candidate costs a few passes
-over arrays. A base holds no isomerization, so each chemistry node is a merged complex
-or a Theorell–Chance step. A set of edges holds a turnover cycle iff it closes a cycle of
-nonzero weight (`has_unbalanced_cycle`), which reuses the screen's buffers. Each
-maximal-rate test runs on the candidate's rapid-equilibrium edges and more, and adding
-edges never removes such a cycle, so a turnover cycle of the candidate fails both tests.
+The tests of `_seed_variants` that build nothing, for the candidate `c` of one base of a
+seed, a plain mechanism `m`: a function of a candidate's rapid-equilibrium flags (one per
+edge of `m`, some turned steady state) that is true when the candidate has no
+rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both ways
+(`_has_vmax`) and no chemistry in equilibrium with both sides
+(`_chemistry_equilibrates_both_sides`). Each edge's ends, uptake weight and reactants are
+read once per base, so a candidate costs a few passes over arrays. A base holds no
+isomerization, so each chemistry node is a merged complex or a Theorell–Chance step. A set
+of edges holds a turnover cycle iff it closes a cycle of nonzero weight
+(`has_unbalanced_cycle`), which reuses the screen's buffers. Each maximal-rate test runs on
+the candidate's rapid-equilibrium edges and more, and adding edges never removes such a
+cycle, so a turnover cycle of the candidate fails both tests.
 """
-function _seed_candidate_screen(m::Mechanisms.Mechanism)
+function _seed_candidate_screen(c::CandidateMechanism)
+    m = c.mechanism::Mechanisms.Mechanism
     ks = eachindex(m.steps)
-    any(k -> m.step_kinds[k] === :isomerization, ks) &&
+    any(k -> _is_iso(m.steps[k]), ks) &&
         error("_seed_candidate_screen: the seed base holds an isomerization; a base " *
               "has every isomerization merged")
     subs, prods = m.substrates, m.products
@@ -425,12 +434,12 @@ function _seed_candidate_screen(m::Mechanisms.Mechanism)
     touches(side) = BitVector([_exchanges(m, k, side) for k in ks])
     sub_step, prod_step = touches(subs), touches(prods)
     crossing = BitVector([_crosses_sides(m, k, subs, prods) for k in ks])
-    complexes = _merged_complexes(m, subs)
+    complexes = _merged_complexes(c, subs)
     leaves(x, side) = BitVector([to[k] == x && _holds(m.steps[k].taken_up, side) ||
                                  from[k] == x && _holds(m.steps[k].given_off, side)
                                  for k in ks])
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
-    n = length(m.nodes)
+    n = length(c.forms)
     parent = zeros(Int, n); offset = zeros(Int, n)
     turnover(on) = Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
@@ -446,14 +455,16 @@ function _seed_candidate_screen(m::Mechanisms.Mechanism)
 end
 
 """
-The bases of the seed `m`'s variants, each a written graph of `m`'s nodes (`_trimmed`),
-its group labels numbered 1, 2, … (`_numbered_groups`), the merged base first: merging
-every isomerization of `m` onto its product side (`_merge_isomerization`) and setting
-every step at rapid equilibrium gives the merged base; eliminating one merged complex with
-two steps (`_eliminate_form`) gives a Theorell–Chance base, one per complex that can be
-eliminated, in the order of the isomerizations.
+The bases of the variants of the seed candidate `c`, a plain mechanism `m`, each a written
+graph of the records of `c`'s forms (`_trimmed`), its group labels numbered 1, 2, …
+(`_numbered_groups`), the merged base first: merging every isomerization of `m` onto its
+product side (`_merge_isomerization`) and setting every step at rapid equilibrium gives the
+merged base; eliminating one merged complex with two steps (`_eliminate_form`) gives a
+Theorell–Chance base, one per complex that can be eliminated, in the order of the
+isomerizations.
 """
-function _seed_bases(m::Mechanisms.Mechanism)
+function _seed_bases(c::CandidateMechanism)
+    m = c.mechanism::Mechanisms.Mechanism
     isos = filter(_is_iso, m.steps)
     joined = foldl(_merge_isomerization, isos; init = m.steps)
     merged = Mechanisms.Step[Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off, true,
@@ -463,7 +474,7 @@ function _seed_bases(m::Mechanisms.Mechanism)
         tc = _eliminate_form(merged, s.to, m.substrates)
         tc === nothing || push!(bases, tc)
     end
-    [_trimmed(m.nodes, _numbered_groups(b)) for b in bases]
+    [_trimmed(c.forms, _numbered_groups(b)) for b in bases]
 end
 
 """Whether the flags `re` make the merged base `base` its seed's lumping twin: each merged
@@ -477,31 +488,32 @@ _lumping_twin(base::Mechanisms.Mechanism, cx::Vector{Int}, re::BitVector) = all(
 end
 
 """
-The merged and Theorell–Chance variants of the seed `m` of reaction `rxn`, whose atoms
-each base's edges must conserve. Each base (`_seed_bases`) is built through the checked
-constructor. MERGE and ELIM conserve atoms, which each
-base asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`)
-whose flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a
-variant: no rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both
-ways (`_has_vmax`), no chemistry in equilibrium with both sides
+The merged and Theorell–Chance variants of the seed candidate `c`, a plain mechanism, of
+reaction `rxn`, whose atoms each base's edges must conserve. Each base (`_seed_bases`) is
+built through the checked constructor. MERGE and ELIM conserve atoms, which each base
+asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`) whose
+flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a variant: no
+rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both ways
+(`_has_vmax`), no chemistry in equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`), every steady-state group carrying flux, and
 `_enumerator_keeps` (the guard, and for an allosteric mechanism the binding filter). The
-first three tests read index arrays
-(`_seed_candidate_screen`); the other two run only on a candidate that passes them.
-A merged variant that is its seed's lumping twin (`_lumping_twin`) is skipped: the unmerged
-form with rapid-equilibrium flanks has its family at the same count. A base's groups come in
-canonical order, so the variants come in the order of their flip sets over those groups;
-each is built and checked.
+first three tests read index arrays (`_seed_candidate_screen`); the other two run only on a
+candidate that passes them. A merged variant that is its seed's lumping twin
+(`_lumping_twin`) is skipped: the unmerged form with rapid-equilibrium flanks has its family
+at the same count. A base's groups come in canonical order, so the variants come in the
+order of their flip sets over those groups; each is built and checked.
 """
-function _seed_variants(m::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
-    variants = Mechanisms.Mechanism[]
-    for (i, b) in enumerate(_seed_bases(m))
-        base = Mechanisms.Mechanism(m.substrates, m.products, b.nodes, b.steps)
+function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
+    m = c.mechanism::Mechanisms.Mechanism
+    variants = CandidateMechanism[]
+    for (i, b) in enumerate(_seed_bases(c))
+        base = _candidate(m.substrates, m.products, b.forms, b.steps)
         _assert_atom_conserving(base, rxn)
         flips = _minimal_flips(_seed_candidate_screen(base), base)
         if i == 1
-            cx = _merged_complexes(base, base.substrates)
-            filter!(re -> !_lumping_twin(base, cx, re), flips)
+            cx = _merged_complexes(base, m.substrates)
+            filter!(re -> !_lumping_twin(base.mechanism::Mechanisms.Mechanism, cx, re),
+                    flips)
         end
         append!(variants, [_with_flags(base, re) for re in flips])
     end
@@ -511,9 +523,9 @@ end
 # ─── Entry Points ────────────────────────────────────────────
 
 """
-    init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
+    init_mechanisms(reaction::EnzymeReaction) -> Vector{CandidateMechanism}
 
-The unregulated seeds of the search for a reaction, as concrete `Mechanism` structs:
+The unregulated seeds of the search for a reaction, as candidates of plain mechanisms:
 first the seeds, then their merged and Theorell–Chance variants. A seed is built for
 each catalytic topology (`_catalytic_topologies`) and each substrate/product dead-end
 subset (`_expand_substrate_product_dead_ends`), with one steady-state step, a
@@ -530,17 +542,16 @@ function init_mechanisms(r::Mechanisms.EnzymeReaction)
     subs = Symbol[s.name for s in r.substrates]
     prods = Symbol[p.name for p in r.products]
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
-    mechs = [Mechanisms.Mechanism(subs, prods, s.nodes,
-                                  Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up,
-                                                                  e.given_off,
-                                                                  e.rapid_equilibrium, g)
-                                                  for (e, g) in
-                                                  zip(s.steps, _seed_groups(s.steps))])
-             for s in seeds]
-    foreach(m -> _assert_atom_conserving(m, r), mechs)
+    mechs = CandidateMechanism[
+        _candidate(subs, prods, s.forms,
+                   Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
+                                                   e.rapid_equilibrium, g)
+                                   for (e, g) in zip(s.steps, _seed_groups(s.steps))])
+        for s in seeds]
+    foreach(c -> _assert_atom_conserving(c, r), mechs)
     seen = Set(mechs)
-    out = filter(_enumerator_keeps, mechs)
-    for m in unique(mechs), v in _seed_variants(m, r)
+    out = filter(c -> _enumerator_keeps(c.mechanism), mechs)
+    for c in unique(mechs), v in _seed_variants(c, r)
         v in seen && continue
         push!(seen, v)
         push!(out, v)
@@ -550,7 +561,7 @@ end
 
 """
     seed_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
-        -> Vector{Union{Mechanism, AllostericMechanism}}
+        -> Vector{CandidateMechanism}
 
 Fully-required seed set for the beam. Grows `init_mechanisms(rxn)` by a
 breadth-first closure under the seed-build structure moves and retains the nodes
@@ -587,23 +598,22 @@ seeds it returns are checked.
 function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
     visited = Set{UInt64}()
-    seeds = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-    # Dedup + collect on the main node. Returns true when `m` is new, so the
+    seeds = CandidateMechanism[]
+    # Dedup + collect on the main node. Returns true when `c` is new, so the
     # caller advances only genuinely-new nodes to the next wave. Called in
     # frontier order, which equals the serial BFS enqueue order, so `visited`
     # and `seeds` end byte-identical to the FIFO version.
-    consider!(m) = begin
-        h = hash(m)
+    consider!(c) = begin
+        h = hash(c)
         h in visited && return false
         push!(visited, h)
-        issubset(required_allo, _bound_allo_regs(m)) &&
-            issubset(required_comp, _bound_comp_inhibitors(m)) && push!(seeds, m)
+        issubset(required_allo, _bound_allo_regs(c.mechanism)) &&
+            issubset(required_comp, _bound_comp_inhibitors(c)) && push!(seeds, c)
         true
     end
-    frontier = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
-        m for m in init_mechanisms(rxn) if consider!(m)]
+    frontier = CandidateMechanism[c for c in init_mechanisms(rxn) if consider!(c)]
     while !isempty(frontier)
-        next = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
+        next = CandidateMechanism[]
         for cs in _seed_node_children(frontier, rxn, required_allo, required_comp), c in cs
             consider!(c) && push!(next, c)
         end
@@ -619,24 +629,25 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
               "optional with `optional_competitive_inhibitors` or " *
               "`optional_allosteric_regulators`, or remove its declaration")
     end
-    filter!(_enumerator_keeps, seeds)
+    filter!(c -> _enumerator_keeps(c.mechanism), seeds)
     seeds
 end
 
-"""The children worth expanding (`_is_seed_node`) of each mechanism of `frontier`, in
-frontier order. Generating one mechanism's children is pure and independent of the others',
-so the mechanisms are distributed over the workers."""
+"""The children worth expanding (`_is_seed_node`) of each candidate of `frontier`, in
+frontier order. Generating one candidate's children is pure and independent of the
+others', so the candidates are distributed over the workers."""
 function _seed_node_children(
-    frontier::Vector{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}},
-    rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol}, required_comp::Set{Symbol}
-)::Vector{Vector{Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}}}
+    frontier::Vector{CandidateMechanism}, rxn::Mechanisms.EnzymeReaction,
+    required_allo::Set{Symbol}, required_comp::Set{Symbol}
+)::Vector{Vector{CandidateMechanism}}
     # The return type states what inference cannot read through `pmap`.
-    pmap(frontier) do m
-        children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-        isempty(required_allo) || append!(children, m isa Mechanisms.Mechanism ?
-            _expand_to_allosteric(m, rxn) : _expand_add_allosteric_regulator(m, rxn))
-        append!(children, _expand_add_dead_end_regulator(m, rxn))
-        filter!(c -> _is_seed_node(c, rxn, required_allo, required_comp), children)
+    pmap(frontier) do c
+        children = CandidateMechanism[]
+        isempty(required_allo) || append!(children, c.mechanism isa Mechanisms.Mechanism ?
+            _expand_to_allosteric(c, rxn) : _expand_add_allosteric_regulator(c, rxn))
+        append!(children, _expand_add_dead_end_regulator(c, rxn))
+        filter!(child -> _is_seed_node(child, rxn, required_allo, required_comp),
+                children)
     end
 end
 
@@ -647,29 +658,30 @@ _bound_allo_regs(am::Mechanisms.AllostericMechanism) =
     Set{Symbol}(lig for site in am.regulatory_sites
                 for lig in site.ligands)
 
-"""Names of the competitive inhibitors some step of `m` takes up as a modifier."""
-function _bound_comp_inhibitors(m::Union{Mechanisms.Mechanism,
-                                          Mechanisms.AllostericMechanism})
-    cm = Mechanisms.catalytic(m)
-    Set{Symbol}(x.name for e in cm.steps for x in e.taken_up if x.modifier)
+"""Names of the competitive inhibitors some step of candidate `c` takes up as a modifier
+copy (`_copy_change`)."""
+function _bound_comp_inhibitors(c::CandidateMechanism)
+    steps = Mechanisms.catalytic(c.mechanism).steps
+    Set{Symbol}(x.name for k in eachindex(steps) for x in steps[k].taken_up
+                if _copy_change(c, k, x.name) > 0)
 end
 
 """
-    _is_seed_node(m, rxn::EnzymeReaction, required_allo::Set{Symbol},
+    _is_seed_node(c::CandidateMechanism, rxn::EnzymeReaction, required_allo::Set{Symbol},
                  required_comp::Set{Symbol}) -> Bool
 
 A child worth expanding: cheap states, one ligand per regulatory site, no
 optional regulator bound, and reg-type-respecting.
 """
-function _is_seed_node(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
-                       rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
-                       required_comp::Set{Symbol})
+function _is_seed_node(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction,
+                       required_allo::Set{Symbol}, required_comp::Set{Symbol})
+    m = c.mechanism
     m isa Mechanisms.AllostericMechanism && (:NonequalAI in m.allosteric_states ||
         any(site -> length(site.ligands) != 1 ||
                     only(site.allosteric_states) == :NonequalAI,
             m.regulatory_sites)) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
-    issubset(_bound_comp_inhibitors(m), required_comp) || return false
+    issubset(_bound_comp_inhibitors(c), required_comp) || return false
     _respects_reg_type(m, rxn) || return false
     true
 end
@@ -706,7 +718,7 @@ function _required_regulators(rxn::Mechanisms.EnzymeReaction,
 end
 
 """
-The mechanisms the search fits first: every seed of `mechs` that is not degenerate
+The candidates the search fits first: every seed of `mechs` that is not degenerate
 (`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
 that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
 worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
@@ -716,12 +728,11 @@ degeneracy condition reads. Every flip child must conserve atoms
 (`_assert_atom_conserving`, which errors). The flip search emits only children
 `_enumerator_keeps` accepts.
 """
-function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
-    base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
-        m for m in mechs if !_degenerate(m)]
-    for m in mechs
-        _degenerate(m) || continue
-        for child in _expand_re_to_ss(m)
+function _base_tier(mechs::Vector{CandidateMechanism}, rxn::Mechanisms.EnzymeReaction)
+    base = CandidateMechanism[c for c in mechs if !_degenerate(c)]
+    for c in mechs
+        _degenerate(c) || continue
+        for child in _expand_re_to_ss(c)
             _assert_atom_conserving(child, rxn)
             _degenerate(child) || push!(base, child)
         end

@@ -431,7 +431,7 @@ _testhelper_stored_at_length(am::ER.AllostericMechanism) =
         products: P[C], Q[N]
         competitive_inhibitors: I
     end
-    init = EnzymeRates.Enumeration.init_mechanisms(rxn)
+    init = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     children = _testhelper_children(rxn, init[1:10])
     @test any(c -> c isa ER.AllostericMechanism, children)
     @test all(_testhelper_stored_at_length, init)
@@ -1009,16 +1009,19 @@ reactions, then the children of every init mechanism of its bi-bi reaction."""
 function _testhelper_census_population()
     reactions = _testhelper_census_reactions()
     population = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-    foreach(r -> append!(population, EnzymeRates.Enumeration.init_mechanisms(r)), reactions)
+    foreach(r -> append!(population, _testhelper_mechanisms(
+        EnzymeRates.Enumeration.init_mechanisms(r))), reactions)
     bibi = reactions[2]
     append!(population,
-            _testhelper_children(bibi, EnzymeRates.Enumeration.init_mechanisms(bibi)))
+            _testhelper_children(bibi, _testhelper_mechanisms(
+                EnzymeRates.Enumeration.init_mechanisms(bibi))))
 end
 
 """The census's first allosteric mechanisms: the allosteric children of the init
 mechanisms of its three reactions that declare an allosteric regulator."""
 function _testhelper_census_allosteric()
-    children = [_testhelper_children(r, EnzymeRates.Enumeration.init_mechanisms(r))
+    children = [_testhelper_children(
+        r, _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(r)))
                 for r in _testhelper_census_reactions()[[1, 3, 4]]]
     filter(x -> x isa EnzymeRates.AllostericMechanism, reduce(vcat, children))
 end
@@ -1288,7 +1291,7 @@ end
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_round_trips(_testhelper_lift(spec.mechanism))
     end
-    init = EnzymeRates.Enumeration.init_mechanisms(rxn)
+    init = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     @test length(init) == 239
     @test isempty([i for (i, x) in enumerate(init) if !_testhelper_round_trips(x)])
 end
@@ -1346,7 +1349,8 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    @test all(_testhelper_facts_hold, EnzymeRates.Enumeration.init_mechanisms(rxn))
+    @test all(_testhelper_facts_hold,
+              _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
 end
 
 @testset "stored facts survive the singleton round trip" begin
@@ -1360,7 +1364,7 @@ end
     end
     @test all(x -> _testhelper_all_fields_equal(_testhelper_lift(ER.compile_mechanism(x)),
                                                 x),
-              EnzymeRates.Enumeration.init_mechanisms(rxn))
+              _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
 end
 
 @testset "derived fields stay out of == and hash" begin

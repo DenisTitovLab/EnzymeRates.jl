@@ -1635,7 +1635,8 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    candidate(re) = EnzymeRates.Enumeration._with_flags(ldh, re)
+    candidate(re) = EnzymeRates.Enumeration._with_flags(_testhelper_candidate(ldh),
+                                                        re).mechanism
     flags = _testhelper_flags(ldh)
     @test EnzymeRates.Derivation._guard(candidate(flags)).fault ===
           EnzymeRates.Derivation._TRAP
@@ -5211,7 +5212,7 @@ end
     end
     mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for rxn in (bibi, pingpong)
-        seeds = EnzymeRates.Enumeration.init_mechanisms(rxn)
+        seeds = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
         append!(mechs, seeds, _testhelper_children(rxn, seeds))
     end
     sample = mechs[randperm(Random.MersenneTwister(6), length(mechs))[1:300]]
@@ -6231,7 +6232,8 @@ end
         products: P[C], Q[NX]
     end
     plain = sort!(unique([m for rxn in (bibi, pingpong)
-                          for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
+                          for m in _testhelper_mechanisms(
+                              EnzymeRates.Enumeration.init_mechanisms(rxn))
                           if m isa EnzymeRates.Mechanism]); by = m -> sprint(show, m))
     rng = Random.MersenneTwister(20261119)
     function _testhelper_random_tagging(holds_only_i::Bool)
@@ -6284,7 +6286,8 @@ end
         products: P[C], Q[NX]
     end
     plain = sort!(unique([m for rxn in (bibi, pingpong)
-                          for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
+                          for m in _testhelper_mechanisms(
+                              EnzymeRates.Enumeration.init_mechanisms(rxn))
                           if m isa EnzymeRates.Mechanism && length(m.steps) <= 8]);
                   by = m -> sprint(show, m))
     built(am) = [D._built_reading(am, r) for r in instances(D._SlowUptakeReading)]
@@ -6383,7 +6386,8 @@ end
     # the active conformation without its :OnlyI groups and the inactive one without its
     # :OnlyA groups, and it flags none of them.
     for (label, am) in pairs(_testhelper_onlyi_fixtures())
-        @test (label, EnzymeRates.Enumeration._redundant_copy_groups(am)) == (label, Int[])
+        @test (label, EnzymeRates.Enumeration._redundant_copy_groups(
+            _testhelper_candidate(am))) == (label, Int[])
     end
 end
 

@@ -74,8 +74,6 @@ include("type_stability_harness.jl")
     end
     plain_concrete = EnzymeRates.Mechanism(plain)
     allosteric_concrete = EnzymeRates.AllostericMechanism(allosteric)
-    Plain = typeof(plain_concrete)
-    Allosteric = typeof(allosteric_concrete)
     Reaction = Mech.EnzymeReaction
     floats(names) = NamedTuple{Tuple(names)}(ntuple(_ -> 1.0, length(names)))
     table(m) = (; group = ["g"], Rate = [1.0], (x => [1.0] for x in metabolites(m))...)
@@ -176,10 +174,8 @@ include("type_stability_harness.jl")
             ::Reaction)
         @_testhelper_dispatches_in error_messages Enum.candidate_mechanisms(
             ::Reaction, ::Enum.CandidateMechanism)
-        for Mechs in (Plain, Allosteric, Union{Plain, Allosteric})
-            @_testhelper_no_dispatch Enum._is_seed_node(
-                ::Mechs, ::Reaction, ::Names, ::Names)
-        end
+        @_testhelper_no_dispatch Enum._is_seed_node(
+            ::Enum.CandidateMechanism, ::Reaction, ::Names, ::Names)
     end
 
     @testset "Fitting" begin

@@ -439,8 +439,9 @@ function _testhelper_same_model_regroupings(m)
     cm = EnzymeRates.Mechanisms.catalytic(m)
     kept = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for g in 1:length(cm.groups),
-        bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
-        child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
+        bp in EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(cm), g)
+        child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
+                                                            [(g, bp)]).mechanism
         _testhelper_is_valid(child) &&
             EnzymeRates.Derivation.fitted_parameter_count(child) == n &&
             push!(kept, child)
@@ -1195,16 +1196,18 @@ end
     # suite's time budget allows it.
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
-    seeds = [m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)
+    seeds = [m for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
              if any(EnzymeRates.Mechanisms._has_residual, m.nodes)]
     @test length(seeds) == 18
     nbases, n_moved, n_kids, n_class3 = Dict{Int, Int}(), 0, 0, 0
     for m in seeds
-        tags = EnzymeRates.Enumeration._tagging_bases(m)
+        tags = EnzymeRates.Enumeration._tagging_bases(_testhelper_candidate(m))
         nbases[length(tags)] = get(nbases, length(tags), 0) + 1
-        @test all(t -> EnzymeRates.Enumeration._valid_tagging(m, t) &&
-                       EnzymeRates.Enumeration._stops_inactive_turnover(m, t), tags)
-        moved = EnzymeRates.Enumeration._expand_to_allosteric(m, rxn)
+        @test all(t -> EnzymeRates.Enumeration._valid_tagging(
+                           _testhelper_candidate(m), t) &&
+                       EnzymeRates.Enumeration._stops_inactive_turnover(
+                           _testhelper_candidate(m), t), tags)
+        moved = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
         kids = filter(_testhelper_is_valid, moved)
         n_moved += length(moved)
         n_kids += length(kids)
@@ -1212,7 +1215,8 @@ end
                                    _testhelper_face_faults(c)), moved)
         @test allunique(kids)
         for c in kids
-            @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.allosteric_states)
+            @test EnzymeRates.Enumeration._valid_tagging(_testhelper_candidate(c.catalytic),
+                                                         c.allosteric_states)
             faults = _testhelper_face_faults(c)
             admitted = all(==(EnzymeRates.Derivation._NO_FAULT), faults)
             verdicts = _testhelper_respeed_verdicts(c; rng,
@@ -1340,7 +1344,8 @@ end
 # collector frees it after them: the children the moves give the inhibitor declaration's
 # seeds before candidate_mechanisms drops the ones the guard rejects.
 let children = [c
-                for m in EnzymeRates.Enumeration.init_mechanisms(_testhelper_inhibitor_rxn)
+                for m in _testhelper_mechanisms(
+                    EnzymeRates.Enumeration.init_mechanisms(_testhelper_inhibitor_rxn))
                 for c in _testhelper_plain_moves(m, _testhelper_inhibitor_rxn)]
 @testset "all but 34 inhibitor children pass the guard; none tags catalysis :OnlyI" begin
     # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
@@ -1537,8 +1542,10 @@ end
             EnzymeRates.Derivation.fitted_parameter_count(m)
         cm = EnzymeRates.Mechanisms.catalytic(m)
         for g in 1:length(cm.groups),
-            bp in EnzymeRates.Enumeration._context_bipartitions(cm, g)
-            child = EnzymeRates.Enumeration._apply_bipartitions(m, [(g, bp)])
+            bp in EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(cm),
+                                                                g)
+            child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
+                                                                [(g, bp)]).mechanism
             EnzymeRates.Derivation.fitted_parameter_count(child) == n || continue
             n_regrouped += 1
             @test EnzymeRates.Derivation._guard(child).fault === fault
@@ -1608,7 +1615,8 @@ end
 without duplicates, in content order (`_testhelper_content_text`)."""
 function _testhelper_tagging_children(parents, rxn)
     kids = unique!(
-        [c for p in parents for c in EnzymeRates.Enumeration._expand_to_allosteric(p, rxn)
+        [c for p in parents
+         for c in _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, p, rxn)
          if _testhelper_is_valid(c)])
     kids[sortperm(_testhelper_content_text.(kids))]
 end
@@ -1621,7 +1629,8 @@ end
     # it on the first four. The counts are aggregate regression pins over the
     # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
     rxn = _testhelper_phantom_bibi_rxn
-    parents = _testhelper_spaced(collect(EnzymeRates.Enumeration.init_mechanisms(rxn)), 40)
+    parents = _testhelper_spaced(
+        collect(_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))), 40)
     kids = _testhelper_spaced(_testhelper_tagging_children(parents, rxn), 200)
     @test length(kids) == 200
     flagged = [am for am in kids
@@ -1646,8 +1655,10 @@ end
     # rule 1's exception).
     rxn = _testhelper_phantom_pingpong_rxn
     covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.nodes)
-    inits = filter(covalent, collect(EnzymeRates.Enumeration.init_mechanisms(rxn)))
-    flips = [c for m in inits for c in EnzymeRates.Enumeration._expand_re_to_ss(m)
+    inits = filter(covalent, collect(
+        _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))))
+    flips = [c for m in inits
+             for c in _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
              if _testhelper_is_valid(c) && covalent(c)]
     parents = _testhelper_spaced(unique!([inits; flips]), 30)
     @test length(parents) == 30

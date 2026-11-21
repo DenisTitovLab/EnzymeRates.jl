@@ -520,7 +520,8 @@ end
         @test any(f -> any(isequal(true), _testhelper_read_csv(f).L_phantom), files)
         init_df = _testhelper_read_csv("initial_mechanisms.csv")
         @test nrow(init_df) == length(unique!(
-            collect(EnzymeRates.Enumeration.init_mechanisms(prob.reaction))))
+            collect(_testhelper_mechanisms(
+                EnzymeRates.Enumeration.init_mechanisms(prob.reaction)))))
         @test "key" in names(init_df)
         @test !("fit_inherited_from_estimate" in names(init_df))
         texts = Dict{String, Set{String}}()
@@ -1142,7 +1143,8 @@ end
         products:   P[C], Q[N]
     end)
     buckets = Dict{String, Vector{Int}}()
-    for (i, m) in enumerate(EnzymeRates.Enumeration.init_mechanisms(reaction))
+    for (i, m) in enumerate(
+        _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(reaction)))
         k = EnzymeRates.Derivation.rate_equation_dedup_key(m)
         @test !k.capped
         push!(get!(buckets, k.key, Int[]), i)
@@ -1345,7 +1347,8 @@ end
 end
 
 @testset "_process_batch" begin
-    ms = unique!(collect(EnzymeRates.Enumeration.init_mechanisms(_testhelper_uni_rxn)))
+    ms = unique!(collect(_testhelper_mechanisms(
+        EnzymeRates.Enumeration.init_mechanisms(_testhelper_uni_rxn))))
     prob = _testhelper_uni_prob(DataFrame)
 
     entries, failures = EnzymeRates._process_batch(_testhelper_candidate.(ms), prob;
@@ -2550,7 +2553,8 @@ end
     end
     # The seed's children as parents: their own children overlap, so the
     # first-parent dedup and attribution are exercised.
-    parents = _testhelper_children(rxn, EnzymeRates.Enumeration.init_mechanisms(rxn))
+    parents = _testhelper_children(
+        rxn, _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
     to_expand = [EnzymeRates.BatchEntry(_testhelper_candidate(m), 3, 0.0, :Success, "", "",
                                         (mechanism="M",))
                  for m in parents]
@@ -2590,8 +2594,9 @@ end
             E(S, X) <--> E(X) + P   :: EqualAI
         end
     end)
-    @test !EnzymeRates.Enumeration._degenerate(route)
-    @test EnzymeRates.Enumeration._degenerate(EnzymeRates.Mechanism(@enzyme_mechanism begin
+    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(route))
+    @test EnzymeRates.Enumeration._degenerate(
+        _testhelper_candidate(EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: X
@@ -2603,7 +2608,7 @@ end
             E(X) + S ⇌ E(S, X)
             E(S, X) <--> E(X) + P
         end
-    end))
+    end)))
     # The maximal-rate test turns rapid equilibrium every step that takes up or gives
     # off a substrate, so masking only the flags would bring the excluded steps back:
     # here the X route's two Theorell–Chance steps, each taking up S and giving off P,
@@ -2627,7 +2632,7 @@ end
     re = _testhelper_flags(cm)
     @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
-    @test !EnzymeRates.Enumeration._degenerate(tc_route)
+    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(tc_route))
     # Read over every step, the X route's merged complex E(P, X) sits in rapid
     # equilibrium with both sides (condition C), while the maximal rate exists both
     # ways: the steady-state F(X) <--> E(X) keeps the route from closing a
@@ -2652,13 +2657,17 @@ end
     re = _testhelper_flags(cm)
     subs = cm.substrates
     @test EnzymeRates.Mechanisms.form_text.(
-        Ref(cm), EnzymeRates.Enumeration._merged_complexes(cm, subs)) == ["E(P, X)"]
-    @test isempty(EnzymeRates.Enumeration._merged_complexes(cm, subs, on))
-    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
-    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)
+        Ref(cm), EnzymeRates.Enumeration._merged_complexes(_testhelper_candidate(cm),
+                                                           subs)) == ["E(P, X)"]
+    @test isempty(
+        EnzymeRates.Enumeration._merged_complexes(_testhelper_candidate(cm), subs, on))
+    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
+        _testhelper_candidate(cm), re)
+    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
+        _testhelper_candidate(cm), re, on)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&
           EnzymeRates.Enumeration._has_vmax(cm, re, cm.products)
-    @test !EnzymeRates.Enumeration._degenerate(merged_route)
+    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(merged_route))
     # The same route through a rapid-equilibrium Theorell–Chance step. Read over every
     # step, that step takes up S and gives off P in rapid equilibrium (condition C), and
     # the maximal rate again exists both ways; read through the edge mask, the step lies
@@ -2679,11 +2688,13 @@ end
     cm, on = re_tc_route.catalytic,
              EnzymeRates.Mechanisms.steps_in_active_conformation(re_tc_route)
     re = _testhelper_flags(cm)
-    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
-    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)
+    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
+        _testhelper_candidate(cm), re)
+    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
+        _testhelper_candidate(cm), re, on)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&
           EnzymeRates.Enumeration._has_vmax(cm, re, cm.products)
-    @test !EnzymeRates.Enumeration._degenerate(re_tc_route)
+    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(re_tc_route))
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin

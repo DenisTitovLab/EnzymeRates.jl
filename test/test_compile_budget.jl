@@ -209,7 +209,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
             s0 = _testhelper_instances(methods(show))
-            rec = ER._pass1_record(ER.Enumeration.CandidateMechanism(m))
+            rec = ER._pass1_record(
+                ER.Enumeration.CandidateMechanism(m, ER.Enumeration._form_records(m)))
             pass1 = _testhelper_all_instances() - n0
             rec isa ER._Pass1Record || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
@@ -224,7 +225,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             sprint(show, ER.compile_mechanism(m))
             (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2, pass1)
         end
-        ms = ER.Enumeration.init_mechanisms(rxn)
+        ms = [c.mechanism for c in ER.Enumeration.init_mechanisms(rxn)]
         # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
         # and once; encoding every seed first keeps it out of the per-mechanism counts
         # and measures its total for this process.

@@ -143,7 +143,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             products: P[C]
             competitive_inhibitors: K
         end
-        on_rxn = only(ER.Enumeration.init_mechanisms(rxn))
+        on_rxn = only(_testhelper_mechanisms(ER.Enumeration.init_mechanisms(rxn)))
         @test on_rxn.modifiers == Symbol[]
         @test ER.metabolites(on_rxn) == [:S, :P]
         # An allosteric mechanism lists its site ligands last, site by site; a name that
@@ -1797,8 +1797,10 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             products: P[C]
             competitive_inhibitors: U
         end
-        @test ER.EnzymeMechanism(only(ER.Enumeration.init_mechanisms(with_u))) ===
-              ER.EnzymeMechanism(only(ER.Enumeration.init_mechanisms(without_u)))
+        @test ER.EnzymeMechanism(
+            only(_testhelper_mechanisms(ER.Enumeration.init_mechanisms(with_u)))) ===
+              ER.EnzymeMechanism(
+                  only(_testhelper_mechanisms(ER.Enumeration.init_mechanisms(without_u))))
     end
 end
 
@@ -3290,7 +3292,7 @@ end
         oligomeric_state: 2
     end
     m = EnzymeRates.Mechanism(_testhelper_re_mm)
-    m_on_rxn = only(EnzymeRates.Enumeration.init_mechanisms(rxn))
+    m_on_rxn = only(_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
     @test m_on_rxn == m && hash(m_on_rxn) == hash(m)
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S

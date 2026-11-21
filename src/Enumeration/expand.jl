@@ -11,26 +11,24 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
                               parent::CandidateMechanism;
                               max_param_count::Int = typemax(Int),
                               eq_complexity_filter::Int = typemax(Int))
-    m = parent.mechanism
-    _assert_emission_rules(m)
-    children = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[]
-    # One call per move: on a `Union` parent, three moves' results in one call exceed what
-    # inference splits, and it dispatches at run time.
-    append!(children, _expand_re_to_ss(m))
-    append!(children, _expand_split_kinetic_group(m))
-    append!(children, _expand_add_dead_end_regulator(m, reaction))
-    if m isa Mechanisms.Mechanism
-        append!(children, _expand_to_allosteric(m, reaction))
+    _assert_emission_rules(parent)
+    children = CandidateMechanism[]
+    append!(children, _expand_re_to_ss(parent))
+    append!(children, _expand_split_kinetic_group(parent))
+    append!(children, _expand_add_dead_end_regulator(parent, reaction))
+    if parent.mechanism isa Mechanisms.Mechanism
+        append!(children, _expand_to_allosteric(parent, reaction))
     else
-        append!(children, _expand_add_allosteric_regulator(m, reaction),
-                _expand_change_allo_state(m), _expand_merge_regulatory_sites(m))
+        append!(children, _expand_add_allosteric_regulator(parent, reaction),
+                _expand_change_allo_state(parent), _expand_merge_regulatory_sites(parent))
     end
-    filter!(c -> _respects_reg_type(c, reaction), children)
+    filter!(c -> _respects_reg_type(c.mechanism, reaction), children)
     foreach(child -> _assert_atom_conserving(child, reaction), children)
     # The term count reads the graph alone, where the guard derives, so the term limit
     # runs first and `_candidates` applies only the other.
     eq_complexity_filter == typemax(Int) || filter!(
-        c -> Derivation.rate_equation_term_count(c) <= eq_complexity_filter, children)
-    filter!(_enumerator_keeps, children)
+        c -> Derivation.rate_equation_term_count(c.mechanism) <= eq_complexity_filter,
+        children)
+    filter!(c -> _enumerator_keeps(c.mechanism), children)
     _candidates(children, max_param_count, typemax(Int))
 end

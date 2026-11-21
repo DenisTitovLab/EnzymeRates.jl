@@ -9,19 +9,7 @@ using Distributed: pmap
 
 public CandidateMechanism, candidate_mechanisms
 
-"""
-    CandidateMechanism
-
-A mechanism the enumerator proposes for a reaction (`candidate_mechanisms`). Its field
-`mechanism`, a `Mechanism` or an `AllostericMechanism`, is the mechanism to fit and
-report. Two candidates are `==` and hash alike exactly when their mechanisms are.
-"""
-struct CandidateMechanism
-    mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-end
-
-Base.:(==)(a::CandidateMechanism, b::CandidateMechanism) = a.mechanism == b.mechanism
-Base.hash(c::CandidateMechanism, h::UInt) = hash(c.mechanism, h)
+include("record.jl")
 
 """
     candidate_mechanisms(reaction; max_param_count = typemax(Int),
@@ -54,15 +42,17 @@ enumerator fails, such as atom conservation.
 """
 function candidate_mechanisms end
 
-"""The candidates of `mechs` whose law has at most `eq_complexity_filter` terms and at
+"""The candidates of `cands` whose law has at most `eq_complexity_filter` terms and at
 most `max_param_count` fitted constants, in order. A limit of `typemax(Int)` limits
 nothing, so its count is not computed: the fitted count solves the mechanism."""
-_candidates(mechs, max_param_count::Int, eq_complexity_filter::Int) =
-    CandidateMechanism[CandidateMechanism(m) for m in mechs
-                       if (eq_complexity_filter == typemax(Int) ||
-                           Derivation.rate_equation_term_count(m) <= eq_complexity_filter) &&
-                          (max_param_count == typemax(Int) ||
-                           Derivation.fitted_parameter_count(m) <= max_param_count)]
+_candidates(cands::Vector{CandidateMechanism}, max_param_count::Int,
+            eq_complexity_filter::Int) =
+    filter(cands) do c
+        (eq_complexity_filter == typemax(Int) ||
+         Derivation.rate_equation_term_count(c.mechanism) <= eq_complexity_filter) &&
+            (max_param_count == typemax(Int) ||
+             Derivation.fitted_parameter_count(c.mechanism) <= max_param_count)
+    end
 
 """Whether the enumerator keeps `m`: the guard (`Derivation.check_valid_rate_equation`)
 accepts it, and no conformation keeps a form that only bindings it excludes enter
@@ -78,6 +68,57 @@ _copies(v::Vector{Mechanisms.Metabolite}, name::Symbol) = count(x -> x.name === 
 """The rapid-equilibrium flag of each step of `m`, in step order."""
 _rapid_equilibrium_flags(m::Mechanisms.Mechanism) =
     BitVector([e.rapid_equilibrium for e in m.steps])
+
+"""Each kinetic group of graph `m`, its steps in step order."""
+function _kinetic_groups(m::Mechanisms.Mechanism)
+    members = [Int[] for _ in 1:maximum(e -> e.group, m.steps; init = 0)]
+    for (k, e) in enumerate(m.steps)
+        push!(members[e.group], k)
+    end
+    members
+end
+
+"""How many more modifier copies of `name` the record of candidate `c` holds at the second
+form of step `k` than at its first: positive when the step takes copies of `name` up,
+negative when it gives them off, zero when it exchanges `name` only productively. A copy
+binds a site of its own and takes no part in the chemistry, so it enters or leaves a form
+only with the step that takes it up or gives it off."""
+function _copy_change(c::CandidateMechanism, k::Int, name::Symbol)
+    e = Mechanisms.catalytic(c.mechanism).steps[k]
+    count(==(name), c.forms[e.to].copies) - count(==(name), c.forms[e.from].copies)
+end
+
+"""Whether step `k` of candidate `c` is a plain binding: it takes up one metabolite and
+gives off none (`_is_binding`), and the record of its second form is that of its first
+with the metabolite added, among the copies when the step binds a copy (`_copy_change`),
+the residual the same and the label free to change. Every other step is chemistry: an
+isomerization, a fused binding (the last substrate binding straight into the
+product-bound form), a Theorell–Chance step or an exchange."""
+function _is_plain_binding(c::CandidateMechanism, k::Int)
+    e = Mechanisms.catalytic(c.mechanism).steps[k]
+    _is_binding(e) || return false
+    f, t, x = c.forms[e.from], c.forms[e.to], only(e.taken_up).name
+    f.adds == t.adds && f.subtracts == t.subtracts || return false
+    _copy_change(c, k, x) > 0 ?
+        f.productive == t.productive && _one_more(t.copies, f.copies, x) :
+        f.copies == t.copies && _one_more(t.productive, f.productive, x)
+end
+
+"""Whether the sorted list `t` is the sorted list `f` with one more `x`."""
+function _one_more(t::Vector{Symbol}, f::Vector{Symbol}, x::Symbol)
+    length(t) == length(f) + 1 || return false
+    j, skipped = 1, false
+    for y in t
+        if j <= length(f) && y === f[j]
+            j += 1
+        elseif !skipped && y === x
+            skipped = true
+        else
+            return false
+        end
+    end
+    skipped
+end
 
 include("seeds.jl")
 include("moves.jl")

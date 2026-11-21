@@ -37,7 +37,7 @@ using DataFrames
             substrates: A[C], B[N]
             products: P[C], Q[N]
         end
-        init = EnzymeRates.Enumeration.init_mechanisms(bi_bi)
+        init = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(bi_bi))
         @test length(init) > 0
         @test all(_testhelper_text_reads_back, init)
     end
