@@ -238,16 +238,6 @@ Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's ac
 a copy on a form its conformation prunes) are eliminated first, so no dependent of the
 law reads them. The `Type` method decodes a compiled mechanism and checks that its rate
 law is defined (`_derivation_input`).
-
-Errors when two constants of the law, regulator constants included, render one name,
-which the law would read as one constant: with a conformation labelled `A`, the uptake
-constant of the `:EqualAI` step `A(Eb) <--> A + Eb` renders `k_A_Eb_to_AEb`, the name of
-the active constant of a `:NonequalAI` step `E(b) <--> A(Eb)`. The macros and the
-constructors reject the labels `A` and `I` (`check_conformation_label`). A metabolite
-name can still imitate a residual's: with a modifier named `minusQ`, the side
-`E(; residual = A - P) + minusQ` and the form `E(; residual = A - P - Q)` both render
-`E_res_plusA_minusP_minusQ`, and the macros accept a step between them, so this check can
-fire for a mechanism they build.
 """
 function _solve(m::_AnyMech)
     cols = _constant_columns(m)
@@ -255,26 +245,16 @@ function _solve(m::_AnyMech)
     M, pivots = _reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
     names = cols.names
-    last_of = Dict(_class(m, c) => i for (i, c) in enumerate(sys.columns))
-    kept_in_law(i) = cols.in_law[i] && last_of[_class(m, sys.columns[i])] == i
-    regulators = _regulator_parameters(m)
-    reg = m isa Mechanisms.AllostericMechanism ?
-          Symbol[_name(p, m) for p in regulators] : Symbol[]
-    rendered = [names[filter(kept_in_law, 1:n)]; reg]
-    allunique(rendered) || error(
-        "Constants of this mechanism's rate equation share a name (" *
-        join(unique(x for x in rendered if count(==(x), rendered) > 1), ", ") *
-        "); rename a metabolite or a conformation label so that each constant has a " *
-        "name of its own")
     free = setdiff(1:n, pivots)
     dependents = _Dependent[]
     for (r, p) in enumerate(pivots)
         cols.in_law[p] || continue
         keq, factors = _pivot_row_exponents(M, r, n + 1, free)
-        label = !kept_in_law(p) ? :kinetic_group : iszero(keq) ? :wegscheider : :haldane
+        label = !cols.kept_in_law[p] ? :kinetic_group :
+                iszero(keq) ? :wegscheider : :haldane
         push!(dependents, _Dependent(p, keq, factors, label))
     end
-    independents = sort!(filter(kept_in_law, free); by = i -> string(names[i]))
+    independents = sort!(filter(i -> cols.kept_in_law[i], free); by = i -> string(names[i]))
     column = Dict(c => i for (i, c) in enumerate(sys.columns))
     if m isa Mechanisms.AllostericMechanism
         for (i, c) in enumerate(sys.columns)
@@ -282,8 +262,8 @@ function _solve(m::_AnyMech)
             c.inactive || haskey(column, key) || (column[key] = i)
         end
     end
-    info = _Parameter[sys.columns[independents]; regulators]
-    fitted = [names[independents]; reg]
+    info = _Parameter[sys.columns[independents]; _regulator_parameters(m)]
+    fitted = [names[independents]; _regulator_names(m)]
     if m isa Mechanisms.AllostericMechanism
         push!(info, _AllostericParameter())
         push!(fitted, _name(_AllostericParameter(), m))
@@ -311,6 +291,12 @@ function _regulator_parameters(am::Mechanisms.AllostericMechanism)
         if !(inactive && tag === :EqualAI) && tag !== (inactive ? :OnlyA : :OnlyI)]
     [params(false); params(true)]
 end
+
+"""The names of the regulator parameters of `m` (`_regulator_parameters`), in their
+order."""
+_regulator_names(::Mechanisms.Mechanism) = Symbol[]
+_regulator_names(am::Mechanisms.AllostericMechanism) =
+    Symbol[_name(p, am) for p in _regulator_parameters(am)]
 
 _solve(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
     _solve(_derivation_input(M))

@@ -10,13 +10,18 @@ The error for the guard's verdict on `mech`:
 `<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.`, the
 cause read under the reading the verdict was judged under (`_guard_with_reading`). Class
 2's fix is printed when each step's variant leaves no fast turnover cycle
-(`_every_step_cures`); every other fix only when its variant passes `_guard`. An error
-when the guard admits `mech`.
+(`_every_step_cures`); every other fix only when its variant passes `_guard`. When two
+constants share a name (`_SHARED_NAME`), the error names them and asks for a renaming. An
+error when the guard admits `mech`.
 """
 function _guard_message(mech::_AnyMech)
     (; verdict, reading) = _guard_with_reading(mech)
     who = mech isa Mechanisms.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
     verdict.fault === _NO_FAULT && error("_guard_message: verdict $verdict holds no fault")
+    verdict.fault === _SHARED_NAME &&
+        return "Constants of this mechanism's rate equation share a name (" *
+               join(_shared_constant_names(mech), ", ") * "); rename a metabolite or a " *
+               "conformation label so that each constant has a name of its own"
     verdict.fault === _NO_CYCLE &&
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."

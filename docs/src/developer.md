@@ -657,8 +657,9 @@ ping-pong starting mechanisms, and 18 of them fail. `test/Derivation/test_admiss
 keeps a sampled population test with corner directions ("sampled taggings: the
 energy-level rule agrees with the oracles").
 
-**Faults.** A verdict's fault is one of: no cycle turns the reaction over (`_NO_CYCLE`); a
-fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`,
+**Faults.** A verdict's fault is one of: two constants of the law share a name, which the
+guard checks first (`_SHARED_NAME`, `_shared_constant_names`); no cycle turns the
+reaction over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`,
 `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded rapid-equilibrium step inside one group
 (`_FAST_STEP_PINNED`); an active conformation that turns nothing over
 (`_NO_ACTIVE_TURNOVER`); on a face, admission's `_EPS_NONUNIQUE`, `_FILLED`, `_PUMPED` or

@@ -7,9 +7,10 @@
 
 Whether `m`'s rate law is the unique limit of mass-action kinetics, as its rapid-equilibrium
 steps speed up and its tagged constants vanish, on every face where data sit (spec
-section 8): the guard (`_guard`) finds no fault. The one-argument form throws an error
-whose message (`_guard_message`) names each step at fault by its DSL line, and returns
-`true` otherwise; the `Bool` form returns the verdict (`false` on a fault) instead of
+section 8), and each of its constants has a name of its own: the guard (`_guard`) finds no
+fault. The one-argument form throws an error whose message (`_guard_message`) names each
+step at fault by its DSL line, or the names its constants share, and returns `true`
+otherwise; the `Bool` form returns the verdict (`false` on a fault) instead of
 throwing. It reads the reaction graph through masks and builds nothing. The mechanism
 macros and the parser call the one-argument form, and every derivation entry runs its
 check (`_derivation_input`, `_well_posed`). Both read the verdict through the memo
@@ -44,7 +45,8 @@ _derivation_input(@nospecialize(M::Type{<:Mechanisms.AllostericEnzymeMechanism})
 # ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
 
 """
-What the guard finds wrong with a mechanism (spec section 8): nothing (`_NO_FAULT`); no
+What the guard finds wrong with a mechanism (spec section 8): nothing (`_NO_FAULT`); two
+constants of its rate law share a name (`_SHARED_NAME`, `_shared_constant_names`); no
 cycle turns the reaction over (`_NO_CYCLE`, class 1); a cycle of rapid-equilibrium steps
 turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed class
 (`_NONUNIQUE`), a rapid-equilibrium segment with no lowest form (`_BOTTOMLESS`), or a law
@@ -87,6 +89,7 @@ the guard reports neither `_ARC_CYCLE` nor `_ISLAND` (`_guard_with_reading`).
     _BRIDGE
     _NO_ACTIVE_TURNOVER
     _TOO_MANY_READINGS
+    _SHARED_NAME
 end
 
 """The faults of admission the guard reports; `_admission_message` writes their text."""
@@ -446,10 +449,10 @@ end
 
 The well-posedness guard (spec section 8) on `m`, plain or allosteric, and the reading of
 how its conformations switch off its excluded steps (`_Reading`) that its `verdict` was
-judged under. Class 1 first (a cycle turns the reaction over,
-`Mechanisms.has_turnover_cycle`); then, under a reading (`_verdict_under`), class 2,
-admission's interior, and on every face class 3 and admission's face condition. A plain
-mechanism's one reading runs every step.
+judged under. First that each constant has a name of its own (`_shared_constant_names`),
+then class 1 (a cycle turns the reaction over, `Mechanisms.has_turnover_cycle`); then,
+under a reading (`_verdict_under`), class 2, admission's interior, and on every face class
+3 and admission's face condition. A plain mechanism's one reading runs every step.
 
 An allosteric mechanism's verdict follows the energy-level rule. A reading is consistent
 when admission's interior accepts it. The guard admits the mechanism under the first
@@ -467,6 +470,8 @@ search (`_TOO_MANY_READINGS`).
 """
 function _guard_with_reading(m::Mechanisms.Mechanism)
     reading = _built_reading(m)
+    isempty(_shared_constant_names(m)) ||
+        return (; verdict = _Verdict(_SHARED_NAME, _LIMIT_UNTESTED, 0, 0, 0), reading)
     Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0), reading)
     (; verdict = _verdict_under(m, reading), reading)
@@ -474,6 +479,9 @@ end
 function _guard_with_reading(am::Mechanisms.AllostericMechanism)
     m = am.catalytic
     first_reading = _built_reading(am)
+    isempty(_shared_constant_names(am)) ||
+        return (; verdict = _Verdict(_SHARED_NAME, _LIMIT_UNTESTED, 0, 0, 0),
+                reading = first_reading)
     Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0),
                 reading = first_reading)

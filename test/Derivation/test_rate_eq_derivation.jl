@@ -2408,7 +2408,7 @@ function _testhelper_unchecked(raw::NamedTuple)
          for s in raw.regulatory_sites])
 end
 
-@testset "constants that would share a name are rejected" begin
+@testset "constants that would share a name are rejected by the guard" begin
     # The walker reads the block the field-by-field raw value writes.
     @test EnzymeRates.DSL.raw_mechanism(_testhelper_relabelled_block(:F), true) ==
           _testhelper_relabelled_raw(:F)
@@ -2432,14 +2432,16 @@ end
                      EnzymeRates.DSL._construct(_testhelper_relabelled_raw(label)))
     end
 
-    # The derivation checks the names of a graph built without the label check. The
-    # uptake constant of the :EqualAI step A(Eb) <--> A + Eb is k_A_Eb_to_AEb, the name
-    # of the active constant of the :NonequalAI step E(b) <--> A(Eb).
+    # The guard checks the names of a graph built without the label check. The uptake
+    # constant of the :EqualAI step A(Eb) <--> A + Eb is k_A_Eb_to_AEb, the name of the
+    # active constant of the :NonequalAI step E(b) <--> A(Eb).
     am_a = _testhelper_unchecked(_testhelper_relabelled_raw(:A))
     conformation_a = EnzymeRates.compile_mechanism(am_a)
     clash_a = ErrorException("Constants of this mechanism's rate equation share a name " *
                              "(k_A_Eb_to_AEb); rename a metabolite or a conformation " *
                              "label so that each constant has a name of its own")
+    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, am_a)
+    @test_throws clash_a EnzymeRates.Derivation.check_valid_rate_equation(am_a)
     params = (K_Eb_to_E_b = 1.0, K_A_to_E = 2.0, k_A_Eb_to_AEb = 3.0, k_AEb_to_A_Eb = 4.0,
               k_I_Eb_to_AEb = 0.5, L = 10.0)
     @test_throws clash_a parameters(conformation_a)
@@ -2447,15 +2449,15 @@ end
                                                                4.0)
     @test_throws clash_a rate_equation_string(conformation_a)
     @test_throws clash_a dependent_parameter_values(conformation_a, params, 4.0)
-    @test_throws clash_a EnzymeRates.Derivation.fitted_parameter_count(am_a)
 
     # Labelled I, the :EqualAI uptake constant k_I_Eb_to_IEb is the name of the
     # :NonequalAI step's inactive constant.
-    conformation_i =
-        EnzymeRates.compile_mechanism(_testhelper_unchecked(_testhelper_relabelled_raw(:I)))
+    am_i = _testhelper_unchecked(_testhelper_relabelled_raw(:I))
+    conformation_i = EnzymeRates.compile_mechanism(am_i)
     clash_i = ErrorException("Constants of this mechanism's rate equation share a name " *
                              "(k_I_Eb_to_IEb); rename a metabolite or a conformation " *
                              "label so that each constant has a name of its own")
+    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, am_i)
     @test_throws clash_i parameters(conformation_i)
     @test_throws clash_i rate_equation_string(conformation_i)
 
@@ -2469,8 +2471,9 @@ end
     # A modifier named minusQ imitates a residual: the side E(; residual = A - P) + minusQ
     # and the form E(; residual = A - P - Q) both render E_res_plusA_minusP_minusQ, so each
     # constant of the minusQ binding takes the name of a constant of the step from
-    # E(minusQ; residual = A - P) to that form.
-    residual_clash = @enzyme_mechanism begin
+    # E(minusQ; residual = A - P) to that form. The macro runs the guard, so it rejects
+    # the mechanism; the constructors build it.
+    residual_block = :(begin
         substrates: A, B
         products: P, Q
         modifiers: minusQ
@@ -2484,13 +2487,16 @@ end
             E(; residual = A - P) + minusQ <--> E(minusQ; residual = A - P)
             E(minusQ; residual = A - P) <--> E(; residual = A - P - Q)
         end
-    end
-    @test_throws(ErrorException(
+    end)
+    residual_clash = _testhelper_build(EnzymeRates.DSL.raw_mechanism(residual_block, false))
+    clash_residual = ErrorException(
         "Constants of this mechanism's rate equation share a name " *
         "(k_EminusQ_res_plusA_minusP_to_E_res_plusA_minusP_minusQ, " *
         "k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP); rename a metabolite " *
-        "or a conformation label so that each constant has a name of its own"),
-        parameters(residual_clash))
+        "or a conformation label so that each constant has a name of its own")
+    @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, residual_clash)
+    @test_throws clash_residual eval(:(@enzyme_mechanism $residual_block))
+    @test_throws clash_residual parameters(residual_clash)
 end
 
 # The names no metabolite takes: Keq, L, N, params, concs, v and every name

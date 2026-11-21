@@ -215,7 +215,7 @@ function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
 end
 
 """
-    _constant_columns(m) -> (; columns, names, in_law, flat, tags, law)
+    _constant_columns(m) -> (; columns, names, in_law, kept_in_law, flat, tags, law)
 
 The constants of the steps of `m` as the joint solve's columns, in elimination order
 (`_ordered_columns`), with the name each column takes. `columns[i]` is a `_StepParameter`:
@@ -228,9 +228,11 @@ group, for its inactive copy.
 (`_kept_members`, through the `_name(p, m)` chokepoint); `in_law[i]` whether the column
 enters the law: an inactive copy when its step lies in the inactive conformation's law,
 an active column when its step lies in the active one's or is an `:EqualAI` step of the
-inactive one's, whose one constant the inactive law reads. `flat` holds the steps group
-by group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of
-the inactive conformation (`inactive_steps`).
+inactive one's, whose one constant the inactive law reads; `kept_in_law[i]` whether it
+enters the law as its class's kept member, the last of its class (`_class`) in
+elimination order, so that it stands for the class. `flat` holds the steps group by
+group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of the
+inactive conformation (`inactive_steps`).
 """
 function _constant_columns(m::_AnyMech)
     cols = _ordered_columns(m)
@@ -240,7 +242,30 @@ function _constant_columns(m::_AnyMech)
     in_law = BitVector([c.inactive ? cols.law[c.step] :
                         _in_active_law(cm, c.step, cols.tags, cols.law, cols.alaw)
                         for c in cols.columns])
-    (; cols.columns, names, in_law, cols.flat, cols.tags, cols.law)
+    last_of = Dict(_class(m, c) => i for (i, c) in enumerate(cols.columns))
+    kept_in_law = BitVector([in_law[i] && last_of[_class(m, c)] == i
+                             for (i, c) in enumerate(cols.columns)])
+    (; cols.columns, names, in_law, kept_in_law, cols.flat, cols.tags, cols.law)
+end
+
+"""
+    _shared_constant_names(m) -> Vector{Symbol}
+
+The names that two constants of the rate law of `m` share, regulator constants included,
+each once; empty when each constant has a name of its own. The law would read two
+constants with one name as one, so the guard rejects such a mechanism. With a conformation
+labelled `A`, the uptake constant of the `:EqualAI` step `A(Eb) <--> A + Eb` renders
+`k_A_Eb_to_AEb`, the name of the active constant of a `:NonequalAI` step
+`E(b) <--> A(Eb)`; the macros and the constructors reject the labels `A` and `I`
+(`check_conformation_label`). A metabolite name can still imitate a form's: with a
+modifier named `minusQ`, the side `E(; residual = A - P) + minusQ` and the form
+`E(; residual = A - P - Q)` both render `E_res_plusA_minusP_minusQ`, and the constructors
+accept a step between them.
+"""
+function _shared_constant_names(m::_AnyMech)
+    cols = _constant_columns(m)
+    names = [cols.names[cols.kept_in_law]; _regulator_names(m)]
+    unique!([x for x in names if count(==(x), names) > 1])
 end
 
 # ─── Regulator constants ────────────────────────────────────
