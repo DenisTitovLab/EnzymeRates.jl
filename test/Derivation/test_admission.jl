@@ -180,6 +180,87 @@ end
     @test count(law_mm.fast) == 2
 end
 
+@testset "the guard's fast segments" begin
+    # Each mechanism's law network, and its ε-network with every step rapid-equilibrium,
+    # whose fast cycle turns the reaction over. The walk runs breadth-first along the fast
+    # transitions from each present node no earlier walk reached; offsets count from a
+    # segment's first node, and the cycle lists transitions.
+    D = EnzymeRates.Derivation
+    bibi = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B ⇌ E(A, B)
+            E(A, B) <--> E(P, Q)
+            E(P, Q) <--> E(Q) + P
+            E(Q) ⇌ E + Q
+        end
+    end
+    # Forms E, E(A), E(A, B), E(P, Q), E(Q); offset rows A, B, P, Q.
+    s = D._fast_segments(D._law_network(bibi))
+    @test s.segment == [1, 1, 1, 2, 1]
+    @test s.segments == [[1, 2, 5, 3], [4]]
+    @test s.offset == [0 1 1 0 0; 0 0 1 0 0; 0 0 0 0 0; 0 0 0 0 1]
+    @test s.cycle == Int[]
+    s = D._fast_segments(D._eps_network(bibi, trues(5), D._built_reading(bibi)))
+    @test s.segment == [1, 1, 1, 1, 1]
+    @test s.segments == [[1, 2, 5, 3, 4]]
+    @test s.offset == [0 1 1 0 0; 0 0 1 0 0; 0 0 0 1 0; 0 0 0 1 1]
+    @test s.cycle == [5, 1, 3, 9, 7]
+
+    allosteric = @_testhelper_unguarded @allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)      :: EqualAI
+            E(S) <--> E(P)    :: EqualAI
+            E(P) ⇌ E + P      :: EqualAI
+            E + I ⇌ E(I)      :: OnlyA
+        end
+    end
+    # Forms E, E(I), E(P), E(S) in each copy, the inactive one from node 5; offset rows
+    # I, P, S. The law network holds no inactive E(I) (node 6), which no walk reaches.
+    s = D._fast_segments(D._law_network(allosteric))
+    @test s.segment == [1, 1, 1, 1, 1, 0, 1, 1]
+    @test s.segments == [[1, 2, 3, 4, 5, 7, 8]]
+    @test s.offset == [0 1 0 0 0 0 0 0; 0 0 1 0 0 0 1 0; 0 0 0 1 0 0 0 1]
+    @test s.cycle == Int[]
+    s = D._fast_segments(
+        D._eps_network(allosteric, trues(4), D._built_reading(allosteric)))
+    @test s.segment == [1, 1, 1, 1, 1, 1, 1, 1]
+    @test s.segments == [[1, 2, 3, 4, 5, 6, 7, 8]]
+    @test s.offset == [0 1 0 0 0 1 0 0; 0 0 1 0 0 0 1 0; 0 0 0 1 0 0 0 1]
+    @test s.cycle == [3, 5, 8]
+
+    pingpong = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) <--> E(P; residual = A - P)
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
+            E(B; residual = A - P) <--> E(Q)
+            E(Q) ⇌ E + Q
+        end
+    end
+    # Forms E, E(; residual = A - P), E(A), E(B; residual = A - P), E(P; residual = A - P),
+    # E(Q); offset rows A, B, P, Q. With every step fast the walk reaches E(; residual)
+    # last, by the release of P, so its offset of P is -1.
+    s = D._fast_segments(D._law_network(pingpong))
+    @test s.segment == [1, 2, 1, 2, 2, 1]
+    @test s.segments == [[1, 3, 6], [2, 4, 5]]
+    @test s.offset == [0 0 1 0 0 0; 0 0 0 1 0 0; 0 0 0 0 1 0; 0 0 0 0 0 1]
+    @test s.cycle == Int[]
+    s = D._fast_segments(D._eps_network(pingpong, trues(6), D._built_reading(pingpong)))
+    @test s.segment == [1, 1, 1, 1, 1, 1]
+    @test s.segments == [[1, 3, 6, 5, 4, 2]]
+    @test s.offset == [0 1 1 0 1 0; 0 0 0 0 0 0; 0 -1 0 0 0 0; 0 0 0 1 0 1]
+    @test s.cycle == [12, 3, 1, 9, 8, 6]
+end
+
 @testset "class 1 rejects a mechanism whose cycles never turn the reaction over" begin
     no_turnover = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S

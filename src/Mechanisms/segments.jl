@@ -6,12 +6,12 @@
 # check meant for the mechanisms a user writes fires on a sub-graph.
 
 """
-    present_species(m, on) -> BitVector
+    _present_species(m, on) -> BitVector
 
 The nodes of `m` that the steps `on` keeps touch, one flag per node: a sub-graph's law,
 segments and network cover these.
 """
-function present_species(m::Mechanism, on::BitVector)
+function _present_species(m::Mechanism, on::BitVector)
     present = falses(length(m.nodes))
     for (k, e) in enumerate(m.steps)
         on[k] && (present[e.from] = present[e.to] = true)
@@ -36,8 +36,8 @@ function _distinct_names(m::Mechanism)
 end
 
 """
-    segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
-                                                disagreeing)
+    _segment_walk(present, out, to, change) -> (; segment_of, segments, offsets, parent,
+                                                 disagreeing)
 
 The segments of a graph of nodes and transitions, walked breadth-first along the
 transitions from each `present` node no earlier walk reached, in node order: `out[u]`
@@ -50,8 +50,8 @@ node), and `disagreeing` the first transition whose offsets disagree, 0 when non
 Such a transition closes, with its tree path, a cycle that takes up some name net; when
 there is none, each offset is a potential and does not depend on the walk.
 """
-function segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{Int},
-                      change::Matrix{Int})
+function _segment_walk(present::BitVector, out::Vector{Vector{Int}}, to::Vector{Int},
+                       change::Matrix{Int})
     nn = length(present)
     segment_of, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
     offsets, disagreeing = zeros(Int, size(change, 1), nn), 0
@@ -88,10 +88,10 @@ end
         segments, offsets, bottom, steps)
 
 The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by the kept
-steps that `re` flags (`segment_walk`). `segments[s]` lists segment `s`'s forms
+steps that `re` flags (`_segment_walk`). `segments[s]` lists segment `s`'s forms
 breadth-first from its first form, each form's steps in the order of the groups, and the
 segments are numbered by their first forms; `segment_of[f]` is form `f`'s segment, 0 for a
-form no kept step touches (`present_species`). `offsets[n, f]` is how many more of
+form no kept step touches (`_present_species`). `offsets[n, f]` is how many more of
 metabolite name `n` form `f` carries than the form of its segment that carries fewest of
 it, `n` being the position of the name among the mechanism's distinct metabolite names,
 in sorted order. Within a segment, rapid equilibrium fixes each form's weight relative to
@@ -144,8 +144,8 @@ function rapid_equilibrium_segments(m::Mechanism, on::BitVector,
             change[n, t + 1] = -change[n, t]
         end
     end
-    present = present_species(m, on)
-    (; segment_of, segments, offsets) = segment_walk(present, out, to, change)
+    present = _present_species(m, on)
+    (; segment_of, segments, offsets) = _segment_walk(present, out, to, change)
     for segment in segments, n in axes(offsets, 1)
         low = minimum(f -> offsets[n, f], segment)
         for f in segment

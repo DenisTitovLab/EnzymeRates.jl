@@ -308,8 +308,7 @@ function _regulator_parameters(am::Mechanisms.AllostericMechanism)
     params(inactive) = RegulatorParameter[
         RegulatorParameter(lig, inactive) for site in am.regulatory_sites
         for (lig, tag) in zip(site.ligands, site.mwc_tags)
-        if !(inactive && tag === :EqualAI) &&
-           !Mechanisms.excludes(tag, inactive ? :inactive : :active)]
+        if !(inactive && tag === :EqualAI) && tag !== (inactive ? :OnlyA : :OnlyI)]
     [params(false); params(true)]
 end
 

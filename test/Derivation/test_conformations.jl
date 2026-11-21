@@ -1,5 +1,5 @@
 # ABOUTME: Tests of the allosteric conformation semantics: the steps a conformation
-# ABOUTME: excludes and keeps (`excludes`, `exclusion_components`, the stored step masks).
+# ABOUTME: excludes and keeps (`exclusion_components`, the stored step masks).
 
 const ER = EnzymeRates
 
@@ -55,7 +55,7 @@ end
     @test_throws BoundsError D._conformation_steps(am, 3)
 end
 
-@testset "excludes and exclusion_components: an :OnlyA dead-end binding" begin
+@testset "the excluded steps and exclusion_components: an :OnlyA dead-end binding" begin
     M = ER.Mechanisms
     D = ER.Derivation
     am = ER.AllostericMechanism(@allosteric_mechanism begin
@@ -79,11 +79,12 @@ end
     @test am.excluded_inactive == [false, false, false, true]
     @test D.exclusion_components(am, :active) == [1, 1, 1, 1]
     @test D.exclusion_components(am, :inactive) == [1, 1, 1, 4]
-    # The rule by tag: an :OnlyA step leaves the inactive conformation, an :OnlyI step the
-    # active one; an :EqualAI or :NonequalAI step stays in both.
-    @test [M.excludes(tag, c) for tag in (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
-           for c in (:active, :inactive)] ==
-          [false, true, true, false, false, false, false, false]
-    @test_throws ArgumentError M.excludes(:OnlyA, :both)
+    # The rule by tag, one tag per group: an :OnlyA step leaves the inactive conformation,
+    # an :OnlyI step the active one; an :EqualAI or :NonequalAI step stays in both.
+    tags = [:OnlyA, :OnlyI, :EqualAI, :NonequalAI]
+    every_tag = ER.AllostericMechanism(m, tags, 2, M.RegulatorySite[])
+    step_tags = [tags[e.group] for e in m.steps]
+    @test step_tags[every_tag.excluded_active] == [:OnlyI]
+    @test step_tags[every_tag.excluded_inactive] == [:OnlyA]
     @test_throws ArgumentError D.exclusion_components(am, :both)
 end

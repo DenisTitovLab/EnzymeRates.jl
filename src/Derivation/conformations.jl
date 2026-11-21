@@ -20,11 +20,11 @@ _excluded_steps(m::Mechanisms.Mechanism, ::Int) = falses(length(m.steps))
     exclusion_components(am, c::Symbol) -> Vector{Int}
 
 Each form's component under the edges of `am`'s catalytic graph that conformation `c`
-(`:active` or `:inactive`) keeps (`am.excluded_active`, `am.excluded_inactive`: where
-`Mechanisms.excludes(tag, c)` holds), every form included, labelled by its smallest form
-index, so free E's label is 1. A form outside free E's component is cut off in `c`; the
-guard's built readings of how `c` switches off each step it excludes (`_built_reading`)
-read these components.
+(`:active` or `:inactive`) keeps (all but `am.excluded_active`, the edges of `:OnlyI`
+groups, or `am.excluded_inactive`, those of `:OnlyA` groups), every form included,
+labelled by its smallest form index, so free E's label is 1. A form outside free E's
+component is cut off in `c`; the guard's built readings of how `c` switches off each step
+it excludes (`_built_reading`) read these components.
 """
 function exclusion_components(am::Mechanisms.AllostericMechanism, c::Symbol)
     excluded = _excluded_steps(am, c === :active ? 1 : c === :inactive ? 2 :

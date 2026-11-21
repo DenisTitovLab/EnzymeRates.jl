@@ -51,11 +51,11 @@ flowchart TB
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
-  enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
+  enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
-  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>excludes()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>present_species()<br/>rapid_equilibrium_segments()<br/>segment_walk()<br/>step_text()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
 ```
@@ -163,15 +163,12 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, Plotting, top level | |
 | `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration, Fitting | |
-| `excludes` | Whether a conformation excludes a step or a tag | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Derivation, Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
 | | steady-state steps between them | | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
 | `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Derivation, Enumeration | |
-| `present_species` | The forms a set of steps touches | Derivation | |
-| `segment_walk` | The segments of a graph of transitions, by breadth-first walk | Derivation | |
 | `check_decodable_names` | Errors when names could spell one string two ways | DSL | |
 | `check_conformation_label` | Errors on a malformed conformation label | DSL | |
 

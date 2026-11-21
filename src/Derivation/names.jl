@@ -69,8 +69,7 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
     cm = Mechanisms.catalytic(m)
     g = cm.steps[k].group
     group_tag = m isa Mechanisms.AllostericMechanism ? m.mwc_tags[g] : :None
-    Mechanisms.excludes(group_tag, state === :I ? :inactive : :active) &&
-        return cm.step_sides[k]
+    group_tag === (state === :I ? :OnlyA : :OnlyI) && return cm.step_sides[k]
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
     cm.step_sides[kept[(g, slot, inactive)]]
 end
@@ -257,7 +256,7 @@ chokepoint.
 """
 function regulator_constant(am::Mechanisms.AllostericMechanism, lig::Symbol, tag::Symbol,
                             inactive::Bool)
-    Mechanisms.excludes(tag, inactive ? :inactive : :active) && return nothing
+    tag === (inactive ? :OnlyA : :OnlyI) && return nothing
     name(RegulatorParameter(lig, inactive), am)
 end
 

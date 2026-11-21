@@ -121,7 +121,7 @@ end
     _admission_interior(am, reading) -> _Verdict
 
 Admission's interior checks, each excluded edge switched off as `reading` says: for each
-conformation whose tags exclude an edge (`Mechanisms.excludes`), the checks of
+conformation whose tags exclude an edge (`_first_excluded`), the checks of
 `_interior_verdict`; then the active conformation's turnover (`_active_turnover_verdict`).
 A reading is consistent when none of `_interior_verdict`'s faults arises. A plain
 mechanism excludes no edge, so its interior passes.

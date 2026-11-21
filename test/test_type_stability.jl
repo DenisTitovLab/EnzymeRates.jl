@@ -92,20 +92,16 @@ include("type_stability_harness.jl")
         @_testhelper_no_dispatch Mech.check_conformation_label(:A, "label")
         @_testhelper_no_dispatch Mech.check_decodable_names(
             ::Vector{Symbol}, ::Vector{Symbol}, "label")
-        @_testhelper_no_dispatch Mech.excludes(:A, :B)
         @_testhelper_no_dispatch Mech.form_text(plain_concrete, 1)
         @_testhelper_no_dispatch Mech.step_text(plain_concrete, 1)
         @_testhelper_no_dispatch Mech.has_turnover_cycle(plain_concrete, ::BitVector)
         @_testhelper_no_dispatch Mech.has_unbalanced_cycle(
             ::Vector{Int}, ::Vector{Int}, ::Vector{Int}, ::BitVector, ::Vector{Int},
             ::Vector{Int})
-        @_testhelper_no_dispatch Mech.present_species(plain_concrete, ::BitVector)
         @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(
             plain_concrete, ::BitVector)
         @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(
             plain_concrete, ::BitVector, ::BitVector)
-        @_testhelper_no_dispatch Mech.segment_walk(
-            ::BitVector, ::Vector{Vector{Int}}, ::Vector{Int}, ::Matrix{Int})
 
         @_testhelper_no_dispatch EnzymeRates.Mechanism(
             ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Mech.EnzymeForm},

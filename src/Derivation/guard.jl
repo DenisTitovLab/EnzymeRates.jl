@@ -258,8 +258,7 @@ end
 """
 The law network L of `m`: a plain mechanism's forms and edges as they are; an allosteric
 mechanism's two copies, copy `c` holding the steps of its conformation (`active_steps`,
-`inactive_steps`) and the forms they touch (`Mechanisms.present_species`), free E always,
-joined by the flip at free E.
+`inactive_steps`) and the forms they touch, free E always, joined by the flip at free E.
 """
 function _law_network(m::Mechanisms.Mechanism)
     n = length(m.steps)
@@ -277,9 +276,11 @@ function _law_network(am::Mechanisms.AllostericMechanism)
         mask = _conformation_steps(am, c)
         use[:, c] .= mask
         fast[:, c] .= mask .& re
-        nodes = (c - 1) * nf .+ (1:nf)
-        present[nodes] .= Mechanisms.present_species(m, mask)
-        present[nodes[1]] = true
+        shift = (c - 1) * nf
+        present[shift + 1] = true
+        for (k, e) in enumerate(m.steps)
+            mask[k] && (present[shift + e.from] = present[shift + e.to] = true)
+        end
     end
     _network(m, present, use, fast, falses(n, 2), falses(n, 2))
 end
@@ -362,8 +363,8 @@ end
     _fast_segments(net) -> (; segment, segments, offset, cycle)
 
 The rapid-equilibrium segments of `net`, walked breadth-first along its fast transitions
-(`Mechanisms.segment_walk`) from each present node no earlier walk reached: `segment[u]`,
-node `u`'s (0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
+from each present node no earlier walk reached, in node order: `segment[u]`, node `u`'s
+(0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
 `offset[n, u]`, the copies of name `n` (`_guard_names`) the walk takes up from the
 segment's first node to `u`; and `cycle`, the transitions of the first fast cycle that
 takes up some name net, which the first transition whose offsets disagree closes with its
@@ -371,11 +372,38 @@ tree path, in cycle order.
 When `cycle` is empty, each offset is a potential: it does not depend on the walk.
 """
 function _fast_segments(net::_Network)
-    w = Mechanisms.segment_walk(net.present, _out_transitions(net, net.fast), net.to,
-                                net.change)
-    t = w.disagreeing
-    cycle = t == 0 ? Int[] : _tree_cycle(net, w.parent, net.from[t], net.to[t], t)
-    (; segment = w.segment_of, w.segments, offset = w.offsets, cycle)
+    nn = net.nforms * net.ncopies
+    out = _out_transitions(net, net.fast)
+    segment, segments, parent = zeros(Int, nn), Vector{Int}[], zeros(Int, nn)
+    offset, disagreeing = zeros(Int, size(net.change, 1), nn), 0
+    for root in 1:nn
+        net.present[root] && segment[root] == 0 || continue
+        members = [root]
+        push!(segments, members)
+        segment[root] = length(segments)
+        head = 0
+        while head < length(members)
+            head += 1
+            u = members[head]
+            for t in out[u]
+                v = net.to[t]
+                if segment[v] == 0
+                    segment[v], parent[v] = length(segments), t
+                    push!(members, v)
+                    for n in axes(offset, 1)
+                        offset[n, v] = offset[n, u] + net.change[n, t]
+                    end
+                elseif disagreeing == 0 &&
+                       any(n -> offset[n, v] != offset[n, u] + net.change[n, t],
+                           axes(offset, 1))
+                    disagreeing = t
+                end
+            end
+        end
+    end
+    d = disagreeing
+    cycle = d == 0 ? Int[] : _tree_cycle(net, parent, net.from[d], net.to[d], d)
+    (; segment, segments, offset, cycle)
 end
 
 """The transitions of the first cycle of fast transitions of `net` that takes up some

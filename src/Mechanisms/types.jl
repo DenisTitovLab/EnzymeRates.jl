@@ -515,26 +515,14 @@ struct AllostericMechanism
         _check_tags(mwc_tags, length(catalytic.groups), catalytic_multiplicity)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
-        excluded_active = (e -> excludes(mwc_tags[e.group], :active)).(catalytic.steps)
-        excluded_inactive = (e -> excludes(mwc_tags[e.group], :inactive)).(catalytic.steps)
+        excluded_active = (e -> mwc_tags[e.group] === :OnlyI).(catalytic.steps)
+        excluded_inactive = (e -> mwc_tags[e.group] === :OnlyA).(catalytic.steps)
         new(catalytic, copy(mwc_tags), catalytic_multiplicity, sites,
             _steps_joined_to_free_E(catalytic, excluded_active),
             _steps_joined_to_free_E(catalytic, excluded_inactive), excluded_active,
             excluded_inactive)
     end
 end
-
-"""
-    excludes(tag::Symbol, c::Symbol) -> Bool
-
-Whether conformation `c` (`:active` or `:inactive`) excludes a step or a regulator ligand
-tagged `tag`: `:OnlyI` excludes the active conformation, `:OnlyA` the inactive one (spec
-section 7). The one rule by which the constructor's masks, the regulator constants and the
-moves' ligand states read the tags.
-"""
-excludes(tag::Symbol, c::Symbol) =
-    c === :active ? tag === :OnlyI : c === :inactive ? tag === :OnlyA :
-    throw(ArgumentError("a conformation is :active or :inactive, not :$c"))
 
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
