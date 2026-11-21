@@ -113,10 +113,11 @@ function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vec
     conc(held::Vector{Mechanisms.Metabolite}) =
         _monomial((vars.index[x.name] => 1 for x in held)...)
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
-    binds(k) = m.step_kinds[k] in (:binding, :fused_binding)
-    # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k: [M]/K for a binding
-    # (K a dissociation constant), K·Π[taken up]/Π[given off] for any other edge.
-    ratio(k) = _mmul(_mpow(bare(k, 1), binds(k) ? -1 : 1),
+    # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k:
+    # K·Π[taken up]/Π[given off] for a constant K named after the stored direction, the
+    # same with 1/K for one named after the reverse ([M]/K for a binding stored as its
+    # uptake, K a dissociation constant).
+    ratio(k) = _mmul(_mpow(bare(k, 1), _constant_named_in_reverse(m.steps[k]) ? -1 : 1),
                      _mmul(conc(m.steps[k].taken_up),
                            _mpow(conc(m.steps[k].given_off), -1)))
     s = Mechanisms.rapid_equilibrium_segments(m, mask)

@@ -175,6 +175,28 @@ end
            concentrations = [0 -1 1 0; 1 0 0 0; 0 0 0 0; 0 0 0 0; 0 0 0 0; 0 0 0 -1;
                              0 0 0 0])
 
+    # At steady state the Theorell–Chance step's reverse rate constant takes up P, what
+    # the step gives off as stored: the rate over [P]. The isomerization E(Q) <--> F(Q)
+    # carries the Haldane relation.
+    steady_theorell_chance = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ E(A)
+            E(A) + B <--> E(Q) + P
+            E(Q) <--> F(Q)
+            F(Q) <--> F + Q
+            F <--> E
+        end
+    end
+    @test parameters(steady_theorell_chance) ==
+          (:K_EA_to_E_A, :k_EA_B_to_EQ_P, :k_EQ_P_to_EA_B, :k_EQ_to_FQ, :k_E_to_F,
+           :k_FQ_to_F_Q, :k_F_Q_to_FQ, :k_F_to_E)
+    @test D.parameter_units(steady_theorell_chance) ==
+          (rate = [0, 1, 1, 1, 1, 1, 1, 1],
+           concentrations = [1 0 0 0; 0 -1 0 0; 0 0 -1 0; 0 0 0 0; 0 0 0 0; 0 0 0 0;
+                             0 0 0 -1; 0 0 0 0])
+
     # Two metabolites bound in one rapid-equilibrium step: the constant is the complex
     # over what it takes up, [A]⁻¹[B]⁻¹.
     two_in_rapid = @enzyme_mechanism begin
@@ -458,8 +480,9 @@ end
           :K_ES_to_EP
 
     lig = first(am.regulatory_sites[1].ligands)
-    @test ER.Derivation._name(ER.Derivation._RegulatorParameter(lig, false), am) === :K_A_Rreg
-    @test ER.Derivation._name(ER.Derivation._RegulatorParameter(lig, true), am) === :K_I_Rreg
+    R = ER.Derivation._RegulatorParameter
+    @test ER.Derivation._name(R(lig, false), am) === :K_A_Rreg
+    @test ER.Derivation._name(R(lig, true), am) === :K_I_Rreg
     @test ER.Derivation._name(ER.Derivation._AllostericParameter(), am) === :L
 
     # The chokepoint renders on the concrete mechanism only; a compiled type

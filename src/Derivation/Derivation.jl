@@ -25,6 +25,14 @@ _copies(held::Vector{Mechanisms.Metabolite}, name::Symbol) =
 """The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)
 
+"""Whether the equilibrium constant of step `e` at rapid equilibrium is named after the
+reverse of its stored direction. A binding, a step that takes up or gives off one
+metabolite and nothing else, has a dissociation constant, named after its release; so a
+binding stored as its uptake names its constant in reverse. Every other step's constant is
+named after its stored direction."""
+_constant_named_in_reverse(e::Mechanisms.Step) =
+    length(e.taken_up) == 1 && isempty(e.given_off)
+
 """The kinetic groups of `m`, numbered by their steps' `group`: each group's steps, in step
 order."""
 function _kinetic_groups(m::Mechanisms.Mechanism)

@@ -72,17 +72,17 @@ end
 column."""
 function _write_units!(units, i::Int, p::_StepParameter, m::_AnyMech,
                        column::Dict{Symbol, Int})
-    cm = Mechanisms.catalytic(m)
-    e = cm.steps[p.step]
+    e = Mechanisms.catalytic(m).steps[p.step]
     add!(xs, power) = foreach(x -> units.concentrations[i, column[x.name]] += power, xs)
-    if !e.rapid_equilibrium
+    if e.rapid_equilibrium
+        # An equilibrium constant is what the direction it is named after gives off over
+        # what it takes up: a binding's dissociation constant has what binds.
+        named = _constant_named_in_reverse(e) ? -1 : 1
+        add!(e.given_off, named)
+        add!(e.taken_up, -named)
+    else
         units.rate[i] = 1
         add!(p.slot == 1 ? e.taken_up : e.given_off, -1)
-    elseif cm.step_kinds[p.step] in (:binding, :fused_binding)
-        add!(e.taken_up, 1)
-    else
-        add!(e.given_off, 1)
-        add!(e.taken_up, -1)
     end
     nothing
 end

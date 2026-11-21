@@ -88,8 +88,9 @@ per bare constant in elimination order (`_constant_columns`).
 Rows: every fundamental cycle (`_fundamental_cycles`) once per conformation, the inactive
 rows over the whole graph (islands included) with an `:EqualAI` edge reading its active
 column; a cycle row sums, over its edges, the log of each edge's forward equilibrium ratio
-(`kf/kr` at steady state, `1/K` for a binding's dissociation constant, `K` otherwise), and
-its right side is the cycle's multiple of the net reaction. Then one row per further
+(`kf/kr` at steady state, `1/K` for a constant named after the reverse, such as a
+binding's dissociation constant, `K` otherwise), and its right side is the cycle's
+multiple of the net reaction. Then one row per further
 member of each kinetic class (`_class`), setting it equal to the class's first member,
 slot by slot. `law[k]` tells whether edge `k` lies in the inactive conformation's law,
 `tags` holds each group's tag and `flat` the edges group by group.
@@ -111,8 +112,8 @@ function _joint_system(m::_AnyMech, cols = _constant_columns(m))
             z = Z[i, j]
             z == 0 && continue
             re = cm.steps[k].rapid_equilibrium
-            binds = cm.step_kinds[k] in (:binding, :fused_binding)
-            row[column(k, 1, inactive)] += re && binds ? -z : z
+            reverse_named = re && _constant_named_in_reverse(cm.steps[k])
+            row[column(k, 1, inactive)] += reverse_named ? -z : z
             re || (row[column(k, 2, inactive)] -= z)
         end
         push!(rows, row)

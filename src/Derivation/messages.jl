@@ -114,11 +114,11 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                "step that leaves them takes up a zeroed metabolite " *
                "($(lines(_exits(net, s, C)))), so the steady state is not unique."
     elseif v.fault === _BOTTOMLESS
+        binding(k) = length(m.steps[k].taken_up) + length(m.steps[k].given_off) == 1
         bindings = unique!([net.edge[t] for t in eachindex(net.from)
                             if net.fast[t] && net.edge[t] != 0 &&
                                s.segment[net.from[t]] == s.bottomless &&
-                               m.step_kinds[net.edge[t]] in
-                                  (:binding, :fused_binding)])
+                               binding(net.edge[t])])
         k = findfirst(k -> _steady_state_passes(mech, k), bindings)
         fix = k === nothing ? "" :
               " Make the kinetic group of $(Mechanisms.step_text(m, bindings[k])) " *

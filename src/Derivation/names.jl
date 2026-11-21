@@ -94,9 +94,9 @@ function _name(p::_StepParameter, m::_AnyMech, kept = _kept_members(m))
     cm = Mechanisms.catalytic(m)
     state = _conformation_tag(m, p)
     s = _constant_sides(m, p.step, p.slot, state, kept)
-    if cm.steps[p.step].rapid_equilibrium
-        binds = cm.step_kinds[p.step] in (:binding, :fused_binding)
-        _render_reaction("K_", binds ? reverse(s) : s, state)
+    e = cm.steps[p.step]
+    if e.rapid_equilibrium
+        _render_reaction("K_", _constant_named_in_reverse(e) ? reverse(s) : s, state)
     else
         _render_reaction("k_", p.slot == 1 ? s : reverse(s), state)
     end
