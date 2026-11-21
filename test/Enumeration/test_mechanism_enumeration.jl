@@ -310,7 +310,7 @@ end
 
 """
     _testhelper_enumerate_all_mechanism(rxn::EnzymeReaction; max_params::Int=typemax(Int))
-        -> Dict{Int, Vector{Union{Mechanism, AllostericMechanism}}}
+        -> Dict{Int, Vector{Mechanism}}
 
 Enumerate all mechanisms reachable by init → expand, bucketed by ACTUAL
 fitted-parameter count. `max_params` caps the search: mechanisms whose
@@ -1153,11 +1153,11 @@ end
 end
 
 # ═══════════════════════════════════════════════════════════════════════
-# Testsets covering non-enumeration features (AllostericMechanism
+# Testsets covering non-enumeration features (allosteric mechanism
 # accessor identity)
 # ═══════════════════════════════════════════════════════════════════════
 
-@testset "AllostericMechanism TR equivalence" begin
+@testset "Allosteric mechanism TR equivalence" begin
 # Three distinct tags on three groups: S binding (RE, :EqualAI),
 # P binding (RE, :NonequalAI), iso (SS, :OnlyA). The :OnlyA sits on
 # the chemical step (dropped from the Haldane graph), so the mechanism
@@ -1677,7 +1677,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — a chain flank still flips at multiplicity 2" begin
+@testset "Allosteric mechanism — a chain flank still flips at multiplicity 2" begin
     # A K-type variant of the ordered seed over two catalytic subunits: the iso and the
     # A binding :OnlyA, the other bindings :EqualAI. Its flank flips stay children: two
     # conformations over two subunits can see a flank's flip. The A-state graph is the
@@ -1968,7 +1968,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — uni-uni RE→SS flips one group and preserves the tags" begin
+@testset "Allosteric mechanism — uni-uni RE→SS flips one group and preserves the tags" begin
     # Each seed is a uni-uni allosteric mechanism whose two binding groups are all-RE and
     # whose isomerization is SS: _expand_re_to_ss fires per all-RE group → 2 variants,
     # one with the P binding steady state and one with the S binding steady state, each
@@ -2234,7 +2234,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — the modifier copy never flips; tags are preserved" begin
+@testset "Allosteric mechanism — the modifier copy never flips; tags are preserved" begin
     # The same mechanism as an allosteric one with a dead inactive conformation
     # (the chemistry `:OnlyA`, every binding `:EqualAI`) and one catalytic subunit.
     # All four groups A, B, P and Q flip: an allosteric mechanism has no chain
@@ -2477,7 +2477,7 @@ end
     @test length(a_split) == 1
 end
 
-@testset "AllostericMechanism — SS multi-step :NonequalAI split" begin
+@testset "Allosteric mechanism — SS multi-step :NonequalAI split" begin
     # SEED: bi-bi allosteric where one multi-step group is BOTH SS AND
     # :NonequalAI. Splitting this group costs more parameters than
     # splitting a :EqualAI RE group (factor 2 for SS pair × factor 2
@@ -2592,12 +2592,12 @@ end
                                    m_seed))
 end
 
-@testset "AllostericMechanism — bi-bi RE groups: every emitted split gains" begin
+@testset "Allosteric mechanism — bi-bi RE groups: every emitted split gains" begin
     # SEED: bi-bi allosteric with mixed tags (:NonequalAI, :EqualAI),
     # but both multi-step groups (A, B) are RE bindings, each closing
     # its own per-conformer thermodynamic cycle, so a division of one
     # group alone may be tied back by that cycle. Tag inheritance is
-    # covered by "AllostericMechanism — SS multi-step :NonequalAI
+    # covered by "Allosteric mechanism — SS multi-step :NonequalAI
     # split" above.
     m_seed = @enzyme_mechanism begin
         substrates: A, B
@@ -2816,7 +2816,7 @@ end
     @test _testhelper_fitted(m) == _testhelper_identifiable_rank(m)
 end
 
-@testset "AllostericMechanism — the split count of a law over the term cap" begin
+@testset "Allosteric mechanism — the split count of a law over the term cap" begin
     # Merged random-order ter-bi with the abortive complexes E(B, P) and E(A, B, P). Every
     # steady-state binding sits alone in its group except the A bindings at E(B) and
     # E(B, P), and the active state has more denominator terms than
@@ -2937,7 +2937,7 @@ end
           Set([others; p_by_b; a_by_p])
 end
 
-@testset "AllostericMechanism — a parent over the term cap splits by its count" begin
+@testset "Allosteric mechanism — a parent over the term cap splits by its count" begin
     # Merged random-order ter-bi over MAX_RATE_EQUATION_TERMS whose P group is split by A:
     # E(A, B) + P sits alone, its K tied to the other part's by the square E(B), E(A, B),
     # E(A, B, P), E(B, P) that the shared A group closes. The joint solve counts the parent
@@ -3036,7 +3036,7 @@ end
           Set([others; a_by_p; p_by_b])
 end
 
-@testset "AllostericMechanism — a stopped :OnlyA binding strands E(A); no child" begin
+@testset "Allosteric mechanism — a stopped :OnlyA binding strands E(A); no child" begin
     # Merged random-order bi-bi with the abortive complex E(A, Q). The steady-state A group
     # binds A at E and, fused, at E(B) into E(P, Q), all :OnlyA. In the inactive
     # conformation the :EqualAI steps E + Q <--> E(Q), E(Q) + A <--> E(A, Q) and
@@ -3127,7 +3127,7 @@ end
     @test Set(kids) == Set()
 end
 
-@testset "AllostericMechanism — beside an inhibitor, stopped :OnlyA A strands E(A)" begin
+@testset "Allosteric mechanism — beside an inhibitor, stopped :OnlyA A strands E(A)" begin
     # Merged random-order bi-bi with the competitive inhibitor I and the abortive
     # complexes E(A, P) and E(B, Q); the A, B, I and Q groups :OnlyA. In the inactive
     # conformation the :EqualAI steps E + P <--> E(P), E(P) + A <--> E(A, P) and
@@ -3238,7 +3238,7 @@ end
     @test Set(kids) == Set()
 end
 
-@testset "AllostericMechanism — a split keeps its parent's interior admission verdict" begin
+@testset "Allosteric mechanism — a split keeps its parent's interior verdict" begin
     # An aggregate check over the bi-bi seed set (the exception to writing every fixture
     # inline): each split child of a seed tagged as below, one parent in
     # ten. Both parts of a split group inherit its tag, and admission's interior reads
@@ -3292,7 +3292,7 @@ end
               Vector, parents)
 end
 
-@testset "AllostericMechanism — an :EqualAI group counts once across conformations" begin
+@testset "Allosteric mechanism — an :EqualAI group counts once across conformations" begin
     # Bi-bi with A bound before B, P and Q released in either order, and the abortive
     # complexes E(A, P) and E(B, Q); the A group and the chemistry are :OnlyA. The
     # inactive conformation binds no A, so of the :EqualAI B group it reaches only
@@ -4803,7 +4803,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — a copy that is new only in the inactive state is kept" begin
+@testset "Allosteric mechanism — a copy new only in the inactive state is kept" begin
     # Uni-uni whose S binding and chemistry are `:OnlyA`: the inactive conformation
     # binds P but not S. An `:EqualAI` copy of S at E duplicates E(S) in the active
     # state and is the only S-bound form in the inactive one, where its constant is
@@ -4859,7 +4859,7 @@ end
                                    nonequal, rxn))
 end
 
-@testset "AllostericMechanism — free enzyme binds a copy in every conformation" begin
+@testset "Allosteric mechanism — free enzyme binds a copy in every conformation" begin
     # Uni-uni whose every catalytic group is `:OnlyA`: the inactive conformation has no
     # step, yet it holds its free enzyme. An `:EqualAI` copy of S at E duplicates E(S) in
     # the active state and is the only S-bound form in the inactive one, where its
@@ -4902,7 +4902,7 @@ end
         _testhelper_identifiable_rank(dead_inactive) + 1
 end
 
-@testset "AllostericMechanism — no relaxation makes a kept copy redundant" begin
+@testset "Allosteric mechanism — no relaxation makes a kept copy redundant" begin
     # The copy of S at E is new only in the inactive state, where S does not bind.
     # Relaxing the S binding to `:NonequalAI` brings E(S) into the inactive state:
     # the copy then duplicates E(S) in both states, formed in each by the S group
@@ -5016,7 +5016,7 @@ end
     @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
 end
 
-@testset "AllostericMechanism — dead-end binding tagged :EqualAI" begin
+@testset "Allosteric mechanism — dead-end binding tagged :EqualAI" begin
     # Uni-uni allosteric (catalytic_n=2) with mixed regs:
     # :I dead-end, :R allosteric. The move must (a) exclude :R from
     # eligible regs (allosteric ligand), (b) append the new dead-end
@@ -5047,9 +5047,8 @@ end
     # allosteric).
     @test length(result) == 1
 
-    # 2. Δ params: +1 (:EqualAI new group → one shared K), measured
-    # against ground-truth `parameters(...)` —
-    # exact parameter counts come from the compiled mechanism.
+    # 2. Δ params: +1 (:EqualAI new group → one shared K), measured by `parameters`,
+    # the exact count of the constants a fit estimates.
     base_fitted = _testhelper_fitted(am)
     for r in result
         r_fitted = _testhelper_fitted(r)
@@ -5069,8 +5068,8 @@ end
               length(am.catalytic.groups) + 1
         @test length(r.allosteric.allosteric_states) ==
               length(am.allosteric.allosteric_states) + 1
-        # The new group's tag is :EqualAI (appended at the end by the
-        # AllostericMechanism wrap kernel).
+        # The new group's tag is :EqualAI (appended at the end by the dead-end
+        # move).
         @test r.allosteric.allosteric_states[end] == :EqualAI
         # Pre-existing tags preserved positionally.
         @test r.allosteric.allosteric_states[1:length(am.allosteric.allosteric_states)] ==
@@ -5086,7 +5085,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — allosteric-only regulator → empty" begin
+@testset "Allosteric mechanism — allosteric-only regulator → empty" begin
     # Rxn declares only :R as an allosteric regulator
     # (no dead-end inhibitors); all declared regulators are
     # allosteric ligands → eligible_regs is empty → result is empty.
@@ -6588,7 +6587,7 @@ end
 # ─── _expand_add_allosteric_regulator ──────────────────────────────────
 @testset "_expand_add_allosteric_regulator" begin
 
-@testset "AllostericMechanism — a first allo regulator: 3 variants" begin
+@testset "Allosteric mechanism — a first allo regulator: 3 variants" begin
     # SEED: uni-uni allosteric with all groups :EqualAI and no allosteric regulator
     # added yet. A declared allosteric regulator x is the only un-added one, so it gets
     # one new site (0 existing reg sites) with each of the 3 non-:EqualAI tags. The
@@ -6759,8 +6758,8 @@ end
     end
 end
 
-@testset "AllostericMechanism — competitive-only name: no allo variant" begin
-    # Build a uni-uni AllostericMechanism that already has :I bound as a
+@testset "Allosteric mechanism — competitive-only name: no allo variant" begin
+    # Build a uni-uni allosteric mechanism that already has :I bound as a
     # dead-end (added via init→dead-end→allosteric on the Mechanism path).
     # `rxn` declares :I only as a competitive inhibitor, not an allosteric
     # regulator, so `_expand_add_allosteric_regulator(am, rxn)` has no
@@ -6788,7 +6787,7 @@ end
         _testhelper_move(EnzymeRates.Enumeration._expand_add_allosteric_regulator, am, rxn))
 end
 
-@testset "AllostericMechanism — Two regulators with site options: count = 6" begin
+@testset "Allosteric mechanism — Two regulators with site options: count = 6" begin
     # SEED: allosteric uni-uni with R1 already added as :OnlyA
     # (existing site has one
     # non-:EqualAI ligand). R2 is un-added; the :EqualAI-at-existing
@@ -6929,7 +6928,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — Adding :EqualAI R2 at site with :OnlyI R1" begin
+@testset "Allosteric mechanism — Adding :EqualAI R2 at site with :OnlyI R1" begin
     # SEED: R1::OnlyI at site 1. Adding R2 enumerates non-:EqualAI
     # tags × 2 site options
     # plus :EqualAI-at-existing (gated on R1 being non-:EqualAI). 7 total.
@@ -6976,7 +6975,7 @@ end
     @test has_eq_at_site1
 end
 
-@testset "AllostericMechanism — all declared regs already present → empty" begin
+@testset "Allosteric mechanism — all declared regs already present → empty" begin
     # SEED: allosteric uni-uni with :R already bound; rxn declares only :R → eligible_regs
     # is empty → result is empty.
     rxn = @enzyme_reaction begin
@@ -7001,7 +7000,7 @@ end
         _testhelper_move(EnzymeRates.Enumeration._expand_add_allosteric_regulator, am, rxn))
 end
 
-@testset "AllostericMechanism — dual-role name gains an allosteric site" begin
+@testset "Allosteric mechanism — dual-role name gains an allosteric site" begin
     # A reaction may declare one name (ATP) in BOTH roles. Starting from an
     # allosteric mechanism that already binds ATP as a competitive dead-end
     # inhibitor, `_expand_add_allosteric_regulator` also adds ATP at a
@@ -7082,7 +7081,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — dual-role name derives distinct params" begin
+@testset "Allosteric mechanism — dual-role name derives distinct params" begin
     # ATP binds BOTH at a regulatory site AND as a competitive dead-end step, so it
     # takes two distinct constants (K_A_EATP_to_E_ATP at the catalytic site, K_A_ATPreg
     # and K_I_ATPreg at the regulatory one), never one name for both, and the mechanism
@@ -7107,7 +7106,7 @@ end
     _testhelper_check_law_against_oracle(am)
 end
 
-@testset "AllostericMechanism — dead-end move skips a name bound at a regulatory site" begin
+@testset "Allosteric mechanism — dead-end move skips a regulatory-site ligand" begin
     # The reaction declares ATP both as a competitive inhibitor and as an allosteric
     # regulator, and the parent binds ATP at a regulatory site. The dead-end move leaves
     # a site ligand on its site, so its only child binds I.
@@ -7534,7 +7533,7 @@ end
 # ─── _expand_change_allo_state ─────────────────────────────────────────
 @testset "_expand_change_allo_state" begin
 
-@testset "AllostericMechanism — regulator tag removal delta" begin
+@testset "Allosteric mechanism — regulator tag removal delta" begin
     # SEED: uni-uni allosteric with one regulator R tagged :OnlyA;
     # all 3 catalytic groups :EqualAI.
     am = @enzyme_mechanism begin
@@ -7564,7 +7563,7 @@ end
     end
     @test length(r_removal) == 1
 
-    # 3. ground-truth Δ params via the compiled `parameters`: the
+    # 3. ground-truth Δ params via `parameters`: the
     # R-ligand :OnlyA → :NonequalAI flip adds exactly one new
     # independent parameter (Δ=+1).
     seed_truth = _testhelper_fitted(am)
@@ -7577,7 +7576,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — :OnlyI regulator-ligand relaxation" begin
+@testset "Allosteric mechanism — :OnlyI regulator-ligand relaxation" begin
     # SEED: uni-uni allosteric with R::OnlyI and 3 :EqualAI cat
     # groups. Each non-:NonequalAI entry contributes one variant:
     # 3 cat-group + 1 reg-ligand = 4.
@@ -7623,7 +7622,7 @@ end
     @test n_r_relaxed == 1
 end
 
-@testset "AllostericMechanism — multiple regulator ligands at independent tags" begin
+@testset "Allosteric mechanism — multiple regulator ligands at independent tags" begin
     # SEED: allosteric uni-uni with R1::OnlyA + R2::OnlyI at the same
     # regulatory site, all 3 cat groups :EqualAI. Each non-:NonequalAI
     # entry contributes one variant: 3 cat + 2 reg-ligand = 5.
@@ -7684,7 +7683,7 @@ end
     @test n_r2_relaxed_only == 1
 end
 
-@testset "AllostericMechanism — non-default site multiplicity (cat=4, reg=2)" begin
+@testset "Allosteric mechanism — non-default site multiplicity (cat=4, reg=2)" begin
     # SEED: catalytic 4-mer with R::OnlyA at a multiplicity-2 reg site
     # (less than oligomeric_state).
     am = @enzyme_mechanism begin
@@ -7713,7 +7712,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — uni-uni all-:EqualAI: 3 cat relaxations" begin
+@testset "Allosteric mechanism — uni-uni all-:EqualAI: 3 cat relaxations" begin
     # SEED: uni-uni allosteric with all 3 catalytic groups tagged
     # :EqualAI and no regulatory sites. Each non-:NonequalAI cat-group
     # tag contributes one variant (flip to :NonequalAI).
@@ -7786,7 +7785,7 @@ end
     end
 end
 
-@testset "AllostericMechanism — already-:NonequalAI: empty (negative)" begin
+@testset "Allosteric mechanism — already-:NonequalAI: empty (negative)" begin
     # If every tag is :NonequalAI, no relaxation is possible.
     am_all_neq = @enzyme_mechanism begin
         substrates: S
@@ -7802,7 +7801,7 @@ end
         _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am_all_neq))
 end
 
-@testset "AllostericMechanism — drops a relaxation whose inactive law has a power" begin
+@testset "Allosteric mechanism — drops a relaxation whose inactive law has a power" begin
     # The split abortive ping-pong at two subunits (testset "_hyperbolic_catalysis"): the
     # second half-reaction and both abortive bindings, A's at E(P; residual = A - P) and
     # P's at E(A), :OnlyA. Each other binding relaxes to :NonequalAI and keeps both laws
@@ -8260,7 +8259,7 @@ end
     @test _testhelper_merged_state(cobind, :C) == :OnlyI
 end
 
-@testset "no-op: single-site AllostericMechanism" begin
+@testset "no-op: single-site allosteric mechanism" begin
     single = @enzyme_mechanism begin
         substrates: S; products: P
         oligomeric_state: 4
@@ -8482,7 +8481,7 @@ end
 
 # ─── canonical by construction ─────────────────────────────────────────
 
-@testset "AllostericMechanism — canonical by construction" begin
+@testset "Allosteric mechanism — canonical by construction" begin
 # Site permutation with DISTINCT multiplicities. The constructor must permute
 # allosteric_states alongside the catalytic groups and produce the same
 # regulatory_sites ordering (regulatory side) regardless of input site order.
@@ -8520,7 +8519,7 @@ end
 # construction, so dedup is just `unique!`, which relies on
 # `Base.==` / `Base.hash` on the struct itself. This testset locks in the
 # struct-equality contract that powers that dedup.
-@testset "AllostericMechanism — site multiplicity is part of the dedup key" begin
+@testset "Allosteric mechanism — site multiplicity is part of the dedup key" begin
 # Mechanism: differing site multiplicities → unequal because
 # multiplicities are part of the structural identity.
 am_m2 = @enzyme_mechanism begin
@@ -8898,7 +8897,7 @@ end
 
 @testset "Mechanism — Allosteric expansion included" begin
     # SEED: uni-uni RE-only attached to an oligomeric reaction.
-    # candidate_mechanisms must include AllostericMechanism variants in
+    # candidate_mechanisms must include allosteric mechanism variants in
     # its output.
     m = @enzyme_mechanism begin
         substrates: S
@@ -8915,10 +8914,10 @@ end
     # _expand_to_allosteric on this uni-uni seed (3 kinetic groups: 2
     # binding + 1 catalytic, no regulator declared) tags each nonempty set
     # of the bindings :OnlyA on top of the base whose chemical step is
-    # :OnlyA, 3 distinct AllostericMechanism variants that the exit guard
+    # :OnlyA, 3 distinct allosteric mechanism variants that the exit guard
     # (`check_valid_rate_equation`) all keeps (the catalytic group is never a bare
     # primary :OnlyA — that needs a regulator). Other moves do not
-    # produce AllostericMechanism output from a plain Mechanism, so
+    # produce allosteric mechanism output from a plain mechanism, so
     # exactly 3 exist.
     @test allo_count == 3
 end
@@ -8949,9 +8948,9 @@ end
     end
 end
 
-@testset "AllostericMechanism — rewrap preserves structure" begin
-    # SEED: all-:EqualAI AllostericMechanism uni-uni. Passing this to
-    # candidate_mechanisms must produce AllostericMechanism expansions
+@testset "Allosteric mechanism — rewrap preserves structure" begin
+    # SEED: all-:EqualAI allosteric mechanism uni-uni. Passing this to
+    # candidate_mechanisms must produce allosteric mechanism expansions
     # (RE→SS rewrapped as allosteric, etc.).
     am = @enzyme_mechanism begin
         substrates: S; products: P
@@ -8976,8 +8975,8 @@ end
     end
 end
 
-@testset "AllostericMechanism — Dead-end excludes allosteric regs" begin
-    # SEED: AllostericMechanism uni-uni with R already added as an
+@testset "Allosteric mechanism — Dead-end excludes allosteric regs" begin
+    # SEED: allosteric mechanism uni-uni with R already added as an
     # allosteric regulator (:OnlyA). candidate_mechanisms must never add R
     # as a dead-end inhibitor — no step in any expansion may bind R
     # (allosteric regulators live in regulatory_sites, not in the
@@ -9327,7 +9326,7 @@ end
 # ═══════════════════════════════════════════════════════════════════════
 # Testsets covering downstream concerns (canonicalization parameter-naming;
 # move-on-allosteric polymorphism). Adjacent to enumeration but tests
-# rate-equation-derivation and AllostericMechanism integration.
+# rate-equation-derivation and allosteric mechanism integration.
 # ═══════════════════════════════════════════════════════════════════════
 
 @testset "Tagged groups exclude inactive-state params" begin
@@ -13580,7 +13579,7 @@ end
     # The seed of `init_mechanisms(terter)` with the most steps (55) is the enumeration's
     # worst case: random order, each substrate and product binding at nine forms in one
     # rapid-equilibrium group. Outside garbage collection, the split alone must take under
-    # 90 s and the four moves that apply to a plain Mechanism (split, flip, dead end,
+    # 90 s and the four moves that apply to a plain mechanism (split, flip, dead end,
     # to-allosteric) under 120 s together; they return 81 children: 12 splits, 6 flips and
     # 63 K-types (the reaction declares no regulator). The split takes 4 s in a full local
     # suite and 7-11 s on a CI runner, but a slow macOS runner reached 60 s.
@@ -15204,7 +15203,7 @@ end
 
     @testset "undesignated: skeletons × 2²" begin
         @test !isempty(seeds_xy)
-        # Every seed is a fully-regulated, cheap-state AllostericMechanism with X
+        # Every seed is a fully-regulated, cheap-state allosteric mechanism with X
         # and Y each at their own single-ligand site.
         for s in seeds_xy
             @test _testhelper_is_allosteric(s)
@@ -15288,7 +15287,7 @@ end
         seeds = _testhelper_mechanisms(
             EnzymeRates.Enumeration.seed_mechanisms(rxn, Set{Symbol}(), Set([:I])))
         @test !isempty(seeds)
-        # No allosteric-lifting move fires: every seed is a plain Mechanism that
+        # No allosteric-lifting move fires: every seed is a plain mechanism that
         # binds I as a dead-end competitive binding, and carries no L.
         for s in seeds
             @test !_testhelper_is_allosteric(s)
@@ -15491,7 +15490,7 @@ end
 
 # Tag of each catalytic kinetic group, keyed by the metabolite it binds
 # (`:chem` for the chemical step). Group index is never a stable key: the
-# AllostericMechanism constructor canonicalizes group order.
+# Mechanism constructor canonicalizes group order.
 _testhelper_tags_by_bound_metabolite(x) = Dict(
     (s = first(steps); _testhelper_is_binding(s) ? only(s.consumed) : :chem) =>
         x.allosteric.allosteric_states[g]

@@ -218,7 +218,7 @@ end
         @test Tuple(ER.metabolites(am)) == ER.metabolites(compile_rate_equation(am))
     end
 
-    @testset "AllostericMechanism from the DSL" begin
+    @testset "Allosteric mechanism from the DSL" begin
         # Single-ligand :EqualAI reg site is allowed (degenerate but valid —
         # the enumerator won't emit it, but users may write it for teaching).
         @test _testhelper_is_allosteric(@enzyme_mechanism(begin
@@ -1111,7 +1111,7 @@ end
         end
     end
 
-    @testset "AllostericMechanism validators" begin
+    @testset "Allosteric mechanism validators" begin
         # Wrong-length allosteric_states (4 entries for 3 kinetic groups) → error
         @test_throws ErrorException ER.Mechanism(
             _testhelper_re_mm.catalytic,
@@ -1671,7 +1671,7 @@ end
                "EP_res_plusA_minusP", "EQ"]
     end
 
-    @testset "AllostericMechanism (non-parametric)" begin
+    @testset "Allosteric mechanism (non-parametric)" begin
         (; bind, iso, rel) = _testhelper_uniuni_steps()
         sites = [ER.Mechanisms.RegulatorySite([:I], 1, [:OnlyI])]
         m = _testhelper_tagged_uniuni([bind, iso, rel], [:EqualAI, :OnlyA, :NonequalAI], 2,
@@ -1699,7 +1699,7 @@ end
         @test hash(m) == hash(m2)
     end
 
-    @testset "AllostericMechanism validation errors" begin
+    @testset "Allosteric mechanism validation errors" begin
         steps = collect(_testhelper_uniuni_steps())
         _testhelper_invalid_tag(tag) = ErrorException(
             "Mechanism: catalytic group 1 has invalid allosteric state $tag (must be " *
@@ -2053,7 +2053,7 @@ end
     end
 end
 
-@testset "AllostericMechanism enforces the kinetic-group rules" begin
+@testset "Allosteric mechanism enforces the kinetic-group rules" begin
     am = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -3450,7 +3450,7 @@ end
 
 @testset "a regulatory-site ligand takes no reserved name and no `_`" begin
     # An allosteric regulator reaches the constructor only as a site ligand, so the
-    # AllostericMechanism constructor checks the ligands' names.
+    # Mechanism constructor checks the ligands' names.
     @test_throws(ErrorException(
         "Mechanism: L is a reserved name; Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),

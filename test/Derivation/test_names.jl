@@ -422,7 +422,7 @@ end
     end
 end
 
-@testset "_name(p, ::AllostericMechanism) chokepoint" begin
+@testset "_name(p, m) chokepoint on an allosteric mechanism" begin
     am = @enzyme_mechanism begin
         substrates: S
         products:   P

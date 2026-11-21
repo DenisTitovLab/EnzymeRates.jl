@@ -382,14 +382,14 @@ specialize on it: Base's `text/plain` display and `FittingProblem` and `loss!` b
 compiled law prints one line (`compiled rate equation`), whatever its Sig. A mechanism
 prints as the macro block that builds it (`show`, `src/Mechanisms/text.jl`);
 `DSL.parse_mechanism` reads that text back through the macros' walker and checks, never
-evaluating it, and identify's CSVs store it with a short id (`mechanism_id`). `FittingProblem` holds the mechanism and its compiled
-law, and `loss!` specializes on the law's type on purpose: it then reads `parameters(rate)`
-and `metabolites(rate)` as constants and calls the law without dispatch. The optimizer
-never sees that type. `fit_rate_equation`
-takes its `FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`,
-which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the
-solver one problem type: `solve` and the solver compile once per optimizer, not once per
-mechanism.
+evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
+`FittingProblem` holds the mechanism and its compiled law, and `loss!` specializes on the
+law's type on purpose: it then reads `parameters(rate)` and `metabolites(rate)` as
+constants and calls the law without dispatch. The optimizer never sees that type.
+`fit_rate_equation` takes its `FittingProblem` `@nospecialize` and hands
+`Optimization.solve` a `FitObjective`, which holds `x -> loss!(x, fp)` behind a
+`FunctionWrapper`, so every mechanism gives the solver one problem type: `solve` and the
+solver compile once per optimizer, not once per mechanism.
 
 ### Parameters
 

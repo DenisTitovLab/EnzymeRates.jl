@@ -322,7 +322,7 @@ _testhelper_binding_of(x, t) =
             regulatory_site(1): X::Bogus
         end))
 
-        # An unknown catalytic state is reported by AllostericMechanism.
+        # An unknown catalytic state is reported by the Mechanism constructor.
         for state in (:Bogus,)
             @test_throws "catalytic group" eval(:(@enzyme_mechanism begin
                 substrates: S
