@@ -30,10 +30,10 @@ data, run on about 800 cores of a cluster:
 | Worker CPU time per fit | 10 s | 17 s |
 
 CPU time per fit covers everything the workers do, including enumeration, compilation and
-cross-validation, so it runs well above a fit's own time (see
-[How long a fit takes](@ref)). At those rates a PGK-sized search would need roughly 5–6 hours
-on 8 cores and a PFK-sized one about 3 days. These are estimates from the cluster's CPU time,
-not runs on 8 cores, and your hardware and data will change them.
+cross-validation, so it runs well above a fit's own time (see [How long a fit takes](@ref)).
+At those rates a PGK-sized search would need roughly 5–6 hours on 8 cores and a PFK-sized
+one about 3 days. These are estimates from the cluster's CPU time, not runs on 8 cores, and
+your hardware and data will change them.
 
 ## Running on a local machine with several cores
 

@@ -21,9 +21,9 @@ magnitudes, returns the constants as fitted and takes no `reference`.
 
 ### Relative mode (the default)
 
-- **Loss**: each group's log-ratios are **mean-centered before squaring**,
-  which removes the arbitrary per-group scale, such as the group's enzyme amount. The loss is invariant
-  to rescaling all rates in a group by the same factor.
+- **Loss**: each group's log-ratios are **mean-centered before squaring**, which removes the
+  arbitrary per-group scale, such as the group's enzyme amount. The loss is invariant to
+  rescaling all rates in a group by the same factor.
 - **Output scale**: the loss cannot see a common factor on every steady-state rate
   constant, so the fitter fixes it after the fit: the returned constants make the
   mechanism reproduce the **reference** turnovers or, without a reference, put the

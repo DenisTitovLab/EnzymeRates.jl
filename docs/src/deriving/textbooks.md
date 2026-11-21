@@ -92,10 +92,11 @@ denominator by a normalizer with `D`'s unit, chosen by the first rule that appli
    degree first, then fewest metabolites other than substrates, then metabolite order) and
    weigh the first affinely independent ones so that the product of their coefficients,
    each to its weight, has `D`'s unit. Fractional weights print as roots.
-4. **No normalizer.** When no such weights exist, no product of the coefficients has
-   `D`'s unit: some weighting of the concentrations gives every term of `D` the same
-   nonzero degree. In `E + A <--> EA`, `EA + B ⇌ EQ + P`, `EQ <--> E + Q`, for example, the rapid-equilibrium Theorell–Chance step makes every term carry exactly one
-   of `B` and `P`. The law then prints as derived, and its terms keep their units.
+4. **No normalizer.** When no such weights exist, no product of the coefficients has `D`'s
+   unit: some weighting of the concentrations gives every term of `D` the same nonzero
+   degree. In `E + A <--> EA`, `EA + B ⇌ EQ + P`, `EQ <--> E + Q`, for example, the
+   rapid-equilibrium Theorell–Chance step makes every term carry exactly one of `B` and `P`.
+   The law then prints as derived, and its terms keep their units.
 
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once, as the line `N = …`, and the terms it divides read `/ N`.

@@ -248,8 +248,8 @@ conformations, so it cannot be switched off. Make its kinetic group steady-state
 :OnlyA the steps that join its sides: E + P ⇌ EP; ES <--> EP.
 ```
 
-The catalytic step and the product binding still join ES to free E, so ES stays in free
-E's island, made from P, and the substrate binding lies inside one island. `Keq` and the other
+The catalytic step and the product binding still join ES to free E, so ES stays in free E's
+island, made from P, and the substrate binding lies inside one island. `Keq` and the other
 steps' constants fix its dissociation constant, which cannot grow.
 
 The same binding at steady state is accepted:
@@ -342,8 +342,8 @@ package rejects:
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so the compiled rate
-equation returns `NaN` at such a point; a fit scores the NaN as it scores the 0 a well-defined law
-predicts there.
+equation returns `NaN` at such a point; a fit scores the NaN as it scores the 0 a
+well-defined law predicts there.
 
 ## Thermodynamic constraints of MWC equations
 

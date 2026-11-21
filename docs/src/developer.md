@@ -12,11 +12,11 @@ The two halves and the optimizer layer are described below.
 ## Modules
 
 EnzymeRates is seven submodules and a top level. Each submodule lives in `src/<Module>/`:
-`<Module>.jl` declares the module, includes its files and lists its interface in a
-`public` statement. A module's public names are its interface to the other modules; only
-the exports are promised to users. Its tests live in `test/<Module>/`. The diagram below
-shows every exported name and every name one module takes from another, and the tables
-list every module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
+`<Module>.jl` declares the module, includes its files and lists its interface in a `public`
+statement. A module's public names are its interface to the other modules; only the exports
+are promised to users. Its tests live in `test/<Module>/`. The diagram below shows every
+exported name and every name one module takes from another, and the tables list every
+module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
 diagram is generated: each box's sentence is the first sentence of its module's docstring,
 and `julia test/update_module_map.jl` rewrites it, together with the table of modules in
 `.claude/CLAUDE.md`, which the same test checks.
@@ -490,9 +490,9 @@ positional local, so a `NamedTuple` in any field order works, and reciprocals an
 denominator holds `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on
 the first affinely independent terms), so every denominator term is dimensionless; a law
 with no such normalizer prints as derived. With `coefficients = true` it prints the law in
-named coefficients, and with `coefficient_values = false` without the lines that define them.
-`identify_rate_equation` writes that short form to the search and LOOCV CSVs and the full
-coefficient form to `best_equation.csv`.
+named coefficients, and with `coefficient_values = false` without the lines that define
+them. `identify_rate_equation` writes that short form to the search and LOOCV CSVs and the
+full coefficient form to `best_equation.csv`.
 
 `_canonical` (`src/Derivation/key.jl`) labels a law canonically: each part to lowest terms,
 the fitted constants coloured by refinement on the term–constant incidence and
@@ -552,24 +552,23 @@ class 3 (`_check_face`: closed classes, bottomless segments, the aggregated chai
 limit test modulo 2^61 − 1 where structure decides nothing) and admission's face condition
 (`_admission_face`, below).
 
-**Readings.** The steps a conformation keeps join the forms into **islands**: sets of
-forms joined to each other by those steps (`exclusion_components`), neither kinetic groups
-nor rapid-equilibrium segments. Every island but free E's is cut off: it lies higher in
-energy and holds no enzyme of that conformation. A reading (`_SwitchOff` per step and
-conformation) switches off each excluded step. One between two islands loses the rate of
-its uphill direction (`_LOSES_FORWARD`, `_LOSES_REVERSE`) and keeps the other and its kind,
-so a rapid-equilibrium step stays fast; at steady state it may stop instead (`_STOPPED`).
-One inside an island stops at steady state, and at rapid equilibrium no reading switches it
-off
+**Readings.** The steps a conformation keeps join the forms into **islands**: sets of forms
+joined to each other by those steps (`exclusion_components`), neither kinetic groups nor
+rapid-equilibrium segments. Every island but free E's is cut off: it lies higher in energy
+and holds no enzyme of that conformation. A reading (`_SwitchOff` per step and conformation)
+switches off each excluded step. One between two islands loses the rate of its uphill
+direction (`_LOSES_FORWARD`, `_LOSES_REVERSE`) and keeps the other and its kind, so a
+rapid-equilibrium step stays fast; at steady state it may stop instead (`_STOPPED`). One
+inside an island stops at steady state, and at rapid equilibrium no reading switches it off
 (`_FAST_STEP_PINNED`): its two sides lie at one energy, so thermodynamics fixes its
 equilibrium constant, and a step keeps its kind in both conformations. A reading is
 consistent (`_interior_verdict`) when every excluded rapid-equilibrium step loses a
 direction, none stopped or left unswitched (`_CANNOT_SWITCH_OFF`), which is how a built
 reading becomes inconsistent; when the steps that lose, each pointing uphill, close no
-directed cycle over the islands and never point into free E's island, so energies exist
-that rise along them with every cut-off island above free E's; and when they lead from free
-E's island to every island, so every cut-off island has a step by which it empties. The law is the
-same under every reading, since it drops the excluded steps; class 2 sees the same fast
+directed cycle over the islands and never point into free E's island, so energies exist that
+rise along them with every cut-off island above free E's; and when they lead from free E's
+island to every island, so every cut-off island has a step by which it empties. The law is
+the same under every reading, since it drops the excluded steps; class 2 sees the same fast
 transitions under every consistent reading, every rapid-equilibrium step's; and class 3 and
 the active conformation's turnover read no reading. Only three faults of admission's face
 condition, which read which transitions vanish, tell consistent readings apart
@@ -659,16 +658,16 @@ keeps a sampled population test with corner directions ("sampled taggings: the
 energy-level rule agrees with the oracles").
 
 **Faults.** A verdict's fault is one of: two constants of the law share a name, which the
-guard checks first (`_SHARED_NAME`, `_shared_constant_names`); no cycle turns the
-reaction over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's
-`_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`, `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded
-rapid-equilibrium step inside one island (`_FAST_STEP_PINNED`); an active conformation that turns nothing over
-(`_NO_ACTIVE_TURNOVER`); on a face, admission's `_EPS_NONUNIQUE`, `_FILLED`, `_PUMPED` or
-`_BRIDGE`; or too many readings to search with no consistent built reading
-(`_TOO_MANY_READINGS`). An inconsistent reading is never reported. `_admission_message`
-writes the admission faults' text and offers each fix whose variant passes the guard: for
-the pinned step, its group made steady-state, or the steps that join its sides tagged
-`:OnlyA` (`:OnlyI` in the active conformation).
+guard checks first (`_SHARED_NAME`, `_shared_constant_names`); no cycle turns the reaction
+over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`,
+`_BOTTOMLESS`, `_TRAP`, `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded
+rapid-equilibrium step inside one island (`_FAST_STEP_PINNED`); an active conformation that
+turns nothing over (`_NO_ACTIVE_TURNOVER`); on a face, admission's `_EPS_NONUNIQUE`,
+`_FILLED`, `_PUMPED` or `_BRIDGE`; or too many readings to search with no consistent built
+reading (`_TOO_MANY_READINGS`). An inconsistent reading is never reported.
+`_admission_message` writes the admission faults' text and offers each fix whose variant
+passes the guard: for the pinned step, its group made steady-state, or the steps that join
+its sides tagged `:OnlyA` (`:OnlyI` in the active conformation).
 
 On a mechanism the guard rejects, the macro, the parser and the derivation entries throw;
 `init_mechanisms`, `seed_mechanisms` and both methods of `Enumeration.candidate_mechanisms`
@@ -678,14 +677,14 @@ candidate whose count rises, and the tagging move on each tag set its base searc
 ## Enumeration engine architecture
 
 Mechanism enumeration works on the plain value `Mechanism` (`src/Mechanisms/types.jl`),
-inside candidates (below): a `CatalyticScheme` and its `Allostery`. A `CatalyticScheme` is a reaction graph in
-canonical form: its `metabolites` by name (the substrates, then the products, then the
-modifiers, each sorted), its `substrates` and `products` as indices into them, its
-`enzyme_forms` by name (free E first, then sorted), and its `steps` (`Step`: two form
-indices, the sorted indices of the metabolites the step takes up and gives off, its
-rapid-equilibrium flag and its kinetic group). A form's name is opaque: the graph stores
-no form contents, so a reactant bound where it does not react is the reactant taken up,
-and only the forms' names tell the two bindings apart (`ESSmod` beside `ES`). It holds no
+inside candidates (below): a `CatalyticScheme` and its `Allostery`. A `CatalyticScheme` is a
+reaction graph in canonical form: its `metabolites` by name (the substrates, then the
+products, then the modifiers, each sorted), its `substrates` and `products` as indices into
+them, its `enzyme_forms` by name (free E first, then sorted), and its `steps` (`Step`: two
+form indices, the sorted indices of the metabolites the step takes up and gives off, its
+rapid-equilibrium flag and its kinetic group). A form's name is opaque: the graph stores no
+form contents, so a reactant bound where it does not react is the reactant taken up, and
+only the forms' names tell the two bindings apart (`ESSmod` beside `ES`). It holds no
 reaction, and `==` and `hash` read these fields alone, alike in every process. An
 `Allostery` holds one allosteric state per kinetic group (none for a plain mechanism), the
 oligomeric state and the regulatory sites. Every module reads these fields with dots (see
@@ -729,56 +728,54 @@ each side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for
 `E + S ⇌ ES`, `K_EPQ_to_EA_B` for `EA + B ⇌ EPQ`, `k_EA_B_to_EQ_P` for
 `EA + B <--> EQ + P`).
 
-Like the compiled laws, the graph is canonical, so the order or direction in which
-steps are written does not change the resulting mechanism. The canonical form is
-load-bearing: deduplication by `==` and `hash` works only because construction is
-canonical, and every constant is named after the stored sides of its class's kept member,
-so do not relax or reorder it. `_canonical` stores the metabolites as substrates,
-products and modifiers, each by name, free E first and the other forms by name, and stores
-every edge in the direction the
-graph gives it (`_orientation`), reading only the edges, the forms' names, the substrates
-and the products: an edge that only takes up or only gives off metabolites runs as the
-uptake, so a release is stored as the binding it reverses; one that takes up some and
-gives off others runs the way that takes up more substrates and gives off more products;
-an isomerization, or an exchange of one modifier for another, runs the way the shortest
-cycle through it that turns the reaction over runs (`_turnover_directions!`, a
-breadth-first search over a form and the net uptake of the first substrate, which finds
-the shortest closed walk); failing that, away from free E, and failing that from the form
-whose name comes first, free E before every other, so that a direction follows the forms'
-names and not the order they are stored in. It sorts the edges, and `Mechanism` numbers
-the kinetic groups by their first edge. The edges of one group share their constants, so they turn
-together after the member nearest free E among those the first three rules decide, ties
-broken by the forms' names (`_turn_groups_together!`): an edge with metabolites takes up
-what that member takes up, and an isomerization keeps the direction it was written in
-relative to it. In
+Like the compiled laws, the graph is canonical, so the order or direction in which steps are
+written does not change the resulting mechanism. The canonical form is load-bearing:
+deduplication by `==` and `hash` works only because construction is canonical, and every
+constant is named after the stored sides of its class's kept member, so do not relax or
+reorder it. `_canonical` stores the metabolites as substrates, products and modifiers, each
+by name, free E first and the other forms by name, and stores every edge in the direction
+the graph gives it (`_orientation`), reading only the edges, the forms' names, the
+substrates and the products: an edge that only takes up or only gives off metabolites runs
+as the uptake, so a release is stored as the binding it reverses; one that takes up some and
+gives off others runs the way that takes up more substrates and gives off more products; an
+isomerization, or an exchange of one modifier for another, runs the way the shortest cycle
+through it that turns the reaction over runs (`_turnover_directions!`, a breadth-first
+search over a form and the net uptake of the first substrate, which finds the shortest
+closed walk); failing that, away from free E, and failing that from the form whose name
+comes first, free E before every other, so that a direction follows the forms' names and not
+the order they are stored in. It sorts the edges, and `Mechanism` numbers the kinetic groups
+by their first edge. The edges of one group share their constants, so they turn together
+after the member nearest free E among those the first three rules decide, ties broken by the
+forms' names (`_turn_groups_together!`): an edge with metabolites takes up what that member
+takes up, and an isomerization keeps the direction it was written in relative to it. In
 `(Estar <--> E, EstarA <--> EA)` the reaction runs through the two edges in opposite
-directions, so nothing in the graph says how the members correspond: the writer aligns
-the group, as the enumerator does, and turning one isomerization against its group
-writes another mechanism. The `RegulatorySite` constructor sorts a site's ligands by
-name, and the `Mechanism` constructor sorts the sites.
+directions, so nothing in the graph says how the members correspond: the writer aligns the
+group, as the enumerator does, and turning one isomerization against its group writes
+another mechanism. The `RegulatorySite` constructor sorts a site's ligands by name, and the
+`Mechanism` constructor sorts the sites.
 
-The constructors check representation only (`_check_written` and `_check_graph`, and for
-an allosteric mechanism `_check_tags` and `_check_ligands`): indices in range; names a
+The constructors check representation only (`_check_written` and `_check_graph`, and for an
+allosteric mechanism `_check_tags` and `_check_ligands`): indices in range; names a
 metabolite can take, each declared once, and no form named like a metabolite; a form named
-`E`, and edges that join every form to it; every declared name taken up, given off or
-bound by some step. They also enforce the kinetic-group rules. A group's edges take up and
-give off the same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused
-and a plain binding of one metabolite may share a group and a Theorell–Chance step cannot
-share one with a binding. A reaction — the pair of an edge's two sides — appears in one
-edge (`_check_each_reaction_once`). Form names are opaque, so two of them can render one
-constant name, as a form named `ES_I` and the side `ES + I` do; the guard rejects such a
-mechanism (`_shared_constant_names`). The enumerator, which names the forms it builds from
-their contents, refuses a reaction whose names spell one string two ways, such as `NAD`,
-`P` and `NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Whether a mechanism's rate law is
-defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
+`E`, and edges that join every form to it; every declared name taken up, given off or bound
+by some step. They also enforce the kinetic-group rules. A group's edges take up and give
+off the same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused and a
+plain binding of one metabolite may share a group and a Theorell–Chance step cannot share
+one with a binding. A reaction — the pair of an edge's two sides — appears in one edge
+(`_check_each_reaction_once`). Form names are opaque, so two of them can render one constant
+name, as a form named `ES_I` and the side `ES + I` do; the guard rejects such a mechanism
+(`_shared_constant_names`). The enumerator, which names the forms it builds from their
+contents, refuses a reaction whose names spell one string two ways, such as `NAD`, `P` and
+`NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Whether a mechanism's rate
+law is defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
 [Well-posedness guard](@ref)). The macro, the parser and every derivation entry throw on a
-mechanism it rejects (`check_valid_rate_equation`), and the enumerator's exits and its
-flip, split and tagging searches drop one
-(`check_valid_rate_equation(Bool, m)`). The constructors and the Sig decoder do
-not run it. Those exits and searches test a candidate with `_enumerator_keeps`, which also
-drops an allosteric mechanism the guard admits in which a conformation keeps a form, other
-than free E, that only bindings it excludes enter (`_kept_forms_keep_a_binding`): its law
-is the limit, so a user may write it, but the enumerator does not propose it.
+mechanism it rejects (`check_valid_rate_equation`), and the enumerator's exits and its flip,
+split and tagging searches drop one (`check_valid_rate_equation(Bool, m)`). The constructors
+and the Sig decoder do not run it. Those exits and searches test a candidate with
+`_enumerator_keeps`, which also drops an allosteric mechanism the guard admits in which a
+conformation keeps a form, other than free E, that only bindings it excludes enter
+(`_kept_forms_keep_a_binding`): its law is the limit, so a user may write it, but the
+enumerator does not propose it.
 
 These are ordinary value types to avoid excessive precompilation costs. The enumeration
 builds, expands, and deduplicates many thousands of candidate mechanisms (see
@@ -906,10 +903,10 @@ solver-specific options pass through a `solver_kwargs` named tuple; see
 ### What a fit costs
 
 A fit costs `n_restarts` × evaluations per restart × table rows × time per row, plus
-compiling the law once and the solver's own work. The tables below come from 118 laws sampled
-from the 2026-11-02 searches, 59 from each, each fitted once, cold, with 20 restarts on one
-aarch64 core on Julia 1.13.3. A benchmark copy of `_fit_loss` counted the evaluations, and
-`loss!` was timed alone on parameter sets from that fit:
+compiling the law once and the solver's own work. The tables below come from 118 laws
+sampled from the 2026-11-02 searches, 59 from each, each fitted once, cold, with 20 restarts
+on one aarch64 core on Julia 1.13.3. A benchmark copy of `_fit_loss` counted the
+evaluations, and `loss!` was timed alone on parameter sets from that fit:
 
 | Median (range) | PGK, 386 rows | PFKP, 486 rows |
 |:---------------|--------------:|---------------:|
@@ -930,13 +927,14 @@ Over all the sampled time, which large laws dominate, a fit divides as follows:
 | PGK | 1.05 s | 75% | 11.5% | 13.5% |
 | PFKP | 1.41 s | 71% | 9% | 20% |
 
-`loss!` costs about the same inside a fit as alone, so a warm fit is close to evaluations
-× `loss!` time plus 1.5–1.8 µs per evaluation. A profile of warm fits puts the objective at
-77–92% of their time, CMA-ES's eigendecomposition (`MEigen`, in CMAEvolutionStrategy) at 5–14%
-and garbage collection at 1–5%. The objective's wrapper costs too little to measure, and the
-package's own work around the solver stays near 1%. Compiling takes 0.10–0.19 s per law
-whatever its size, so it reaches 30–50% of a fit on PGK's laws of 6–8 parameters and under 5%
-on the largest laws. `test/Fitting/test_fitting.jl` bounds a fit's time by its counted `loss!` calls.
+`loss!` costs about the same inside a fit as alone, so a warm fit is close to evaluations ×
+`loss!` time plus 1.5–1.8 µs per evaluation. A profile of warm fits puts the objective at
+77–92% of their time, CMA-ES's eigendecomposition (`MEigen`, in CMAEvolutionStrategy) at
+5–14% and garbage collection at 1–5%. The objective's wrapper costs too little to measure,
+and the package's own work around the solver stays near 1%. Compiling takes 0.10–0.19 s per
+law whatever its size, so it reaches 30–50% of a fit on PGK's laws of 6–8 parameters and
+under 5% on the largest laws. `test/Fitting/test_fitting.jl` bounds a fit's time by its
+counted `loss!` calls.
 
 The table gives `loss!` in ns per row on the PFK table (486 rows) and the PGK table (386
 rows), for the same laws at each version. The PFKP columns are one allosteric law each. The
@@ -957,18 +955,20 @@ Three changes account for the gain:
 - **Run-time dispatch in `loss!`.** At 0.8.0, `rate_equation` took about 41 ns on the
   13-parameter PFKP law and allocated nothing, while `loss!` took about 1,000 ns per row and
   allocated 778 KB per call. `metabolites` of an allosteric mechanism splatted a `Vector`
-  into its result, so the compiler inferred `Tuple{Symbol, Symbol, Symbol, Symbol,
-  Vararg{Symbol}}` with or without regulators. Each row then dispatched `ntuple`,
-  `rate_equation`, `sign` and `log` at run time. Plain mechanisms never paid this cost. Every
-  PFKP fit was allosteric, as were 55% of PGK's fits, which took 97% of the fit time in a
-  random sample. 0.9.0 gave `metabolites` a fixed length.
+  into its result, so the compiler inferred
+  `Tuple{Symbol, Symbol, Symbol, Symbol, Vararg{Symbol}}` with or without regulators. Each
+  row then dispatched `ntuple`, `rate_equation`, `sign` and `log` at run time. Plain
+  mechanisms never paid this cost. Every PFKP fit was allosteric, as were 55% of PGK's fits,
+  which took 97% of the fit time in a random sample. 0.9.0 gave `metabolites` a fixed
+  length.
 - **Horner form.** PGK's laws run 2–3× faster, because the form removes multiplications.
   PFKP's smaller laws gain nothing. The generated code emits no `muladd`, and Julia does not
   contract `x * y + z` by itself, so it executes no fused multiply-adds.
-- **The one law engine (#95).** Nearly all of the further 1.7–3.6× arrives in this commit;
-  #91 and #92 change nothing, and #93 helps only the 13-parameter PFKP law, from 36 to 27 ns.
-  Before #95, an MWC law called Julia's general integer power (`pow_body`) for each `x^n`, at
-  about 2 ns a call: 7 calls per evaluation on the 13-parameter PFKP law and 20 on the
+- **The one law engine (#95).** Nearly all of the further 1.7–3.6× arrives in this
+  commit; #91 and #92 change nothing, and #93 helps only the 13-parameter PFKP law, from 36
+  to 27 ns.
+  Before #95, an MWC law called Julia's general integer power (`pow_body`) for each `x^n`,
+  at about 2 ns a call: 7 calls per evaluation on the 13-parameter PFKP law and 20 on the
   20-parameter law. #95 writes these powers as multiplications, which takes those laws from
   27 to 11 and from 64 to 20 ns per row. Laws also lose operations: from #92 to 0.10.0, the
   13-parameter plain PGK law falls from 460 to 312 multiplications and from 317 to 150
@@ -986,58 +986,60 @@ These pairs match values, not verified mechanism identities.
 | Cluster wall time, 0.8.0 → 0.10.0 | ≥ 24 h → 62 min | 112 → 13.3 min |
 | Cluster core-seconds per fit, 0.8.0 → 0.10.0 | ≥ 614 → 25 | 277 → 40 |
 
-Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 PGK at 0.8.0,
-120 of each at 0.10.0. Cluster core-seconds are wall time × workers ÷ fits, so they include
-startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached its 24 h
-limit during cross-validation, so its figure is a lower bound.
+Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 PGK at
+0.8.0, 120 of each at 0.10.0. Cluster core-seconds are wall time × workers ÷ fits, so they
+include startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached
+its 24 h limit during cross-validation, so its figure is a lower bound.
 
-These one-core means predate #99, which changes each fit's search box; the sample above, with
+These one-core means predate #99, which changes each fit's search box; the sample above,
+with
 #99, gives 1.41 and 1.05 s. How much of that gap #99 causes is not separated.
 
 The cluster gained less than a single core did: at least 25× and 7× per fit, because workers
-now wait for much of a run. In `sacct`, the average worker of the 0.10.0 runs used the CPU for
-42:47 of 61:18 on PFKP (70%) and 3:16 of 13:01 on PGK (25%), which comes to 17 and 10
-CPU-seconds per fit. Workers connected within 15 s, and the master's CPU accounts for at most
-8.5 of PFKP's 18.5 idle minutes and 2.1 of PGK's 9.8. The rest is not measured, because
+now wait for much of a run. In `sacct`, the average worker of the 0.10.0 runs used the CPU
+for 42:47 of 61:18 on PFKP (70%) and 3:16 of 13:01 on PGK (25%), which comes to 17 and 10
+CPU-seconds per fit. Workers connected within 15 s, and the master's CPU accounts for at
+most 8.5 of PFKP's 18.5 idle minutes and 2.1 of PGK's 9.8. The rest is not measured, because
 `progress.log` carries no timestamps. How those 17 and 10 CPU-seconds divide between the fit
 itself, slower or contended cores, enumeration, cross-validation and message passing is also
 not measured; a fit alone takes 1–3 s on the one-core benchmark machine.
 
-The compiled law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on these
-slow paths, since the result is a `Float64` either way. So the speed gate in
+The compiled law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on
+these slow paths, since the result is a `Float64` either way. So the speed gate in
 `test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
-allocation in relative or absolute mode, and time per row at most 1.25 times the compiled law's
-time per call plus 8 `log` calls, timed in one process so machine speed cancels out. The bound
-holds if any of 20 batches meets it, each on a new `FittingProblem`, because time on one problem
-can sit up to about 40% above a new problem's. The factor of 1.25 covers a slowdown of unknown
-cause that once hit three laws in one process, which the batches cannot cure. Eight `log` calls
-leave room for the coverage counters on `loss!`'s own lines in CI jobs. The compiled law itself
-must stay under 50 ns + 0.5 ns per denominator term. That bound tolerates the spread between
-machines: small laws take 1-8 ns on an aarch64 development machine and 5-38 ns on CI, varying
-by runner. So a moderate slowdown of a small law passes it.
+allocation in relative or absolute mode, and time per row at most 1.25 times the compiled
+law's time per call plus 8 `log` calls, timed in one process so machine speed cancels out.
+The bound holds if any of 20 batches meets it, each on a new `FittingProblem`, because time
+on one problem can sit up to about 40% above a new problem's. The factor of 1.25 covers a
+slowdown of unknown cause that once hit three laws in one process, which the batches cannot
+cure. Eight `log` calls leave room for the coverage counters on `loss!`'s own lines in CI
+jobs. The compiled law itself must stay under 50 ns + 0.5 ns per denominator term. That
+bound tolerates the spread between machines: small laws take 1-8 ns on an aarch64
+development machine and 5-38 ns on CI, varying by runner. So a moderate slowdown of a small
+law passes it.
 
 `test/Fitting/test_fitting.jl` checks `loss!` on each column type a table can bring and on a
 cross-validation fold. `RateData` stores `Rate` and each metabolite as a `Vector{Float64}`,
 because an abstract column type costs a run-time dispatch on each read.
 
-`test/test_type_stability.jl` requires JET's optimization analysis to report nothing on every
-exported and public function and on the workers' internal functions, on Julia 1.13 only, since
-inference changes between versions. Each row reads as a call and says whether it must be free
-of dispatch (`@_testhelper_no_dispatch`) or may dispatch only for named reasons
-(`@_testhelper_dispatches_in`), and a row that stops needing a reason fails. A public function
-with no row fails the test; a public type does not, so deleting the
-row of `FittingProblem`, `RateData` or `Mechanism` would pass. Five limits apply:
+`test/test_type_stability.jl` requires JET's optimization analysis to report nothing on
+every exported and public function and on the workers' internal functions, on Julia 1.13
+only, since inference changes between versions. Each row reads as a call and says whether it
+must be free of dispatch (`@_testhelper_no_dispatch`) or may dispatch only for named reasons
+(`@_testhelper_dispatches_in`), and a row that stops needing a reason fails. A public
+function with no row fails the test; a public type does not, so deleting the row of
+`FittingProblem`, `RateData` or `Mechanism` would pass. Five limits apply:
 
 - JET does not look past a run-time dispatch or into a `pmap` closure, so the bodies the
   workers run have rows of their own.
 - JET gives a report in a shared callee once per row, so an exempt function that reaches it
   first hides it from other functions.
 - The test drops a report below a call that cannot compile, which mostly describes code that
-  never runs at those types, and a report through `Base.slowlock`, which is not package code.
-  A `@nospecialize` body is therefore checked only at the concrete types its rows name, and
-  at the abstract signature that actually compiles, which has rows of its own
-  (`fit_rate_equation` on an abstract `FittingProblem`, `_scale_rate_constants` on a mechanism
-  of type `Any`).
+  never runs at those types, and a report through `Base.slowlock`, which is not package
+  code. A `@nospecialize` body is therefore checked only at the concrete types its rows
+  name, and at the abstract signature that actually compiles, which has rows of its own
+  (`fit_rate_equation` on an abstract `FittingProblem`, `_scale_rate_constants` on a
+  mechanism of type `Any`).
 - JET misses a dynamic call written directly in the body of a comprehension or generator
   whose result is untyped, such as `[(r[] + x)::Float64 for x in v]` with `r::Ref{Any}`. It
   does report the same call with a typed result (`Float64[...]`), in an explicit loop, or in

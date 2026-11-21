@@ -157,22 +157,19 @@ never fits the non-allosteric mechanisms beneath. This is the default: every
 declared regulator is required, which is what lets the search reach the
 generating MWC mechanism so quickly here.
 
-The progress lines above trace the search, which is a *beam search*: it walks
-parameter counts in ascending order, and at each count it fits the candidates,
-keeps the most promising (the beam — here `min_beam_width = 10`), and expands
-the survivors into the next count. Which keys enter the beam is set by
-`min_beam_width` and the `loss_rel_threshold` / `loss_abs_threshold` /
-`loss_parsimony_threshold` cutoff — see [Best mechanism selection](@ref).
-Two filters bound the search: `max_param_count` (here `5`, the generating
-mechanism's size, to keep the example quick) caps it by fitted-parameter count,
-and `eq_complexity_filter` caps it by rate-equation complexity — roughly the
-number of terms in the equation's denominator, both conformations together for an
-allosteric mechanism, its default passing a fully
-steady-state random-order bi-bi. Each drops a candidate before fitting it. [Best mechanism selection](@ref) also covers the cross-validation
-rule that picks the winner. The
-production search widens the beam to 50 and the cap to 20, and distributes the
-fits across workers (see
-[Running in parallel](@ref)).
+The progress lines above trace the search, which is a *beam search*: it walks parameter
+counts in ascending order, and at each count it fits the candidates, keeps the most
+promising (the beam — here `min_beam_width = 10`), and expands the survivors into the next
+count. Which keys enter the beam is set by `min_beam_width` and the `loss_rel_threshold` /
+`loss_abs_threshold` / `loss_parsimony_threshold` cutoff — see
+[Best mechanism selection](@ref). Two filters bound the search: `max_param_count` (here `5`,
+the generating mechanism's size, to keep the example quick) caps it by fitted-parameter
+count, and `eq_complexity_filter` caps it by rate-equation complexity — roughly the number
+of terms in the equation's denominator, both conformations together for an allosteric
+mechanism, its default passing a fully steady-state random-order bi-bi. Each drops a
+candidate before fitting it. [Best mechanism selection](@ref) also covers the
+cross-validation rule that picks the winner. The production search widens the beam to 50 and
+the cap to 20, and distributes the fits across workers (see [Running in parallel](@ref)).
 
 Two controls tune the regulator seeding. To let the search decide whether `A`
 matters, and fit the non-regulated mechanisms too, mark it optional:
@@ -205,7 +202,8 @@ refine it.
 results.best
 ```
 
-`results.best` is a `Mechanism`, displayed as the macro block that builds it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
+`results.best` is a `Mechanism`, displayed as the macro block that builds it. Pass it to
+[`rate_equation_string`](@ref) to see the symbolic rate equation:
 
 ```@example identify_fast
 print(rate_equation_string(results.best))

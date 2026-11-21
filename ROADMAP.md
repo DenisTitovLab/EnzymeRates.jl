@@ -33,14 +33,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   then keep this entry with those numbers or retire it. No benchmark or pin yet covers the
   live bytes of a held result set.
   - **On Julia 1.11 the full suite can peak above 4 GB.**
-    With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB (3.84-3.86
-    GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run each, when the
-    stored facts grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before them). The ter-ter
-    `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about
-    1 GB of garbage. No test value retains the garbage: a full collection after the testset
-    frees it (live bytes fall from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the
-    lower-bound job, on a runner with more memory, so nothing checks the compat floor against
-    the 4 GB that `.claude/CLAUDE.md` sets aside for the suite.
+    With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB
+    (3.84-3.86 GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run
+    each, when the stored facts grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before
+    them). The ter-ter `init_mechanisms` testset
+    (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about 1 GB of garbage. No test
+    value retains the garbage: a full collection after the testset frees it (live bytes fall
+    from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the lower-bound job, on a runner
+    with more memory, so nothing checks the compat floor against the 4 GB that
+    `.claude/CLAUDE.md` sets aside for the suite.
   - **macOS CI takes 23-39 minutes for the tests, up from about 8.**
     Ubuntu and Windows stay at 15-17 minutes. The macOS runner has 7 GiB against their 16:
     in one instrumented run its heap reached 5.5 GiB with 3.0 GiB resident, and the
@@ -284,20 +285,20 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     reached through `_guard` by no mechanism searched: 20,096 variants of its fixture and
     the 54,927 taggings of the gate's `:OnlyA`, `:OnlyI` and ter-ter populations.
 - **Log the time of each search phase.**
-  `progress.log` carries no timestamps, so a cluster run cannot say where its wall time goes.
-  In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of PGK's
-  (Developer page, What a fit costs). Workers connect within 15 s and the master's CPU covers
-  under half of that idle time, so workers waiting for the slowest fit of a batch are the
-  leading suspect. A timestamp on each line, and each batch's slowest fit, would rank all the
-  search-speed ideas below. Priority: high.
+  `progress.log` carries no timestamps, so a cluster run cannot say where its wall time
+  goes. In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of
+  PGK's (Developer page, What a fit costs). Workers connect within 15 s and the master's CPU
+  covers under half of that idle time, so workers waiting for the slowest fit of a batch are
+  the leading suspect. A timestamp on each line, and each batch's slowest fit, would rank
+  all the search-speed ideas below. Priority: high.
 - **Profile the search on the HPC runs.**
-  In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of another
-  fit at the same parameter count. These may be laws the key misses, equal only after a
-  reparametrization (`_canonical`, `src/Derivation/key.jl`), or laws that differ only outside
-  the data. Separating the two would size a saving of up to 3–4×. Still unmeasured on these
-  runs: fits whose parent fails the final parsimony cutoff, children and survivors per move,
-  zero-gain `change_allo_state` children, and how many PGK rows identify flags `L_phantom`.
-  Priority: medium.
+  In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of
+  another fit at the same parameter count. These may be laws the key misses, equal only
+  after a reparametrization (`_canonical`, `src/Derivation/key.jl`), or laws that differ
+  only outside the data. Separating the two would size a saving of up to 3–4×. Still
+  unmeasured on these runs: fits whose parent fails the final parsimony cutoff, children and
+  survivors per move, zero-gain `change_allo_state` children, and how many PGK rows identify
+  flags `L_phantom`. Priority: medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
   numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The
@@ -367,13 +368,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   the inferred x metabolite.
 - **Spend less time compiling each law.**
   Compiling a fresh law takes 0.10-0.19 s, 9-12% of the PFKP and PGK searches' fit time and
-  30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the mechanism,
-  so moving it behind a function that compiles once may save part of this; the saving is not
-  measured.
+  30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the
+  mechanism, so moving it behind a function that compiles once may save part of this; the
+  saving is not measured.
 - **Reduce what CMA-ES itself costs per evaluation.**
-  At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
-  10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
-  PGK laws, so any faster rate law gains only on the `loss!` part. The solver's
+  At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs
+  against 10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the
+  median of 60 PGK laws, so any faster rate law gains only on the `loss!` part. The solver's
   eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up
   to 20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
   change upstream; neither is explored.
@@ -404,15 +405,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   one-subunit variants would drop these fits; first check that no other law becomes
   unreachable.
 - **Choose the number of restarts per fit.**
-  Over 120 sampled fits per enzyme, the best of 10 restarts took half the time of 20 and came
-  within 1% of the best of 20 in 98% of PFKP's fits (worst 10.7% above it) and in all of PGK's.
-  Stopping once the best loss recurs 4 times gives 1.7× and 2.4×, and 2% of PFKP's fits end
-  more than 5% high. A loss above the beam's cutoff drops a mechanism for good, so test a rule
-  by comparing whole search results, not single fits.
-  More restarts have a case too: on five PFKP laws of 16 or more parameters whose fits had
-  missed, 20, 40 and 80 restarts gave 13, 3 and 0 misses in 60 fits, and one such miss
-  dropped the line to PFKP's 18-parameter law from the beam. No whole search has been run
-  at 10 or at 40 restarts, and which way to move the default is undecided.
+  Over 120 sampled fits per enzyme, the best of 10 restarts took half the time of 20 and
+  came within 1% of the best of 20 in 98% of PFKP's fits (worst 10.7% above it) and in all
+  of PGK's. Stopping once the best loss recurs 4 times gives 1.7× and 2.4×, and 2% of PFKP's
+  fits end more than 5% high. A loss above the beam's cutoff drops a mechanism for good, so
+  test a rule by comparing whole search results, not single fits. More restarts have a case
+  too: on five PFKP laws of 16 or more parameters whose fits had missed, 20, 40 and 80
+  restarts gave 13, 3 and 0 misses in 60 fits, and one such miss dropped the line to PFKP's
+  18-parameter law from the beam. No whole search has been run at 10 or at 40 restarts, and
+  which way to move the default is undecided.
 - **Start a child's restarts from its parent's fit.**
   A child usually holds its parent as a limit, so one restart could begin at the parent's
   parameters. Not measured.
@@ -422,11 +423,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   count of multiplications, additions and power calls per law does not depend on the machine
   and would catch this, at the cost of re-pinning when a law changes on purpose.
 - **Inline the rate law in `loss!` and emit `muladd` in `_horner`.**
-  A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row loop:
-  `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call compile
-  time. `muladd` gives 2–18%, and the generated code then breaks the binary `+` and `*` shape
-  that the tests assert. Both leave the loss unchanged to 12 digits. They were measured
-  separately on aarch64, and neither has been measured on the cluster's x86 cores.
+  A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row
+  loop: `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call
+  compile time. `muladd` gives 2–18%, and the generated code then breaks the binary `+` and
+  `*` shape that the tests assert. Both leave the loss unchanged to 12 digits. They were
+  measured separately on aarch64, and neither has been measured on the cluster's x86 cores.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/Fitting/fit_rate_equation.jl`) draws each restart's starting
   point with `randn` from the running task's random stream, and `_process_batch`
@@ -462,9 +463,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Scheduled CI and Downgrade runs.**
   A weekly or monthly run would catch a dependency release that breaks the package or stops
-  the lower bounds resolving, with no push here. CI runs on pull requests and pushes to `main`,
-  and `.github/workflows/Downgrade.yml` on pull requests that change `Project.toml`; the next
-  such run surfaces either break.
+  the lower bounds resolving, with no push here. CI runs on pull requests and pushes to
+  `main`, and `.github/workflows/Downgrade.yml` on pull requests that change `Project.toml`;
+  the next such run surfaces either break.
 - **A global ±ln(1e9) box, physical ranges or a plausibility warning.** Either needs a
   declared unit. `lb` and `ub` in `fit_rate_equation` stay, and the box follows the data.
 - **`lb` and `ub` in `identify_rate_equation`.** The search sets each fit's box from its

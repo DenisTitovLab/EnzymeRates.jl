@@ -166,13 +166,12 @@ further. The [Identify tutorial](@ref) works a concrete example.
 
 ## The seven expansion moves
 
-`candidate_mechanisms(reaction, parent)` applies all seven moves to `parent` and returns
-the resulting children in one list. Each move is applied in every applicable way, so one
-parent yields many children — every set of rapid-equilibrium groups that can flip to steady state,
-every way a group can be split by binding context, every way an inhibitor can
-bind, and so on.
-Every child is checked to conserve atoms, and a child that the well-posedness guard rejects
-(see [What the package rejects](@ref)) or that fails the binding test is dropped.
+`candidate_mechanisms(reaction, parent)` applies all seven moves to `parent` and returns the
+resulting children in one list. Each move is applied in every applicable way, so one parent
+yields many children — every set of rapid-equilibrium groups that can flip to steady state,
+every way a group can be split by binding context, every way an inhibitor can bind, and so
+on. Every child is checked to conserve atoms, and a child that the well-posedness guard
+rejects (see [What the package rejects](@ref)) or that fails the binding test is dropped.
 
 The seven moves:
 

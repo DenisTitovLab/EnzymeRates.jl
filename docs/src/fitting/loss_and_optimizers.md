@@ -101,8 +101,8 @@ searches, with `CMAEvolutionStrategyOpt()` and 20 restarts, took:
 | Time per evaluation | 3.3 µs (2.8–18) | 6.3 µs (5.1–8.9) |
 | Fit with 20 restarts | 0.4 s (0.2–5.6) | 1.1 s (0.5–7.0) |
 
-These are single fits on one core of an aarch64 machine on Julia 1.13.3, so expect other times
-on other hardware. A fit takes longer with more data points, more parameters and a longer rate
-equation. The first fit in a Julia session also compiles the solver, about 3 s, and each new
-mechanism compiles in 0.1–0.2 s, which those fit times include. A restart here took at most
-about 0.35 s, so the default `maxtime` rarely limits a fit.
+These are single fits on one core of an aarch64 machine on Julia 1.13.3, so expect other
+times on other hardware. A fit takes longer with more data points, more parameters and a
+longer rate equation. The first fit in a Julia session also compiles the solver, about 3 s,
+and each new mechanism compiles in 0.1–0.2 s, which those fit times include. A restart here
+took at most about 0.35 s, so the default `maxtime` rarely limits a fit.
