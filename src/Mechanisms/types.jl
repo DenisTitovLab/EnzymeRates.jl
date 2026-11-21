@@ -503,11 +503,12 @@ struct Mechanism
     function Mechanism(catalytic::CatalyticScheme, allosteric::Allostery)
         states = allosteric.allosteric_states
         if isempty(states)
-            allosteric.oligomeric_state == 1 && isempty(allosteric.regulatory_sites) ||
+            n = length(allosteric.regulatory_sites)
+            allosteric.oligomeric_state == 1 && n == 0 ||
                 error("Mechanism: a mechanism with no allosteric states has oligomeric " *
                       "state 1 and no regulatory site; got oligomeric state " *
-                      "$(allosteric.oligomeric_state) and " *
-                      "$(length(allosteric.regulatory_sites)) regulatory sites")
+                      "$(allosteric.oligomeric_state) and $n regulatory " *
+                      (n == 1 ? "site" : "sites"))
         else
             _check_tags(states, length(catalytic.groups), allosteric.oligomeric_state)
         end

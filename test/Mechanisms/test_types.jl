@@ -1112,6 +1112,25 @@ end
     end
 
     @testset "Allosteric mechanism validators" begin
+        # A mechanism with no allosteric states is plain: one subunit and no regulatory
+        # site. The filters read a plain mechanism's oligomeric state, and two plain
+        # values on one scheme must be equal, so any other allostery is refused.
+        c = _testhelper_re_mm.catalytic
+        no_site = ER.Mechanisms.RegulatorySite[]
+        plain = ER.Mechanism(c, ER.Mechanisms.Allostery(Symbol[], 1, no_site))
+        @test plain == _testhelper_re_mm && hash(plain) == hash(_testhelper_re_mm)
+        @test (plain.allosteric.oligomeric_state, plain.allosteric.regulatory_sites) ==
+              (1, no_site)
+        @test_throws(ErrorException(
+            "Mechanism: a mechanism with no allosteric states has oligomeric state 1 " *
+            "and no regulatory site; got oligomeric state 2 and 0 regulatory sites"),
+            ER.Mechanism(c, ER.Mechanisms.Allostery(Symbol[], 2, no_site)))
+        @test_throws(ErrorException(
+            "Mechanism: a mechanism with no allosteric states has oligomeric state 1 " *
+            "and no regulatory site; got oligomeric state 1 and 1 regulatory site"),
+            ER.Mechanism(c, ER.Mechanisms.Allostery(
+                Symbol[], 1, [ER.Mechanisms.RegulatorySite([:R], 1, [:OnlyA])])))
+
         # Wrong-length allosteric_states (4 entries for 3 kinetic groups) → error
         @test_throws ErrorException ER.Mechanism(
             _testhelper_re_mm.catalytic,
