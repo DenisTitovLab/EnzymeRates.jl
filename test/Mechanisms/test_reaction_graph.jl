@@ -1071,11 +1071,11 @@ function _testhelper_inactive_reach(g)
 end
 
 """
-Whether the sub-graph reads of `x` (`rapid_equilibrium_segments`, the stored conformation
-masks) give what the oracles read off its test reader's steps give
-(`_testhelper_re_segments`, `_testhelper_inactive_reach`): the catalytic graph's segments,
-form by form and breadth-first, with each form's positive offsets, and, for an allosteric
-mechanism, the inactive conformation's edges and their segments.
+Whether the sub-graph reads of `x` (`rapid_equilibrium_segments`,
+`steps_in_inactive_conformation`) give what the oracles read off its test reader's steps
+give (`_testhelper_re_segments`, `_testhelper_inactive_reach`): the catalytic graph's
+segments, form by form and breadth-first, with each form's positive offsets, and, for an
+allosteric mechanism, the inactive conformation's edges and their segments.
 """
 function _testhelper_subgraphs_agree(x)
     m, g = ER.Mechanisms.catalytic(x), _testhelper_graph(x)

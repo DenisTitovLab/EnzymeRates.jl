@@ -6,11 +6,11 @@
 """
 The kinetic class of column `c` of `m`: its edge's group's constant in the column's slot
 and conformation, except that the copy of an edge in the conformation that excludes it
-(`_excluded_steps`: an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active one) is
-a class of its own.
+(`excluded`, the steps each conformation excludes, `_excluded_steps`: an `:OnlyA` edge's
+inactive copy, an `:OnlyI` edge's active one) is a class of its own.
 """
-_class(m::_AnyMech, c::_StepParameter) =
-    _excluded_steps(m, c.inactive ? 2 : 1)[c.step] ?
+_class(m::_AnyMech, excluded::NTuple{2, BitVector}, c::_StepParameter) =
+    excluded[c.inactive ? 2 : 1][c.step] ?
     (c.step, c.slot, c.inactive, true) :
     (Mechanisms.catalytic(m).steps[c.step].group, c.slot, c.inactive, false)
 
@@ -120,8 +120,9 @@ function _joint_system(m::_AnyMech, cols = _constant_columns(m))
         push!(rhs, multiples[i])
     end
     first_of = Dict{Tuple{Int, Int, Bool, Bool}, Int}()
+    excluded = (_excluded_steps(m, 1), _excluded_steps(m, 2))
     for (i, c) in enumerate(columns)
-        f = get!(first_of, _class(m, c), i)
+        f = get!(first_of, _class(m, excluded, c), i)
         f == i && continue
         row = zeros(Int, length(columns))
         row[i], row[f] = 1, -1

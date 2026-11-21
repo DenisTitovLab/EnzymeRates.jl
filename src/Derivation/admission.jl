@@ -74,12 +74,12 @@ function _reached_components(comp::Vector{Int}, arcs::Vector{NTuple{3, Int}})
 end
 
 """
-    _interior_verdict(am, c, comp, reading) -> _Verdict
+    _interior_verdict(am, c, excluded, comp, reading) -> _Verdict
 
-Admission's interior checks on conformation `c` of `am`, its excluded edges switched off as
-`reading` says, on `comp`, the components of the forms its other edges join
-(`exclusion_components`), with the edges that lose a direction as arcs (`_arcs`), each
-pointing uphill:
+Admission's interior checks on conformation `c` of `am`, its excluded edges (`excluded`,
+`_excluded_steps`) switched off as `reading` says, on `comp`, the components of the forms
+its other edges join (`exclusion_components`), with the edges that lose a direction as
+arcs (`_arcs`), each pointing uphill:
 - kind: no excluded rapid-equilibrium edge that `reading` cannot switch off or stops,
   since a step keeps its kind in both conformations (`_FAST_STEP_PINNED`, the first such
   edge);
@@ -95,8 +95,8 @@ pointing uphill:
   the first excluded edge between a component free E's reaches and one it does not).
 The verdict carries the conformation and the edge (face 0); `_WELL_POSED` when all hold.
 """
-function _interior_verdict(am::Mechanisms.AllostericMechanism, c::Int, comp::Vector{Int},
-                           reading::_Reading)
+function _interior_verdict(am::Mechanisms.AllostericMechanism, c::Int, excluded::BitVector,
+                           comp::Vector{Int}, reading::_Reading)
     for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
         o = reading[k, c]
         (o === _CANNOT_SWITCH_OFF || o === _STOPPED && e.rapid_equilibrium) &&
@@ -109,7 +109,6 @@ function _interior_verdict(am::Mechanisms.AllostericMechanism, c::Int, comp::Vec
         comp[high] == comp[1] && return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, k)
     end
     reached = _reached_components(comp, arcs)
-    excluded = _excluded_steps(am, c)
     for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
         excluded[k] && reached[comp[e.from]] != reached[comp[e.to]] &&
             return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
@@ -121,15 +120,17 @@ end
     _admission_interior(am, reading) -> _Verdict
 
 Admission's interior checks, each excluded edge switched off as `reading` says: for each
-conformation whose tags exclude an edge (`_first_excluded`), the checks of
+conformation whose tags exclude an edge (`_excluded_steps`), the checks of
 `_interior_verdict`; then the active conformation's turnover (`_active_turnover_verdict`).
 A reading is consistent when none of `_interior_verdict`'s faults arises. A plain
 mechanism excludes no edge, so its interior passes.
 """
 function _admission_interior(am::Mechanisms.AllostericMechanism, reading::_Reading)
     for c in 1:2
-        _first_excluded(am, c) == 0 && continue
-        v = _interior_verdict(am, c, exclusion_components(am, _CONFORMATIONS[c]), reading)
+        excluded = _excluded_steps(am, c)
+        any(excluded) || continue
+        v = _interior_verdict(am, c, excluded, exclusion_components(am, _CONFORMATIONS[c]),
+                              reading)
         v === _WELL_POSED || return v
     end
     _active_turnover_verdict(am)
@@ -192,7 +193,7 @@ function _consistent_columns(am::Mechanisms.AllostericMechanism, c::Int)
         for (j, k) in enumerate(between)
             reading[k, c] = options[j][pick[j]]
         end
-        _interior_verdict(am, c, comp, reading) === _WELL_POSED &&
+        _interior_verdict(am, c, excluded, comp, reading) === _WELL_POSED &&
             push!(columns, reading[:, c])
         # The next choice: the last step that has a later way takes it, and every step
         # after it starts again at its first.

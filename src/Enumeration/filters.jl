@@ -95,15 +95,15 @@ when its law is the limit, so a user may write one; the enumerator does not buil
 _kept_forms_keep_a_binding(::Mechanisms.Mechanism) = true
 function _kept_forms_keep_a_binding(am::Mechanisms.AllostericMechanism)
     steps, n = am.catalytic.steps, length(am.catalytic.nodes)
-    for (law, excluded) in ((Mechanisms.steps_in_active_conformation(am), :OnlyI),
-                            (Mechanisms.steps_in_inactive_conformation(am), :OnlyA))
+    for (law, excluded_state) in ((Mechanisms.steps_in_active_conformation(am), :OnlyI),
+                                  (Mechanisms.steps_in_inactive_conformation(am), :OnlyA))
         # Per form: some binding enters it; some binding the conformation runs does. A
         # step with one metabolite is stored as its uptake, so it enters its `to` form.
         entered, made = falses(n), falses(n)
         for (k, e) in enumerate(steps)
             length(e.taken_up) == 1 && isempty(e.given_off) || continue
             entered[e.to] = true
-            am.allosteric_states[e.group] === excluded || (made[e.to] = true)
+            am.allosteric_states[e.group] === excluded_state || (made[e.to] = true)
         end
         for (k, e) in enumerate(steps), f in (e.from, e.to)
             law[k] && f != 1 && entered[f] && !made[f] && return false

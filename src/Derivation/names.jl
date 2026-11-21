@@ -276,8 +276,9 @@ function _constant_columns(m::_AnyMech)
     in_law = BitVector([c.inactive ? cols.law[c.step] :
                         _in_active_law(cm, c.step, cols.tags, cols.law, cols.alaw)
                         for c in cols.columns])
-    last_of = Dict(_class(m, c) => i for (i, c) in enumerate(cols.columns))
-    kept_in_law = BitVector([in_law[i] && last_of[_class(m, c)] == i
+    excluded = (_excluded_steps(m, 1), _excluded_steps(m, 2))
+    last_of = Dict(_class(m, excluded, c) => i for (i, c) in enumerate(cols.columns))
+    kept_in_law = BitVector([in_law[i] && last_of[_class(m, excluded, c)] == i
                              for (i, c) in enumerate(cols.columns)])
     (; cols.columns, names, in_law, kept_in_law, cols.flat, cols.tags, cols.law)
 end

@@ -419,7 +419,9 @@ end
                 mech = _testhelper_lift(spec.mechanism)
                 sys = EnzymeRates.Derivation._joint_system(mech)
                 _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
-                class(c) = EnzymeRates.Derivation._class(mech, c)
+                excluded = (EnzymeRates.Derivation._excluded_steps(mech, 1),
+                            EnzymeRates.Derivation._excluded_steps(mech, 2))
+                class(c) = EnzymeRates.Derivation._class(mech, excluded, c)
                 last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
                 n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.step]) &&
                                                         last_of[class(c)] == i &&
