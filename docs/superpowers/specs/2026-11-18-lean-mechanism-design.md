@@ -146,7 +146,7 @@ end
 
 struct Allostery
     allosteric_states::Vector{Symbol} # one per kinetic group; empty for a plain mechanism
-    catalytic_multiplicity::Int       # 1 for a plain mechanism
+    oligomeric_state::Int             # subunits that change conformation together; 1 if plain
     regulatory_sites::Vector{RegulatorySite}
 end
 
@@ -157,6 +157,11 @@ end
 ```
 
 - A mechanism is plain when `allosteric.allosteric_states` is empty.
+- `oligomeric_state` replaces `catalytic_multiplicity` (the maintainer, 2026-11-20), in
+  the field and in the mechanism macro. `@enzyme_reaction` already writes
+  `oligomeric_state:`; the reaction's field `allowed_catalytic_multiplicities` becomes
+  `allowed_oligomeric_states`. Several catalytic sites on one subunit would belong to the
+  catalytic scheme. A regulatory site keeps its `multiplicity`.
 - `RegulatorySite` names its ligands' states `allosteric_states` too, in place of
   `mwc_tags`: both hold the same four values.
 - A metabolite that is neither a substrate nor a product is a modifier. A reactant that
@@ -326,7 +331,7 @@ later stages must not change a verdict (see "Tests").
 - `rate_equation(m, concs, params)` is removed altogether (the maintainer's decision): one
   way to evaluate a law, and no slow path. Users who want the law in other code copy
   `rate_equation_string`.
-- `FittingProblem(m, data)` compiles inside and keeps both the mechanism and `rate`. Fitting
+- `FittingProblem(m, data, Keq)` compiles inside and keeps both the mechanism and `rate`. Fitting
   reads the parameter names and the metabolite names as compile-time constants from `rate`
   (`parameters(rate)`, `metabolites(rate)`), as `loss!` needs; `parameters(m)` and
   `metabolites(m)` on a mechanism are ordinary functions.
@@ -350,7 +355,7 @@ Interface compared, as `.claude/CLAUDE.md` asks:
     substrates: A, B
     products: P, Q
     modifiers: I
-    catalytic_multiplicity: 2              # only with allosteric states
+    oligomeric_state: 2                    # only with allosteric states
     steps: begin
         E + A ⇌ EA                         :: EqualAI
         EA + B <--> EPQ                    :: OnlyA
@@ -541,6 +546,12 @@ Identify holds candidates. It fits, deduplicates and reports `candidate.mechanis
 a candidate back to get its children, and returns plain mechanisms to the user.
 `_required_regulators` moves into Enumeration.
 
+The enumerator keeps proposing mechanisms that differ only in the allosteric state of a
+kinetic group whose steps a conformation has cut off anyway (354 of the 2,125 allosteric
+candidates in the bi-bi seeds and their first expansion). They share one law, identify
+fits it once, and their children may differ (the maintainer, 2026-11-20). `==` and `hash`
+tell them apart.
+
 #### Calls made by the designer, for the maintainer to check
 
 - **The starting call throws on an enumerator bug** (confirmed by the maintainer,
@@ -589,9 +600,8 @@ rate(concs, params, Keq)                       # the rate per unit enzyme
 
 - **`Keq` is its own argument** (the maintainer's design). It is a property of the
   reaction that is given, never fitted, and the signature says so. `parameters(m)` is then
-  exactly the names of `params`. It stays positional, so the hot path stays simple. The
-  user still supplies it with the data (`FittingProblem(m, data; Keq = 2.0)`), since it
-  depends on the conditions the data were measured in.
+  exactly the names of `params`. It depends on the conditions the data were measured in,
+  so the user supplies it with the data.
 - **`E_total` is gone.** The law returns the rate per unit enzyme; a user who wants an
   absolute rate multiplies by the enzyme concentration. Inside the package it was always
   1. It leaves the parameters, the printed equation and the docs.
@@ -600,12 +610,14 @@ rate(concs, params, Keq)                       # the rate per unit enzyme
   `dependent_parameter_values`, and the printed equation shows their relations.
 - **A fit's `params`** holds exactly `parameters(m)`; today it also carries `Keq`.
 - **`rate_equation_string`** shows `Keq` as an input of its own.
-- **`Keq` is the last positional argument wherever `params` is passed** (the
-  maintainer, 2026-11-20): `rate(concs, params, Keq)`,
+- **`Keq` is always the last positional argument** (the maintainer, 2026-11-20), and
+  nowhere a keyword: `rate(concs, params, Keq)`,
   `dependent_parameter_values(m, params, Keq)`,
-  `test_rate_equation(m, params, data, Keq; absolute)` and
-  `plot_rate_equation_on_data(m, params, data, Keq; ...)`. The last two read it from
-  `params` today. The plot's method for a user's own rate function takes no `Keq`:
+  `test_rate_equation(m, params, data, Keq; absolute)`,
+  `plot_rate_equation_on_data(m, params, data, Keq; ...)`,
+  `FittingProblem(m, data, Keq; absolute, reference)` and
+  `IdentifyRateEquationProblem(reaction, data, Keq; ...)`. The test and the plot read it
+  from `params` today, and the two problems take it as a keyword. The plot's method for a user's own rate function takes no `Keq`:
   `plot_rate_equation_on_data(f, params, data; ...)`.
 
 `parameter_units(m)` returns each fitted constant's units as integer powers:
@@ -752,8 +764,9 @@ From 16: `compile_rate_equation`, `rate_equation_string`, `parameters`,
   rate per unit enzyme; `parameters(m)` lists the fitted constants only, and the three
   kind types are gone; a fit's `params` no longer holds `Keq`;
   `dependent_parameter_values` takes `Keq` as an argument;
-  `plot_rate_equation_on_data` and `test_rate_equation` take `Keq` as their last
-  positional argument;
+  `plot_rate_equation_on_data`, `test_rate_equation`, `FittingProblem` and
+  `IdentifyRateEquationProblem` take `Keq` as their last positional argument;
+  `catalytic_multiplicity` is `oligomeric_state`;
   `@allosteric_mechanism`,
   `EnzymeMechanism` and `AllostericEnzymeMechanism` are gone.
 - **The progress log** no longer counts the children skipped for each size limit
