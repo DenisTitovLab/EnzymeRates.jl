@@ -380,8 +380,8 @@ end
 end
 
 @testset "documented internal paths resolve" begin
-    @test isdefined(EnzymeRates, :Mechanism)
-    @test isdefined(EnzymeRates.Enumeration, :init_mechanisms)
+    @test isdefined(EnzymeRates, :test_rate_equation)
+    @test isdefined(EnzymeRates.Enumeration, :candidate_mechanisms)
 end
 
 # REPL help (`?name`) finds each exported name's docstring through its top-level binding.

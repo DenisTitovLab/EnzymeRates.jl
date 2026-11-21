@@ -44,18 +44,20 @@ the part for a module before changing its internals.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
 - Only the exports (★) are promised to users. Users and tests can also reach
-  `compile_mechanism`, `test_rate_equation`, `Mechanism`, `AllostericMechanism` and
-  `Enumeration.init_mechanisms(rxn)` as `EnzymeRates.<name>`, without a promise. Code in
-  `src/` still follows the bullet above.
-- The stored fields of a `Mechanism` are part of the `Mechanisms` interface, read with
-  dots (`m.steps[k].from`): `substrates`, `products`, `nodes`, `steps`, and the derived
-  `modifiers`, `groups`, `step_kinds`, `toward_products` and `step_sides`. An
-  `AllostericMechanism` holds its `Mechanism` in `m.catalytic`, beside its own fields.
-- Enumeration works on the concrete `Mechanism` and `AllostericMechanism` from end to
-  end; `compile_mechanism(m)` lifts one to its `EnzymeMechanism{Sig}` type when the
-  generated rate equation is needed.
-- Data tables mark measurements that share one E_total with a `group` column. Keq is
-  always given by the user and never estimated from data.
+  `EnzymeRates.test_rate_equation` and `EnzymeRates.Enumeration.candidate_mechanisms`,
+  without a promise. Code in `src/` still follows the bullet above.
+- The fields of a `Mechanism` are part of the `Mechanisms` interface, read with dots
+  (`m.catalytic.steps[k].from`): its `catalytic` scheme holds `metabolites`,
+  `enzyme_forms`, `substrates` and `products` (indices into `metabolites`) and `steps`,
+  and its `allosteric` part holds `allosteric_states`, `oligomeric_state` and
+  `regulatory_sites`. A mechanism stores nothing derived from them. A form's name is
+  opaque: only `E`, the free enzyme, means something to the package.
+- Enumeration works on candidates (`CandidateMechanism`): a `Mechanism` and the
+  enumerator's private record of each form; a caller reads only `c.mechanism`.
+  `compile_rate_equation(m)` compiles a mechanism's rate equation when its value is needed.
+- Data tables mark measurements made with one amount of enzyme with a `group` column; a
+  rate law gives the rate per unit enzyme. `Keq` is always given by the user, never
+  estimated from data, and is the last positional argument wherever a function takes it.
 
 ## Design rules
 
@@ -141,8 +143,8 @@ thing at a time, and leave the touched code simpler than the smallest patch woul
 - Dispatch on types rather than branching with `isa` or tags; walking an `Expr` is the
   exception. Add a trait only where a second implementation exists.
 - Write type-stable code and keep struct fields concretely typed. Use type parameters for
-  that, not to specialize per mechanism: `EnzymeMechanism{Sig}` and
-  `AllostericEnzymeMechanism{Sig}` exist because `rate_equation` is generated, and
+  that, not to specialize per mechanism: the compiled rate law that `compile_rate_equation`
+  returns carries its mechanism in its type (`Sig`) because its call is generated, and
   specializing further costs compile time.
 - On Julia 1.13 a closure over a `@nospecialize` argument is untyped; use `Base.Fix2`
   in its place.
@@ -162,7 +164,7 @@ vague one:
 - `has_turnover_cycle(m)`, not `check(m)`
 - `dependent_parameter_values(m, ...)`, not `compute_values(m, ...)`
 - `rate_equation_dedup_key(m)`, not `key(m)`
-- `_to_concrete_mechanism(m)`, not `_concrete(m)`
+- `_kept_forms_keep_a_binding(m)`, not `_check_forms(m)`
 
 Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a function that
 mutates its arguments, a leading `_` on an internal name. A name that is hard to choose
@@ -199,16 +201,18 @@ an approved interface change.
   dispatch under any exported or public function, internal callees included. The suite
   runs it on Julia 1.13 only (`julia +1.13`). A new public function needs a row there,
   with a named exemption set for any dispatch it keeps.
-- **`rate_equation` speed.** `rate_equation` is allocation-free and takes under
+- **Rate-law speed.** The compiled rate law, `rate = compile_rate_equation(m)` called as
+  `rate(concs, params, Keq)`, is allocation-free and takes under
   `50 ns + 0.5 ns × denominator terms` per call on every gated law: each mechanism in
   `MECHANISM_TEST_SPECS` and the larger laws that test file lists. `Fitting.loss!` is
-  allocation-free, and its time per data row is at most 1.25 × `rate_equation` per call
-  plus 8 `log` calls, met by any of 20 batches. `test/Derivation/test_rate_eq_derivation.jl`
-  enforces both. A fit evaluates the law millions of times, so stop and discuss with the
-  maintainer before a change that would make it allocate or slow down. CI timings vary by
-  runner: rerun a job that misses the bound rather than loosening it.
+  allocation-free, and its time per data row is at most 1.25 × the compiled law's time per
+  call plus 8 `log` calls, met by any of 20 batches.
+  `test/Derivation/test_rate_eq_derivation.jl` enforces both. A fit evaluates the law
+  millions of times, so stop and discuss with the maintainer before a change that would
+  make it allocate or slow down. CI timings vary by runner: rerun a job that misses the
+  bound rather than loosening it.
 - **Compile time.** `test/test_compile_budget.jl` bounds the first-call compile time of
-  `rate_equation` and how many method instances each mechanism's fit compiles. Code
+  a compiled rate law and how many method instances each mechanism's fit compiles. Code
   specialized per mechanism trips it.
 
 Propose a new guard when the maintainer corrects something a deterministic check could
@@ -232,10 +236,11 @@ proxy such as length would enforce the wrong thing.
 
 ### Derivation tests
 
-Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
+Tests of a compiled rate law (`compile_rate_equation`) live in `test/Derivation/` and
+follow two rules:
 
-1. **Write the full mechanism down**, step by step with `@enzyme_mechanism` or
-   `@allosteric_mechanism`, in the testset or in a `MECHANISM_TEST_SPECS` entry. A fixture
+1. **Write the full mechanism down**, step by step with `@enzyme_mechanism`, in the
+   testset or in a `MECHANISM_TEST_SPECS` entry. A fixture
    from the enumerator or a helper cannot be checked against its rate equation by reading.
    The exception is an aggregate check over a whole population, which says so in a comment.
 2. **Compare with a separately derived rate equation** at random parameters and
@@ -246,24 +251,27 @@ Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
 
 ### Enumeration-engine tests
 
-Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and the expansion moves
-live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
+Tests of `candidate_mechanisms`, `init_mechanisms`, `seed_mechanisms` and the expansion
+moves live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
 
-1. **Write the mechanism in the testset**, inline with `@enzyme_mechanism` or
-   `@allosteric_mechanism`, even when that repeats one used elsewhere. The exception is an
-   aggregate regression pin over a whole seed set, which says so in a comment.
+1. **Write the mechanism in the testset**, inline with `@enzyme_mechanism`, even when that
+   repeats one used elsewhere, and hand it to the enumerator as `_testhelper_candidate(m)`.
+   The exception is an aggregate regression pin over a whole seed set, which says so in a
+   comment.
 2. **Assert the exact children**: `length(children) == n` and
-   `Set(children) == Set(expected)`, with every expected child written out. Property
-   assertions are welcome in addition, never instead.
-3. **Write chemistry the enumerator's way.** Unmerged chemistry is an isomerization to the
-   product-bound form followed by releases (`E(A) <--> E(P; residual = A - P)`, then
-   `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`). A merged complex is the
-   product-bound form: the last substrate binds into it in one step
-   (`E(A) + B <--> E(P, Q)`) and the products leave by plain releases. A Theorell–Chance
-   step takes up the substrate and gives off the product in one step
-   (`E(A) + B <--> E(Q) + P`). Never write a merged complex on the substrate side
-   (`E(A, B) <--> E(Q) + P`): the enumerator never emits it, so it is a different mechanism
-   from the one the move produces.
+   `Set(children) == Set(expected)`, the children read as mechanisms (`c.mechanism`,
+   `_testhelper_move`, `_testhelper_children`), with every expected child written out.
+   Property assertions are welcome in addition, never instead.
+3. **Write chemistry the enumerator's way.** Name each form as the enumerator does (`EAB`,
+   `ESSmod`, `EB_res_plusA_minusP`): `_testhelper_candidate` reads the form's contents from
+   its name. Unmerged chemistry is an isomerization to the product-bound form followed by
+   releases (`EA <--> EP_res_plusA_minusP`, then
+   `EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P`). A merged complex is the product-bound
+   form: the last substrate binds into it in one step (`EA + B <--> EPQ`) and the products
+   leave by plain releases. A Theorell–Chance step takes up the substrate and gives off the
+   product in one step (`EA + B <--> EQ + P`). Never write a merged complex on the
+   substrate side (`EAB <--> EQ + P`): the enumerator never emits it, so it is a different
+   mechanism from the one the move produces.
 
 ## Commands and workflow
 
