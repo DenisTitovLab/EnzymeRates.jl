@@ -237,7 +237,7 @@ forms: E, EA, EAP, EAS, EI, EP, ES
 9: ES + A ⇌ EAS | group 1
 10: ES <--> EP | group 8
 
-# MWC Dimer [AllostericEnzymeMechanism]
+# MWC Dimer
 substrates: S | products: P
 forms: E, EP, ES
 1: E + P ⇌ EP | group 1 :: NonequalAI
@@ -245,7 +245,7 @@ forms: E, EP, ES
 3: ES <--> EP | group 3 :: NonequalAI
 oligomeric_state: 2
 
-# Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]
+# MWC Homodimer + Non-competitive Inhibitor
 substrates: S | products: P
 forms: E, EP, ES
 1: E + P ⇌ EP | group 1 :: NonequalAI

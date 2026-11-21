@@ -362,10 +362,10 @@ end
         "Activator + Competitive Inhibitor" =>
             (:K_EA_to_E_A, :K_EI_to_E_I, :K_EP_to_E_P, :K_ES_to_E_S, :k_EAS_to_EAP,
              :k_ES_to_EP),
-        "MWC Dimer [AllostericEnzymeMechanism]" =>
+        "MWC Dimer" =>
             (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :K_I_EP_to_E_P, :K_I_ES_to_E_S,
              :k_A_ES_to_EP, :k_I_ES_to_EP, :L),
-        "Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]" =>
+        "MWC Homodimer + Non-competitive Inhibitor" =>
             (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :K_I_EP_to_E_P, :K_I_ES_to_E_S,
              :k_A_ES_to_EP, :k_I_ES_to_EP, :K_A_Ireg, :K_I_Ireg, :L),
         "Two Competitive Inhibitors" =>

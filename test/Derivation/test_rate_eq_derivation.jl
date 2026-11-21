@@ -1932,7 +1932,7 @@ end
     expected = Dict(
         "Uni-Uni" => (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
         "RE Uni-Uni" => (:k_EA_to_E_P,),
-        "MWC Dimer [AllostericEnzymeMechanism]" => (:k_A_ES_to_EP, :k_I_ES_to_EP),
+        "MWC Dimer" => (:k_A_ES_to_EP, :k_I_ES_to_EP),
         "m_OnlyA_prod" => (:k_A_ES_to_EP,),
         "LDH i-state NonequalAI 5-group" =>
             (:k_A_E_NADH_to_ENADH, :k_A_ENADH_to_E_NADH,
@@ -1944,7 +1944,7 @@ end
 end
 
 @testset "scaling the rate constants multiplies the steady-state ones only" begin
-    for name in ("RE Uni-Uni", "MWC Dimer [AllostericEnzymeMechanism]")
+    for name in ("RE Uni-Uni", "MWC Dimer")
         m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
         ks = (parameters(m)...,)
         params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))

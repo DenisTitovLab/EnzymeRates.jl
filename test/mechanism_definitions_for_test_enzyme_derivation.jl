@@ -4036,7 +4036,7 @@ let
     end
 
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-        name="MWC Dimer [AllostericEnzymeMechanism]",
+        name="MWC Dimer",
         mechanism=m,
         raw=raw,
         metabolite_names=[:S, :P],
@@ -4090,7 +4090,7 @@ let
     end
 
     push!(MECHANISM_TEST_SPECS, _testhelper_MechanismTestSpec(
-        name="Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]",
+        name="MWC Homodimer + Non-competitive Inhibitor",
         mechanism=m,
         raw=raw,
         metabolite_names=[:S, :P, :I],
@@ -5458,7 +5458,7 @@ const _testhelper_typical_log_centres = Dict(
         :k_EAS_to_EAP => 1.0986122886681098,
         :k_ES_to_EP => 1.0986122886681098,
     ],
-    "MWC Dimer [AllostericEnzymeMechanism]" => [
+    "MWC Dimer" => [
         :K_A_EP_to_E_P => -4.605170185988091,
         :K_A_ES_to_E_S => -2.3025850929940455,
         :K_I_EP_to_E_P => -4.605170185988091,
@@ -5467,7 +5467,7 @@ const _testhelper_typical_log_centres = Dict(
         :k_I_ES_to_EP => 1.0986122886681098,
         :L => 0.0,
     ],
-    "Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]" => [
+    "MWC Homodimer + Non-competitive Inhibitor" => [
         :K_A_EP_to_E_P => -4.605170185988091,
         :K_A_ES_to_E_S => -2.3025850929940455,
         :K_I_EP_to_E_P => -4.605170185988091,

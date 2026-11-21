@@ -102,7 +102,7 @@ end
     # concentration and k a constant. The rate doubles and the key stays the same. Scaling
     # fA alone, fI alone or one site's W_A alone changes the rate law and the key.
     rng = Random.MersenneTwister(219)
-    for (name, nsites) in ("MWC Dimer [AllostericEnzymeMechanism]" => 0,
+    for (name, nsites) in ("MWC Dimer" => 0,
                            "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" => 2)
         @testset "$name" begin
             A = EnzymeRates.Derivation._law(
@@ -268,7 +268,7 @@ end
                   "373b0fe0beb850947b7a3401aca91854b7618ba93f9af8518d346379092dac39",
               "Segel Ping Pong Bi Bi" =>
                   "6d4b295d37d62d2486313081fcaa8c67cb32baf0896de58737b3ba91a281af1a",
-              "MWC Dimer [AllostericEnzymeMechanism]" =>
+              "MWC Dimer" =>
                   "8b54530459132227ea8fe854cce576346e7ae872ac59f137eab1f6a5d913cbbf")
     for (name, key) in pinned
         spec = only(s for s in MECHANISM_TEST_SPECS if s.name == name)
