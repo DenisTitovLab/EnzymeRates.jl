@@ -9,7 +9,7 @@ first need. Identify's PASS 1 asks one mechanism several questions in a row
 `rate_equation_dedup_key`); through the memo they run the guard, the solve and the law once.
 The memo holds one mechanism, replaced by the next one asked about (compared by `===`),
 and lives in the task's local storage, so tasks share nothing. The compiled types'
-derivation (`_derivation_input`, `rate_equation`) never reads it.
+derivation (`_derivation_input`, `compile_rate_equation`) never reads it.
 """
 mutable struct _Memo
     m::Any

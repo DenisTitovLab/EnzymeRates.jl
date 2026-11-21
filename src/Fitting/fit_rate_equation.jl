@@ -1,14 +1,18 @@
 # ABOUTME: Fitting rate equations to experimental data and scaling them to a reference
 # ABOUTME: scale: FittingProblem, the loss, multi-start fits and test_rate_equation.
 
+"""A plain or an allosteric mechanism."""
+const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+
 """
-    FittingProblem{M, D}
+    FittingProblem{M, R, D}
 
 Holds pre-processed experimental data and mechanism info for fitting
 rate constants.
 
 # Fields
-- `mechanism`: an `AbstractEnzymeMechanism` instance
+- `mechanism`: the mechanism, as a `Mechanism` or an `AllostericMechanism`
+- `rate`: its compiled rate law (`compile_rate_equation`), which the loss evaluates
 - `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
   `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
   loss, fit scaled to the reference turnovers or, without any, so the largest predicted
@@ -20,8 +24,9 @@ rate constants.
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
-struct FittingProblem{M<:Mechanisms.AbstractEnzymeMechanism, D<:NamedTuple}
+struct FittingProblem{M<:_AnyMech, R, D<:NamedTuple}
     mechanism::M
+    rate::R
     rate_data::Data.RateData{D}
     group_point_indexes::Vector{Vector{Int}}
     log_abs_rates::Vector{Float64}
@@ -29,11 +34,11 @@ struct FittingProblem{M<:Mechanisms.AbstractEnzymeMechanism, D<:NamedTuple}
 end
 
 """
-    FittingProblem(mechanism::AbstractEnzymeMechanism, table, Keq::Real;
-        absolute::Bool = false, reference = nothing)
+    FittingProblem(mechanism, table, Keq::Real; absolute::Bool = false, reference = nothing)
 
 Construct a `FittingProblem` from an enzyme mechanism, tabular data and the reaction's
-equilibrium constant `Keq`, which the fit holds fixed.
+equilibrium constant `Keq`, which the fit holds fixed. It compiles the mechanism's rate law
+once, for every fit of the problem.
 
 The table must have at least one row and columns: `group`, `Rate`, and one column per
 metabolite matching `metabolites(mechanism)`, so no metabolite may be
@@ -67,28 +72,22 @@ concentrations use the same one. K and k then carry that unit: a K in mM, a seco
 k per mM per time. See "Units and the search box" in the Getting Started page for how the
 fit searches around the concentrations in your data.
 """
-function FittingProblem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
+function FittingProblem(
+        @nospecialize(mechanism::Union{Mechanisms.AbstractEnzymeMechanism, _AnyMech}),
         table, Keq::Real; absolute::Bool=false, reference=nothing)
-    mets = Mechanisms.metabolites(mechanism)
-    rate_data = Data.RateData(table, mets, Keq; absolute, reference, owner = "mechanism")
+    m = _to_concrete_mechanism(mechanism)
+    rate = Derivation.compile_rate_equation(mechanism)
+    rate_data = Data.RateData(table, Mechanisms.metabolites(m), Keq; absolute, reference,
+                              owner = "mechanism")
     data = rate_data.data
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
-    FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, rate_data, collect(values(group_map)),
+    FittingProblem{typeof(m), typeof(rate), typeof(data)}(
+        m, rate, rate_data, collect(values(group_map)),
         log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
 end
-
-"""
-Accept the concrete working-representation mechanism: compile to the
-singleton once at construction so `loss!`'s hot path operates on the
-@generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
-"""
-FittingProblem(mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
-               table, Keq::Real; kwargs...) =
-    FittingProblem(Mechanisms.compile_mechanism(mechanism), table, Keq; kwargs...)
 
 """
     loss!(x::AbstractVector, fp::FittingProblem)
@@ -109,8 +108,9 @@ loss (a uniform sentinel would cancel under mean-subtraction).
 """
 function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
-    ParamNames = Derivation.parameters(fp.mechanism)
-    MetNames = Mechanisms.metabolites(fp.mechanism)
+    rate = fp.rate
+    ParamNames = Derivation.parameters(rate)
+    MetNames = Mechanisms.metabolites(rate)
     N = length(ParamNames)
     K = length(MetNames)
     n_data = length(fp.log_abs_rates)
@@ -126,7 +126,7 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         concs = NamedTuple{MetNames}(ntuple(
             j -> getproperty(fp.rate_data.data, MetNames[j])[i], Val(K),
         ))
-        pred = Derivation.rate_equation(fp.mechanism, concs, params, Keq)
+        pred = rate(concs, params, Keq)
         meas_sign = sign(fp.rate_data.data.Rate[i])
         if sign(pred) != meas_sign
             buf[i] = 10.0
@@ -237,8 +237,7 @@ In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
 `retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
 
 Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
-- `params`: the fitted constants, by the names of `parameters(fp.mechanism)`, as a
-  NamedTuple
+- `params`: the fitted constants, by the names of `parameters(fp.rate)`, as a NamedTuple
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
   `:Success` indicates the optimizer converged on its own criteria; any other
@@ -261,10 +260,10 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     ub=_log_centres(fp) .+ 15.0,
     solver_kwargs=(;),
 )
-    # `fp` is @nospecialize, so `parameters(fp.mechanism)` infers as `Any`; asserting a
-    # tuple of Symbols lets `np` infer as an `Int` and the NamedTuple built from the names
-    # as a `NamedTuple`.
-    pnames = Derivation.parameters(fp.mechanism)::Tuple{Vararg{Symbol}}
+    # `fp` is @nospecialize, so `parameters(fp.rate)` infers as `Any`; asserting a tuple of
+    # Symbols lets `np` infer as an `Int` and the NamedTuple built from the names as a
+    # `NamedTuple`.
+    pnames = Derivation.parameters(fp.rate)::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
     # Common solver options: maxtime/maxiters always forwarded; the optional
@@ -319,7 +318,7 @@ concentrations of those metabolites in the table, or 1 when there are none.
 """
 function _concentration_scales(@nospecialize(fp::FittingProblem))
     data = fp.rate_data.data
-    mets = Mechanisms.metabolites(fp.mechanism)
+    mets = Mechanisms.metabolites(fp.mechanism::_AnyMech)
     # `getfield` reads a column by its runtime name without compiling for the table's type;
     # `RateData` stores each metabolite's column as a `Vector{Float64}`.
     positive = Vector{Float64}[
@@ -344,8 +343,7 @@ and each metabolite's concentration scale (`_concentration_scales`) raised to th
 constant's powers of them (`Derivation.parameter_units`).
 """
 function _log_centres(@nospecialize(fp::FittingProblem))
-    m = _to_concrete_mechanism(fp.mechanism)::Union{Mechanisms.Mechanism,
-                                                     Mechanisms.AllostericMechanism}
+    m = fp.mechanism::_AnyMech
     units = Derivation.parameter_units(m)
     s = _concentration_scales(fp)
     log_s = Float64[log(s[x]) for x in Mechanisms.metabolites(m)]
@@ -362,8 +360,7 @@ rate by the same factor and leaves the binding constants, `L` and the regulatory
 alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    m = _to_concrete_mechanism(mechanism)::Union{Mechanisms.Mechanism,
-                                                 Mechanisms.AllostericMechanism}
+    m = _to_concrete_mechanism(mechanism)::_AnyMech
     names = Derivation.parameters(m)
     rate = Derivation.parameter_units(m).rate
     rate_constants = Set{Symbol}()
@@ -374,10 +371,10 @@ function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, fac
                                  keys(params), values(params)))
 end
 
-# The concrete mechanism a compiled one encodes. The callers hold a mechanism they do not
-# specialize on: the catch-all method lets them call this without a run-time lookup, and
-# the type they assert on its result lets the Derivation calls after it dispatch without
-# one too.
+# The concrete mechanism a compiled one encodes, and a concrete one itself. The callers
+# hold a mechanism they do not specialize on: the catch-all method lets them call this
+# without a run-time lookup, and the type they assert on its result lets the Derivation
+# calls after it dispatch without one too.
 _to_concrete_mechanism(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
 _to_concrete_mechanism(m::Mechanisms.AllostericEnzymeMechanism) =
     Mechanisms.AllostericMechanism(m)
@@ -395,22 +392,21 @@ absolute rate predicted at the data's concentrations, which must be positive and
 """
 function _reference_scale(@nospecialize(fp::FittingProblem),
                           @nospecialize(params::NamedTuple))
-    mets = Mechanisms.metabolites(fp.mechanism)
+    rate = fp.rate
+    mets = Mechanisms.metabolites(rate)
     Keq = fp.rate_data.Keq
     reference = fp.rate_data.reference
     if isempty(reference)
-        peak = maximum(
-            abs(Derivation.rate_equation(fp.mechanism,
-                NamedTuple{mets}(Tuple(Float64(fp.rate_data.data[k][i]) for k in mets)),
-                params, Keq))
-            for i in eachindex(fp.rate_data.data.Rate))
+        data = fp.rate_data.data
+        peak = maximum(abs(rate(NamedTuple{mets}(Tuple(Float64(data[k][i]) for k in mets)),
+                                params, Keq))
+                       for i in eachindex(data.Rate))
         return isfinite(peak) && peak > 0 ? 1 / peak : nothing
     end
     log_ratios = Float64[]
     for (concs, measured) in reference
-        predicted = Derivation.rate_equation(fp.mechanism,
-            NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
-            params, Keq)
+        predicted = rate(NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
+                         params, Keq)
         isfinite(predicted) && predicted != 0 && sign(predicted) == sign(measured) ||
             return nothing
         push!(log_ratios, log(measured / predicted))
@@ -436,7 +432,7 @@ EnzymeRates.test_rate_equation(m, fit.params, test, 2.0)
 function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple), table,
                             Keq::Real; absolute::Bool = false)
     fp = FittingProblem(m, table, Keq; absolute)
-    names = Derivation.parameters(fp.mechanism)
+    names = Derivation.parameters(fp.rate)
     for name in names
         haskey(params, name) || error("params is missing $name")
     end

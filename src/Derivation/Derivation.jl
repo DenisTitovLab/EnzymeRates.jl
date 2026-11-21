@@ -7,8 +7,8 @@ using ..Mechanisms: Mechanisms
 using LinearAlgebra: det
 using SHA: sha256
 
-public check_valid_rate_equation, dependent_parameter_values, fitted_parameter_count,
-    parameter_units, parameters, rate_equation, rate_equation_term_count,
+public check_valid_rate_equation, compile_rate_equation, dependent_parameter_values,
+    fitted_parameter_count, parameter_units, parameters, rate_equation_term_count,
     rate_equation_dedup_key, rate_equation_string
 
 """A plain or an allosteric mechanism."""
@@ -42,8 +42,8 @@ include("messages.jl")
 include("memo.jl")
 
 # Every mechanism macro call and the flip, split and tagging searches run the guard, and
-# the first `rate_equation` call of a mechanism runs `_rate_body`, so both compile into the
-# package image rather than in each session.
+# the first call of a mechanism's compiled rate law runs `_rate_body`, so both compile into
+# the package image rather than in each session.
 precompile(_guard, (Mechanisms.Mechanism,))
 precompile(_guard, (Mechanisms.AllostericMechanism,))
 precompile(_rate_body, (Mechanisms.Mechanism,))

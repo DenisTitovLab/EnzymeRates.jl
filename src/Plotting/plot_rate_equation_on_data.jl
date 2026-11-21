@@ -60,46 +60,26 @@ const _AnyMechanism = Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mecha
                             Mechanisms.AllostericMechanism}
 
 """
-    rate_equation_panels(m, params, table, Keq; absolute, concentration_unit, xscale)
-    rate_equation_panels(rate::Function, params, table; absolute, concentration_unit,
+    rate_equation_panels(predict, listed_first, Keq, table; absolute, concentration_unit,
         xscale)
 
 One `RateEquationPanel` per distinct `group` of `table`, in order of first appearance, with
-the measured points and the curves of the mechanism `m` or of the rate function `rate` at
-`params` for plotting, as in `plot_rate_equation_on_data`. `xscale` other than `identity`
-starts each curve at the group's smallest x and refuses a group with an x of zero.
+the measured points and the curves of `predict`, the rate at a `NamedTuple` of one row's
+concentrations, as `plot_rate_equation_on_data` draws them. The concentration columns
+`listed_first` come ahead of the table's others, and `Keq` is checked with the table.
+`xscale` other than `identity` starts each curve at the group's smallest x and refuses a
+group with an x of zero.
 """
-function rate_equation_panels(@nospecialize(m::_AnyMechanism),
-                              @nospecialize(params::NamedTuple), table, Keq::Real;
-                              absolute::Bool, concentration_unit::AbstractString, xscale)
-    mech = _compiled(m)
-    for name in Derivation.parameters(mech)
-        haskey(params, name) || error("params is missing $name")
-    end
-    _panels(concs -> Derivation.rate_equation(mech, concs, params, Keq),
-            Mechanisms.metabolites(mech), Keq, table, absolute, concentration_unit, xscale)
-end
-
-# A rate function holds its own Keq, so the table is checked with a placeholder.
-rate_equation_panels(@nospecialize(rate::Function), @nospecialize(params::NamedTuple),
-                     table; absolute::Bool, concentration_unit::AbstractString, xscale) =
-    _panels(concs -> rate(concs, params), (), 1.0, table, absolute, concentration_unit,
-            xscale)
-
-# The panels of `predict`, the rate at a row's concentrations, with the concentration
-# columns `listed_first` ahead of the table's others and `Keq` checked with the table.
-function _panels(predict, listed_first, Keq, table, absolute, unit, xscale)
+function rate_equation_panels(predict, listed_first, Keq::Real, table; absolute::Bool,
+                              concentration_unit::AbstractString, xscale)
     columns = Tables.columntable(table)
     shown = (listed_first...,
              filter(!in((:group, :Rate, listed_first...)), keys(columns))...)
     data = Data.RateData(columns, shown, Keq; absolute).data
     [_rate_equation_panel(predict, data, shown, findall(isequal(g), data.group),
-         absolute, unit, xscale)
+         absolute, concentration_unit, xscale)
      for g in unique(data.group)]
 end
-
-_compiled(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism)) = m
-_compiled(@nospecialize(m)) = Mechanisms.compile_mechanism(m)
 
 function _rate_equation_panel(predict, data, mets, rows, absolute, unit, xscale)
     columns = NamedTuple{mets}(map(k -> data[k][rows], mets))
@@ -166,9 +146,9 @@ fig = plot_rate_equation_on_data(michaelis_menten, (Vmax = 2.0, Km = 1e-4), data
 ```
 
 # Arguments
-- `m`: a mechanism, in any form `FittingProblem` accepts, which draws
-  `rate_equation(m, concentrations, params, Keq)`; or `rate`, a function, which draws
-  `rate(concentrations, params)`. `concentrations` is a `NamedTuple` of one row's
+- `m`: a mechanism, in any form `FittingProblem` accepts, which draws its rate law,
+  `compile_rate_equation(m)(concentrations, params, Keq)`; or `rate`, a function, which
+  draws `rate(concentrations, params)`. `concentrations` is a `NamedTuple` of one row's
   concentrations, one per concentration column of `table`.
 - `params`: a `NamedTuple`. With a mechanism, it holds every name of `parameters(m)`, as a
   fit's `params` does; other names are ignored. A function receives it as given.
@@ -228,7 +208,12 @@ function plot_rate_equation_on_data(@nospecialize(m::_AnyMechanism),
                                     columns::Integer = 5, figure::NamedTuple = (;),
                                     axis::NamedTuple = (;))
     makie_extension = _makie_extension(columns)
-    panels = rate_equation_panels(m, params, table, Keq; absolute, concentration_unit,
+    rate = Derivation.compile_rate_equation(m)
+    for name in Derivation.parameters(rate)
+        haskey(params, name) || error("params is missing $name")
+    end
+    panels = rate_equation_panels(concs -> rate(concs, params, Keq),
+        Mechanisms.metabolites(rate), Keq, table; absolute, concentration_unit,
         xscale = get(axis, :xscale, identity))
     makie_extension.draw_rate_equation_panels(panels; columns, figure, axis)
 end
@@ -240,8 +225,9 @@ function plot_rate_equation_on_data(@nospecialize(rate::Function),
                                     columns::Integer = 5, figure::NamedTuple = (;),
                                     axis::NamedTuple = (;))
     makie_extension = _makie_extension(columns)
-    panels = rate_equation_panels(rate, params, table; absolute, concentration_unit,
-        xscale = get(axis, :xscale, identity))
+    # A rate function holds its own Keq, so the table is checked with a placeholder.
+    panels = rate_equation_panels(concs -> rate(concs, params), (), 1.0, table; absolute,
+        concentration_unit, xscale = get(axis, :xscale, identity))
     makie_extension.draw_rate_equation_panels(panels; columns, figure, axis)
 end
 

@@ -3100,7 +3100,7 @@ end
     em = EnzymeRates.compile_mechanism(m)
     @test_throws msg parameters(em)
     @test_throws msg parameters(m)
-    @test_throws msg rate_equation(em, (S = 1.0, P = 1.0, Q = 1.0), (;), 1.0)
+    @test_throws msg compile_rate_equation(em)((S = 1.0, P = 1.0, Q = 1.0), (;), 1.0)
     @test_throws msg rate_equation_string(em)
     @test_throws msg dependent_parameter_values(em, (;), 1.0)
     @test_throws msg dependent_parameter_values(m, (;), 1.0)

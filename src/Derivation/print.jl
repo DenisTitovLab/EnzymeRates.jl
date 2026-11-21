@@ -320,7 +320,7 @@ not print). Pass a concrete `Mechanism` / `AllostericMechanism` or its compiled
 [`EnzymeMechanism`](@ref EnzymeRates.Mechanisms.EnzymeMechanism) singleton.
 
 The text runs as Julia code once `params`, `concs` and `Keq` are bound, as they are in
-[`rate_equation`](@ref)`(m, concs, params, Keq)`. It destructures
+a call of [`compile_rate_equation`](@ref)`(m)`. It destructures
 [`parameters`](@ref)`(m)` from `params` and the metabolites from `concs`, reads the
 equilibrium constant `Keq` as an input of its own, lists each dependent constant under
 `# Wegscheider constraints:` or `# Haldane constraints:` as a reference line in `Keq` and

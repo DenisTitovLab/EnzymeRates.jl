@@ -20,9 +20,9 @@ using OptimizationCMAEvolutionStrategy
                                  k_E_S_to_ES = 10.0 / Km)
     mm_concs = [(S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
                 (S = 5.0, P = 0.1), (S = 10.0, P = 0.1), (S = 1.0, P = 0.5)]
+    mm_rate = compile_rate_equation(mm)
     mm_data = (group = fill("G1", length(mm_concs)),
-               Rate = [rate_equation(mm, c, _testhelper_mm_params(1.0), 2.0)
-                       for c in mm_concs],
+               Rate = [mm_rate(c, _testhelper_mm_params(1.0), 2.0) for c in mm_concs],
                S = [c.S for c in mm_concs], P = [c.P for c in mm_concs])
 
     @testset "relative mode accepts no reference" begin
@@ -78,15 +78,14 @@ using OptimizationCMAEvolutionStrategy
                                 maxiters = 50)
         @test keys(fit) == (:params, :loss, :retcode, :at_bound)
         @test isfinite(fit.loss)
-        @test rate_equation(mm, (S = 10.0, P = 0.0), fit.params, 2.0) ≈ 3.0 rtol = 1e-8
+        @test mm_rate((S = 10.0, P = 0.0), fit.params, 2.0) ≈ 3.0 rtol = 1e-8
         # Several anchors combine by the geometric mean of measured over predicted
         # turnover: after the scale, the log ratios average to zero.
         anchors = [(S = 10.0,) => 3.0, (S = 1.0,) => 2.0]
         fit2 = fit_rate_equation(
             FittingProblem(mm, mm_data, 2.0; reference = anchors),
             CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 50)
-        log_ratios = [log(t / rate_equation(mm, merge((S = 0.0, P = 0.0), c), fit2.params,
-                                            2.0))
+        log_ratios = [log(t / mm_rate(merge((S = 0.0, P = 0.0), c), fit2.params, 2.0))
                       for (c, t) in anchors]
         @test sum(log_ratios) / length(log_ratios) ≈ 0 atol = 1e-12
     end
@@ -139,7 +138,7 @@ using OptimizationCMAEvolutionStrategy
         p, Keq = _testhelper_random_independent_params(two_site;
                                                        rng = Random.MersenneTwister(3))
         concs = (S = 2.0, P = 0.5, X = 0.3, Y = 1.5)
-        predicted = rate_equation(two_site, concs, p, Keq)
+        predicted = compile_rate_equation(two_site)(concs, p, Keq)
         q = EnzymeRates.Fitting._scale_rate_constants(two_site, p, 7.0 / predicted)
         @test keys(q) == keys(p)
         rate_constants = [k for k in keys(p) if startswith(String(k), "k_")]
@@ -161,7 +160,7 @@ using OptimizationCMAEvolutionStrategy
         fit = fit_rate_equation(fp, CMAEvolutionStrategyOpt(); n_restarts = 1,
                                 maxiters = 50)
         @test isfinite(fit.loss) && fit.retcode !== :ReferenceFailed
-        peak = maximum(abs(rate_equation(mm, c, fit.params, 2.0)) for c in mm_concs)
+        peak = maximum(abs(mm_rate(c, fit.params, 2.0)) for c in mm_concs)
         @test peak ≈ 1 rtol = 1e-10
     end
 

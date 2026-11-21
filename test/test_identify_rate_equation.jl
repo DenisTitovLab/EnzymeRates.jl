@@ -90,14 +90,14 @@ end
         S_vals = Float64[]
         P_vals = Float64[]
         R_vals = Float64[]
+        rate = compile_rate_equation(mechanism)
         for g in 1:n_groups
             for _ in 1:n_per_group
                 s = 0.1 + 9.9 * rand()
                 p = 0.1 + 9.9 * rand()
                 r = 0.1 + 9.9 * rand()
                 concs = (S = s, P = p, R = r)
-                v = rate_equation(
-                    mechanism, concs, params, Keq_val)
+                v = rate(concs, params, Keq_val)
                 push!(groups, "G$g")
                 push!(rates, v)
                 push!(S_vals, s)
@@ -1856,7 +1856,8 @@ end
     # the first data row's rate.
     @test !all(v -> v ≈ 5.0, entries[1].row.params)
     for (em, e) in zip((em1, em2), entries)
-        @test rate_equation(em, (S = 1.0, P = 0.1), e.row.params, 2.0) ≈ 0.5 rtol=1e-9
+        @test compile_rate_equation(em)((S = 1.0, P = 0.1), e.row.params, 2.0) ≈ 0.5 rtol =
+              1e-9
     end
 
     # Cross-batch memo hit: a later batch with the same key refits NOTHING.
@@ -1964,11 +1965,10 @@ end
     @test [e.key for e in entries] == [ca.key, ca.key]
     @test keys(entries[1].row.params) == fa && keys(entries[2].row.params) == fb
     rng = Random.MersenneTwister(10)
+    laws = [compile_rate_equation(e.mech) for e in entries]
     for _ in 1:3
         concs = (A = exp(randn(rng)), P = exp(randn(rng)), Q = exp(randn(rng)))
-        rates = [rate_equation(EnzymeRates.compile_mechanism(e.mech), concs, e.row.params,
-                               2.0)
-                 for e in entries]
+        rates = [rate(concs, e.row.params, 2.0) for (rate, e) in zip(laws, entries)]
         @test isapprox(rates[1], rates[2]; rtol = 1e-12)
     end
 end
@@ -2167,11 +2167,11 @@ end
     @test p.row.fit_inherited && !f.row.fit_inherited
     @test p.row.fit_source_id == f.row.mechanism_id == f.row.fit_source_id
     rng = Random.MersenneTwister(13)
+    p_rate, f_rate = compile_rate_equation(p.mech), compile_rate_equation(f.mech)
     for _ in 1:3
         concs = (S = exp(randn(rng)), P = exp(randn(rng)))
-        _testhelper_rate(e) =
-            rate_equation(EnzymeRates.compile_mechanism(e.mech), concs, e.row.params, 10.0)
-        @test isapprox(_testhelper_rate(p), _testhelper_rate(f); rtol = 1e-12)
+        @test isapprox(p_rate(concs, p.row.params, 10.0), f_rate(concs, f.row.params, 10.0);
+                       rtol = 1e-12)
     end
     frontier = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
     cv_pool = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
@@ -2337,11 +2337,12 @@ end
         params = NamedTuple{fp}(Tuple(Float64(best[1, x]) for x in fp))
         Keq = prob.rate_data.Keq
         rng = Random.MersenneTwister(14)
+        best_rate = compile_rate_equation(res.best)
+        parent_rate = compile_rate_equation(parent)
         for _ in 1:3
             concs = (S = exp(randn(rng)), P = exp(randn(rng)))
-            v = rate_equation(res.best, concs, params, Keq)
-            v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, f.row.params,
-                               Keq)
+            v = best_rate(concs, params, Keq)
+            v0 = parent_rate(concs, f.row.params, Keq)
             @test isfinite(v) && isapprox(v, v0; rtol = 1e-12)
         end
         scaled = EnzymeRates.Fitting._scale_rate_constants(res.best, params, 2.0)

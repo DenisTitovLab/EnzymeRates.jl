@@ -91,6 +91,7 @@ end
     end
     # (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
     fp = parameters(onlyA)
+    onlyA_rate = ER.compile_rate_equation(onlyA)
     @test fp == (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
 
     rng = MersenneTwister(20260713)
@@ -101,11 +102,11 @@ end
         # Map parameters(m) -> ground-truth params:
         #   K_A_ES_to_E_S=KA, K_EP_to_E_P=KP, k_A_ES_to_EP=k.
         prm = NamedTuple{fp}((KA, KP, k, L))
-        v_code = real(ER.rate_equation(onlyA, (S=S, P=P), prm, Keq))
+        v_code = real(onlyA_rate((S=S, P=P), prm, Keq))
         v_gt = _testhelper_uni_onlyA_flux(KA, KP, k, L=L, Keq=Keq, S=S, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
         # Far from equilibrium the law runs forward.
-        @test real(ER.rate_equation(onlyA, (S=10.0, P=1e-3), prm, Keq)) > 0
+        @test real(onlyA_rate((S=10.0, P=1e-3), prm, Keq)) > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) uni-uni rate.
         kr = k * KP / (Keq * KA)
@@ -127,12 +128,12 @@ end
     @test A.inactive.trees[1] * A.inactive.shift == one(ER.Derivation._Poly)
     @test A.fA == A.fI == one(ER.Derivation._Poly)
 
-    # Scaling the rate constants to a measured turnover stays consistent with rate_equation.
+    # Scaling the rate constants to a measured turnover stays consistent with the law.
     prm = NamedTuple{fp}((1.3, 0.9, 2.1, 0.7))
     Keq = 3.0
-    v0 = ER.rate_equation(onlyA, (S = 2.0, P = 0.5), prm, Keq)
+    v0 = onlyA_rate((S = 2.0, P = 0.5), prm, Keq)
     rescaled = EnzymeRates.Fitting._scale_rate_constants(onlyA, prm, 1.5 / v0)
-    @test isapprox(real(ER.rate_equation(onlyA, (S = 2.0, P = 0.5), rescaled, Keq)), 1.5;
+    @test isapprox(real(onlyA_rate((S = 2.0, P = 0.5), rescaled, Keq)), 1.5;
                    rtol=1e-9)
 end
 
@@ -153,6 +154,7 @@ end
     end
     # (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
     fp = parameters(multiA)
+    multiA_rate = ER.compile_rate_equation(multiA)
     @test fp == (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
 
     rng = MersenneTwister(20260713)
@@ -163,10 +165,10 @@ end
         # Map parameters(m) -> ground-truth params:
         #   K_A_EA_to_E_A=KA, K_EP_to_E_P=KP, K_A_EAB_to_EA_B=KB, k_A_EAB_to_EP=k.
         prm = NamedTuple{fp}((KB, KA, KP, k, L))
-        v_code = real(ER.rate_equation(multiA, (A=A, B=B, P=P), prm, Keq))
+        v_code = real(multiA_rate((A=A, B=B, P=P), prm, Keq))
         v_gt = _testhelper_multi_onlyA_flux(KA, KB, KP, k, L=L, Keq=Keq, A=A, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test real(ER.rate_equation(multiA, (A=10.0, B=10.0, P=1e-3), prm, Keq)) > 0
+        @test real(multiA_rate((A=10.0, B=10.0, P=1e-3), prm, Keq)) > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) bi-uni rate.
         kr = k * KP / (Keq * KA * KB)
@@ -238,6 +240,7 @@ end
     end
     # (:K_EBS_to_ES_B,:K_EP_to_E_P,:k_A_EBS_to_EP,:k_A_ES_to_E_S,:k_A_E_S_to_ES,:L)
     fp = parameters(metabD)
+    metabD_rate = ER.compile_rate_equation(metabD)
     @test fp == (:K_EBS_to_ES_B, :K_EP_to_E_P, :k_A_EBS_to_EP, :k_A_ES_to_E_S,
                  :k_A_E_S_to_ES, :L)
 
@@ -250,11 +253,11 @@ end
         #   k_A_E_S_to_ES=kon, k_A_ES_to_E_S=koff, K_EBS_to_ES_B=KB, K_EP_to_E_P=KP,
         #   k_A_EBS_to_EP=k.
         prm = NamedTuple{fp}((KB, KP, k, koff, kon, L))
-        v_code = real(ER.rate_equation(metabD, (S=S, B=B, P=P), prm, Keq))
+        v_code = real(metabD_rate((S=S, B=B, P=P), prm, Keq))
         v_gt = _testhelper_metab_dfree_onlyA_flux(
             kon, koff, KB, KP, k, L=L, Keq=Keq, S=S, B=B, P=P)
         @test isapprox(v_code, v_gt; rtol=1e-4)
-        @test real(ER.rate_equation(metabD, (S=10.0, B=10.0, P=1e-3), prm, Keq)) > 0
+        @test real(metabD_rate((S=10.0, B=10.0, P=1e-3), prm, Keq)) > 0
         # self-validation: L = 0 → inactive conformation unpopulated → the
         # single-conformation (non-allosteric) ordered bi-uni rate.
         @test isapprox(
@@ -269,13 +272,13 @@ end
     # product back to free enzyme stays open and the reverse flux survives.
     kon, koff, KP, KB, k, L, Keq, S, P = 1.7, 1.1, 0.9, 0.8, 2.1, 0.7, 3.0, 1.1, 0.6
     prm = NamedTuple{fp}((KB, KP, k, koff, kon, L))
-    v0 = real(ER.rate_equation(metabD, (S=S, B=0.0, P=P), prm, Keq))
+    v0 = real(metabD_rate((S=S, B=0.0, P=P), prm, Keq))
     @test isapprox(v0,
         _testhelper_metab_dfree_onlyA_flux(
             kon, koff, KB, KP, k; L=L, Keq=Keq, S=S, B=0.0, P=P);
         rtol=1e-4)
     @test v0 < 0    # reverse flux survives at B=0 (invalid :EqualAI-cat trap→0 was fake)
-    @test real(ER.rate_equation(metabD, (S=10.0, B=10.0, P=1e-3), prm, Keq)) > 0
+    @test real(metabD_rate((S=10.0, B=10.0, P=1e-3), prm, Keq)) > 0
 end
 
 # ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
@@ -312,7 +315,7 @@ end
 # ── :NonequalAI-catalysis harness self-validation ────────────────────────────
 # First ground the hand-written mass-action reference `_testhelper_metab_dfree_base_flux`
 # (the single-conformation ordered bi-uni, reused as the non-allosteric rate at
-# k = k_A) against the ODE-validated non-allosteric `rate_equation` — an
+# k = k_A) against the ODE-validated non-allosteric rate law — an
 # independent, separately ODE-cross-checked code path. This closes the trust loop
 # for the whole `_testhelper_mwc_ground_truth_flux` harness. Then confirm the free-flip-only
 # reference degenerates correctly: (a) L = 0 (inactive unpopulated) → the base rate
@@ -330,6 +333,7 @@ end
         end
     end
     bfp = parameters(base)
+    base_rate_law = ER.compile_rate_equation(base)
 
     rng = MersenneTwister(20260713)
     for _ in 1:5
@@ -342,12 +346,12 @@ end
         base_rate = _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, kA, Keq, A, B, P)
 
         # `_testhelper_metab_dfree_base_flux` vs the ODE-validated non-allosteric
-        # rate_equation.
+        # rate law.
         bd = Dict(:k_E_A_to_EA=>kon, :k_EA_to_E_A=>koff, :K_EAB_to_EA_B=>KB,
                   :K_EP_to_E_P=>KP, :k_EAB_to_EP=>kA)
         bprm = NamedTuple{bfp}(Tuple(bd[s] for s in bfp))
         @test isapprox(base_rate,
-            real(ER.rate_equation(base, (A=A, B=B, P=P), bprm, Keq)); rtol=1e-4)
+            real(base_rate_law((A=A, B=B, P=P), bprm, Keq)); rtol=1e-4)
 
         # (a) L = 0 : inactive conformation unpopulated → base rate at k_A.
         f0 = _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
@@ -393,17 +397,19 @@ end
     end
     fpn = parameters(nonallo)
     fpa = parameters(alloEq)
+    nonallo_rate = ER.compile_rate_equation(nonallo)
+    alloEq_rate = ER.compile_rate_equation(alloEq)
     rng = MersenneTwister(20260714)
     for _ in 1:5
         vals = Dict(s => 0.5 + 2rand(rng) for s in fpn)
         Keq = 2.0 + 2rand(rng)
         concs = (A=0.5+2rand(rng), B=0.5+2rand(rng), P=0.5+2rand(rng), Q=0.5+2rand(rng))
         pn = NamedTuple{fpn}(Tuple(vals[s] for s in fpn))
-        vn = real(ER.rate_equation(nonallo, concs, pn, Keq))
+        vn = real(nonallo_rate(concs, pn, Keq))
         # all-:EqualAI is L-independent and equals non-allosteric
         for L in (0.7, 5.0)
             pa = NamedTuple{fpa}(Tuple(s === :L ? L : vals[s] for s in fpa))
-            @test isapprox(real(ER.rate_equation(alloEq, concs, pa, Keq)), vn; rtol=1e-6)
+            @test isapprox(real(alloEq_rate(concs, pa, Keq)), vn; rtol=1e-6)
         end
     end
 end
@@ -557,6 +563,7 @@ end
         end
     end
     fp = parameters(allo)
+    allo_rate = ER.compile_rate_equation(allo)
     @test fp == (:k_A_EA_to_E_res_plusA_minusP_P, :k_A_EB_res_plusA_minusP_to_E_Q,
                  :k_A_E_Q_to_EB_res_plusA_minusP, :k_EA_to_E_A,
                  :k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B, :k_E_A_to_EA,
@@ -610,7 +617,7 @@ end
                  :k_I_E_Q_to_EB_res_plusA_minusP => k4r_I,
                  :L => L)
         prm = NamedTuple{fp}(Tuple(d[s] for s in fp))
-        v_code = real(ER.rate_equation(allo, (A=A, B=B, P=P, Q=Q), prm, Keq))
+        v_code = real(allo_rate((A=A, B=B, P=P, Q=Q), prm, Keq))
         v_gt = _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
             k2f_A=k2f_A, k2r_A=k2r_A, k4f_A=k4f_A, k4r_A=k4r_A,
             k2f_I=k2f_I, k4f_I=k4f_I, k4r_I=k4r_I,
@@ -744,6 +751,7 @@ end
     end
     # (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
     fp = parameters(inert)
+    inert_rate = ER.compile_rate_equation(inert)
     @test fp == (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
 
     rng = MersenneTwister(20260714)
@@ -754,7 +762,7 @@ end
         # Map parameters(m) -> ground-truth params:
         #   K_A_ES_to_E_S=KS, K_A_EP_to_E_P=KP, k_ES_to_EP=k.
         prm = NamedTuple{fp}((KP, KS, k, L))
-        v_code = real(ER.rate_equation(inert, (S=S, P=P), prm, Keq))
+        v_code = real(inert_rate((S=S, P=P), prm, Keq))
         @test isapprox(v_code,
             _testhelper_inert_inactive_flux(;
                 KS=KS, KP=KP, k=k, L=L, Keq=Keq, S=S, P=P); rtol=1e-4)
@@ -771,7 +779,7 @@ end
 # Seeding I-state reachability from it makes the pruned inactive graph retain a
 # covalent island that free E cannot reach, so no spanning tree rooted at free E
 # exists and free E's weight is 0 — the normalization then divides by zero and
-# `rate_equation` is NaN at every concentration. Under formulation 1 only free
+# the rate law is NaN at every concentration. Under formulation 1 only free
 # enzyme flips, so a component free E cannot reach holds no inactive mass and
 # must be stranded. With the F6P binding and the first half-reaction :OnlyA, the covalent
 # forms E(; residual) and E(F16BP; residual) join free E in the inactive conformation only
@@ -860,18 +868,18 @@ end
     @test !iszero(inactive.trees[1] * inactive.shift)
 
     fp = parameters(half2_ss)
+    half2_ss_rate = ER.compile_rate_equation(half2_ss)
     prm = NamedTuple{fp}(Tuple(1.3 for _ in fp))
     Keq = 3.0
     concs = (ATP = 1.1, F6P = 0.7, ADP = 0.6, F16BP = 0.9)
-    @test isfinite(real(ER.rate_equation(half2_ss, concs, prm, Keq)))
+    @test isfinite(real(half2_ss_rate(concs, prm, Keq)))
     # With both products at zero the inactive conformation holds its enzyme in the
     # covalent forms: half 2 cannot run there, and half 1 runs back only with F16BP. The
     # rate is then 0, as the mass-action limit is.
-    @test real(ER.rate_equation(half2_ss, merge(concs, (ADP = 0.0, F16BP = 0.0)), prm,
-                                Keq)) == 0
+    @test real(half2_ss_rate(merge(concs, (ADP = 0.0, F16BP = 0.0)), prm, Keq)) == 0
     # Far from equilibrium, with a trace of each product, the law runs forward.
     forward = (ATP = 10.0, F6P = 10.0, ADP = 1e-3, F16BP = 1e-3)
-    @test real(ER.rate_equation(half2_ss, forward, prm, Keq)) > 0
+    @test real(half2_ss_rate(forward, prm, Keq)) > 0
 end
 
 # ── n-protomer concerted-MWC oracle (formulation 1) ─────────────────────────
@@ -1029,6 +1037,7 @@ end
                 end
             end)
         fp = parameters(allo)
+        allo_rate = ER.compile_rate_equation(allo)
         @test fp == (:K_EAB_to_EA_B, :K_EP_to_E_P, :k_A_EAB_to_EP, :k_EA_to_E_A,
                      :k_E_A_to_EA, :k_I_EAB_to_EP, :L)
         # Map parameters(m) -> ground-truth params:
@@ -1046,8 +1055,8 @@ end
             L = 0.5+rand(rng); Keq = 2.0+2rand(rng)
             A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng)
             prm = _testhelper_params_for(kon, koff, KP, KB, kA, kI, L)
-            # `rate_equation` is per active site; the oracle is per oligomer.
-            v_code = nprot * real(ER.rate_equation(allo, (A=A, B=B, P=P), prm, Keq))
+            # The rate law is per active site; the oracle is per oligomer.
+            v_code = nprot * real(allo_rate((A=A, B=B, P=P), prm, Keq))
             v_gt = _testhelper_biuni_mwc_oligomer_flux(nprot, kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=B, P=P)
             @test isapprox(v_code, v_gt; rtol=1e-4)
@@ -1060,7 +1069,7 @@ end
             # flux survives.
             kon, koff, KP, KB = 1.7, 1.1, 0.9, 0.8
             kA, kI, L, Keq, A, P = 2.5, 0.4, 0.7, 3.0, 1.1, 0.9
-            vN = real(ER.rate_equation(allo, (A=A, B=0.0, P=P),
+            vN = real(allo_rate((A=A, B=0.0, P=P),
                 _testhelper_params_for(kon, koff, KP, KB, kA, kI, L), Keq))
             @test isapprox(vN, _testhelper_biuni_nonequalAI_freeflip_flux(kon, koff, KB, KP;
                 k_A=kA, k_I=kI, L=L, Keq=Keq, A=A, B=0.0, P=P); rtol=1e-4)
@@ -1188,6 +1197,8 @@ end
         end
     end
     nfp = parameters(nonallo)
+    half2_rate = ER.compile_rate_equation(half2)
+    nonallo_rate = ER.compile_rate_equation(nonallo)
     twin_of(s) = Symbol(replace(String(s), r"^([Kk])_A_" => s"\1_"))
     @test Set(twin_of.(filter(!=(:L), collect(afp)))) == Set(nfp)
     rng = MersenneTwister(20260717)
@@ -1198,23 +1209,22 @@ end
         ADP = 0.5+2rand(rng); F16BP = 0.5+2rand(rng)
         concs = (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=F16BP)
         prm = NamedTuple{afp}(Tuple(s === :L ? 0.7 : vals[twin_of(s)] for s in afp))
-        @test isfinite(real(ER.rate_equation(half2, concs, prm, Keq)))
-        @test isfinite(real(ER.rate_equation(half2,
+        @test isfinite(real(half2_rate(concs, prm, Keq)))
+        @test isfinite(real(half2_rate(
             (ATP=ATP, F6P=F6P, ADP=ADP, F16BP=1e-8), prm, Keq)))
         # With both products at zero the inactive conformation holds its enzyme in the
         # covalent forms (half 2 cannot run, half 1 runs back only with F16BP): rate 0.
-        @test real(ER.rate_equation(half2, merge(concs, (ADP=0.0, F16BP=0.0)), prm,
-                                    Keq)) == 0
-        @test real(ER.rate_equation(half2,
+        @test real(half2_rate(merge(concs, (ADP=0.0, F16BP=0.0)), prm, Keq)) == 0
+        @test real(half2_rate(
             (ATP=10.0, F6P=10.0, ADP=1e-3, F16BP=1e-3), prm, Keq)) > 0
         # v = 0 at the equilibrium metabolite ratio ADP·F16BP = Keq·ATP·F6P.
-        @test isapprox(real(ER.rate_equation(half2,
+        @test isapprox(real(half2_rate(
             (ATP=ATP, F6P=F6P, ADP=Keq*ATP*F6P/F16BP, F16BP=F16BP), prm, Keq)),
             0.0; atol=1e-8)
         # L = 0 cross-check: the allosteric rate reduces to the non-allosteric twin.
         pn = NamedTuple{nfp}(Tuple(vals[s] for s in nfp))
         p0 = NamedTuple{afp}(Tuple(s === :L ? 0.0 : vals[twin_of(s)] for s in afp))
-        @test isapprox(real(ER.rate_equation(half2, concs, p0, Keq)),
-                       real(ER.rate_equation(nonallo, concs, pn, Keq)); rtol=1e-4)
+        @test isapprox(real(half2_rate(concs, p0, Keq)),
+                       real(nonallo_rate(concs, pn, Keq)); rtol=1e-4)
     end
 end

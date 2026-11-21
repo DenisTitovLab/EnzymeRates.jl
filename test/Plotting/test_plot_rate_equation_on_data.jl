@@ -1,19 +1,23 @@
 # ABOUTME: Tests for the Makie-free panel preparation behind plot_rate_equation_on_data.
-# ABOUTME: Expected values come from rate_equation called directly on written-out tables.
+# ABOUTME: Expected values come from the compiled rate law called on written-out tables.
 
 using Test
 using EnzymeRates
 using EnzymeRates.Plotting: rate_equation_panels
 
-# The panels of a mechanism at `params` and `Keq`, or of a rate function at `params`.
-function _testhelper_plot_panels(table; rate = _testhelper_plot_m,
-                                 params = _testhelper_plot_params,
-                                 Keq = _testhelper_plot_Keq, absolute = false,
-                                 unit = "M", xscale = identity)
-    keywords = (; absolute, concentration_unit = unit, xscale)
-    rate isa Function ? rate_equation_panels(rate, params, table; keywords...) :
-                        rate_equation_panels(rate, params, table, Keq; keywords...)
-end
+# The panels of `_testhelper_plot_m` at `params` and `Keq`, as plot_rate_equation_on_data
+# prepares them.
+_testhelper_plot_panels(table; params = _testhelper_plot_params, Keq = _testhelper_plot_Keq,
+                        absolute = false, unit = "M", xscale = identity) =
+    rate_equation_panels(concs -> _testhelper_plot_compiled(concs, params, Keq),
+                         metabolites(_testhelper_plot_m), Keq, table; absolute,
+                         concentration_unit = unit, xscale)
+
+# The panels of the rate function `rate` at `params`, which holds its own Keq.
+_testhelper_plot_panels(rate::Function, table; params, absolute = false, unit = "M",
+                        xscale = identity) =
+    rate_equation_panels(concs -> rate(concs, params), (), 1.0, table; absolute,
+                         concentration_unit = unit, xscale)
 
 # Group "exp_1": A at four values for each B in (1e-3, 2e-3), Q = 5e-5, P = 0.
 const _testhelper_plot_rows = [(a, b, 0.0, 5e-5) for b in (1e-3, 2e-3)
@@ -312,7 +316,7 @@ _testhelper_plot_exp1(; factor = 3.0) =
         table = (group = fill("g", 6), S = [r.S for r in rows], I = [r.I for r in rows],
                  Rate = [3 * rate(r, params) for r in rows])
         panels(; table = table, keywords...) =
-            _testhelper_plot_panels(table; rate, params, keywords...)
+            _testhelper_plot_panels(rate, table; params, keywords...)
 
         for (absolute, factor) in ((false, 3.0), (true, 1.0))
             p = only(panels(; absolute))
@@ -328,7 +332,7 @@ _testhelper_plot_exp1(; factor = 3.0) =
         received = Set{Any}()
         recording(concs, p) = (push!(received, keys(concs)); rate(concs, p))
         swapped = (group = table.group, Rate = table.Rate, I = table.S, S = table.I)
-        p = only(_testhelper_plot_panels(swapped; rate = recording, params))
+        p = only(_testhelper_plot_panels(recording, swapped; params))
         @test received == Set([(:I, :S)])
         @test p.x_label == "I (µM)"
 
@@ -341,16 +345,11 @@ _testhelper_plot_exp1(; factor = 3.0) =
         table = _testhelper_plot_exp1()
         no_group = Base.structdiff(table, NamedTuple{(:group,)})
         @test_throws ErrorException _testhelper_plot_panels(no_group)
-        absent = first(keys(_testhelper_plot_params))
-        params = Base.structdiff(_testhelper_plot_params, NamedTuple{(absent,)})
-        @test_throws ErrorException("params is missing $absent") begin
-            _testhelper_plot_panels(table; params)
-        end
         @test_throws ErrorException("Keq must be positive and finite; got -4.0") begin
             _testhelper_plot_panels(table; Keq = -4.0)
         end
-        # A fit saved by an earlier version holds Keq and E_total: the panels ignore them
-        # and draw at the Keq argument.
+        # Extra names in params, Keq and E_total among them, are ignored, and the Keq
+        # argument is used.
         curves(panels) = [[s.curve_rate for s in p.series] for p in panels]
         extra = merge(_testhelper_plot_params, (Keq = 99.0, E_total = 99.0))
         @test curves(_testhelper_plot_panels(table; params = extra)) ==

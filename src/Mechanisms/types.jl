@@ -535,10 +535,10 @@ abstract type AbstractEnzymeMechanism end
 """
     EnzymeMechanism{Sig}
 
-A plain enzyme mechanism as a singleton type, the form `rate_equation` and the fitter
-take. `Sig`, its only parameter, is the mechanism encoded as one tuple of integers
-(`_sig_of`), so equal mechanisms share one type and the derivation compiles once per
-mechanism. `@enzyme_mechanism` returns one; `EnzymeMechanism(m)` or
+A plain enzyme mechanism as a singleton type, the form `compile_rate_equation` compiles.
+`Sig`, its only parameter, is the mechanism encoded as one tuple of integers (`_sig_of`),
+so equal mechanisms share one type and the derivation compiles once per mechanism.
+`@enzyme_mechanism` returns one; `EnzymeMechanism(m)` or
 `EnzymeRates.compile_mechanism(m)` lifts a `Mechanism` to it and
 `EnzymeRates.Mechanism(em)` reads the mechanism back. The layout of `Sig` is internal.
 """
@@ -1318,9 +1318,10 @@ _is_free_E(n::EnzymeForm) = n.conformation === :E && _is_free(n)
 
 Return distinct metabolite names as a tuple of `Symbol`s: substrates, then products,
 then the names the steps bind as modifiers, each sorted by name, then the ligands of an
-allosteric mechanism's regulatory sites, site by site, without duplicates. The fitter
-uses this as the key set for the per-datapoint concentration `NamedTuple` passed to
-[`rate_equation`](@ref EnzymeRates.Derivation.rate_equation).
+allosteric mechanism's regulatory sites, site by site, without duplicates. These are the
+concentrations the mechanism's compiled rate law reads
+([`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation)), and
+`metabolites(rate)` gives the same tuple.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -1339,8 +1340,9 @@ julia> metabolites(m)
 ```
 """
 @generated function metabolites(::M) where {M <: AbstractEnzymeMechanism}
-    # Kept `@generated`: `loss!` uses `metabolites(m)` as a compile-time-constant
-    # tuple to build the per-datapoint `NamedTuple{MetNames}` concs on the fitting
-    # hot path. A runtime body would make that NamedTuple type-unstable and allocate.
+    # Kept `@generated`: `metabolites(rate)` of a compiled rate law reads it, and
+    # `loss!` uses that as a compile-time-constant tuple to build the per-datapoint
+    # `NamedTuple{MetNames}` concs on the fitting hot path. A runtime body would make
+    # that NamedTuple type-unstable and allocate.
     Tuple(metabolites(_concrete(M())))
 end

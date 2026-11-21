@@ -88,8 +88,9 @@ end
             groups=fill("G1", length(concs_list)), Keq = Keq_val,
     )
         rates = Float64[]
+        rate = compile_rate_equation(mechanism)
         for (i, concs) in enumerate(concs_list)
-            r = rate_equation(mechanism, concs, true_params, Keq)
+            r = rate(concs, true_params, Keq)
             push!(rates, r)
         end
         met_names = metabolites(mechanism)
@@ -304,7 +305,7 @@ end
     # ── loss! over table column types ─────────────────────────────────────────
     # The gate in test/Derivation/test_rate_eq_derivation.jl measures loss! on every law;
     # these tests vary the table. A column of abstract element type makes every row
-    # dispatch at run time while rate_equation stays fast, and `@inferred loss!` passes
+    # dispatch at run time while the rate law stays fast, and `@inferred loss!` passes
     # since the result is a Float64 either way, so they measure allocations.
     @testset "loss! allocates nothing whatever the table's column types" begin
         two_regulators = @allosteric_mechanism begin
@@ -445,8 +446,8 @@ end
                        P = 0.1 + 9.9*rand(), Q = 0.1 + 9.9*rand()) for _ in 1:n_points]
         groups = [string("G", div(i-1, 50)+1) for i in 1:n_points]
 
-        rates = [rate_equation(ordered_bi_bi, c, bb_true_params, bb_Keq)
-                 for c in concs_list]
+        bb_rate = compile_rate_equation(ordered_bi_bi)
+        rates = [bb_rate(c, bb_true_params, bb_Keq) for c in concs_list]
         met_names_bb = metabolites(ordered_bi_bi)
         data = (
             group = groups,
@@ -557,6 +558,7 @@ end
         opt = BBO_adaptive_de_rand_1_bin_radiuslimited()
 
         # The first data row (best of 2 restarts) and the fifth.
+        rate = compile_rate_equation(uni_uni)
         for (row, n_restarts) in ((1, 2), (5, 1))
             reference = _testhelper_row_reference(data; row)
             fp = FittingProblem(uni_uni, data, Keq_val; reference)
@@ -568,7 +570,7 @@ end
             @test isfinite(res.loss)
             @test res.retcode isa Symbol
             concs, turnover = only(reference)
-            @test rate_equation(uni_uni, concs, res.params, Keq_val) ≈ turnover rtol=1e-9
+            @test rate(concs, res.params, Keq_val) ≈ turnover rtol=1e-9
         end
     end
 
@@ -577,7 +579,8 @@ end
         fit = fit_rate_equation(FittingProblem(uni_uni, data, 2.0),
                                 CMAEvolutionStrategyOpt(); n_restarts = 1, maxiters = 50)
         @test keys(fit.params) == parameters(uni_uni)
-        # A fit saved by an earlier version still holds Keq: the argument wins.
+        # Extra names in params, Keq among them, are ignored, and the Keq argument is
+        # used.
         @test EnzymeRates.test_rate_equation(
                   uni_uni, merge(fit.params, (Keq = 99.0,)), data, 2.0) ==
               EnzymeRates.test_rate_equation(uni_uni, fit.params, data, 2.0)

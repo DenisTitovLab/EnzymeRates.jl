@@ -12,8 +12,8 @@ export IdentifyRateEquationProblem, IdentifyRateEquationResults
 export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
 
 # Core API
-export rate_equation, rate_equation_string, parameters, dependent_parameter_values,
-    metabolites
+export compile_rate_equation, rate_equation_string, parameters,
+    dependent_parameter_values, metabolites
 
 # Fitting & model selection
 export fit_rate_equation, identify_rate_equation
@@ -31,7 +31,7 @@ include("Mechanisms/Mechanisms.jl")
 using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
     metabolites, Mechanism, AllostericMechanism, compile_mechanism
 include("Derivation/Derivation.jl")
-using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
+using .Derivation: Derivation, compile_rate_equation, rate_equation_string, parameters,
     dependent_parameter_values
 include("DSL/DSL.jl")
 using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism

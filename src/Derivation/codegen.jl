@@ -1,5 +1,5 @@
-# ABOUTME: Code generation: the generated rate_equation emits the derived law as
-# ABOUTME: straight-line locals in greedy Horner form, reading its inputs by name.
+# ABOUTME: Code generation: compile_rate_equation's generated call emits the derived law
+# ABOUTME: as straight-line locals in greedy Horner form, reading its inputs by name.
 
 """
 A rate law as straight-line code, `v = num/den`, the rate per unit enzyme. `vars` lists
@@ -139,11 +139,11 @@ end
 """
     _body(p) -> Expr
 
-The body of `rate_equation` for the program `p`: each variable it reads, in variable
-order, bound to a positional local, an input (a concentration or a constant read by name,
-`getfield(concs, :X)`, `getfield(params, :k)`, or the argument `Keq`) or a local in greedy
-Horner form, followed by the reciprocals and roots the body reads (`_power`); then
-`num/den`. `x^e` reads `x` to the integer part of `e` and `x^(±1/q)` to the rest
+The body of a compiled rate law's call for the program `p`: each variable it reads, in
+variable order, bound to a positional local, an input (a concentration or a constant read
+by name, `getfield(concs, :X)`, `getfield(params, :k)`, or the argument `Keq`) or a local
+in greedy Horner form, followed by the reciprocals and roots the body reads (`_power`);
+then `num/den`. `x^e` reads `x` to the integer part of `e` and `x^(±1/q)` to the rest
 (`x^(3/2) = x·sqrt(x)`).
 """
 function _body(p::_Program)
@@ -179,42 +179,78 @@ function _body(p::_Program)
     Expr(:block, lines..., :(return $num / $den))
 end
 
-"""The body of the generated `rate_equation` of `m`: the program's code (`_body`) of its
-law (`_with_law`)."""
+"""The body of the generated call of `m`'s compiled rate law: the program's code
+(`_body`) of its law (`_with_law`)."""
 _rate_body(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
     _with_law((m, s, L) -> _body(_program(m, s, L)), m)
 
-# ─── rate_equation ─────────────────────────────────────────────────────────────
+# ─── compile_rate_equation ─────────────────────────────────────────────────────
+
+"""The rate law of the compiled mechanism type `M` as a function
+(`compile_rate_equation`). Its only parameter is `M`, so equal mechanisms share one
+instance and its call is generated once per mechanism."""
+struct _CompiledRateEquation{M <: Mechanisms.AbstractEnzymeMechanism} end
 
 """
-    rate_equation(m, concs, params, Keq)
+    compile_rate_equation(m) -> rate
 
-Return the net reaction rate per unit enzyme of mechanism `m` at the metabolite
-concentrations `concs` and the constants `params` (both `NamedTuple`s), with the
-equilibrium constant `Keq`. The rate equation itself is derived from the mechanism's
-elementary steps by the King–Altman/Cha method: rapid-equilibrium steps collapse to
-binding constants, steady-state steps are assembled into the King–Altman determinant, and
-the two combine into the quasi-steady-state flux through the whole mechanism — so one call
-returns the overall turnover, not the rate of a single step. Multiply by the enzyme
-concentration for an absolute rate.
+The rate law of mechanism `m` as a function: `rate(concs, params, Keq)` returns the net
+reaction rate per unit enzyme at the metabolite concentrations `concs` and the constants
+`params` (both `NamedTuple`s), with the equilibrium constant `Keq`. Multiply by the enzyme
+concentration for an absolute rate. The law is derived from the mechanism's elementary
+steps by the King–Altman/Cha method, so one call gives the turnover of the whole
+mechanism, not the rate of one step.
 
-`params` holds the constants a fit estimates ([`parameters`](@ref)`(m)`); the rate law
-computes each dependent constant from them and `Keq` by its Haldane or Wegscheider
-relation. Both `NamedTuple`s are read by name, so their fields may come in any order, and
-fields the law does not read are ignored.
+`params` holds the constants a fit estimates, [`parameters`](@ref)`(rate)`, the same names
+as `parameters(m)`, and `concs` the concentrations of [`metabolites`](@ref)`(rate)`; both
+are tuples of Symbols. The law computes each dependent constant from `params` and `Keq` by
+its Haldane or Wegscheider relation. Both `NamedTuple`s are read by name, so their fields
+may come in any order, and fields the law does not read are ignored.
 
-The derivation runs once, at compile time: the body is generated as straight-line
-arithmetic with no allocations, loops, or matrix operations. Use
-[`rate_equation_string`](@ref) to inspect the derived equation symbolically.
+The first call derives the law and compiles it to straight-line arithmetic, once per
+mechanism and session; every later call is fast and allocates nothing, so compile once,
+outside a loop. Equal mechanisms give the same `rate`. Calling `rate` errors when the rate
+law of `m` is not defined (`check_valid_rate_equation`). [`rate_equation_string`](@ref)
+prints the law.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S ⇌ E(S)
+               E(S) <--> E(P)
+               E(P) ⇌ E + P
+           end
+       end;
+
+julia> rate = compile_rate_equation(m);
+
+julia> parameters(rate)
+(:K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
+
+julia> params = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0);
+
+julia> rate((S = 1.0, P = 0.5), params, 4.0)
+0.65625
+```
 """
-@generated function rate_equation(m::M_type, concs::NamedTuple, params::NamedTuple,
-        Keq::Real) where {M_type <: Mechanisms.AbstractEnzymeMechanism}
+compile_rate_equation(m::Mechanisms.AbstractEnzymeMechanism) =
+    _CompiledRateEquation{typeof(m)}()
+compile_rate_equation(m::_AnyMech) = compile_rate_equation(Mechanisms.compile_mechanism(m))
+
+# The type parameter's name holds `_`, as no metabolite name does, and the body reads every
+# input by name, so a metabolite named `M` reads as a concentration.
+@generated function (::_CompiledRateEquation{M_type})(concs::NamedTuple, params::NamedTuple,
+                                                     Keq::Real) where {M_type}
     # The generator decodes the mechanism and checks its rate law once
     # (`_derivation_input`).
     _rate_body(_derivation_input(M_type))
 end
 
-# Concrete-mechanism convenience: lift to the singleton (allocates, not the hot path).
-rate_equation(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, concs,
-              params, Keq) =
-    rate_equation(Mechanisms.compile_mechanism(m), concs, params, Keq)
+# `Fitting.loss!` builds its `NamedTuple`s from these names, so they must be compile-time
+# constants: both read `M`'s generated methods.
+parameters(::_CompiledRateEquation{M}) where {M} = parameters(M())
+Mechanisms.metabolites(::_CompiledRateEquation{M}) where {M} = Mechanisms.metabolites(M())

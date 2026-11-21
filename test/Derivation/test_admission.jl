@@ -90,10 +90,9 @@ end
     @test EnzymeRates.Derivation._guard(EnzymeRates.AllostericMechanism(am)) ===
           EnzymeRates.Derivation._WELL_POSED
     params, Keq = _testhelper_random_independent_params(am; rng = Random.MersenneTwister(1))
-    @test isnan(rate_equation(am, (A = 1.0, B = 0.0, D = 1.0, P = 0.0, Q = 0.0), params,
-                              Keq))
-    @test rate_equation(am, (A = 0.0, B = 1.0, D = 1.0, P = 0.0, Q = 0.0), params, Keq) ==
-          0.0
+    rate = compile_rate_equation(am)
+    @test isnan(rate((A = 1.0, B = 0.0, D = 1.0, P = 0.0, Q = 0.0), params, Keq))
+    @test rate((A = 0.0, B = 1.0, D = 1.0, P = 0.0, Q = 0.0), params, Keq) == 0.0
     # A fit scores the NaN as it scores the 0 a well-defined law predicts there: a zero rate
     # is refused, and a nonzero rate costs the same at the corner as at A = P = Q = 0, where
     # the law is 0.
@@ -5154,7 +5153,7 @@ end
     v = EnzymeRates.Derivation._guard(m)
     @test (v.fault, v.face) == (EnzymeRates.Derivation._LAW_MULTI, 2)
     # The negative control of `_testhelper_finite_on_every_face`, which cannot derive
-    # `rate_equation` for a mechanism the guard rejects: at the concentrations the check
+    # the compiled law of a mechanism the guard rejects: at the concentrations the check
     # reads, the law read without the guard is NaN exactly where P and Q are zero.
     params = Dict{Symbol, Float64}(k => 1.0
                                    for k in EnzymeRates.Derivation._solve(m).fitted)

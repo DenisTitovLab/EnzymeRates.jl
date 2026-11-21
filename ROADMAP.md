@@ -68,8 +68,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   corner: 293 plain ter-bi, 38 plain ping-pong and 26 allosteric ter-bi mechanisms; there
   264 of these laws have no limit and 93 a removable 0/0, census mechanism
   `d7a09031d5dd2fc6` at B = P = Q = 0 among them. Another 12 allosteric ping-pongs that pass
-  the guard have a non-unique steady state at such a corner. `rate_equation` returns NaN
-  there, where a well-posed law returns 0. A fit scores the NaN as it scores the 0 a
+  the guard have a non-unique steady state at such a corner. The compiled rate law returns
+  NaN there, where a well-posed law returns 0. A fit scores the NaN as it scores the 0 a
   well-defined law predicts there: `FittingProblem` refuses a zero rate, and the loss scores
   a NaN prediction as a sign mismatch, the penalty a 0 prediction gets
   (`test/Derivation/test_admission.jl`). Adding these corners to the faces would drop at
@@ -205,9 +205,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   lists it in `at_bound` only when it lands at an edge.
 - **`loss!` runs 2-5× slower in about one process in nine.**
   `loss!` stores each row's concentrations and the parameters in one block of its stack
-  frame and passes them by pointer to `rate_equation`, which is not inlined (for every gated
-  law but Uni-Uni). When a 4 KB page boundary of the stack falls inside that block, one of
-  `rate_equation`'s 16- or 32-byte loads straddles the page on every row and costs 20-30 ns
+  frame and passes them by pointer to the compiled rate law, which is not inlined (for every
+  gated law but Uni-Uni). When a 4 KB page boundary of the stack falls inside that block,
+  one of the law's 16- or 32-byte loads straddles the page on every row and costs 20-30 ns
   more per row, measured in a Lima VM on Apple Silicon with 4 KB pages. The stack's offset
   within its page is random per process and fixed for its life, so the slow mode looks
   random: 29 of 256 offsets slow at least one of the 42 gated laws. With address-space
@@ -217,10 +217,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   suite in nine, on several laws at once, each at 26-38 ns per row: its 20 batches use fresh
   problems, which vary the heap, but share one stack depth. Rerun such a suite. Two fixes
   are open, for the maintainer to choose: run each batch a few frames deeper (test only: 0
-  false failures in 10,752 (law, offset) pairs, against 147 now); or inline `rate_equation`
-  at `loss!`'s call site, which makes `loss!` 15-35% faster per row on small and medium laws
+  false failures in 10,752 (law, offset) pairs, against 147 now); or inline the rate law at
+  `loss!`'s call site, which makes `loss!` 15-35% faster per row on small and medium laws
   and cuts the failing pairs from 147 to 10, at a compile cost not measured (see the Idea
-  "Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`"). Not measured: 16 KB
+  "Inline the rate law in `loss!` and emit `muladd` in `_horner`"). Not measured: 16 KB
   pages (macOS on Apple Silicon), x86, and the cost to a whole fit; that a fit in such a
   process evaluates `loss!` slower for its whole life is inferred. The earlier observations
   may be this effect: three large laws 15-25% over the gate in one local process, and one
@@ -353,7 +353,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Reduce what CMA-ES itself costs per evaluation.**
   At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs against
   10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the median of 60
-  PGK laws, so any faster `rate_equation` gains only on the `loss!` part. The solver's
+  PGK laws, so any faster rate law gains only on the `loss!` part. The solver's
   eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up
   to 20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
   change upstream; neither is explored.
@@ -397,11 +397,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   A child usually holds its parent as a limit, so one restart could begin at the parent's
   parameters. Not measured.
 - **Pin each law's operation counts.**
-  The `rate_equation` time bound tolerates the spread between machines, so undoing a 3× gain
+  The rate law's time bound tolerates the spread between machines, so undoing a 3× gain
   on a small law passes it: the MWC tetramer's former 20.3 ns sits under its 34 ns bound. A
   count of multiplications, additions and power calls per law does not depend on the machine
   and would catch this, at the cost of re-pinning when a law changes on purpose.
-- **Inline `rate_equation` in `loss!` and emit `muladd` in `_horner`.**
+- **Inline the rate law in `loss!` and emit `muladd` in `_horner`.**
   A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row loop:
   `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call compile
   time. `muladd` gives 2–18%, and the generated code then breaks the binary `+` and `*` shape

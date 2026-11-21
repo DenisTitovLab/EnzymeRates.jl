@@ -36,9 +36,9 @@ end
         @test length(panel_axes) == 3
         @test [ax.title[] for ax in panel_axes] == ["exp 1", "exp 2", "exp 3"]
         @test [ax.xlabel[] for ax in panel_axes] == ["A (mM)", "A (µM)", "B (µM)"]
-        panels = rate_equation_panels(_testhelper_plot_m, _testhelper_plot_params,
-            _testhelper_makie_table, _testhelper_plot_Keq; absolute = false,
-            concentration_unit = "M", xscale = identity)
+        panels = rate_equation_panels(_testhelper_plot_rate,
+            metabolites(_testhelper_plot_m), _testhelper_plot_Keq, _testhelper_makie_table;
+            absolute = false, concentration_unit = "M", xscale = identity)
         @test [ax.limits[][2] for ax in panel_axes] == [p.rate_limits for p in panels]
         for (ax, p) in zip(panel_axes, panels)
             @test [l[1][] for l in _testhelper_plots(Lines, ax)] ==
@@ -49,8 +49,7 @@ end
     end
 
     @testset "a params that holds Keq and E_total draws the same curves" begin
-        # As a fit saved by an earlier version does: the curves are drawn at the Keq
-        # argument.
+        # Extra names in params are ignored, and the curves are drawn at the Keq argument.
         extra = merge(_testhelper_plot_params, (Keq = 99.0, E_total = 99.0))
         curves(fig) = [l[1][] for ax in _testhelper_blocks(Makie.Axis, fig)
                        for l in _testhelper_plots(Lines, ax)]
@@ -112,6 +111,12 @@ end
         for columns in (0, -1)
             @test_throws(ArgumentError("columns must be at least 1; got $columns"),
                 _testhelper_makie_plot(; columns))
+        end
+        absent = first(keys(_testhelper_plot_params))
+        params = Base.structdiff(_testhelper_plot_params, NamedTuple{(absent,)})
+        @test_throws ErrorException("params is missing $absent") begin
+            plot_rate_equation_on_data(_testhelper_plot_m, params, _testhelper_makie_table,
+                                       _testhelper_plot_Keq)
         end
         # A wrong `rate` or `params`, or a mechanism without its Keq, is refused by the
         # exported function itself.

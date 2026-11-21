@@ -21,16 +21,15 @@ include("type_stability_harness.jl")
     value_to_type = (;
         reason = "lifts a run-time value (a mechanism's steps, a table's or a row's " *
                  "names) to a type, which is what makes the code after it concrete",
-        functions = [:rate_equation, :FittingProblem, :test_rate_equation, :RateData,
-                     :_rate_table, :IdentifyRateEquationProblem, :_row_params,
-                     :_fit_keywords])
+        functions = [:FittingProblem, :test_rate_equation, :RateData, :_rate_table,
+                     :IdentifyRateEquationProblem, :_row_params, :_fit_keywords])
     # `fit_rate_equation` hands the solver one problem type for every mechanism: a
     # FunctionWrapper around `loss!`, and a `@nospecialize` problem. `_fit_loss` pays one
     # dispatch per evaluation, not per row.
     solver_boundary = (;
         reason = "the solver's boundary, which hides the mechanism's type from the solver",
         functions = [:_fit_loss, :_optimization_problem, :fit_rate_equation,
-                     :_concentration_scales, :_reference_scale, :FitObjective])
+                     :_reference_scale, :FitObjective])
     pmap_and_tables = (;
         reason = "reads pmap's Vector{Any}, or table columns of unknown type",
         functions = [:_seed_node_children, :_pmap_to_vector, :_write_rows_csv!, :_write_csv,
@@ -47,7 +46,7 @@ include("type_stability_harness.jl")
     draws_a_figure = (;
         reason = "prepares a figure from a mechanism it does not specialize on and draws " *
                  "it through the Makie extension, once per call",
-        functions = [:plot_rate_equation_on_data, :rate_equation_panels, :_panels])
+        functions = [:plot_rate_equation_on_data, :rate_equation_panels])
     exemption_sets = (error_messages, value_to_type, solver_boundary, pmap_and_tables,
                       expr_walk, prints_to_stdout, checks_user_input, draws_a_figure)
 
@@ -127,14 +126,20 @@ include("type_stability_harness.jl")
 
     @testset "Derivation" begin
         @testset "$form" for (form, m) in pairs(singleton_forms)
-            # The hot path: each data row of each evaluation calls `rate_equation` here.
-            @_testhelper_no_dispatch rate_equation(
-                m, floats(metabolites(m)), floats(parameters(m)), 2.0)
+            @_testhelper_no_dispatch compile_rate_equation(m)
+            rate = compile_rate_equation(m)
+            # The hot path: each data row of each evaluation calls the compiled rate law
+            # here, and `loss!` reads its names as constants.
+            @_testhelper_no_dispatch rate(
+                floats(metabolites(m)), floats(parameters(m)), 2.0)
+            @_testhelper_no_dispatch parameters(rate)
+            @_testhelper_no_dispatch metabolites(rate)
             @_testhelper_no_dispatch parameters(m)
         end
         @testset "$form" for (form, m) in pairs(concrete_forms)
-            @_testhelper_dispatches_in value_to_type rate_equation(
-                m, floats(metabolites(m)), floats(parameters(m)), 2.0)
+            # The compiled law's type depends on the mechanism's value, so this call's
+            # result is not inferred; building it dispatches nothing.
+            @_testhelper_no_dispatch compile_rate_equation(m)
             @_testhelper_dispatches_in error_messages parameters(m)
             @_testhelper_dispatches_in error_messages Deriv.check_valid_rate_equation(m)
             @_testhelper_no_dispatch Deriv.check_valid_rate_equation(Bool, m)
@@ -227,7 +232,8 @@ include("type_stability_harness.jl")
         @testset "$form" for (form, m) in pairs(concrete_forms)
             @_testhelper_dispatches_in error_messages EnzymeRates._pass1_record(m, 1, 1)
         end
-        @testset "$form" for (form, m) in pairs(singleton_forms)
+        # The workers pass the concrete mechanisms of the search.
+        @testset "$form" for (form, m) in pairs(concrete_forms)
             @_testhelper_dispatches_in(
                 error_messages, value_to_type, solver_boundary,
                 EnzymeRates._cross_validation_loss(

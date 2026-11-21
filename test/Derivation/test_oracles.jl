@@ -1114,7 +1114,7 @@ end
 @testset "an admitted :OnlyI mechanism compiles to its law" begin
     # The eleven fixtures the guard admits (all but the inhibitor bridge and the essential
     # activator): the compiled mechanism fits the constants its concrete law reads, and
-    # its Float64 `rate_equation` equals that law at a consistent point.
+    # its Float64 compiled law equals that law at a consistent point.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         label in (:copy_group_bridge, :essential_activator) && continue
         @testset "$label" begin
@@ -1125,7 +1125,7 @@ end
                                                           Random.MersenneTwister(600 + i))
             c64, p64, keq64 = _testhelper_float64_inputs(fitted, params, concs,
                                                          EnzymeRates.metabolites(em))
-            @test isapprox(rate_equation(em, c64, p64, keq64),
+            @test isapprox(compile_rate_equation(em)(c64, p64, keq64),
                            Float64(_testhelper_law_value(am, params, concs)); rtol = 1e-12)
         end
     end

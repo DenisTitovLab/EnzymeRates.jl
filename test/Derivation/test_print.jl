@@ -26,6 +26,7 @@ function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
     params, Keq = _testhelper_random_independent_params(m; rng)
     concs = NamedTuple{metabolites(m)}(
         Tuple(x === at_zero ? 0.0 : 0.1 + 9.9 * rand(rng) for x in metabolites(m)))
+    rate = compile_rate_equation(m)
     for coefficients in (false, true)
         text = rate_equation_string(m; coefficients)
         lines = split(text, '\n')
@@ -40,8 +41,8 @@ function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
         Core.eval(mod, :(params = $params))
         Core.eval(mod, :(concs = $concs))
         Core.eval(mod, :(Keq = $Keq))
-        @test isapprox(Base.include_string(mod, text),
-                       rate_equation(m, concs, params, Keq); rtol = 1e-10)
+        @test isapprox(Base.include_string(mod, text), rate(concs, params, Keq);
+                       rtol = 1e-10)
     end
 end
 
@@ -542,7 +543,7 @@ end
 end
 
 @testset "a law with no normalizer prints finite where a concentration is zero" begin
-    # The printed law divides by no concentration, so both forms equal `rate_equation` at
+    # The printed law divides by no concentration, so both forms equal the compiled law at
     # a zero of each one. F1, F3 and the covalent ping-pong take no normalizer, and
     # neither do the active conformation of `tc`, F3 with every step :OnlyA beside a
     # steady-state dead-end inhibitor I, and the inactive one of `pp`; the rule pin keeps
@@ -798,8 +799,8 @@ end
     s = rate_equation_string(m)
     p, Keq = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(1))
     c = (S = 0.4, P = 0.9)
-    @test isapprox(_testhelper_eval_rate_string(s, p, c, Keq), rate_equation(m, c, p, Keq);
-                   rtol = 1e-12)
+    @test isapprox(_testhelper_eval_rate_string(s, p, c, Keq),
+                   compile_rate_equation(m)(c, p, Keq); rtol = 1e-12)
     # A name the params or concs line leaves out, and a line read before the lines that
     # bind its names, fail as they do in Julia.
     for t in (replace(s, "K_ES_to_E_S, " => ""; count = 1),

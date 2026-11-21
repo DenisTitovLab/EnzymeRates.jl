@@ -665,9 +665,9 @@ end
 """
     _testhelper_float64_inputs(fitted, params, concs, mets) -> (c64, p64, keq64)
 
-The Float64 arguments of a compiled `rate_equation` at a draw of `_testhelper_law_inputs`,
-in its order: the concentrations of the metabolites `mets`, the fitted constants `fitted`,
-and `Keq`.
+The Float64 arguments of a compiled rate law (`compile_rate_equation`) at a draw of
+`_testhelper_law_inputs`, in its order: the concentrations of the metabolites `mets`, the
+fitted constants `fitted`, and `Keq`.
 """
 function _testhelper_float64_inputs(fitted, params, concs, mets)
     c64 = NamedTuple{mets}(Tuple(Float64(concs[x]) for x in mets))
@@ -679,9 +679,10 @@ end
 Check that the rate law of `m` equals the exact steady state of its mass-action network
 (`_testhelper_steady_state_rate`) to `rtol` at `n_points` consistent points
 (`_testhelper_consistent_point`). The law reads the point's fitted constants and computes
-its dependents from them, so a wrong dependent shows as a mismatch. The compiled
-`rate_equation` is checked too, in Float64 to 1e-8, and with `bigfloat` also with 256-bit
-BigFloat inputs, to `rtol`. An allosteric mechanism is checked with one catalytic subunit.
+its dependents from them, so a wrong dependent shows as a mismatch. The compiled rate law
+(`compile_rate_equation`) is checked too, in Float64 to 1e-8, and with `bigfloat` also with
+256-bit BigFloat inputs, to `rtol`. An allosteric mechanism is checked with one catalytic
+subunit.
 """
 function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                               bigfloat = false, rtol = big(10)^-20)
@@ -692,17 +693,18 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
     mech = _testhelper_lift(em)
     fitted = _testhelper_dependent_param_exprs(typeof(em))[2]
     mets = EnzymeRates.metabolites(em)
+    rate = compile_rate_equation(em)
     for _ in 1:n_points
         point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
         oracle = _testhelper_steady_state_rate(mech, point, concs)
         @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
               rtol * abs(oracle)
         c64, p64, keq64 = _testhelper_float64_inputs(fitted, params, concs, mets)
-        @test isapprox(rate_equation(em, c64, p64, keq64), Float64(oracle); rtol = 1e-8)
+        @test isapprox(rate(c64, p64, keq64), Float64(oracle); rtol = 1e-8)
         bigfloat || continue
         pbig = NamedTuple{Tuple(fitted)}(getindex.(Ref(params), fitted))
         cbig = NamedTuple{mets}(Tuple(concs[x] for x in mets))
-        @test abs(rate_equation(em, cbig, pbig, point.Keq) - oracle) <= rtol * abs(oracle)
+        @test abs(rate(cbig, pbig, point.Keq) - oracle) <= rtol * abs(oracle)
     end
 end
 
@@ -864,8 +866,7 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     mech = _testhelper_lift(m)
     fitted = _testhelper_dependent_param_exprs(mech)[2]
     rate = if _testhelper_is_valid(mech)
-        em = EnzymeRates.compile_mechanism(mech)
-        (c, p, keq) -> rate_equation(em, c, p, keq)
+        compile_rate_equation(mech)
     else
         L = EnzymeRates.Derivation._law(mech)
         function _testhelper_unchecked_rate(c, p, keq)
@@ -2142,14 +2143,15 @@ function _testhelper_face_concentrations(mech; rng = Random.default_rng())
     end
 end
 
-"""Whether `rate_equation` of `mech`, compiled or concrete, is finite at random positive
-parameters (`_testhelper_random_independent_params`) at the concentrations of every face
-(`_testhelper_face_concentrations`)."""
+"""Whether the compiled rate law of `mech`, compiled or concrete, is finite at random
+positive parameters (`_testhelper_random_independent_params`) at the concentrations of
+every face (`_testhelper_face_concentrations`)."""
 function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
     m = mech isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? mech :
         EnzymeRates.compile_mechanism(_testhelper_lift(mech))
     params, Keq = _testhelper_random_independent_params(m; rng)
-    all(concs -> isfinite(rate_equation(m, concs, params, Keq)),
+    rate = compile_rate_equation(m)
+    all(concs -> isfinite(rate(concs, params, Keq)),
         _testhelper_face_concentrations(mech; rng))
 end
 
@@ -5162,9 +5164,11 @@ end
 
 const _testhelper_plot_Keq = 4.0
 
+const _testhelper_plot_compiled = compile_rate_equation(_testhelper_plot_m)
+
 # The rate equation per unit enzyme, the quantity the plot's curves show.
 _testhelper_plot_rate(concs) =
-    rate_equation(_testhelper_plot_m, concs, _testhelper_plot_params, _testhelper_plot_Keq)
+    _testhelper_plot_compiled(concs, _testhelper_plot_params, _testhelper_plot_Keq)
 
 # A table of rows (A, B, P, Q) per group whose Rate is `factor` times the rate equation.
 function _testhelper_plot_table(groups, rows; factor = 1.0, rates = nothing)

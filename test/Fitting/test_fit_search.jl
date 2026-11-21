@@ -40,7 +40,7 @@ _testhelper_scales_table(mets, s, r) =
 # move of its centre multiplies the rate by exactly the factor on the rate reference.
 function _testhelper_check_centres_match_law(mechanism, rng)
     m = _testhelper_lift(mechanism)
-    compiled = EnzymeRates.compile_mechanism(m)
+    rate = compile_rate_equation(m)
     mets = Tuple(metabolites(m))
     catalytic = EnzymeRates.Mechanisms.catalytic(m)
     s = Dict(x => exp(randn(rng)) for x in mets)
@@ -58,8 +58,8 @@ function _testhelper_check_centres_match_law(mechanism, rng)
                                                     for (i, k) in enumerate(fitted))))
     concs = NamedTuple{mets}(Tuple(exp(randn(rng)) for _ in mets))
     concs_scaled = NamedTuple{mets}(Tuple(concs[x] * f[x] for x in mets))
-    @test rate_equation(compiled, concs_scaled, scaled, Keq * keq_factor) ≈
-          g * rate_equation(compiled, concs, params, Keq) rtol = 1e-9
+    @test rate(concs_scaled, scaled, Keq * keq_factor) ≈ g * rate(concs, params, Keq) rtol =
+          1e-9
 end
 
 # A noiseless table of `mechanism` at the fitted constants `params` and `Keq`: one row, in
@@ -67,9 +67,9 @@ end
 function _testhelper_noiseless_table(mechanism, params, Keq, axes)
     mets = keys(axes)
     rows = vec(collect(Iterators.product(values(axes)...)))
+    rate = compile_rate_equation(mechanism)
     (; group = fill("G1", length(rows)),
-       Rate = [rate_equation(mechanism, NamedTuple{mets}(row), params, Keq)
-               for row in rows],
+       Rate = [rate(NamedTuple{mets}(row), params, Keq) for row in rows],
        NamedTuple{mets}(Tuple(getindex.(rows, i) for i in eachindex(mets)))...)
 end
 

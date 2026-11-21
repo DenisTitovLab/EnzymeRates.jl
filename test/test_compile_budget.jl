@@ -1,4 +1,4 @@
-# ABOUTME: Compile gates: init trace-compile, rate_equation first call, bi-bi→uni-uni reuse,
+# ABOUTME: Compile gates: init trace-compile, a rate law's first call, bi-bi→uni-uni reuse,
 # ABOUTME: dispatch identity, the fit census and a second process's bodies, keys and laws.
 
 using Test
@@ -111,8 +111,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     macro-expansion cost. bi-bi is non-trivial, so the gate is representative;
     #     uni-uni is too small to catch regressions.
     #   - cold: uni-uni init_mechanisms alone (the cold half of the compile-reuse
-    #     gate), then the first rate_equation call. init_mechanisms compiles none of
-    #     the @generated rate_equation body, so the first call costs what it costs in
+    #     gate), then the first call of a compiled rate law. init_mechanisms compiles
+    #     none of the @generated rate-law body, so the first call costs what it costs in
     #     a process that never ran init_mechanisms.
     #     Before both, the script counts the package image's `_rate_body` specializations.
     #   - fit: the identify path on bi-bi mechanisms as _process_batch and
@@ -176,7 +176,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         params = NamedTuple{Tuple(EnzymeRates.parameters(m))}(
             ntuple(_ -> 1.0, length(EnzymeRates.parameters(m))))
         concs = (S = 1.0, P = 0.5)
-        t = @elapsed EnzymeRates.rate_equation(m, concs, params, 2.0)
+        t = @elapsed compile_rate_equation(m)(concs, params, 2.0)
         println("ELAPSED:", t)
         """
     fit_script = """
@@ -213,12 +213,11 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             pass1 = _testhelper_all_instances() - n0
             rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
-            em = ER.compile_mechanism(m)
-            fp = FittingProblem(em, PROB.rate_data.data, PROB.rate_data.Keq;
-                                ER._fit_keywords(em, PROB)...)
+            fp = FittingProblem(m, PROB.rate_data.data, PROB.rate_data.Keq;
+                                ER._fit_keywords(m, PROB)...)
             fit_rate_equation(fp, OPT; FIT_KW...)
-            ER._cross_validation_loss(em, PROB.rate_data.data, "G1", PROB.rate_data.Keq;
-                             ER._fit_keywords(em, PROB)..., optimizer = OPT, FIT_KW...)
+            ER._cross_validation_loss(m, PROB.rate_data.data, "G1", PROB.rate_data.Keq;
+                             ER._fit_keywords(m, PROB)..., optimizer = OPT, FIT_KW...)
             fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
                    (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
             s2 = _testhelper_instances(methods(show))
@@ -316,18 +315,18 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         @test 0 <= n <= INIT_TRACE_BUDGET
     end
 
-    # Wall-clock: rate_equation body-build (first call pays @generated cost). The
+    # Wall-clock: the rate law's body-build (first call pays @generated cost). The
     # per-call runtime gate is separately enforced by test_rate_eq_derivation.jl's
     # _testhelper_test_rate_equation_performance (0 allocs, <120ns per call) for every
     # mechanism in MECHANISM_TEST_SPECS.
-    @testset "wall-clock: rate_equation body-build (first call)" begin
-        @info "rate_equation first-call wall-clock: $(t_first)s " *
+    @testset "wall-clock: the rate law's body-build (first call)" begin
+        @info "rate law first-call wall-clock: $(t_first)s " *
               "(budget: $RATE_EQUATION_WALLCLOCK_BUDGET_S s)"
         @test isfinite(t_first)
         @test t_first < RATE_EQUATION_WALLCLOCK_BUDGET_S
     end
 
-    # The package precompiles `_rate_body`, which `rate_equation`'s generator calls, for
+    # The package precompiles `_rate_body`, which the rate law's generator calls, for
     # both mechanism types, so a fresh process's image holds both (the cold subprocess
     # counts them) and the first call above stays under its budget (2.2-2.4 s on Julia 1.12
     # without both precompile calls, 0.16-0.44 s without one). `precompile` returns false
@@ -435,7 +434,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     end
 end
 
-@testset "a second process derives the same rate_equation bodies, keys and \
+@testset "a second process derives the same rate-law bodies, keys and \
           printed laws" begin
     # Spec section 2, criterion 3: a fresh process reads each mechanism back from its
     # text and derives the same generated body, compared by SHA-256, the same key and the

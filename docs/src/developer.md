@@ -42,19 +42,19 @@ flowchart TB
   top -->|"<b>★#nbsp;plot_rate_equation_on_data()</b>"| plot
   top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
   top -->|"<b>★#nbsp;fit_rate_equation()</b><br/><b>★#nbsp;FittingProblem</b><br/>test_rate_equation()"| fit
-  top -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
+  top -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
   top -->|"RateData"| data
   top -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
-  plot -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b>"| der
+  plot -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b>"| der
   plot -->|"RateData"| data
-  plot -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  plot -->|"<b>★#nbsp;metabolites()</b>"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
+  fit -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
-  fit -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  fit -->|"<b>★#nbsp;metabolites()</b>"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
@@ -158,8 +158,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | | | top level | |
 | `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, Fitting, top level | ✓ |
 | `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, Fitting, top level | ✓ |
-| `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, Fitting, | |
-| | | Plotting, top level | |
+| `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, Plotting, top level | |
 | `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
@@ -176,7 +175,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 
 | Name | What it does | Used by | Exported |
 |:-----|:-------------|:--------|:---------|
-| `rate_equation` | Evaluates the rate law per unit enzyme, allocation-free | Fitting, Plotting, top level | ✓ |
+| `compile_rate_equation` | The rate law as a function, allocation-free per call | Fitting, Plotting, top level | ✓ |
 | `rate_equation_string` | The rate law as text | top level | ✓ |
 | `parameters` | The names of the constants a fit estimates | Fitting, Plotting, top level | ✓ |
 | `dependent_parameter_values` | The dependent constants' values from the fitted ones and `Keq` | top level | ✓ |
@@ -190,7 +189,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 
 | Name | What it does | Used by | Exported |
 |:-----|:-------------|:--------|:---------|
-| `FittingProblem` | A compiled mechanism with its `RateData` | top level | ✓ |
+| `FittingProblem` | A mechanism, its compiled rate law and its `RateData` | top level | ✓ |
 | `fit_rate_equation` | Fits a problem with an optimizer | top level | ✓ |
 | `test_rate_equation` | The loss of given parameters on a rate table | top level | |
 
@@ -306,9 +305,9 @@ fit:
    mechanism too large to fit, `check_valid_rate_equation` rejects an undefined law,
    `rate_equation_string` prints the law, and `rate_equation_dedup_key` gives its key.
    Mechanisms with one key share one law, so one mechanism per key is fitted.
-4. **The fit.** `Mechanisms.compile_mechanism` lifts that mechanism to its singleton
-   type, and `FittingProblem` and `fit_rate_equation` (`Fitting`) fit it. The loss calls
-   the generated `Derivation.rate_equation` on every data row at every evaluation.
+4. **The fit.** `FittingProblem` (`Fitting`) compiles that mechanism's rate law once
+   (`Derivation.compile_rate_equation`), and `fit_rate_equation` fits it. The loss calls
+   the compiled law on every data row at every evaluation.
 5. **The beam.** The top level keeps the laws whose loss is close to the best at their
    parameter count, and `Enumeration.expand_mechanisms` proposes their mechanisms'
    children. Steps 3 to 5 repeat until no new law qualifies.
@@ -346,9 +345,9 @@ specializes the derivation per type, so the symbolic King–Altman work runs
 during precompilation rather than at every call.
 
 This is the most important architectural decision in the package, and it is
-deliberate. Moving the derivation to compile time leaves
-`rate_equation(m, conc, params, Keq)` as straight-line arithmetic, written in Horner
-form (`_horner`), that must be
+deliberate. Moving the derivation to compile time leaves the compiled law,
+`rate = compile_rate_equation(m)` called as `rate(conc, params, Keq)`, as straight-line
+arithmetic, written in Horner form (`_horner`), that must be
 **allocation-free and fast**: under 50 ns + 0.5 ns × denominator terms per call for every
 gated law, including the three largest enumerated bi-bi laws (396 denominator terms each)
 and three ter-bi laws (589, 799 and 858 terms).
@@ -356,10 +355,10 @@ and three ter-bi laws (589, 799 and 858 terms).
 measures each law's allocations and time per call, and the tests assert
 `allocs == 0` and the law's bound. `rate_equation_string` (`src/Derivation/print.jl`)
 prints the law rather than the code: each denominator term over the unit rule's normalizer,
-dimensionless whenever the law has one. `rate_equation`'s speed is the binding
+dimensionless whenever the law has one. The compiled law's speed is the binding
 constraint on the whole package: the fitter is a multi-start, global,
 gradient-free optimizer that
-evaluates `rate_equation` millions of times per fit, and a single rate equation
+evaluates the compiled law millions of times per fit, and a single rate equation
 can take minutes to fit, so any per-call allocation or microsecond-scale
 overhead would make fitting — and therefore `identify_rate_equation`, which fits
 thousands of candidates — impractical.
@@ -382,16 +381,19 @@ it (`show`, `src/Mechanisms/text.jl`), from the concrete mechanism, so the compi
 `DSL.parse_mechanism` reads that text back through the macros' walker and checks, never
 evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
 
-Only the `@generated` methods (`rate_equation`, `parameters`, `metabolites`) do work per
-singleton type: `rate_equation` runs the derivation, `parameters` runs its constraint solve,
-and `metabolites` reads names off the lifted mechanism. The lifts read the Sig at run time,
-and the derivation helpers that take a singleton or its type take it `@nospecialize`, so
-they compile once for all mechanisms. Each mechanism type then pays for its generated bodies
-and the derivation they run, and for the methods that specialize on it:
-`dependent_parameter_values`, Base's `text/plain` display, and `FittingProblem` and `loss!`
-below. `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
-`parameters(m)` and `metabolites` as constants and calls the generated
-`rate_equation` without dispatch. The optimizer never sees that type. `fit_rate_equation`
+`compile_rate_equation(m)` returns a singleton callable, `_CompiledRateEquation{M}`, whose
+one type parameter is the mechanism's singleton type, so equal mechanisms give the same
+callable. Only the `@generated` methods do work per singleton type: the callable's call
+runs the derivation, `parameters` runs its constraint solve, and `metabolites` reads names
+off the lifted mechanism; `parameters(rate)` and `metabolites(rate)` read the last two. The
+lifts read the Sig at run time, and the derivation helpers that take a singleton or its
+type take it `@nospecialize`, so they compile once for all mechanisms. Each mechanism type
+then pays for its generated bodies and the derivation they run, and for the methods that
+specialize on it: `dependent_parameter_values`, Base's `text/plain` display, and
+`FittingProblem` and `loss!` below. `FittingProblem` holds the mechanism and its compiled
+law, and `loss!` specializes on the law's type on purpose: it then reads `parameters(rate)`
+and `metabolites(rate)` as constants and calls the law without dispatch. The optimizer
+never sees that type. `fit_rate_equation`
 takes its `FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`,
 which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the
 solver one problem type: `solve` and the solver compile once per optimizer, not once per
@@ -985,15 +987,15 @@ CPU-seconds per fit. Workers connected within 15 s, and the master's CPU account
 itself, slower or contended cores, enumeration, cross-validation and message passing is also
 not measured; a fit alone takes 1–3 s on the one-core benchmark machine.
 
-`rate_equation`'s own time cannot show a slow `loss!`, and `@inferred loss!` passes on these
+The compiled law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on these
 slow paths, since the result is a `Float64` either way. So the speed gate in
 `test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
-allocation in relative or absolute mode, and time per row at most 1.25 times `rate_equation`'s
+allocation in relative or absolute mode, and time per row at most 1.25 times the compiled law's
 time per call plus 8 `log` calls, timed in one process so machine speed cancels out. The bound
 holds if any of 20 batches meets it, each on a new `FittingProblem`, because time on one problem
 can sit up to about 40% above a new problem's. The factor of 1.25 covers a slowdown of unknown
 cause that once hit three laws in one process, which the batches cannot cure. Eight `log` calls
-leave room for the coverage counters on `loss!`'s own lines in CI jobs. `rate_equation` itself
+leave room for the coverage counters on `loss!`'s own lines in CI jobs. The compiled law itself
 must stay under 50 ns + 0.5 ns per denominator term. That bound tolerates the spread between
 machines: small laws take 1-8 ns on an aarch64 development machine and 5-38 ns on CI, varying
 by runner. So a moderate slowdown of a small law passes it.
@@ -1025,4 +1027,4 @@ row of `FittingProblem`, `RateData` or `Mechanism` would pass. Five limits apply
   does report the same call with a typed result (`Float64[...]`), in an explicit loop, or in
   a callee the comprehension calls.
 - JET misses a single dynamic call in the body of a `@generated` function, so the allocation
-  and time bounds above stay the hard guard on `rate_equation`.
+  and time bounds above stay the hard guard on the compiled law.

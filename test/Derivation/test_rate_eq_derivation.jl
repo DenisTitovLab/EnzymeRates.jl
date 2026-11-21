@@ -195,19 +195,19 @@ end
 """Check if mechanism has any rapid-equilibrium steps."""
 _testhelper_has_re_steps(m) = any(s -> s.rapid_equilibrium, _testhelper_graph(m).steps)
 
-"""The call the gate times: `rate_equation` behind a function boundary the compiler may not
-inline, so it cannot hoist the call out of the timing loop."""
-@noinline _testhelper_rate_barrier(m, concs, params, Keq) =
-    rate_equation(m, concs, params, Keq)
+"""The call the gate times: the compiled rate law `rate` behind a function boundary the
+compiler may not inline, so it cannot hoist the call out of the timing loop."""
+@noinline _testhelper_rate_barrier(rate, concs, params, Keq) = rate(concs, params, Keq)
 
 """
-Test that `rate_equation` is non-allocating and fast for the given mechanism.
+Test that the compiled rate law of the given mechanism is non-allocating and fast.
 Must be a standalone function to avoid @testset closure boxing. Each call goes through
 `_testhelper_rate_barrier`, so every one of the 10,000 calls per batch runs.
 """
 function _testhelper_test_rate_equation_performance(m, params, Keq, concs)
-    _testhelper_rate_barrier(m, concs, params, Keq) # warmup/compile
-    allocs = @allocated _testhelper_rate_barrier(m, concs, params, Keq)
+    rate = compile_rate_equation(m)
+    _testhelper_rate_barrier(rate, concs, params, Keq) # warmup/compile
+    allocs = @allocated _testhelper_rate_barrier(rate, concs, params, Keq)
     # Minimum over several batches defeats the GC/scheduling inflation a
     # single mean suffers; accumulating into `acc` (and observing it via the
     # finite-result check) prevents the optimizer from eliding the calls.
@@ -216,11 +216,11 @@ function _testhelper_test_rate_equation_performance(m, params, Keq, concs)
     for _ in 1:5
         acc = 0.0
         t = @elapsed for _ in 1:10_000
-            acc += _testhelper_rate_barrier(m, concs, params, Keq)
+            acc += _testhelper_rate_barrier(rate, concs, params, Keq)
         end
         best = min(best, t / 10_000)
     end
-    isfinite(acc) || error("rate_equation produced a non-finite result")
+    isfinite(acc) || error("the rate law produced a non-finite result")
     return allocs, best
 end
 
@@ -491,6 +491,7 @@ function _testhelper_test_reference_qssa(
     met_names = spec.metabolite_names
     @testset "Reference QSSA" begin
         rng = Random.MersenneTwister(seed)
+        rate = compile_rate_equation(m)
         @test all(1:n_trials) do _
             params, Keq, concs, all_params =
                 _testhelper_random_independent_params_concs(
@@ -498,7 +499,7 @@ function _testhelper_test_reference_qssa(
             # _testhelper_reference_qssa reads stored-step k$(i)f/k$(i)r keys
             pos_params = _testhelper_stored_params(m, all_params)
             isapprox(
-                rate_equation(m, concs, params, Keq),
+                rate(concs, params, Keq),
                 _testhelper_reference_qssa(m, pos_params, concs);
                 rtol=spec.reference_rtol)
         end
@@ -515,6 +516,7 @@ function _testhelper_test_analytical_rate(
     met_names = spec.metabolite_names
     @testset "Analytical Rate" begin
         rng = Random.MersenneTwister(seed)
+        rate = compile_rate_equation(m)
         @test all(1:n_trials) do _
             params, Keq, concs, all_params =
                 _testhelper_random_independent_params_concs(
@@ -523,7 +525,7 @@ function _testhelper_test_analytical_rate(
             p = merge(_testhelper_written_params(m, all_params; raw=spec.raw),
                       (Keq=Keq, Et=1.0))
             isapprox(
-                rate_equation(m, concs, params, Keq),
+                rate(concs, params, Keq),
                 spec.analytical_rate_fn(p, concs);
                 rtol=1e-10)
         end
@@ -551,7 +553,7 @@ function _testhelper_test_haldane_equilibrium(spec::_testhelper_MechanismTestSpe
             haskey(eq_vals, s) || (eq_vals[s] = 2.5)
         end
         eq_concs = NamedTuple{Tuple(met_names)}(Tuple(eq_vals[s] for s in met_names))
-        v_eq = rate_equation(m, eq_concs, params, Keq)
+        v_eq = compile_rate_equation(m)(eq_concs, params, Keq)
         @test abs(v_eq) < 1e-10
     end
 end
@@ -572,10 +574,10 @@ end
 # bound is rerun rather than the bound loosened.
 _testhelper_rate_equation_time_limit(n_terms) = 50e-9 + 0.5e-9 * n_terms
 
-@noinline function _testhelper_rate_rows(m, rows, params, Keq)
+@noinline function _testhelper_rate_rows(rate, rows, params, Keq)
     acc = 0.0
     for concs in rows
-        acc += rate_equation(m, concs, params, Keq)
+        acc += rate(concs, params, Keq)
     end
     acc
 end
@@ -589,14 +591,15 @@ end
 end
 
 """Seconds per data row of `Fitting.loss!` on a 64-row table of `m`, and the most it may
-take: 1.25 times the cost of `rate_equation` on each row, at the parameters `loss!` uses,
-plus eight `log` calls. The bound holds if any of 20 batches meets it, each batch timing a fresh
-`FittingProblem`: time on one problem can sit up to about 40% above a fresh problem's, and the
-slow reading persists on that problem. A real slowdown fails every batch. The factor of 1.25
-covers a slowdown of unknown cause that hit three laws in one process, which the batches
-cannot cure. The eight `log` calls leave room on coverage-instrumented CI jobs: coverage
-counters on `loss!`'s own lines add a cost per row that neither `rate_equation` nor `log`
-measures. Returns the batch with the smallest `per_row / allowed`."""
+take: 1.25 times the cost of the compiled rate law on each row, at the parameters `loss!`
+uses, plus eight `log` calls. The bound holds if any of 20 batches meets it, each batch
+timing a fresh `FittingProblem`: time on one problem can sit up to about 40% above a fresh
+problem's, and the slow reading persists on that problem. A real slowdown fails every
+batch. The factor of 1.25 covers a slowdown of unknown cause that hit three laws in one
+process, which the batches cannot cure. The eight `log` calls leave room on
+coverage-instrumented CI jobs: coverage counters on `loss!`'s own lines add a cost per row
+that neither the rate law nor `log` measures. Returns the batch with the smallest
+`per_row / allowed`."""
 function _testhelper_loss_time_per_row(m)
     table = _testhelper_loss_table(metabolites(m))
     rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
@@ -606,10 +609,11 @@ function _testhelper_loss_time_per_row(m)
     # `_testhelper_loss_problem` fits at Keq = 2.
     params = NamedTuple{names}(Tuple(exp.(x)))
     nrows = length(rows)
+    rate = compile_rate_equation(m)
     first_problem = _testhelper_loss_problem(m)
     problems = [first_problem]
     EnzymeRates.Fitting.loss!(x, first_problem)
-    _testhelper_rate_rows(m, rows, params, 2.0)
+    _testhelper_rate_rows(rate, rows, params, 2.0)
     _testhelper_log_rows(table.Rate)
     best(f) = minimum(@elapsed(f()) for _ in 1:10) / nrows
     out = (; per_row = Inf, allowed = 1.0)
@@ -618,7 +622,7 @@ function _testhelper_loss_time_per_row(m)
         fresh = _testhelper_loss_problem(m)
         push!(problems, fresh)
         per_row = best(() -> EnzymeRates.Fitting.loss!(x, fresh))
-        t_rate = best(() -> _testhelper_rate_rows(m, rows, params, 2.0))
+        t_rate = best(() -> _testhelper_rate_rows(rate, rows, params, 2.0))
         t_log = best(() -> _testhelper_log_rows(table.Rate))
         allowed = 1.25 * t_rate + 8 * t_log
         per_row / allowed < out.per_row / out.allowed && (out = (; per_row, allowed))
@@ -641,12 +645,13 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
         @test _testhelper_loss_allocations(
             _testhelper_loss_problem(m; absolute = true)) == 0
         (; per_row, allowed) = _testhelper_loss_time_per_row(m)
-        @info "$(spec.name): rate_equation $(round(1e9t; digits = 1)) ns, $n terms, " *
+        @info "$(spec.name): rate law $(round(1e9t; digits = 1)) ns, $n terms, " *
               "loss! $(round(1e9per_row; digits = 1)) ns per row, " *
               "allowed $(round(1e9allowed; digits = 1))"
         @test per_row <= allowed
-        @inferred metabolites(m)
-        @inferred parameters(m)
+        rate = compile_rate_equation(m)
+        @inferred metabolites(rate)
+        @inferred parameters(rate)
     end
 end
 
@@ -658,6 +663,7 @@ function _testhelper_test_ode_steadystate(
     @testset "ODE Steady-State" begin
         rng = Random.MersenneTwister(seed)
         has_re = _testhelper_has_re_steps(m)
+        rate = compile_rate_equation(m)
         @test all(1:n_trials) do _
             params, Keq, concs, all_params =
                 _testhelper_random_independent_params_concs(
@@ -668,7 +674,7 @@ function _testhelper_test_ode_steadystate(
                 _testhelper_raw_to_ode_params(m, all_params) :
                 pos_params
             v_ode = _testhelper_ode_steady_state_flux(m, ode_params, concs)
-            v_ka = rate_equation(m, concs, params, Keq)
+            v_ka = rate(concs, params, Keq)
             # Use looser tolerance for RE mechanisms (large rate approximation)
             rtol = has_re ? 1e-3 : spec.ode_rtol
             isapprox(v_ode, v_ka; rtol=rtol)
@@ -693,12 +699,13 @@ function _testhelper_test_rate_equation_string(spec::_testhelper_MechanismTestSp
 
         # Numerical equivalence test
         rng = Random.MersenneTwister(9000 + hash(spec.name) % 1000)
+        rate = compile_rate_equation(m)
         @test all(1:10) do _
             params, Keq, concs, _ =
                 _testhelper_random_independent_params_concs(
                     m, met_names; rng=rng)
             isapprox(
-                rate_equation(m, concs, params, Keq),
+                rate(concs, params, Keq),
                 _testhelper_eval_rate_string(s, params, concs, Keq);
                 rtol=1e-10)
         end
@@ -748,7 +755,8 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
         params, Keq = _testhelper_random_independent_params(m; rng)
         met_names = metabolites(m)
         concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
-        v_orig = rate_equation(m, concs, params, Keq)
+        rate = compile_rate_equation(m)
+        v_orig = rate(concs, params, Keq)
         @test isfinite(v_orig) && v_orig != 0
 
         # Scaling every steady-state rate constant by α scales every rate by α.
@@ -758,7 +766,7 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
             k in ss_names ? v * α : v
             for (k, v) in zip(keys(params), values(params))
         ))
-        @test rate_equation(m, concs, scaled_params, Keq) ≈ α * v_orig rtol=1e-9
+        @test rate(concs, scaled_params, Keq) ≈ α * v_orig rtol=1e-9
 
         # An anchor at those concentrations sets the turnover there and leaves every
         # constant but the steady-state rate constants alone.
@@ -769,17 +777,17 @@ function _testhelper_test_rescaling(spec::_testhelper_MechanismTestSpec; seed=10
                 @test anchored[k] == params[k]
             end
         end
-        @test rate_equation(m, concs, anchored, Keq) ≈ target rtol=1e-9
+        @test rate(concs, anchored, Keq) ≈ target rtol=1e-9
 
         # Every rate changes by the same factor.
         other = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
-        @test rate_equation(m, other, anchored, Keq) /
-              rate_equation(m, other, params, Keq) ≈ target / v_orig rtol=1e-8
+        @test rate(other, anchored, Keq) / rate(other, params, Keq) ≈ target / v_orig rtol =
+              1e-8
     end
 end
 
 """
-Assert `rate_equation` stays finite when any single metabolite concentration
+Assert the compiled rate law stays finite when any single metabolite concentration
 is zero (real kinetic data routinely has zeros). Zeroing a substrate or product
 must still leave a nonzero net rate — the opposite-direction metabolites keep
 driving flux — so a `0.0` there normally signals a `1/conc` term that blew the
@@ -797,10 +805,11 @@ function _testhelper_test_zero_metabolite_finite(spec::_testhelper_MechanismTest
         sub_prod = Set{Symbol}(_testhelper_substrates(m))
         union!(sub_prod, _testhelper_products(m))
         params, Keq = _testhelper_random_independent_params(m; rng)
+        rate = compile_rate_equation(m)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
-            v = rate_equation(m, concs, params, Keq)
+            v = rate(concs, params, Keq)
             @test isfinite(v)
             zeroed in sub_prod && @test v != 0.0
         end
@@ -867,14 +876,43 @@ end
     @test :Keq ∉ names && :E_total ∉ names
     params = NamedTuple{names}(Tuple(rand(MersenneTwister(1), length(names)) .+ 0.5))
     concs = (S = 0.7, P = 0.3)
-    v = rate_equation(m, concs, params, 2.0)
-    # The law gives the rate per unit enzyme, and extra names in params are ignored.
-    @test rate_equation(m, concs, merge(params, (Keq = 99.0, E_total = 99.0)), 2.0) == v
-    @test rate_equation(m, (S = 0.3 / 2.0, P = 0.3), params, 2.0) ≈ 0 atol = 1e-12
+    rate = compile_rate_equation(m)
+    v = rate(concs, params, 2.0)
+    # The law is the textbook rapid-equilibrium uni-uni law per unit enzyme, its reverse
+    # rate constant set by the Haldane relation
+    # Keq = k_ES_to_EP * K_EP_to_E_P / (k_EP_to_ES * K_ES_to_E_S).
+    (; K_ES_to_E_S, K_EP_to_E_P, k_ES_to_EP) = params
+    k_EP_to_ES = k_ES_to_EP * K_EP_to_E_P / (K_ES_to_E_S * 2.0)
+    @test v ≈ (k_ES_to_EP * concs.S / K_ES_to_E_S - k_EP_to_ES * concs.P / K_EP_to_E_P) /
+              (1 + concs.S / K_ES_to_E_S + concs.P / K_EP_to_E_P) rtol = 1e-12
+    # Extra names in params are ignored.
+    @test rate(concs, merge(params, (Keq = 99.0, E_total = 99.0)), 2.0) == v
+    @test rate((S = 0.3 / 2.0, P = 0.3), params, 2.0) ≈ 0 atol = 1e-12
     dep = dependent_parameter_values(m, params, 2.0)
     @test dep isa NamedTuple && isdisjoint(keys(dep), names)
+    @test dep.k_EP_to_ES ≈ k_EP_to_ES rtol = 1e-12
     @test !occursin("E_total", rate_equation_string(m))
     @test occursin("Keq", rate_equation_string(m))
+end
+
+@testset "compile_rate_equation" begin
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E(P) ⇌ E + P
+        end
+    end
+    names = parameters(m)
+    params = NamedTuple{names}(Tuple(rand(MersenneTwister(1), length(names)) .+ 0.5))
+    concs = (S = 0.7, P = 0.3)
+    rate = compile_rate_equation(m)
+    @test parameters(rate) == parameters(m)
+    @test metabolites(rate) == Tuple(metabolites(m))
+    @test (@allocated rate(concs, params, 2.0)) == 0
+    @test compile_rate_equation(m) === rate
 end
 
 @testset "parameters agree across representations" begin
@@ -1271,7 +1309,7 @@ end
         # products = 0 (initial-rate conditions).
         concs0 = NamedTuple{mets}(
             ntuple(i -> mets[i] in prods ? 0.0 : 1.5, length(mets)))
-        @test isfinite(EnzymeRates.rate_equation(em, concs0, params, 20000.0))
+        @test isfinite(compile_rate_equation(em)(concs0, params, 20000.0))
         # DEFINED ⊇ REFERENCED on the rendered transcript.
         @test isempty(
             _testhelper_undefined_rhs_symbols(EnzymeRates.rate_equation_string(em)))
@@ -1373,6 +1411,7 @@ end
         p_each = Keq^(1 / length(prods))
         rng = Random.MersenneTwister(1)
         maxv = 0.0
+        rate = compile_rate_equation(m)
         for _ in 1:100
             pv = Dict(p => exp(2 * randn(rng)) for p in pn)
             params = NamedTuple{Tuple(pn)}(Tuple(pv[p] for p in pn))
@@ -1381,7 +1420,7 @@ end
             for p in prods; cv[p] = p_each; end
             for s in mets; haskey(cv, s) || (cv[s] = 2.5); end
             concs = NamedTuple{Tuple(mets)}(Tuple(cv[s] for s in mets))
-            maxv = max(maxv, abs(rate_equation(m, concs, params, Keq)))
+            maxv = max(maxv, abs(rate(concs, params, Keq)))
         end
         @test maxv < 1e-8
     end
@@ -1389,23 +1428,24 @@ end
 
 # ── Standalone tests ───────────────────────────────────────────────────────────
 
-"""The body of the generated `rate_equation` of `m`, as the generator builds it."""
+"""The body of the generated call of `m`'s compiled rate law, as the generator builds
+it."""
 _testhelper_rate_body(m) =
     ER.Derivation._rate_body(ER.Derivation._derivation_input(typeof(m)))
 
-"""Each local the generated `rate_equation` body of `m` binds, in order, with its
-right-hand side."""
+"""Each local the generated rate-law body of `m` binds, in order, with its right-hand
+side."""
 _testhelper_body_locals(m) =
     Pair{Symbol, Any}[ex.args[1] => ex.args[2] for ex in _testhelper_rate_body(m).args
                       if ex isa Expr && ex.head === :(=) && ex.args[1] isa Symbol]
 
-"""The expression the generated `rate_equation` body of `m` returns."""
+"""The expression the generated rate-law body of `m` returns."""
 _testhelper_generated_rate_return(m) =
     only(ex.args[1] for ex in _testhelper_rate_body(m).args
          if ex isa Expr && ex.head === :return)
 
-@testset "rate_equation polynomial body uses 2-arg +/* calls" begin
-    # The fitter calls rate_equation millions of times per CV fold. The
+@testset "the rate law's polynomial body uses 2-arg +/* calls" begin
+    # The fitter calls the rate law millions of times per CV fold. The
     # polynomial body of the generated code MUST
     # have exactly 2 operands per +/* call so LLVM inlines the binary
     # Float64 path; n-ary varargs above ~30 terms boxes the argument
@@ -1436,7 +1476,7 @@ _testhelper_generated_rate_return(m) =
     @test isempty(bad)
 end
 
-@testset "rate_equation time per call grows at most in proportion to the law's size" begin
+@testset "the rate law's time per call grows at most in proportion to its size" begin
     @test _testhelper_denominator_terms.(_testhelper_largest_enumerated_mechanisms) ==
           [396, 396, 396]
     @test _testhelper_denominator_terms.(_testhelper_large_ter_bi_mechanisms) ==
@@ -1453,7 +1493,7 @@ end
         @test _testhelper_loss_allocations(
             _testhelper_loss_problem(m; absolute = true)) == 0
         (; per_row, allowed) = _testhelper_loss_time_per_row(m)
-        @info "large law $i: rate_equation $(round(1e9t; digits = 1)) ns, $n terms, " *
+        @info "large law $i: rate law $(round(1e9t; digits = 1)) ns, $n terms, " *
               "loss! $(round(1e9per_row; digits = 1)) ns per row, " *
               "allowed $(round(1e9allowed; digits = 1))"
         @test per_row <= allowed
@@ -1488,7 +1528,7 @@ function _testhelper_unfactored_sums(e, mets)
     any(shared, mets) ? push!(found, e) : found
 end
 
-@testset "the generated rate_equation body is in Horner form" begin
+@testset "the generated rate-law body is in Horner form" begin
     # Horner form multiplies by each factor once per branch instead of once per term,
     # which keeps the 396-term gate laws at tens of ns per call. Greedy Horner takes a
     # factor out of every summand it divides, so no local divides two summands of one sum,
@@ -1505,7 +1545,7 @@ end
     end
 end
 
-@testset "rate_equation reads concs and params by name in any order" begin
+@testset "the rate law reads concs and params by name in any order" begin
     # The body reads each input by name (`getfield`), so reordered NamedTuples, a data row
     # with Rate and group fields, and `params` merged with
     # `dependent_parameter_values(m, params, Keq)` give the same value without allocating.
@@ -1513,12 +1553,13 @@ end
     m = only(s for s in MECHANISM_TEST_SPECS if s.name == "Random-order Bi-Bi").mechanism
     params, Keq, concs, all_params = _testhelper_random_independent_params_concs(
         m, collect(metabolites(m)); rng = Random.MersenneTwister(91))
-    v = rate_equation(m, concs, params, Keq)
+    rate = compile_rate_equation(m)
+    v = rate(concs, params, Keq)
     flipped(nt) = NamedTuple{reverse(keys(nt))}(reverse(values(nt)))
     row = merge((Rate = 1.0, group = 2), flipped(concs))
     for (c, p) in ((flipped(concs), params), (concs, flipped(params)),
                    (row, all_params), (row, flipped(all_params)))
-        @test rate_equation(m, c, p, Keq) == v
+        @test rate(c, p, Keq) == v
         allocs, _ = _testhelper_test_rate_equation_performance(m, p, Keq, c)
         @test allocs == 0
     end
@@ -1645,10 +1686,11 @@ end
             rng = Random.MersenneTwister(778 + hash(spec.name) % 1000)
             params, Keq = _testhelper_random_independent_params(m; rng)
             mets = collect(metabolites(m))
+            rate = compile_rate_equation(m)
             for zeroed in mets
                 concs = NamedTuple{Tuple(mets)}(
                     Tuple(n == zeroed ? 0.0 : 0.5 + rand(rng) for n in mets))
-                v = rate_equation(m, concs, params, Keq)
+                v = rate(concs, params, Keq)
                 env = Dict{Symbol, BigFloat}(
                     k => BigFloat(x) for (k, x) in pairs(merge(params, concs, (; Keq))))
                 limit = _testhelper_evaluate_law(L, env)
@@ -1678,7 +1720,7 @@ end
                                                      for _ in mets))
                 env = Dict{Symbol, BigFloat}(pairs(merge(pbig, cbig, (Keq = keqbig,))))
                 law = _testhelper_evaluate_law(L, env)
-                @test abs(rate_equation(m, cbig, pbig, keqbig) - law) <=
+                @test abs(compile_rate_equation(m)(cbig, pbig, keqbig) - law) <=
                       big(10)^-20 * abs(law)
             end
         end
@@ -1776,7 +1818,7 @@ end
     params, Keq = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(6))
     concs = (A = 0.7, B = 1.3, P = 0.4, Q = 0.9)
     @test isapprox(_testhelper_eval_rate_string(s, params, concs, Keq),
-                   rate_equation(m, concs, params, Keq); rtol = 1e-12)
+                   compile_rate_equation(m)(concs, params, Keq); rtol = 1e-12)
     _testhelper_check_law_against_oracle(m)
 end
 
@@ -1804,7 +1846,7 @@ end
     Keq = Float64(point.Keq)
     concs = (S = 0.7, P = 1.3)
     @test isapprox(_testhelper_eval_rate_string(s, params, concs, Keq),
-                   rate_equation(half, concs, params, Keq); rtol = 1e-12)
+                   compile_rate_equation(half)(concs, params, Keq); rtol = 1e-12)
 end
 
 """The deepest parenthesis level of the printed text `t` that holds a `+` or a `-`; -1
@@ -1854,9 +1896,10 @@ end
         params, Keq = _testhelper_random_independent_params(m; rng)
         met_names = metabolites(m)
         concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
-        v = rate_equation(m, concs, params, Keq)
+        rate = compile_rate_equation(m)
+        v = rate(concs, params, Keq)
         scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 3.0)
-        @test rate_equation(m, concs, scaled, Keq) ≈ 3.0 * v rtol = 1e-9
+        @test rate(concs, scaled, Keq) ≈ 3.0 * v rtol = 1e-9
         scaled_lifted = EnzymeRates.Fitting._scale_rate_constants(
             _testhelper_lift(m), params, 3.0)
         @test scaled_lifted == scaled
@@ -2046,7 +2089,7 @@ end
     pvals = NamedTuple{params_tup}(ones(length(params_tup)))
 
     t_compile = @elapsed begin
-        v = rate_equation(m, concs, pvals, 1.0)
+        v = compile_rate_equation(m)(concs, pvals, 1.0)
         s = rate_equation_string(m)
     end
     @test v isa Float64
@@ -2197,9 +2240,8 @@ end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
 end
 
-# The generated rate_equation names its type parameter M_type, which holds `_` as no
-# metabolite name does, and its first argument m; metabolites named M and m read as
-# concentrations.
+# The generated call of a compiled rate law names its type parameter M_type, which holds
+# `_` as no metabolite name does; metabolites named M and m read as concentrations.
 @testset "a metabolite named M or m reads as a concentration" begin
     upper = @enzyme_mechanism begin
         substrates: M
@@ -2401,7 +2443,8 @@ end
     params = (K_Eb_to_E_b = 1.0, K_A_to_E = 2.0, k_A_Eb_to_AEb = 3.0, k_AEb_to_A_Eb = 4.0,
               k_I_Eb_to_AEb = 0.5, L = 10.0)
     @test_throws clash_a parameters(conformation_a)
-    @test_throws clash_a rate_equation(conformation_a, (b = 1.0, Eb = 0.1), params, 4.0)
+    @test_throws clash_a compile_rate_equation(conformation_a)((b = 1.0, Eb = 0.1), params,
+                                                               4.0)
     @test_throws clash_a rate_equation_string(conformation_a)
     @test_throws clash_a dependent_parameter_values(conformation_a, params, 4.0)
     @test_throws clash_a EnzymeRates.Derivation.fitted_parameter_count(am_a)
@@ -2520,10 +2563,9 @@ end
     end
     concs = (S=1.0, P=0.001)
     base_params = (k_A_ES_to_EP=10.0, K_EP_to_E_P=0.5, L=10.0)
-    rate_strong = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_ES_to_E_S=0.01,)),
-                                1000.0)
-    rate_weak   = rate_equation(onlyR_sub, concs, merge(base_params, (K_A_ES_to_E_S=1e6,)),
-                                1000.0)
+    onlyR_rate = compile_rate_equation(onlyR_sub)
+    rate_strong = onlyR_rate(concs, merge(base_params, (K_A_ES_to_E_S=0.01,)), 1000.0)
+    rate_weak   = onlyR_rate(concs, merge(base_params, (K_A_ES_to_E_S=1e6,)), 1000.0)
     @test rate_strong > 1.0
     @test rate_weak < 1e-3
     @test rate_weak / rate_strong < 1e-5
@@ -2542,8 +2584,9 @@ end
         end
     end
     vparams = (K_ES_to_E_S=0.1, k_A_ES_to_EP=10.0, K_EP_to_E_P=0.5)
-    rate_R = rate_equation(vtype, concs, merge(vparams, (L=0.0,)), 1000.0)
-    rate_T = rate_equation(vtype, concs, merge(vparams, (L=1e10,)), 1000.0)
+    vtype_rate = compile_rate_equation(vtype)
+    rate_R = vtype_rate(concs, merge(vparams, (L=0.0,)), 1000.0)
+    rate_T = vtype_rate(concs, merge(vparams, (L=1e10,)), 1000.0)
     @test rate_R > 1.0
     @test rate_T < 1e-6
     # T-state numerator branch is elided when the T-state cycle is dead (:OnlyA catalysis);
@@ -2570,7 +2613,7 @@ end
     p_mix = (K_A_ES_to_E_S=0.1, k_A_ES_to_EP=10.0, K_A_EP_to_E_P=0.5,
              K_I_ES_to_E_S=10.0, K_I_EP_to_E_P=10.0,
              K_I_Ireg=1.0, L=1.0)
-    rate_mix = rate_equation(m_mix, (S=10.0, P=0.0, I=0.0), p_mix, 1000.0)
+    rate_mix = compile_rate_equation(m_mix)((S=10.0, P=0.0, I=0.0), p_mix, 1000.0)
     # With Kd convention (correct): rate ≈ 9.90 (R-state catalysis dominates),
     # per active site (catN = 2).
     # With Ka convention (bug): rate ≈ 4.95 — half the correct value.
@@ -2617,8 +2660,8 @@ end
     rng_ro = Random.MersenneTwister(123)
     p_ro = NamedTuple{fp_ro}(ntuple(_ -> 0.5 + rand(rng_ro), length(fp_ro)))
     @test isapprox(
-        rate_equation(m_ro, (A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro, Keq_ro), 0.0;
-        atol=1e-9)
+        compile_rate_equation(m_ro)((A=A_eq, B=B_eq, P=P_eq, Q=Q_eq, I=0.5), p_ro, Keq_ro),
+        0.0; atol=1e-9)
 end
 
 
@@ -2762,7 +2805,7 @@ end
     # so an I-state dep name is produced. It must use the structural
     # mid-name I_ token, not string(active) * "_T"; a rate polynomial with
     # structural I-names beside _T-suffixed independent names would make
-    # rate_equation error with a KeyError.
+    # the compiled rate law error with a KeyError.
     m = @allosteric_mechanism begin
         substrates: PEP, ADP
         products:   Pyruvate, ATP
@@ -2786,7 +2829,7 @@ end
     # I-state param names use mid-name I_ token, not _T suffix.
     @test any(s -> startswith(s, "K_I_"), ps_str)
     @test !any(s -> endswith(s, "_T"), ps_str)
-    # rate_equation must not error (intermediate state KeyErrors here).
+    # The compiled rate law must not error (intermediate state KeyErrors here).
     rng = Random.MersenneTwister(9999)
     met_names = [:PEP, :ADP, :Pyruvate, :ATP, :F16BP]
     concs_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
@@ -2794,7 +2837,7 @@ end
     indep = parameters(m)
     param_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in indep)
     params = NamedTuple{indep}(param_vals)
-    v = rate_equation(m, concs, params, 1.0)
+    v = compile_rate_equation(m)(concs, params, 1.0)
     @test isfinite(v)
 end
 
@@ -2831,11 +2874,11 @@ end
         (:K_A_EA_to_E_A, :K_A_EB_to_E_B, :K_A_EP_to_E_P, :K_I_EA_to_E_A,
          :K_I_EB_to_E_B, :K_I_EP_to_E_P, :k_A_EAB_to_EP, :k_I_EAB_to_EP, :L)
     rng = Random.MersenneTwister(4)
+    tie_rate, grouped_rate = compile_rate_equation(tie), compile_rate_equation(grouped)
     for _ in 1:5
         params, Keq = _testhelper_random_independent_params(tie; rng)
         concs = (A = 0.5 + rand(rng), B = 0.5 + rand(rng), P = 0.5 + rand(rng))
-        @test rate_equation(tie, concs, params, Keq) ≈
-              rate_equation(grouped, concs, params, Keq) rtol = 1e-12
+        @test tie_rate(concs, params, Keq) ≈ grouped_rate(concs, params, Keq) rtol = 1e-12
     end
 end
 
@@ -2862,5 +2905,5 @@ end
     pn = parameters(m)
     params = NamedTuple{pn}(ntuple(_ -> 1.0, length(pn)))
     concs = (A = 1.0, B = 1.0, P = 1.0, Q = 1.0)
-    @test isfinite(rate_equation(m, concs, params, 1.0))
+    @test isfinite(compile_rate_equation(m)(concs, params, 1.0))
 end

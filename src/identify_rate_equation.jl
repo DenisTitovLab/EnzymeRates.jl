@@ -66,8 +66,7 @@ with a reference, `prob.rate_data.reference` with each anchor's concentrations l
 the metabolites `mechanism` binds (it does not respond to the others). The reference keeps
 the problem's element type, so every fit and fold passes keywords of one type.
 """
-function _fit_keywords(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-                       prob::IdentifyRateEquationProblem)
+function _fit_keywords(@nospecialize(mechanism), prob::IdentifyRateEquationProblem)
     (; absolute, reference) = prob.rate_data
     (absolute || isempty(reference)) && return (; absolute)
     mets = Mechanisms.metabolites(mechanism)
@@ -690,9 +689,8 @@ function _process_batch(
     function fit!(reps::Vector{_Candidate})
         rep_fits = _pmap_to_vector(Union{_Fit, String}, reps) do r
             try
-                em = Mechanisms.compile_mechanism(r.mech)
-                fp = FittingProblem(em, prob.rate_data.data, prob.rate_data.Keq;
-                                    _fit_keywords(em, prob)...)
+                fp = FittingProblem(r.mech, prob.rate_data.data, prob.rate_data.Keq;
+                                    _fit_keywords(r.mech, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
                 order = _fit_order(r)
                 _Fit(Float64[fit.params[x] for x in order], fit.loss, fit.retcode,
@@ -1040,8 +1038,8 @@ and the `FittingProblem` `keywords`. The fold copies its rows rather than viewin
 its problem has the full fit's type and `loss!` does not compile a second time for it; the
 copy is small next to a fit.
 """
-function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-                       data::NamedTuple, mask, Keq::Real; keywords...)
+function _fold_problem(@nospecialize(mechanism), data::NamedTuple, mask, Keq::Real;
+                       keywords...)
     FittingProblem(mechanism, map(col -> col[mask], data), Keq; keywords...)
 end
 
@@ -1064,8 +1062,7 @@ candidate's folds after its full fit, which compiled `loss!` for that type, so a
 infers and compiles nothing for the mechanism.
 """
 function _cross_validation_loss(
-    @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-    data::NamedTuple, held_out, Keq::Real;
+    @nospecialize(mechanism), data::NamedTuple, held_out, Keq::Real;
     absolute, reference = nothing, optimizer, kwargs...)
     held = isequal.(data.group, held_out)
     fit = fit_rate_equation(
@@ -1122,9 +1119,8 @@ function _cv_model_selection(
     folds = Tuple{_AnyMech, eltype(groups)}[(memo[k].source, g)
                                             for k in fit_keys for g in groups]
     fold_losses = _pmap_to_vector(Float64, folds) do (m, g)
-        mechanism = Mechanisms.compile_mechanism(m)
-        _cross_validation_loss(mechanism, prob.rate_data.data, g, prob.rate_data.Keq;
-            _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
+        _cross_validation_loss(m, prob.rate_data.data, g, prob.rate_data.Keq;
+            _fit_keywords(m, prob)..., optimizer, kwargs...)
     end
     by_fit = reshape(fold_losses, length(groups), :)
     scores = by_fit[:, [findfirst(==(e.fit_key), fit_keys)::Int for e in candidates]]

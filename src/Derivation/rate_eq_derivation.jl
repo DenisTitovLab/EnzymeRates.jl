@@ -9,12 +9,14 @@
 
 """
     parameters(m) -> Tuple{Vararg{Symbol}}
+    parameters(rate) -> Tuple{Vararg{Symbol}}
 
 The names of the constants of the rate law of `m` that a fit estimates, as a tuple of
 Symbols: the independent constants in name order, then an allosteric mechanism's regulator
-constants and `L`. These are the names `params` holds in [`rate_equation`](@ref); the
-equilibrium constant `Keq` is not among them, since it is given, never fitted. The rate law
-computes every other constant from these and `Keq` (see
+constants and `L`. These are the names `params` holds in a call of
+[`compile_rate_equation`](@ref)`(m)`, whose result `rate` gives the same names as a
+compile-time constant; the equilibrium constant `Keq` is not among them, since it is
+given, never fitted. The rate law computes every other constant from these and `Keq` (see
 [`dependent_parameter_values`](@ref)). Errors when the rate law of `m` is not defined
 (`check_valid_rate_equation`).
 """
@@ -25,8 +27,7 @@ end
 # The concrete Mechanism / AllostericMechanism reads the joint solve of the checked
 # mechanism through the memo (`_memo_solve`), compiling nothing. Callers that hold a
 # `Mechanism` (e.g. the `identify_rate_equation` pipeline) use it without an explicit
-# lift. Pass an `EnzymeMechanism` / `AllostericEnzymeMechanism` for the allocation-free
-# `rate_equation` hot path.
+# lift.
 function parameters(m::_AnyMech)
     check_valid_rate_equation(m)
     Tuple(_memo_solve(m).fitted)

@@ -87,13 +87,14 @@ function _testhelper_degenerate(m; ndraws = 2)
     g = _testhelper_graph(em)
     subs, prods = g.substrates, g.products
     mets = sort(collect(EnzymeRates.metabolites(em)))
+    rate = compile_rate_equation(em)
     rng = MersenneTwister(7)
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))
         p = NamedTuple{Tuple(fp)}(Tuple(θ))
         keq = exp(randn(rng))
-        _testhelper_v(d) = rate_equation(
-            em, NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p, keq)
+        _testhelper_v(d) =
+            rate(NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p, keq)
         for side in (subs, prods)
             base = _testhelper_v(Dict(x => 1.0 for x in side))
             for x in side
@@ -8253,14 +8254,16 @@ end)
 fps = parameters(separate)
 fpm = parameters(merged)
 @test Set(fps) == Set(fpm)
+separate_rate = EnzymeRates.compile_rate_equation(separate)
+merged_rate = EnzymeRates.compile_rate_equation(merged)
 Random.seed!(42)
 for _ in 1:25
     vals = Dict(p => exp(randn()) for p in union(fps, fpm))
     ps = (; (p => vals[p] for p in fps)...)
     pm = (; (p => vals[p] for p in fpm)...)
     c = (; S=exp(randn()), P=exp(randn()), A=exp(randn()), I=exp(randn()))
-    vs = real(EnzymeRates.rate_equation(separate, c, ps, 100.0))
-    vm = real(EnzymeRates.rate_equation(merged, c, pm, 100.0))
+    vs = real(separate_rate(c, ps, 100.0))
+    vm = real(merged_rate(c, pm, 100.0))
     @test isapprox(vs, vm; rtol=1e-9)
 end
 end
@@ -14699,10 +14702,11 @@ end
         cm = EnzymeRates.compile_mechanism(m)
         params, Keq =
             _testhelper_random_independent_params(cm; rng = Random.MersenneTwister(1))
+        rate = compile_rate_equation(cm)
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
-            v = rate_equation(cm, concs, params, Keq)
+            v = rate(concs, params, Keq)
             @test isfinite(v)
         end
     end
@@ -15949,10 +15953,9 @@ end
         cm = EnzymeRates.compile_mechanism(k)
         fp = parameters(cm)
         prm = NamedTuple{fp}(Tuple(1.3 for _ in fp))
-        @test EnzymeRates.rate_equation(cm, (A = 1.3, B = 1.3, P = 0.0, Q = 0.0,
-                                             R = 1.0), prm, 3.0) > 0
-        @test EnzymeRates.rate_equation(cm, (A = 1.3, B = 1.3, P = 0.1, Q = 0.1,
-                                             R = 1.0), prm, 3.0) > 0
+        rate = EnzymeRates.compile_rate_equation(cm)
+        @test rate((A = 1.3, B = 1.3, P = 0.0, Q = 0.0, R = 1.0), prm, 3.0) > 0
+        @test rate((A = 1.3, B = 1.3, P = 0.1, Q = 0.1, R = 1.0), prm, 3.0) > 0
     end
 end
 
