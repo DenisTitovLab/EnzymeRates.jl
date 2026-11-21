@@ -36,14 +36,18 @@ The mechanism stores it as each step's `rapid_equilibrium` flag.
   with several metabolites on a side — is named by its two sides, as an
   isomerization is. A side is a step's enzyme form followed by its free
   metabolites. The mechanism, not the direction the step is written in, decides
-  which side is `<from>`: the step is stored the way the reaction runs, the way it takes
-  up more substrates and gives off more products. An isomerization, or an exchange of
-  one modifier for another, runs the way the shortest cycle through it that turns the
-  reaction over runs; with no such cycle it runs away from free `E`, and with both ends
-  equally far, from the form whose name comes first. So writing the step backwards
-  gives the same names: at rapid equilibrium the Theorell–Chance step above gives
-  `K_EA_B_to_EQ_P`. Such a constant can carry concentration units, as for a step that
-  gives off two metabolites.
+  which side is `<from>`. A step that only takes up or only gives off metabolites is
+  stored as the uptake, whatever their number: the release `EPQ ⇌ E + P + Q` is stored
+  as `E + P + Q ⇌ EPQ` and gives `K_E_P_Q_to_EPQ`, named in the uptake direction, unlike a
+  binding's dissociation constant. A step with metabolites on both sides is stored the
+  way the reaction runs: the way it takes up more substrates and gives off more products,
+  net. When that count does not decide, as for an exchange of one modifier for another,
+  and for an isomerization, the step runs the way the shortest cycle through it that
+  turns the reaction over runs; with no such cycle it runs away from free `E`, and with
+  both ends equally far, from the form whose name comes first. So writing the step
+  backwards gives the same names: at rapid equilibrium the Theorell–Chance step above
+  gives `K_EA_B_to_EQ_P`. Such a constant can carry concentration units, as
+  `K_E_P_Q_to_EPQ` does.
 
 ## A concrete comparison
 

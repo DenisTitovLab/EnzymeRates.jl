@@ -202,13 +202,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   CSVs are right. A phantom's source is usually fitted a batch earlier, so no identify run
   in the suite reaches this path; the fix (print the header before `_process_batch` and let
   `log` only indent) needs an identify fixture that does.
-- **A hand-built step that does not balance fails only inside the joint solve.**
-  A step whose sides take up and give off different net metabolites, such as `EP → E`
-  taking up `P`, passes the `Mechanism` constructor and the guard. It fails later, in the
-  joint solve, with "Cycle 1 produces metabolite change not proportional to net
-  reaction". The constructor or the guard should reject it with a message that names the
-  step. Only hand-built mechanisms meet this: the macro and the enumerator write balanced
-  steps.
 - **A regulator measured only at saturating levels gets an arbitrary K.**
   With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
   true K. The data do not constrain K there, so the fit returns any value in the box and
@@ -238,13 +231,26 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   on six laws is more likely coverage counters, unproven. The investigation, with its
   scripts and scans, is `claude-scratchpad/loss-timing-investigation/report.md` on the
   maintainer's machine.
+- **A cycle unbalanced in the reactants fails only inside the joint solve.**
+  Form names are opaque, so no single step is unbalanced, but a cycle of steps can take up
+  and give off substrates and products in other proportions than the reaction, and
+  `@enzyme_mechanism` writes one: in `E + S ⇌ ES`, `ES <--> EP`, `EP ⇌ E + P`,
+  `EP + P <--> E` the cycle E → ES → EP → E takes up S and P. The macro accepts it (the
+  guard passes it), and so do `compile_rate_equation` and `FittingProblem`. `parameters`,
+  `rate_equation_string` and the first call of the compiled law, so a fit's first
+  evaluation, throw an `ErrorException` from the joint solve, "Cycle 1 produces
+  metabolite change not proportional to net reaction", which names no step. The
+  enumerator checks atom conservation and builds no such cycle. Whether the guard should
+  refuse it, with a message in the user's terms that names the cycle's steps, is the
+  maintainer's call. A cycle unbalanced only in a modifier passes instead (next entry).
 - **A cycle that consumes a modifier passes as a Wegscheider cycle.**
   The thermodynamic solve checks each fundamental cycle's net change over the substrates
   and products only. In `E + S ⇌ ES`, `ES <--> E + P`, `E + I ⇌ EI`, `EI <--> E` (modifier
   I) the cycle E → EI → E takes up I and gives it off nowhere; it is accepted, tied as a
   Wegscheider cycle (`k_EI_to_E = K_EI_to_E_I · k_E_to_EI`), and the law derives
   (`test/Derivation/test_joint_solve.jl`). Such a cycle is unphysical. Whether the guard
-  should refuse it, with a message in the user's terms, is the maintainer's call.
+  should refuse it, with a message in the user's terms, is the maintainer's call. A cycle
+  unbalanced in a substrate or a product fails in the joint solve instead (previous entry).
 - **A pumped-basin message can say "nothing runs back" of a feed that runs back.**
   The guard's `_PUMPED` verdict names a feed into a stranded basin. It prefers a feed whose
   reverse is dead; when every feed has a live reverse and enters from outside the basin and
