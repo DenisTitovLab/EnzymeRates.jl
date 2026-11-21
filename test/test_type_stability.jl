@@ -144,6 +144,7 @@ include("type_stability_harness.jl")
             @_testhelper_dispatches_in error_messages Deriv.check_valid_rate_equation(m)
             @_testhelper_no_dispatch Deriv.check_valid_rate_equation(Bool, m)
             @_testhelper_no_dispatch Deriv.fitted_parameter_count(m)
+            @_testhelper_no_dispatch Deriv._name(::Deriv._StepParameter, m)
             @_testhelper_no_dispatch Deriv.rate_equation_term_count(m)
             @_testhelper_dispatches_in error_messages Deriv.rate_equation_dedup_key(m)
         end
@@ -159,6 +160,10 @@ include("type_stability_harness.jl")
                 m, floats(parameters(m)), 2.0)
             @_testhelper_dispatches_in error_messages Deriv.parameter_units(m)
         end
+        @_testhelper_no_dispatch Deriv._name(
+            ::Deriv._RegulatorParameter, allosteric_concrete)
+        @_testhelper_no_dispatch Deriv._name(
+            ::Deriv._AllostericParameter, allosteric_concrete)
         @_testhelper_no_dispatch Deriv.rate_equation_term_count(plain_concrete, ::BitVector)
     end
 
