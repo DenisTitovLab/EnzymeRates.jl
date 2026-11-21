@@ -959,7 +959,7 @@ _testhelper_candidate(m) = EnzymeRates.Enumeration.CandidateMechanism(m)
 
 """The mechanisms of the children (`candidate_mechanisms`) of each mechanism of `parents`
 by every expansion move, parent by parent."""
-_testhelper_children(parents, rxn) =
+_testhelper_children(rxn, parents) =
     Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
         c.mechanism for m in parents
         for c in EnzymeRates.Enumeration.candidate_mechanisms(rxn, _testhelper_candidate(m))]
@@ -971,7 +971,7 @@ function _testhelper_population(rxn, rounds)
         m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)]
     mechs = copy(level)
     for _ in 1:rounds
-        level = unique!(_testhelper_children(level, rxn))
+        level = unique!(_testhelper_children(rxn, level))
         append!(mechs, level)
     end
     unique!(mechs)

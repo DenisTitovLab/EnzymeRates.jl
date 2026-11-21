@@ -5212,7 +5212,7 @@ end
     mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for rxn in (bibi, pingpong)
         seeds = EnzymeRates.Enumeration.init_mechanisms(rxn)
-        append!(mechs, seeds, _testhelper_children(seeds, rxn))
+        append!(mechs, seeds, _testhelper_children(rxn, seeds))
     end
     sample = mechs[randperm(Random.MersenneTwister(6), length(mechs))[1:300]]
     @test isempty(filter(m -> !_testhelper_finite_on_every_face(

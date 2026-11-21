@@ -432,7 +432,7 @@ _testhelper_stored_at_length(am::ER.AllostericMechanism) =
         competitive_inhibitors: I
     end
     init = EnzymeRates.Enumeration.init_mechanisms(rxn)
-    children = _testhelper_children(init[1:10], rxn)
+    children = _testhelper_children(rxn, init[1:10])
     @test any(c -> c isa ER.AllostericMechanism, children)
     @test all(_testhelper_stored_at_length, init)
     @test all(_testhelper_stored_at_length, children)
@@ -1012,13 +1012,13 @@ function _testhelper_census_population()
     foreach(r -> append!(population, EnzymeRates.Enumeration.init_mechanisms(r)), reactions)
     bibi = reactions[2]
     append!(population,
-            _testhelper_children(EnzymeRates.Enumeration.init_mechanisms(bibi), bibi))
+            _testhelper_children(bibi, EnzymeRates.Enumeration.init_mechanisms(bibi)))
 end
 
 """The census's first allosteric mechanisms: the allosteric children of the init
 mechanisms of its three reactions that declare an allosteric regulator."""
 function _testhelper_census_allosteric()
-    children = [_testhelper_children(EnzymeRates.Enumeration.init_mechanisms(r), r)
+    children = [_testhelper_children(r, EnzymeRates.Enumeration.init_mechanisms(r))
                 for r in _testhelper_census_reactions()[[1, 3, 4]]]
     filter(x -> x isa EnzymeRates.AllostericMechanism, reduce(vcat, children))
 end

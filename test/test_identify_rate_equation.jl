@@ -2550,7 +2550,7 @@ end
     end
     # The seed's children as parents: their own children overlap, so the
     # first-parent dedup and attribution are exercised.
-    parents = _testhelper_children(EnzymeRates.Enumeration.init_mechanisms(rxn), rxn)
+    parents = _testhelper_children(rxn, EnzymeRates.Enumeration.init_mechanisms(rxn))
     to_expand = [EnzymeRates.BatchEntry(_testhelper_candidate(m), 3, 0.0, :Success, "", "",
                                         (mechanism="M",))
                  for m in parents]
