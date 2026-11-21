@@ -65,12 +65,15 @@ _enumerator_keeps(m) =
 copies included."""
 _copies(v::Vector{Mechanisms.Metabolite}, name::Symbol) = count(x -> x.name === name, v)
 
+"""Whether `m` is allosteric: its kinetic groups carry allosteric states."""
+_is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
+
 """The rapid-equilibrium flag of each step of `m`, in step order."""
-_rapid_equilibrium_flags(m::Mechanisms.Mechanism) =
+_rapid_equilibrium_flags(m::Mechanisms.CatalyticScheme) =
     BitVector([e.rapid_equilibrium for e in m.steps])
 
 """Each kinetic group of graph `m`, its steps in step order."""
-function _kinetic_groups(m::Mechanisms.Mechanism)
+function _kinetic_groups(m::Mechanisms.CatalyticScheme)
     members = [Int[] for _ in 1:maximum(e -> e.group, m.steps; init = 0)]
     for (k, e) in enumerate(m.steps)
         push!(members[e.group], k)
@@ -84,7 +87,7 @@ negative when it gives them off, zero when it exchanges `name` only productively
 binds a site of its own and takes no part in the chemistry, so it enters or leaves a form
 only with the step that takes it up or gives it off."""
 function _copy_change(c::CandidateMechanism, k::Int, name::Symbol)
-    e = Mechanisms.catalytic(c.mechanism).steps[k]
+    e = c.mechanism.catalytic.steps[k]
     count(==(name), c.forms[e.to].copies) - count(==(name), c.forms[e.from].copies)
 end
 
@@ -95,7 +98,7 @@ the residual the same and the label free to change. Every other step is chemistr
 isomerization, a fused binding (the last substrate binding straight into the
 product-bound form), a Theorell–Chance step or an exchange."""
 function _is_plain_binding(c::CandidateMechanism, k::Int)
-    e = Mechanisms.catalytic(c.mechanism).steps[k]
+    e = c.mechanism.catalytic.steps[k]
     _is_binding(e) || return false
     f, t, x = c.forms[e.from], c.forms[e.to], only(e.taken_up).name
     f.adds == t.adds && f.subtracts == t.subtracts || return false

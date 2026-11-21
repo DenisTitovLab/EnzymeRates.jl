@@ -30,13 +30,13 @@ the part for a module before changing its internals.
 | Module | What it does | Public names (★ exported) | May call |
 |:--|:--|:--|:--|
 | EnzymeRates (top level) | Finds the best mechanism for a reaction from measured rates. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` | all |
-| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, ★ `@allosteric_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
+| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
 | Plotting | Draws a rate equation over measured rates. | ★ `plot_rate_equation_on_data` | Mechanisms, Derivation, Data |
 | Enumeration | Generates candidate mechanisms for a reaction. | `CandidateMechanism`, `candidate_mechanisms` | Mechanisms, Derivation |
 | Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
 | Derivation | Derives a mechanism's rate equation and compiles it. | ★ `compile_rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, `check_valid_rate_equation`, `fitted_parameter_count`, `parameter_units`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
 | Data | Checks and holds a table of measured rates. | `RateData` | none |
-| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `Mechanism`, `AllostericMechanism`, `EnzymeForm`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `rapid_equilibrium_segments`, `step_text`, `steps_in_active_conformation`, `steps_in_inactive_conformation` | none |
+| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `Mechanism`, `Allostery`, `CatalyticScheme`, `EnzymeForm`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `check_conformation_label`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `rapid_equilibrium_segments`, `step_text`, `steps_in_active_conformation`, `steps_in_inactive_conformation` | none |
 <!-- end of module table -->
 
 - A module lives in `src/<Module>/`, declares its interface in the `public` statement of

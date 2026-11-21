@@ -374,8 +374,8 @@ end
     # step mask, among them), and the name check the DSL runs while it reads a block, so
     # that its error names the macro: a conformation label's shape.
     @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Metabolite, :EnzymeForm,
-        :Step, :Mechanism, :RegulatorySite, :AllostericMechanism, :Reactant, :Regulator,
-        :EnzymeReaction, :metabolites, :catalytic, :form_text, :step_text,
+        :Step, :Mechanism, :CatalyticScheme, :Allostery, :RegulatorySite, :Reactant,
+        :Regulator, :EnzymeReaction, :metabolites, :form_text, :step_text,
         :check_conformation_label, :steps_in_active_conformation,
         :steps_in_inactive_conformation, :rapid_equilibrium_segments, :has_turnover_cycle,
         :has_unbalanced_cycle])
@@ -383,7 +383,6 @@ end
 
 @testset "documented internal paths resolve" begin
     @test isdefined(EnzymeRates, :Mechanism)
-    @test isdefined(EnzymeRates, :AllostericMechanism)
     @test isdefined(EnzymeRates.Enumeration, :init_mechanisms)
 end
 

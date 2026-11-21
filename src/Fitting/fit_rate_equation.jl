@@ -1,9 +1,6 @@
 # ABOUTME: Fitting rate equations to experimental data and scaling them to a reference
 # ABOUTME: scale: FittingProblem, the loss, multi-start fits and test_rate_equation.
 
-"""A plain or an allosteric mechanism."""
-const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-
 """
     FittingProblem{M, R, D}
 
@@ -11,7 +8,7 @@ Holds pre-processed experimental data and mechanism info for fitting
 rate constants.
 
 # Fields
-- `mechanism`: the mechanism, as a `Mechanism` or an `AllostericMechanism`
+- `mechanism`: the mechanism, a `Mechanism`
 - `rate`: its compiled rate law (`compile_rate_equation`), which the loss evaluates
 - `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
   `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
@@ -24,7 +21,7 @@ rate constants.
 - `log_abs_rates`: pre-computed `log.(abs.(Rate))`
 - `log_ratios_buffer`: pre-allocated working buffer for loss computation
 """
-struct FittingProblem{M<:_AnyMech, R, D<:NamedTuple}
+struct FittingProblem{M<:Mechanisms.Mechanism, R, D<:NamedTuple}
     mechanism::M
     rate::R
     rate_data::Data.RateData{D}
@@ -72,7 +69,7 @@ concentrations use the same one. K and k then carry that unit: a K in mM, a seco
 k per mM per time. See "Units and the search box" in the Getting Started page for how the
 fit searches around the concentrations in your data.
 """
-function FittingProblem(@nospecialize(mechanism::_AnyMech), table, Keq::Real;
+function FittingProblem(@nospecialize(mechanism::Mechanisms.Mechanism), table, Keq::Real;
                         absolute::Bool=false, reference=nothing)
     rate = Derivation.compile_rate_equation(mechanism)
     rate_data = Data.RateData(table, Mechanisms.metabolites(mechanism), Keq; absolute,
@@ -359,7 +356,7 @@ leaves the binding constants, `L` and the regulatory constants alone.
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
     # The caller does not specialize on the mechanism; the type asserted lets the
     # Derivation calls below dispatch without a run-time lookup.
-    m = mechanism::_AnyMech
+    m = mechanism::Mechanisms.Mechanism
     names = Derivation.parameters(m)
     rate = Derivation.parameter_units(m).rate
     rate_constants = Set{Symbol}()

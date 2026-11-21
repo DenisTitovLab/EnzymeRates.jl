@@ -41,7 +41,7 @@ symbol, the locals defined by column so a body's numbering never follows a hash;
 segment's weight sum `σ_g` and tree sum `T_g` and `Q` get a local (`_factor!`). Returns `Q`
 as one term and `D = shift·Σ_g σ_g·T_g`.
 """
-function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanisms.Mechanism,
+function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanisms.CatalyticScheme,
                  s::_Solve, L::_Law, mask::BitVector, inactive::Bool)
     value = _column_values(vars, s, r -> length(r) <= 1 ? r :
                                          _monomial(_local!(vars, defs, _term(r)) => 1))
@@ -61,7 +61,7 @@ end
 """The program of a plain law: `num = H·Q`, `den = D` (`_state!`)."""
 function _program(m::Mechanisms.Mechanism, s::_Solve, L::_Law)
     vars, defs = copy(L.vars), Pair{Int, _Poly}[]
-    Q, D = _state!(vars, defs, m, s, L, trues(length(m.steps)), false)
+    Q, D = _state!(vars, defs, m.catalytic, s, L, trues(length(m.catalytic.steps)), false)
     _Program(vars, defs, _factor!(vars, defs, L.H) * Q, D)
 end
 
@@ -71,8 +71,8 @@ conformation that is free E alone), locals for the free-E weights `fA`, `fI`, th
 conformation terms `xA = fI·DA` and `xI = fA·DI` and each site's two binding polynomials;
 `num = H·(fI·QA·xA^(n−1)·WA + L·fA·QI·xI^(n−1)·WI)`, `den = xA^n·WA + L·xI^n·WI`.
 """
-function _program(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw)
-    m, n = Mechanisms.catalytic(am), A.n
+function _program(am::Mechanisms.Mechanism, s::_Solve, A::_AlloLaw)
+    m, n = am.catalytic, A.n
     vars, defs = copy(A.vars), Pair{Int, _Poly}[]
     QA, DA = _state!(vars, defs, m, s, A.active,
                      Mechanisms.steps_in_active_conformation(am), false)
@@ -181,7 +181,7 @@ end
 
 """The body of the generated call of `m`'s compiled rate law: the program's code
 (`_body`) of its law (`_with_law`)."""
-_rate_body(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
+_rate_body(m::Mechanisms.Mechanism) =
     _with_law((m, s, L) -> _body(_program(m, s, L)), m)
 
 # ─── compile_rate_equation ─────────────────────────────────────────────────────
@@ -199,18 +199,14 @@ _rate_body(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
 #               oligomeric state; the number of sites, then each site (ligands,
 #               multiplicity, states).
 
-"""The allosteric states of `m`, one per kinetic group, its oligomeric state and its
-regulatory sites: none, 1 and none for a plain mechanism."""
-_allostery(::Mechanisms.Mechanism) = (Symbol[], 1, Mechanisms.RegulatorySite[])
-_allostery(am::Mechanisms.AllostericMechanism) =
-    (am.allosteric_states, am.oligomeric_state, am.regulatory_sites)
-
 """`m` as one tuple of integers, its Sig (layout above): the only type parameter of its
 compiled rate law. Equal mechanisms have equal Sigs, since a mechanism is stored in
 canonical form."""
-function _sig_of(m::_AnyMech)
-    cm = Mechanisms.catalytic(m)
-    states, oligomeric_state, sites = _allostery(m)
+function _sig_of(m::Mechanisms.Mechanism)
+    cm = m.catalytic
+    states, oligomeric_state, sites = m.allosteric.allosteric_states,
+                                      m.allosteric.oligomeric_state,
+                                      m.allosteric.regulatory_sites
     names = sort!(unique!([Mechanisms.metabolites(m); [n.conformation for n in cm.nodes];
                            states; [x for s in sites for x in s.allosteric_states]]))
     out = Int[length(names)]
@@ -224,7 +220,7 @@ function _sig_of(m::_AnyMech)
         push!(out, length(list))
         foreach(x -> push!(out, index(x)), list)
     end
-    function metabolites!(list::Vector{Mechanisms.Metabolite})
+    function metabolite_list!(list::Vector{Mechanisms.Metabolite})
         push!(out, length(list))
         foreach(x -> push!(out, index(x.name), x.modifier), list)
     end
@@ -233,15 +229,15 @@ function _sig_of(m::_AnyMech)
     push!(out, length(cm.nodes))
     for n in cm.nodes
         push!(out, index(n.conformation))
-        metabolites!(n.bound)
+        metabolite_list!(n.bound)
         symbols!(n.added)
         symbols!(n.subtracted)
     end
     push!(out, length(cm.steps))
     for e in cm.steps
         push!(out, e.from, e.to)
-        metabolites!(e.taken_up)
-        metabolites!(e.given_off)
+        metabolite_list!(e.taken_up)
+        metabolite_list!(e.given_off)
         push!(out, e.rapid_equilibrium, e.group)
     end
     symbols!(states)
@@ -261,31 +257,30 @@ mutable struct _SigReader
 end
 _next!(r::_SigReader) = r.sig[r.at += 1]
 
-"""The mechanism whose Sig is `sig`, splatted, built by the constructors, which check it:
-a plain mechanism when the Sig holds no allosteric state. The varargs method compiles
-once, whatever the Sig length, as long as callers splat a Sig whose length their code
-leaves open."""
+"""The mechanism whose Sig is `sig`, splatted, built by the constructors, which check it.
+The varargs method compiles once, whatever the Sig length, as long as callers splat a Sig
+whose length their code leaves open."""
 function _mechanism_from_sig(sig::Int...)
     r = _SigReader(collect(sig), 0)
     names = [Symbol(String([Char(_next!(r)) for _ in 1:_next!(r)])) for _ in 1:_next!(r)]
     name() = names[_next!(r)]
     symbols() = Symbol[name() for _ in 1:_next!(r)]
-    metabolites() = Mechanisms.Metabolite[Mechanisms.Metabolite(name(), _next!(r) == 1)
-                                          for _ in 1:_next!(r)]
+    metabolite_list() =
+        Mechanisms.Metabolite[Mechanisms.Metabolite(name(), _next!(r) == 1)
+                              for _ in 1:_next!(r)]
     substrates = symbols()
     products = symbols()
-    forms = [Mechanisms.EnzymeForm(name(), metabolites(), symbols(), symbols())
+    forms = [Mechanisms.EnzymeForm(name(), metabolite_list(), symbols(), symbols())
              for _ in 1:_next!(r)]
-    steps = [Mechanisms.Step(_next!(r), _next!(r), metabolites(), metabolites(),
+    steps = [Mechanisms.Step(_next!(r), _next!(r), metabolite_list(), metabolite_list(),
                              _next!(r) == 1, _next!(r))
              for _ in 1:_next!(r)]
-    m = Mechanisms.Mechanism(substrates, products, forms, steps)
+    catalytic = Mechanisms.CatalyticScheme(substrates, products, forms, steps)
     states = symbols()
     oligomeric_state = _next!(r)
     sites = [Mechanisms.RegulatorySite(symbols(), _next!(r), symbols())
              for _ in 1:_next!(r)]
-    isempty(states) ? m :
-        Mechanisms.AllostericMechanism(m, states, oligomeric_state, sites)
+    Mechanisms.Mechanism(catalytic, Mechanisms.Allostery(states, oligomeric_state, sites))
 end
 
 """The rate law of the mechanism whose Sig (`_sig_of`) is `Sig`, as a function
@@ -347,7 +342,7 @@ julia> rate((S = 1.0, P = 0.5), params, 4.0)
 0.65625
 ```
 """
-compile_rate_equation(m::_AnyMech) = _CompiledRateEquation{_sig_of(m)}()
+compile_rate_equation(m::Mechanisms.Mechanism) = _CompiledRateEquation{_sig_of(m)}()
 
 # In each generator, the argument `compiled_law` is the law's type. Its name holds `_`, as
 # no metabolite name does, and the body reads every input by name, so a metabolite named

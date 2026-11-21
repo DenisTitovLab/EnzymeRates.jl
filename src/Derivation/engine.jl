@@ -100,7 +100,8 @@ A rapid-equilibrium edge off the tree must close a cycle with no net uptake of a
 metabolite. Class 2 of the guard rejects every mechanism where one does not, so this is
 an internal error.
 """
-function _bare_law(m::Mechanisms.Mechanism, mask::BitVector, concentrations::Vector{Symbol})
+function _bare_law(m::Mechanisms.CatalyticScheme, mask::BitVector,
+                   concentrations::Vector{Symbol})
     vars = _Vars()
     foreach(x -> _var!(vars, x; conc = true), concentrations)
     cols = Tuple{Int, Int}[]
@@ -197,10 +198,11 @@ function _column_values(vars::_Vars, s::_Solve, wrap = identity)
 end
 
 """
-    _law(m, s, mask; inactive = false, concentrations = metabolites(m), shown = m) -> _Law
+    _law(m::CatalyticScheme, s, mask; inactive = false, concentrations, shown) -> _Law
 
-The rate law of the edges of `m` that `mask` keeps, in the inactive conformation's
-constants when `inactive`, over the independents of the solve `s`: the bare law
+The rate law of the edges of the catalytic scheme `m` that `mask` keeps, over the
+metabolites `concentrations`, in the inactive conformation's constants when `inactive`,
+over the independents of the solve `s`: the bare law
 (`_bare_law`) with each bare constant replaced by its column's value (an independent, or a
 dependent's power product of independents and `Keq`), the numerator divided exactly by `H`,
 then both brought to lowest terms in the concentrations. Every law derived from one solve
@@ -208,11 +210,11 @@ numbers its variables alike: `concentrations`, then `s.independents`, then `Keq`
 
 Runs `_assert_derivable` first. Checked `Int64` arithmetic throughout: under the term cap
 no coefficient leaves it, so an `OverflowError` becomes an internal error that names the
-mechanism `shown`, the allosteric mechanism for an MWC conformation.
+mechanism `shown`, whose catalytic scheme `m` is.
 """
-function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false,
-              concentrations::Vector{Symbol} = Mechanisms.metabolites(m),
-              shown::_AnyMech = m)
+function _law(m::Mechanisms.CatalyticScheme, s::_Solve, mask::BitVector;
+              inactive::Bool = false, concentrations::Vector{Symbol},
+              shown::Mechanisms.Mechanism)
     _assert_derivable(m, mask)
     try
         b = _bare_law(m, mask, concentrations)
@@ -237,9 +239,6 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
               "which the term cap rules out:\n" * sprint(show, shown))
     end
 end
-
-"""The law of the edges of `m` over the independents of `s`, every edge kept."""
-_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, trues(length(m.steps)))
 
 # ─── The MWC law ─────────────────────────────────────────────────────────
 
@@ -309,7 +308,7 @@ false`) or inactive conformation, over `vars`: 1 plus each ligand's concentratio
 dissociation constant (`_regulator_constant`), an `:OnlyI` ligand left out of the active
 conformation and an `:OnlyA` one out of the inactive.
 """
-function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
+function _site_weight(am::Mechanisms.Mechanism, vars::_Vars,
                       site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
     for (lig, tag) in zip(site.ligands, site.allosteric_states)
@@ -321,22 +320,26 @@ function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
 end
 
 """
-    _law(am, s = _solve(am)) -> _AlloLaw
+    _law(m, s = _solve(m)) -> Union{_Law, _AlloLaw}
 
-The MWC law of `am` over the independents of `s`: each conformation's law on its steps
-(`steps_in_active_conformation`, `steps_in_inactive_conformation`), `_flip_only_law` for a
-conformation that runs none, both over the concentrations of `metabolites(am)`, so their
-polynomials multiply directly; free E's weight in each over their common factor; and each
-regulatory site's binding polynomials. Free E roots segment 1, so its weight is that
-segment's tree sum times the law's shift. A law over the summed cap is refused before any
-polynomial product (`_assert_derivable`). The guard rejects an active conformation that
-runs no step (`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
+The law of mechanism `m` over the independents of `s`: a plain mechanism's law on every
+step, a `_Law`; an allosteric mechanism's MWC law, an `_AlloLaw`: each conformation's law
+on its steps (`steps_in_active_conformation`, `steps_in_inactive_conformation`),
+`_flip_only_law` for a conformation that runs none, both over the concentrations of
+`metabolites(m)`, so their polynomials multiply directly; free E's weight in each over
+their common factor; and each regulatory site's binding polynomials. Free E roots segment
+1, so its weight is that segment's tree sum times the law's shift. A law over the summed
+cap is refused before any polynomial product (`_assert_derivable`). The guard rejects an
+active conformation that runs no step (`_NO_ACTIVE_TURNOVER`), but the oracles read its
+law.
 """
-function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
+function _law(am::Mechanisms.Mechanism, s::_Solve)
+    m, concentrations = am.catalytic, Mechanisms.metabolites(am)
+    _is_allosteric(am) ||
+        return _law(m, s, trues(length(m.steps)); concentrations, shown = am)
     _assert_derivable(am)
-    m, amask, imask = Mechanisms.catalytic(am), Mechanisms.steps_in_active_conformation(am),
-                      Mechanisms.steps_in_inactive_conformation(am)
-    concentrations = Mechanisms.metabolites(am)
+    amask, imask = Mechanisms.steps_in_active_conformation(am),
+                   Mechanisms.steps_in_inactive_conformation(am)
     LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
     LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations, shown = am) :
@@ -350,17 +353,17 @@ function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
     sites = Tuple{_Poly, _Poly, Int}[(_site_weight(am, vars, site, false),
                                       _site_weight(am, vars, site, true),
                                       site.multiplicity)
-                                     for site in am.regulatory_sites]
-    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, am.oligomeric_state)
+                                     for site in am.allosteric.regulatory_sites]
+    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, am.allosteric.oligomeric_state)
 end
-_law(m::_AnyMech) = _law(m, _solve(m))
+_law(m::Mechanisms.Mechanism) = _law(m, _solve(m))
 
 """
     _with_law(f, m, s = _solve(m)) -> f(m, s, L)
 
 `f` called on `m`, its solve `s` and its law `L = _law(m, s)`.
 """
-_with_law(f, m::_AnyMech, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
+_with_law(f, m::Mechanisms.Mechanism, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
 
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
@@ -393,7 +396,7 @@ function _tree_count(lap::Matrix{Int})
 end
 
 """
-Estimate the term count of the law of the edges of `m` that `mask` keeps, V×τ, from its
+Estimate the term count of the law of the edges of catalytic scheme `m` that `mask` keeps,
 segment graph (`Mechanisms.rapid_equilibrium_segments`), without deriving the law: `V` is
 the number of rapid-equilibrium segments, `τ` the spanning trees of the segment graph
 whose edges are the kept steady-state edges between segments, parallel ones counted apart
@@ -404,7 +407,7 @@ when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before any polynomial is built) an
 `eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
 `typemax(Int)`.
 """
-function rate_equation_term_count(m::Mechanisms.Mechanism, mask::BitVector)
+function rate_equation_term_count(m::Mechanisms.CatalyticScheme, mask::BitVector)
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
     G = length(s.segments)
     G <= 1 && return G
@@ -427,11 +430,11 @@ allosteric one, the active law's count plus the inactive law's, a conformation t
 free E alone counting 0, saturated at `typemax(Int)`. The cap (`_assert_derivable`) and
 identify's `eq_complexity_filter` read it.
 """
-rate_equation_term_count(m::Mechanisms.Mechanism) =
-    rate_equation_term_count(m, trues(length(m.steps)))
-function rate_equation_term_count(am::Mechanisms.AllostericMechanism)
-    m, imask = Mechanisms.catalytic(am), Mechanisms.steps_in_inactive_conformation(am)
+function rate_equation_term_count(am::Mechanisms.Mechanism)
+    m = am.catalytic
     a = rate_equation_term_count(m, Mechanisms.steps_in_active_conformation(am))
+    _is_allosteric(am) || return a
+    imask = Mechanisms.steps_in_inactive_conformation(am)
     i = any(imask) ? rate_equation_term_count(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end

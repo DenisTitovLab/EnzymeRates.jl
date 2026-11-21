@@ -16,7 +16,7 @@ function _testhelper_solve_point(m, rng)
     mech = m
     g = _testhelper_graph(mech)
     sys = _testhelper_JS.Derivation._joint_system(mech)
-    edges = _testhelper_JS.Derivation._flat_edges(_testhelper_JS.Mechanisms.catalytic(mech))
+    edges = _testhelper_JS.Derivation._flat_edges(mech.catalytic)
     M, pivots = _testhelper_JS.Derivation._reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
     x = zeros(BigFloat, n)
@@ -119,8 +119,9 @@ end
             end
         end
         _testhelper_key(x, text, slot, block) =
-            EnzymeRates.Derivation._priority_key(x, _testhelper_edge(x, text), slot, block,
-                                                 EnzymeRates.Derivation._lean_ranks(x))
+            EnzymeRates.Derivation._priority_key(
+                x.catalytic, _testhelper_edge(x, text), slot, block,
+                EnzymeRates.Derivation._lean_ranks(x.catalytic))
         key(text, slot, block) = _testhelper_key(m, text, slot, block)
         at_free_E, off_free_E = "E + A <--> EA", "EA + B <--> EAB"
         # block first: an inactive copy outside the law before any other column
@@ -184,19 +185,22 @@ end
         # group's allosteric state moving with it. The solve fits the same constants.
         for spec in MECHANISM_TEST_SPECS
             m = spec.mechanism
-            cm = EnzymeRates.Mechanisms.catalytic(m)
+            cm = m.catalytic
             nf, G = length(cm.nodes), length(cm.groups)
             form(f) = f == 1 ? 1 : nf + 2 - f
             steps = [EnzymeRates.Mechanisms.Step(form(e.from), form(e.to), e.taken_up,
                                                  e.given_off, e.rapid_equilibrium,
                                                  G + 1 - e.group)
                      for e in reverse(cm.steps)]
-            reordered = EnzymeRates.Mechanisms._unchecked_mechanism(
+            reordered = EnzymeRates.Mechanisms._unchecked_scheme(
                 cm.substrates, cm.products, [cm.nodes[1]; reverse(cm.nodes[2:end])], steps)
-            x = m isa EnzymeRates.AllostericMechanism ?
-                EnzymeRates.AllostericMechanism(reordered, reverse(m.allosteric_states),
-                                                m.oligomeric_state, m.regulatory_sites) :
-                reordered
+            x = _testhelper_is_allosteric(m) ?
+                EnzymeRates.Mechanism(
+                    reordered,
+                    EnzymeRates.Mechanisms.Allostery(
+                        reverse(m.allosteric.allosteric_states),
+                        m.allosteric.oligomeric_state, m.allosteric.regulatory_sites)) :
+                _testhelper_plain_of(reordered)
             @test (spec.name, EnzymeRates.Derivation._solve(x).fitted) ==
                   (spec.name, EnzymeRates.Derivation._solve(m).fitted)
         end
@@ -216,7 +220,7 @@ end
                 E + A::Mod ⇌ E(A::Mod)
             end
         end
-        @test EnzymeRates.Mechanisms._table(m) ==
+        @test EnzymeRates.Mechanisms._table(m.catalytic) ==
               [EnzymeRates.Mechanisms.Metabolite(:A, false),
                EnzymeRates.Mechanisms.Metabolite(:A, true),
                EnzymeRates.Mechanisms.Metabolite(:P, false)]
@@ -235,7 +239,7 @@ end
                 D <--> E
             end
         end
-        iso = only(k for k in eachindex(m.steps)
+        iso = only(k for k in eachindex(m.catalytic.steps)
                    if occursin("D", _testhelper_edge_text(m, k)))
         @test _testhelper_edge_text(m, iso) == "E <--> D"
         kf, kr = _testhelper_step_parameters(m, iso)
@@ -291,13 +295,14 @@ end
         m = tied_mm
         # Groups and steps in canonical order: the steps at free E first, then by form.
         @test [_testhelper_edge_text(m, k)
-               for k in EnzymeRates.Derivation._flat_edges(m)] ==
+               for k in EnzymeRates.Derivation._flat_edges(m.catalytic)] ==
               ["E <--> D", "ES <--> DS", "E + P <--> EP", "E + S <--> ES", "D + S <--> DS",
                "ES <--> EP"]
-        label(f) = m.nodes[f].conformation
+        label(f) = m.catalytic.nodes[f].conformation
         tied =
-            only(ks for ks in m.groups if length(ks) == 2)
-        @test all(k -> label(m.steps[k].from) === :E && label(m.steps[k].to) === :D, tied)
+            only(ks for ks in m.catalytic.groups if length(ks) == 2)
+        @test all(k -> label(m.catalytic.steps[k].from) === :E &&
+                       label(m.catalytic.steps[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
         @test (@enzyme_mechanism begin
             substrates: S
@@ -328,7 +333,7 @@ end
             end
         end
         Z, multiples = EnzymeRates.Derivation._fundamental_cycles(
-            m, EnzymeRates.Derivation._flat_edges(m))
+            m.catalytic, EnzymeRates.Derivation._flat_edges(m.catalytic))
         @test size(Z) == (2, 6)
         @test sort(abs.(multiples)) == [0, 1]
         # A cycle that turns A into P without B and Q is no multiple of the net reaction.
@@ -346,7 +351,7 @@ end
             end
         end
         err = @test_throws ErrorException EnzymeRates.Derivation._fundamental_cycles(
-            slip, EnzymeRates.Derivation._flat_edges(slip))
+            slip.catalytic, EnzymeRates.Derivation._flat_edges(slip.catalytic))
         @test occursin("produces metabolite change not proportional to net reaction",
                        err.value.msg)
     end
@@ -367,7 +372,7 @@ end
         # I binds E(A) and E(P) under one :NonequalAI group. In the inactive
         # conformation E(A) and E(A, I) lie behind the :OnlyA binding of A, so only the
         # E(P) + I member is in that conformation's law.
-        am = @allosteric_mechanism begin
+        am = @enzyme_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -400,7 +405,7 @@ end
         # E(A) and E(A, I) lie behind the :OnlyA binding of A, so the inactive law holds
         # only E, E(P) and E(I, P). The cycle through E(A) still gets an inactive row,
         # which reads the inactive copies of the two :OnlyA steps, outside the law.
-        am = @allosteric_mechanism begin
+        am = @enzyme_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -438,9 +443,9 @@ end
                 n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.step]) &&
                                                         last_of[class(c)] == i &&
                                                         i ∉ pivots), eachindex(sys.columns))
-                n_reg = mech isa EnzymeRates.AllostericMechanism ?
+                n_reg = _testhelper_is_allosteric(mech) ?
                     sum((t === :NonequalAI ? 2 : 1
-                         for site in mech.regulatory_sites
+                         for site in mech.allosteric.regulatory_sites
                          for t in site.allosteric_states);
                         init = 0) + 1 : 0
                 @test n_law + n_reg == _testhelper_declared_dimension(spec.mechanism)
@@ -456,7 +461,7 @@ end
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
                 # `_kept_members` leaves out.
-                group = [e.group for e in EnzymeRates.Mechanisms.catalytic(mech).steps]
+                group = [e.group for e in mech.catalytic.steps]
                 last_of_class = Dict{Tuple{Int, Int, Bool}, Int}()
                 for c in sys.columns
                     g = group[c.step]
@@ -520,9 +525,10 @@ end
                 E(AB) ⇌ E + AB
             end
         end
-        names = [EnzymeRates.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)]
+        names = [EnzymeRates.Mechanisms._form_name(m.catalytic, f)
+                 for f in eachindex(m.catalytic.nodes)]
         eac, eab = findfirst(==("EAC"), names), findfirst(==("EAB"), names)
-        @test isless(m.nodes[eac], m.nodes[eab]) && eac < eab
+        @test isless(m.catalytic.nodes[eac], m.catalytic.nodes[eab]) && eac < eab
         @test names[eac] > names[eab]
     end
 
@@ -591,7 +597,7 @@ end
 end
 
 @testset "_solve maps an :EqualAI edge's inactive constant to its active column" begin
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin

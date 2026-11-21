@@ -6,7 +6,7 @@ maximum as the metabolites `names` (its substrates or its products, sorted) grow
 rapid equilibrium every steady-state edge that takes up or gives off one of them leaves no
 rapid-equilibrium turnover cycle (condition V). Only the edges `on` flags count, so an
 allosteric mechanism's test can read its active law (`_degenerate`)."""
-function _has_vmax(m::Mechanisms.Mechanism, re::BitVector, names::Vector{Symbol},
+function _has_vmax(m::Mechanisms.CatalyticScheme, re::BitVector, names::Vector{Symbol},
                    on::BitVector = trues(length(m.steps)))
     touches = BitVector([_exchanges(m, k, names) for k in eachindex(m.steps)])
     !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
@@ -19,13 +19,13 @@ _holds(s::Vector{Mechanisms.Metabolite}, names::Vector{Symbol}) =
 
 """Whether step `k` of `m` takes up or gives off a metabolite named in `names`
 (`_holds`)."""
-_exchanges(m::Mechanisms.Mechanism, k::Int, names::Vector{Symbol}) =
+_exchanges(m::Mechanisms.CatalyticScheme, k::Int, names::Vector{Symbol}) =
     _holds(m.steps[k].taken_up, names) || _holds(m.steps[k].given_off, names)
 
 """Whether step `k` of `m` takes up a metabolite named in one of `subs` and `prods` (a
 reactant of one side of the reaction) and gives off one named in the other, as a
 Theorell–Chance step does."""
-function _crosses_sides(m::Mechanisms.Mechanism, k::Int, subs::Vector{Symbol},
+function _crosses_sides(m::Mechanisms.CatalyticScheme, k::Int, subs::Vector{Symbol},
                         prods::Vector{Symbol})
     t, g = m.steps[k].taken_up, m.steps[k].given_off
     _holds(t, subs) && _holds(g, prods) || _holds(t, prods) && _holds(g, subs)
@@ -46,8 +46,8 @@ its reactant. Only the edges `on` flags count (`_degenerate`).
 """
 function _chemistry_equilibrates_both_sides(
         c::CandidateMechanism, re::BitVector,
-        on::BitVector = trues(length(Mechanisms.catalytic(c.mechanism).steps)))
-    m = Mechanisms.catalytic(c.mechanism)
+        on::BitVector = trues(length(c.mechanism.catalytic.steps)))
+    m = c.mechanism.catalytic
     re = re .& on
     subs, prods = m.substrates, m.products
     releases(node, side) = any(eachindex(m.steps)) do k
@@ -73,7 +73,7 @@ flags, over the steps the active conformation runs (`steps_in_active_conformatio
 edge of a plain mechanism, and the edges its tags keep of an allosteric one. The beam
 expands a degenerate seed without fitting it (`_base_tier`)."""
 function _degenerate(c::CandidateMechanism)
-    cm = Mechanisms.catalytic(c.mechanism)
+    cm = c.mechanism.catalytic
     re = _rapid_equilibrium_flags(cm)
     on = Mechanisms.steps_in_active_conformation(c.mechanism)
     !(_has_vmax(cm, re, cm.substrates, on) &&
@@ -92,8 +92,9 @@ one outside the `:OnlyI` groups in the active conformation, outside the `:OnlyA`
 the inactive one. True for a plain mechanism. The guard admits a mechanism that fails this
 when its law is the limit, so a user may write one; the enumerator does not build it.
 """
-_kept_forms_keep_a_binding(::Mechanisms.Mechanism) = true
-function _kept_forms_keep_a_binding(am::Mechanisms.AllostericMechanism)
+function _kept_forms_keep_a_binding(am::Mechanisms.Mechanism)
+    # A plain mechanism excludes no binding.
+    _is_allosteric(am) || return true
     steps, n = am.catalytic.steps, length(am.catalytic.enzyme_forms)
     for (law, excluded_state) in ((Mechanisms.steps_in_active_conformation(am), :OnlyI),
                                   (Mechanisms.steps_in_inactive_conformation(am), :OnlyA))
@@ -103,7 +104,8 @@ function _kept_forms_keep_a_binding(am::Mechanisms.AllostericMechanism)
         for (k, e) in enumerate(steps)
             length(e.taken_up) == 1 && isempty(e.given_off) || continue
             entered[e.to] = true
-            am.allosteric_states[e.group] === excluded_state || (made[e.to] = true)
+            am.allosteric.allosteric_states[e.group] === excluded_state ||
+                (made[e.to] = true)
         end
         for (k, e) in enumerate(steps), f in (e.from, e.to)
             law[k] && f != 1 && entered[f] && !made[f] && return false
@@ -116,12 +118,10 @@ end
 Whether the enumerator may only give this mechanism a catalytic scheme that
 passes `_hyperbolic_catalysis`. True when a conformational equilibrium sits over
 a catalytic site with more than one subunit: the equilibrium then raises every
-catalytic-site binding to the power of the multiplicity. Over one subunit it
-only reweights each enzyme form and adds no power of its own.
+catalytic-site binding to the power of the multiplicity. Over one subunit, as for every
+plain mechanism, it only reweights each enzyme form and adds no power of its own.
 """
-_requires_hyperbolic_catalysis(::Mechanisms.Mechanism) = false
-_requires_hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
-    am.oligomeric_state > 1
+_requires_hyperbolic_catalysis(m::Mechanisms.Mechanism) = m.allosteric.oligomeric_state > 1
 
 """Whether candidate `c` passes `_hyperbolic_catalysis` where its mechanism
 `_requires_hyperbolic_catalysis`; true where it does not."""
@@ -140,11 +140,11 @@ site of its own by definition, so the powers its binding adds, including those o
 reactant's modifier copy, are a separate source that conformational mechanisms keep. Only
 the edges `on` flags count, and `rapid_equilibrium_segments` leaves out the forms they do
 not keep, so an allosteric mechanism's test can read each conformation's law. Without `on`,
-the test reads every edge of a plain mechanism, and each conformation's law of an allosteric
-one (`steps_in_active_conformation`, `steps_in_inactive_conformation`): a conformation that
-runs part of the catalytic graph can carry a power the whole graph lacks, as a ping-pong's
-abortive complexes put A² into the inactive law once that conformation stops one
-half-reaction.
+the test reads each conformation's law (`steps_in_active_conformation`,
+`steps_in_inactive_conformation`), once when the two run the same steps, as both
+conformations of a plain mechanism run every step: a conformation that runs part of the
+catalytic graph can carry a power the whole graph lacks, as a ping-pong's abortive
+complexes put A² into the inactive law once that conformation stops one half-reaction.
 
 The equation is a sum over rapid-equilibrium (RE) segments and spanning
 arborescences of the segment graph toward each segment. A denominator term is
@@ -160,7 +160,7 @@ every segment still reaches `S` once each given edge's source keeps that edge
 as its only way out (`_all_reach`).
 """
 function _hyperbolic_catalysis(c::CandidateMechanism, on::BitVector)
-    m = Mechanisms.catalytic(c.mechanism)
+    m = c.mechanism.catalytic
     on_site = on .& BitVector([isempty(c.forms[e.from].copies) &&
                                isempty(c.forms[e.to].copies) for e in m.steps])
     s = Mechanisms.rapid_equilibrium_segments(m, on_site)
@@ -198,13 +198,10 @@ function _hyperbolic_catalysis(c::CandidateMechanism, on::BitVector)
     true
 end
 
-function _hyperbolic_catalysis(c::CandidateMechanism)
-    m = c.mechanism
-    m isa Mechanisms.Mechanism && return _hyperbolic_catalysis(c, trues(length(m.steps)))
+_hyperbolic_catalysis(c::CandidateMechanism) =
     all(mask -> _hyperbolic_catalysis(c, mask),
-        (Mechanisms.steps_in_active_conformation(m),
-         Mechanisms.steps_in_inactive_conformation(m)))
-end
+        unique!([Mechanisms.steps_in_active_conformation(c.mechanism),
+                 Mechanisms.steps_in_inactive_conformation(c.mechanism)]))
 
 """
 Whether every segment of the segment graph reaches `root` when each edge in
@@ -275,7 +272,7 @@ makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end 
 builds are found on that mechanism (`_dead_end_child`).
 """
 function _productive_twin(c::CandidateMechanism, mask::BitVector)
-    m = Mechanisms.catalytic(c.mechanism)
+    m = c.mechanism.catalytic
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
     # A metabolite name's row of the offsets: its position among the sorted names.
     names = sort!(Mechanisms.metabolites(m))
@@ -301,7 +298,7 @@ end
 `_is_binding`, that takes up a copy, `_copy_change`), or `nothing` when the step binds no
 modifier copy."""
 function _bound_copy(c::CandidateMechanism, k::Int)
-    e = Mechanisms.catalytic(c.mechanism).steps[k]
+    e = c.mechanism.catalytic.steps[k]
     _is_binding(e) || return nothing
     x = only(e.taken_up).name
     _copy_change(c, k, x) > 0 ? x : nothing
@@ -314,7 +311,7 @@ graph).
 """
 function _all_twin(c::CandidateMechanism, ks::Vector{Int}, twin)
     ligand = _bound_copy(c, first(ks))
-    steps = Mechanisms.catalytic(c.mechanism).steps
+    steps = c.mechanism.catalytic.steps
     ligand !== nothing && all(k -> twin(steps[k].from, ligand) != 0, ks)
 end
 
@@ -356,7 +353,7 @@ alike. The test is bookkeeping over the edges, with no parameters and no numeric
 """
 function _gauge_rescaling(c::CandidateMechanism, members::Vector{Vector{Int}}, g::Int,
                           twin, label)
-    m = Mechanisms.catalytic(c.mechanism)
+    m = c.mechanism.catalytic
     _all_twin(c, members[g], twin) || return nothing
     ligand = _bound_copy(c, first(members[g]))::Symbol
     twin_of = Dict(m.steps[k].to => twin(m.steps[k].from, ligand)
@@ -421,17 +418,17 @@ factor in both states when the copy is `:EqualAI` (one K*). Every other class is
 per state.
 """
 function _redundant_copy_groups(c::CandidateMechanism)
-    m = c.mechanism
-    cm = Mechanisms.catalytic(m)
+    am = c.mechanism
+    cm = am.catalytic
     members = _kinetic_groups(cm)
     any(ks -> _bound_copy(c, first(ks)) !== nothing, members) || return Int[]
-    if m isa Mechanisms.Mechanism
+    # A plain mechanism has one state; an allosteric one has two, which form one system.
+    if !_is_allosteric(am)
         twin = _productive_twin(c, trues(length(cm.steps)))
         return [g for g in eachindex(members)
                 if _gauge_rescaling(c, members, g, twin, _one_state_class) !== nothing]
     end
-    am = m::Mechanisms.AllostericMechanism
-    equal(h) = am.allosteric_states[h] === :EqualAI
+    equal(h) = am.allosteric.allosteric_states[h] === :EqualAI
     masks = (Mechanisms.steps_in_active_conformation(am),
              Mechanisms.steps_in_inactive_conformation(am))
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
@@ -482,7 +479,7 @@ must obey both because a flip tests only the groups it flips. The split, the dea
 and `_expand_change_allo_state` filter their children; the other moves preserve both rules.
 """
 function _assert_emission_rules(c::CandidateMechanism)
-    cm = Mechanisms.catalytic(c.mechanism)
+    cm = c.mechanism.catalytic
     members = _kinetic_groups(cm)
     # A group as its steps' DSL lines (`step_text`).
     label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
@@ -516,7 +513,7 @@ intermediates; it is intentionally NOT a `Mechanism` constructor check, since a 
 `@enzyme_mechanism` block carries no atoms and may fold steps.
 """
 function _assert_atom_conserving(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
-    cm = Mechanisms.catalytic(c.mechanism)
+    cm = c.mechanism.catalytic
     names(v::Vector{Mechanisms.Metabolite}) = Symbol[x.name for x in v]
     # The names counted on one side of an edge: `form`'s bound metabolites, productive or
     # copies, and residual additions, the residual subtractions of the `other` form, and
@@ -546,7 +543,7 @@ end
     _respects_reg_type(m, rxn::EnzymeReaction) -> Bool
 
 Whether every regulatory ligand of `m` respects the type `rxn` declares for it, given the
-other ligands at its site. A `Mechanism` has no regulatory sites and passes. A ligand's
+other ligands at its site. A plain mechanism has no regulatory sites and passes. A ligand's
 type is the `effect` of its allosteric `Regulator` entry in `rxn`, or `:unspecified`
 when `rxn` has no such entry (the name is absent, or declared only as a competitive
 inhibitor). An `:unspecified` ligand always passes. A designated activator is
@@ -555,12 +552,10 @@ state and `:NonequalAI` are always allowed. `:EqualAI` is an antagonist state an
 rejected only when another ligand at the site is a same-type designated effector, since
 it would counteract that ligand's declared direction.
 """
-_respects_reg_type(::Mechanisms.Mechanism, ::Mechanisms.EnzymeReaction) = true
-function _respects_reg_type(am::Mechanisms.AllostericMechanism,
-                            rxn::Mechanisms.EnzymeReaction)
+function _respects_reg_type(am::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
     declared = Dict(reg.name => reg.effect
                     for reg in rxn.regulators if reg.kind === :allosteric)
-    all(am.regulatory_sites) do site
+    all(am.allosteric.regulatory_sites) do site
         types = [get(declared, l, :unspecified) for l in site.ligands]
         all(zip(types, site.allosteric_states)) do (t, state)
             t === :unspecified ||

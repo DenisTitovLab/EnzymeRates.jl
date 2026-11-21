@@ -9,7 +9,7 @@ const _ALLO_GOLDEN_PATH =
 function _testhelper_allosteric_golden_lines()
     lines = String[]
     for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa EnzymeRates.AllostericMechanism || continue
+        _testhelper_is_allosteric(spec.mechanism) || continue
         m = spec.mechanism
         push!(lines, "### " * spec.name)
         eq_string = EnzymeRates.rate_equation_string(m)
@@ -39,7 +39,7 @@ end
     # mechanisms render one params line, then the regulator constants, then L.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        m isa EnzymeRates.AllostericMechanism || continue
+        _testhelper_is_allosteric(m) || continue
         fp = parameters(m)
         am = m
         reg = Tuple(K for st in (:A, :I) for K in _testhelper_regulator_constants(am, st))

@@ -157,8 +157,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     cold_script = """
         using EnzymeRates
         println("IMAGE_RATE_BODIES:", count(
-            mi -> mi.specTypes.parameters[2] in
-                  (EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism),
+            mi -> mi.specTypes.parameters[2] === EnzymeRates.Mechanism,
             Base.specializations(only(methods(EnzymeRates.Derivation._rate_body)))))
         r_uni = @enzyme_reaction begin
             substrates: S[C]
@@ -330,17 +329,15 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         @test t_first < RATE_EQUATION_WALLCLOCK_BUDGET_S
     end
 
-    # The package precompiles `_rate_body`, which the rate law's generator calls, for
-    # both mechanism types, so a fresh process's image holds both (the cold subprocess
-    # counts them) and the first call above stays under its budget (2.2-2.4 s on Julia 1.12
-    # without both precompile calls, 0.16-0.44 s without one). `precompile` returns false
-    # when no method takes the signature, so a signature change fails here rather than
-    # leaving the package's two calls compiling nothing.
-    @testset "the generator's precompile signatures compile" begin
-        @test n_image == 2
+    # The package precompiles `_rate_body`, which the rate law's generator calls, for the
+    # mechanism type, so a fresh process's image holds it (the cold subprocess counts it)
+    # and the first call above stays under its budget (2.2-2.4 s on Julia 1.12 without the
+    # precompile call). `precompile` returns false when no method takes the signature, so
+    # a signature change fails here rather than leaving the package's call compiling
+    # nothing.
+    @testset "the generator's precompile signature compiles" begin
+        @test n_image == 1
         @test precompile(EnzymeRates.Derivation._rate_body, (EnzymeRates.Mechanism,))
-        @test precompile(EnzymeRates.Derivation._rate_body,
-                         (EnzymeRates.AllostericMechanism,))
     end
 
     # Compile-reuse: bi-bi init_mechanisms compiles a superset of uni-uni's machinery, so

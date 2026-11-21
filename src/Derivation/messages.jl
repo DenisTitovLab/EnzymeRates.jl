@@ -7,36 +7,35 @@
     _guard_message(mech) -> String
 
 The error for the guard's verdict on `mech`:
-`<Mechanism|AllostericMechanism>: <cause, naming each step by its line>. <fix>.`, the
+`Mechanism: <cause, naming each step by its line>. <fix>.`, the
 cause read under the reading the verdict was judged under (`_guard_with_reading`). Class
 2's fix is printed when each step's variant leaves no fast turnover cycle
 (`_every_step_cures`); every other fix only when its variant passes `_guard`. When two
 constants share a name (`_SHARED_NAME`), the error names them and asks for a renaming. An
 error when the guard admits `mech`.
 """
-function _guard_message(mech::_AnyMech)
+function _guard_message(mech::Mechanisms.Mechanism)
     (; verdict, reading) = _guard_with_reading(mech)
-    who = mech isa Mechanisms.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
     verdict.fault === _NO_FAULT && error("_guard_message: verdict $verdict holds no fault")
     verdict.fault === _SHARED_NAME &&
-        return "$who: constants of this mechanism's rate equation share a name (" *
+        return "Mechanism: constants of this mechanism's rate equation share a name (" *
                join(_shared_constant_names(mech), ", ") * "). Rename a metabolite or a " *
                "conformation label so that each constant has a name of its own."
     verdict.fault === _NO_CYCLE &&
-        return "$who: no cycle of steps turns substrates into products, so the rate is " *
-               "zero everywhere."
-    verdict.fault === _RE_TURNOVER && return _re_turnover_message(who, mech, reading)
-    mech isa Mechanisms.AllostericMechanism && verdict.fault in _ADMISSION_FAULTS &&
-        return _admission_message(mech, verdict, reading)
-    _face_message(who, mech, verdict)
+        return "Mechanism: no cycle of steps turns substrates into products, so the rate " *
+               "is zero everywhere."
+    verdict.fault === _RE_TURNOVER && return _re_turnover_message(mech, reading)
+    # Only an allosteric mechanism excludes steps, so only its verdict is admission's.
+    verdict.fault in _ADMISSION_FAULTS && return _admission_message(mech, verdict, reading)
+    _face_message(mech, verdict)
 end
 
 """Whether making each step of `cycle`, transitions of `mech`'s ε-network `net` under
 `reading`, steady-state with its kinetic group leaves no fast cycle that turns the
 reaction over: then class 2's fix holds whichever step of the cycle is picked."""
-function _every_step_cures(mech::_AnyMech, net::_Network, cycle::Vector{Int},
+function _every_step_cures(mech::Mechanisms.Mechanism, net::_Network, cycle::Vector{Int},
                            reading::_Reading)
-    m = Mechanisms.catalytic(mech)
+    m = mech.catalytic
     for t in cycle
         re = _re_flags(m)
         re[findall(s -> s.group == m.steps[net.edge[t]].group, m.steps)] .= false
@@ -50,8 +49,8 @@ first fast cycle that turns the reaction over, each excluded step among them mar
 the conformation where it loses a direction (its affinity, when it takes up one
 metabolite and loses that uptake), and the fix where each of those steps made
 steady-state leaves no fast cycle that turns the reaction over (`_every_step_cures`)."""
-function _re_turnover_message(who::String, mech::_AnyMech, reading::_Reading)
-    m = Mechanisms.catalytic(mech)
+function _re_turnover_message(mech::Mechanisms.Mechanism, reading::_Reading)
+    m = mech.catalytic
     net = _eps_network(mech, _re_flags(m), reading)
     cycle = _re_turnover_transitions(net)
     c = net.conformation[cycle[1]]
@@ -69,9 +68,9 @@ function _re_turnover_message(who::String, mech::_AnyMech, reading::_Reading)
         end
         push!(lines, line)
     end
-    place = mech isa Mechanisms.AllostericMechanism && c == 2 ?
-            " in the inactive conformation" : ""
-    msg = "$who: the rapid-equilibrium steps $(join(lines, ", ", " and ")) close a " *
+    # Only an allosteric mechanism's network has an inactive copy.
+    place = c == 2 ? " in the inactive conformation" : ""
+    msg = "Mechanism: the rapid-equilibrium steps $(join(lines, ", ", " and ")) close a " *
           "cycle$place that turns the reaction over, so the mechanism has no finite rate."
     fix = " Make one step of the cycle steady-state."
     _every_step_cures(mech, net, cycle, reading) ? msg * fix : msg
@@ -84,9 +83,9 @@ _conformation_suffix(net::_Network, u::Int) =
 
 """Where a class-3 fault of `mech` lies: nothing for a plain mechanism; the conformation
 `c` of an allosteric one, nothing when `c` is 0."""
-_place(::Mechanisms.Mechanism, ::Int) = ""
-_place(::Mechanisms.AllostericMechanism, c::Int) =
-    c == 2 ? " in the inactive conformation" : c == 1 ? " in the active conformation" : ""
+_place(mech::Mechanisms.Mechanism, c::Int) =
+    !_is_allosteric(mech) ? "" : c == 2 ? " in the inactive conformation" :
+    c == 1 ? " in the active conformation" : ""
 
 """
 The message of a class-3 verdict `v` on `mech`: the face, the forms and steps at fault,
@@ -96,8 +95,8 @@ for a bottomless segment, the kinetic group of the first of its rapid-equilibriu
 whose variant passes. A verdict in no one conformation labels each form with its own
 (`_conformation_suffix`).
 """
-function _face_message(who::String, mech::_AnyMech, v::_Verdict)
-    m = Mechanisms.catalytic(mech)
+function _face_message(mech::Mechanisms.Mechanism, v::_Verdict)
+    m = mech.catalytic
     net = _law_network(mech)
     face = _faces(m)[v.face]
     s = _face_structure(net, face)
@@ -110,8 +109,8 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
     lines(edges) = join([Mechanisms.step_text(m, k) for k in edges], ", ", " and ")
     if v.fault === _NONUNIQUE
         C = _away_class(s)
-        return "$who: $(at)the forms $(forms(C)) keep enzyme away from free E: every " *
-               "step that leaves them takes up a zeroed metabolite " *
+        return "Mechanism: $(at)the forms $(forms(C)) keep enzyme away from free E: " *
+               "every step that leaves them takes up a zeroed metabolite " *
                "($(lines(_exits(net, s, C)))), so the steady state is not unique."
     elseif v.fault === _BOTTOMLESS
         binding(k) = length(m.steps[k].taken_up) + length(m.steps[k].given_off) == 1
@@ -123,7 +122,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         fix = k === nothing ? "" :
               " Make the kinetic group of $(Mechanisms.step_text(m, bindings[k])) " *
               "steady-state."
-        return "$who: $(at)the rapid-equilibrium segment " *
+        return "Mechanism: $(at)the rapid-equilibrium segment " *
                "$(forms(s.segments[s.bottomless])) has no form whose weight keeps the " *
                "segment's lowest power of each zeroed metabolite, so the forms' shares " *
                "depend on how those concentrations vanish and the rate is 0/0 there." * fix
@@ -132,17 +131,18 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
         fix = _steady_state_passes(mech, edge) ?
               " Make that step's kinetic group steady-state." : ""
         joined &&
-            return "$who: $(at)the forms $(forms(s.fast_classes[trap])) hold enzyme, but " *
-                   "the rapid-equilibrium step $(Mechanisms.step_text(m, edge)) that " *
-                   "joins them to the rest of their segment takes up a zeroed " *
-                   "metabolite, so the rate law misweights them." * fix
-        return "$who: $(at)the rapid-equilibrium step $(Mechanisms.step_text(m, edge)) " *
-               "fills the forms $(forms(s.fast_classes[trap])), which no " *
-               "rapid-equilibrium step running there empties, so the rate law " *
-               "misweights them." * fix
+            return "Mechanism: $(at)the forms $(forms(s.fast_classes[trap])) hold " *
+                   "enzyme, but the rapid-equilibrium step " *
+                   "$(Mechanisms.step_text(m, edge)) that joins them to the rest of " *
+                   "their segment takes up a zeroed metabolite, so the rate law " *
+                   "misweights them." * fix
+        return "Mechanism: $(at)the rapid-equilibrium step " *
+               "$(Mechanisms.step_text(m, edge)) fills the forms " *
+               "$(forms(s.fast_classes[trap])), which no rapid-equilibrium step running " *
+               "there empties, so the rate law misweights them." * fix
     elseif v.fault === _SPLIT
         split = _split_parts(net, s)
-        return "$who: $(at)the forms $(join(forms.(split.parts), " and ")) of one " *
+        return "Mechanism: $(at)the forms $(join(forms.(split.parts), " and ")) of one " *
                "rapid-equilibrium segment are joined only by steps that take up a " *
                "zeroed metabolite ($(lines(split.joins))), so the rate law cannot weight " *
                "one against the other."
@@ -153,7 +153,7 @@ function _face_message(who::String, mech::_AnyMech, v::_Verdict)
                   "the steady state depends on how fast the rapid-equilibrium steps " *
                   "run, which the rate law does not carry" :
                   "the steady state's fast-equilibrium limit differs from the rate law"
-        return "$who: $(at)$why."
+        return "Mechanism: $(at)$why."
     end
     error("_face_message: no message for $(v.fault)")
 end

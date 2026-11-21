@@ -178,11 +178,11 @@ function _reference_lines(s::_Solve, vars::_Vars)
 end
 
 """The `concs` destructuring line of `m`'s printed law."""
-_concs_line(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
+_concs_line(m::Mechanisms.Mechanism) =
     "(; $(join(Mechanisms.metabolites(m), ", "))) = concs"
 
 """The `params` and `concs` destructuring lines of `m`'s printed law over the solve `s`."""
-_header_lines(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, s::_Solve) =
+_header_lines(m::Mechanisms.Mechanism, s::_Solve) =
     String["(; $(join(s.fitted, ", "))) = params", _concs_line(m)]
 
 # ─── Plain and MWC laws ──────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ definitions: `Q_c`, `D_c` and `F_c` read in those coefficients, `W_A` and `W_I` 
 fitted constants. Without `coefficient_values`, the `concs` line, the definitions and `v`:
 the lines that name coefficients without defining them.
 """
-function _law_text(am::Mechanisms.AllostericMechanism, s::_Solve, A::_AlloLaw;
+function _law_text(am::Mechanisms.Mechanism, s::_Solve, A::_AlloLaw;
                    coefficients::Bool = false, coefficient_values::Bool = true)
     subs = _substrate_vars(am, A.vars)
     confs = [_conformation(A.active, "A", subs)]
@@ -390,7 +390,7 @@ julia> print(rate_equation_string(m; coefficients = true, coefficient_values = f
 v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 """
-function rate_equation_string(m::_AnyMech; coefficients::Bool = false,
+function rate_equation_string(m::Mechanisms.Mechanism; coefficients::Bool = false,
                               coefficient_values::Bool = true)
     _check_coefficient_values(coefficients, coefficient_values)
     check_valid_rate_equation(m)

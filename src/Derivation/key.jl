@@ -127,7 +127,7 @@ tied class is individualized in turn, keeping the smallest text (`_search!`). At
 SHA-256 of its text, `show`) is then taken only at the cap.
 """
 function _canonical(L::Union{_Law, _AlloLaw},
-                    mechanism_id::Union{AbstractString, _AnyMech})
+                    mechanism_id::Union{AbstractString, Mechanisms.Mechanism})
     comps, units, header = _key_parts(L)
     vars = L.vars
     fixed(v) = vars.conc[v] || vars.names[v] === :Keq || vars.names[v] === :L
@@ -239,9 +239,10 @@ end
 Whether a mechanism whose MWC law is `A` is a one-subunit L phantom (spec section 13): `A`
 has a rescaling certificate (`_phantom_weights`), which requires one catalytic subunit and
 an inactive conformation that turns nothing over, so the mechanism's family is the family
-of its law at `L = 0`.
+of its law at `L = 0`. A plain mechanism's law (`_Law`) is never one.
 """
 _is_phantom(A::_AlloLaw) = !isempty(_phantom_weights(A))
+_is_phantom(::_Law) = false
 
 # ─── The key a mechanism is fitted under ───────────────────────────────────
 
@@ -256,7 +257,7 @@ reached the leaf cap, so the law took the key of `m`'s text id (`_canonical`).
 phantom (`_is_phantom`), which reads its active law, its law at `L = 0`, when that law
 holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
 """
-function rate_equation_dedup_key(m::_AnyMech)
+function rate_equation_dedup_key(m::Mechanisms.Mechanism)
     check_valid_rate_equation(m)
     _with_memo_law(m) do m, s, L
         own = _canonical(L, m)
@@ -266,7 +267,7 @@ function rate_equation_dedup_key(m::_AnyMech)
         # :EqualAI has one factor in both conformations, so the certificate admits it,
         # yet the active law lacks its constants: such a phantom reads its own fit, so a
         # row never reads names its fit lacks.
-        if m isa Mechanisms.AllostericMechanism && _is_phantom(L)
+        if _is_phantom(L)
             active = _canonical(L.active, m)
             Set(active.order) == Set(s.fitted[1:(end - 1)]) && (fit = active)
         end

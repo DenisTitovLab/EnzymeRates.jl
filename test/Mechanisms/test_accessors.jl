@@ -1,5 +1,5 @@
-# ABOUTME: Tests for the mechanism/parameter accessor API and its symmetry
-# ABOUTME: across the concrete and singleton mechanism representations.
+# ABOUTME: Tests for the mechanism/parameter accessor API on plain and allosteric
+# ABOUTME: mechanisms and on their compiled rate laws.
 @testset "parameters API symmetry" begin
     # A bi-bi seed whose catalytic cycle's Haldane relation makes a constant dependent;
     # B and P also bind as dead ends, at E(Q) and E(A).
@@ -35,10 +35,11 @@
             E(P) ⇌ E + P
         end
     end
-    allosteric_states = fill(:NonequalAI, length(base.groups))
+    allosteric_states = fill(:NonequalAI, length(base.catalytic.groups))
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:NonequalAI])
-    am = EnzymeRates.AllostericMechanism(base, allosteric_states, 2, [site])
-    @test am.allosteric_states == allosteric_states
+    am = EnzymeRates.Mechanism(
+        base.catalytic, EnzymeRates.Mechanisms.Allostery(allosteric_states, 2, [site]))
+    @test am.allosteric.allosteric_states == allosteric_states
     m_allo = am
     params_allo = parameters(m_allo)
     @test any(occursin("_I_", string(p)) for p in params_allo)
@@ -131,7 +132,7 @@ end
         # Every step constant the law reads, in each conformation, is among the keys; the
         # regulator constants and L are fitted, so p holds them.
         mech = m
-        states = mech isa EnzymeRates.Mechanism ? (:None,) : (:A, :I)
+        states = _testhelper_is_allosteric(mech) ? (:A, :I) : (:None,)
         @test issubset((n for st in states
                         for ns in _testhelper_edge_names(mech, st) for n in ns),
                        keys(all_p))

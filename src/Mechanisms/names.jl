@@ -1,11 +1,11 @@
 # ABOUTME: Form names, the two sides of a step, and forms and steps as DSL text.
-# ABOUTME: Each mechanism stores its step sides, and parameters are named after them.
+# ABOUTME: Each catalytic scheme stores its step sides, and parameters are named after them.
 
 # ─── Form names, step sides, and forms and steps as DSL text ───────────
 
 """Whether `x` is a reactant's modifier copy (`A::Mod`) in `m`; a modifier-only name has
 no copy, so it is not one."""
-_is_reactant_copy(m::Mechanism, x::Metabolite) = x.modifier && _is_reactant(m, x.name)
+_is_reactant_copy(m::CatalyticScheme, x::Metabolite) = x.modifier && _is_reactant(m, x.name)
 
 """`x` as names write it, among the sorted `substrates` and `products`: its name, with `mod`
 on a reactant's modifier copy; a modifier-only name stays bare."""
@@ -29,18 +29,18 @@ function _form_name(x::EnzymeForm, substrates::Vector{Symbol}, products::Vector{
     String(take!(io))
 end
 """Enzyme form `f`'s name in `m`."""
-_form_name(m::Mechanism, f::Int) = _form_name(m.nodes[f], m.substrates, m.products)
+_form_name(m::CatalyticScheme, f::Int) = _form_name(m.nodes[f], m.substrates, m.products)
 
 """`x` as a mechanism macro writes a metabolite of `m`: its name, with `::Mod` on a
 reactant's modifier copy; a modifier-only name stays bare."""
-_met_text(m::Mechanism, x::Metabolite) =
+_met_text(m::CatalyticScheme, x::Metabolite) =
     _is_reactant_copy(m, x) ? "$(x.name)::Mod" : String(x.name)
 
 """Enzyme form `f` as a mechanism macro writes it: its label alone when it binds nothing and
 keeps no residual (`E`, `Estar`), else its label with its bound metabolites (`_met_text`)
 and residual in parentheses: `E(NAD, P)`, `E(A::Mod)`, `E(B; residual = A - P)`,
 `E(; residual = A - P)`."""
-function form_text(m::Mechanism, f::Int)
+function form_text(m::CatalyticScheme, f::Int)
     x = m.nodes[f]
     label = String(x.conformation)
     _is_free(x) && return label
@@ -51,15 +51,15 @@ end
 
 """A step side: its node's name `form` and the labels of the free metabolites `free`,
 joined by `_` (`EA_B` for `E(A) + B`)."""
-_side_name(m::Mechanism, form::String, free::Vector{Metabolite}) =
+_side_name(m::CatalyticScheme, form::String, free::Vector{Metabolite}) =
     foldl((side, x) -> string(side, '_', _entry_label(x, m.substrates, m.products)), free;
           init = form)
 """A step's two sides in its stored direction; every step constant is named after
 them."""
-_sides(m::Mechanism, e::Step) = (_side_name(m, _form_name(m, e.from), e.taken_up),
+_sides(m::CatalyticScheme, e::Step) = (_side_name(m, _form_name(m, e.from), e.taken_up),
                                  _side_name(m, _form_name(m, e.to), e.given_off))
 """Each step's two sides (`_sides`), its nodes named `forms` (`_form_name`)."""
-_step_sides(m::Mechanism, forms::Vector{String}) =
+_step_sides(m::CatalyticScheme, forms::Vector{String}) =
     [(_side_name(m, forms[e.from], e.taken_up), _side_name(m, forms[e.to], e.given_off))
      for e in m.steps]
 
@@ -67,7 +67,7 @@ _step_sides(m::Mechanism, forms::Vector{String}) =
 its node (`form_text`) and the metabolites the step takes up or gives off there
 (`_met_text`), joined by `⇌` (rapid equilibrium) or `<-->` (steady state):
 `E + S ⇌ E(S)`, `E(A) + B <--> E(Q) + P`."""
-function step_text(m::Mechanism, k::Int)
+function step_text(m::CatalyticScheme, k::Int)
     e = m.steps[k]
     side(f, free) = join([form_text(m, f); [_met_text(m, x) for x in free]], " + ")
     side(e.from, e.taken_up) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *

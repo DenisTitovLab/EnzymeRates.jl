@@ -261,7 +261,7 @@ end
     # its groups, fills E(A) faster than E(A) empties at zero substrates, and the guard
     # refuses it; under none of its consistent readings does the ε-path oracle find a
     # limit.
-    filled = @_testhelper_unguarded @allosteric_mechanism begin
+    filled = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -279,7 +279,7 @@ end
         @test any(face -> _testhelper_epath_verdict(filled; rng, face, reading) !==
                           :converges, _testhelper_faces(filled))
     end
-    pp2 = @allosteric_mechanism begin
+    pp2 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -290,7 +290,7 @@ end
             F(B) <--> E + Q       :: EqualAI
         end
     end
-    tc = @allosteric_mechanism begin
+    tc = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I
@@ -375,10 +375,9 @@ end
     # site, whose coefficient form defines N_A and N_I before the coefficients they divide
     # and W_A and W_I before `v`; the coefficient-name testset below checks F1-F4 and its
     # other hand-written laws the same way.
-    regulated_pp = @allosteric_mechanism begin
+    regulated_pp = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + A <--> E(A)       :: EqualAI
@@ -575,7 +574,7 @@ end
             E(; residual = A - P) + B <--> E + Q
         end
     end
-    tc = @allosteric_mechanism begin
+    tc = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I
@@ -586,10 +585,9 @@ end
             E + I <--> E(I)            :: EqualAI
         end
     end
-    pp = @allosteric_mechanism begin
+    pp = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + A <--> E(; residual = A - P) + P :: EqualAI
@@ -646,7 +644,7 @@ end
     # steady state. Both printed forms equal the rapid-equilibrium limit of the oracle's
     # own network (`_testhelper_limit_law`) to 1e-20 at two points; the active
     # conformation's denominator holds no constant of I's binding, the inactive one's does.
-    competitive_RE = @allosteric_mechanism begin
+    competitive_RE = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -656,7 +654,7 @@ end
             E + I ⇌ E(I)            :: OnlyI
         end
     end
-    competitive_SS = @allosteric_mechanism begin
+    competitive_SS = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -681,10 +679,10 @@ end
         @test "D_A = 1 + dA_S * S" in split(coef, '\n')
         @test d_i_coefficient in split(coef, '\n')
         am = m
-        cm = EnzymeRates.Mechanisms.catalytic(am)
+        cm = am.catalytic
         onlyi =
             [String(x) for (k, ns) in enumerate(_testhelper_edge_names(am, :I))
-             if am.allosteric_states[cm.steps[k].group] === :OnlyI
+             if am.allosteric.allosteric_states[cm.steps[k].group] === :OnlyI
              for x in ns]
         d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))
         @test !isempty(onlyi)
@@ -709,10 +707,9 @@ end
 @testset "the MWC lines name each conformation's polynomials" begin
     # A two-site homodimer prints Q, D and W for each conformation and no F: both
     # free-enzyme weights are 1. test_rate_eq_derivation.jl pins its text.
-    two_site = @allosteric_mechanism begin
+    two_site = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)     :: NonequalAI
@@ -726,7 +723,7 @@ end
     # its own normalizer, and free E weighs F6P and F16BP in one and F16BP alone in the
     # other, so F_A and F_I print. With that last step at rapid equilibrium it bridges two
     # groups of the inactive conformation, and the guard refuses it.
-    bridged = @_testhelper_unguarded @allosteric_mechanism begin
+    bridged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -740,7 +737,7 @@ end
         end
     end
     @test EnzymeRates.Derivation._guard(bridged).fault === EnzymeRates.Derivation._BRIDGE
-    half2 = @allosteric_mechanism begin
+    half2 = @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -755,7 +752,7 @@ end
     end
     # Both bindings :OnlyA: the inactive conformation is free E alone, so the
     # denominator's inactive term is L with no factor.
-    inert = @allosteric_mechanism begin
+    inert = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -840,7 +837,7 @@ end
                                                     coefficient_values = false)
 
     # The MWC short law keeps the conformations' definitions in their coefficients.
-    inert = @allosteric_mechanism begin
+    inert = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -857,10 +854,9 @@ end
 
     # Two conformations that differ, with a regulatory site: each prints its Q and D, and
     # each site factor is the binding polynomial (1 + R / K)^2 of a two-site homodimer.
-    regulated = @allosteric_mechanism begin
+    regulated = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)     :: NonequalAI

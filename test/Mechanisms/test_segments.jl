@@ -97,12 +97,13 @@ end
     ]
     for (em, cycles) in cases
         m = em
-        n = length(eachindex(m.steps))
+        n = length(eachindex(m.catalytic.steps))
         at = [[_testhelper_edge(m, text) for text in cycle] for cycle in cycles]
         for bits in 0:(2^n - 1)
             on = BitVector([isodd(bits >> (k - 1)) for k in 1:n])
             expected = any(ks -> all(k -> on[k], ks), at)
-            @test (findall(on), M.has_turnover_cycle(m, on)) == (findall(on), expected)
+            @test (findall(on), M.has_turnover_cycle(m.catalytic, on)) ==
+                  (findall(on), expected)
         end
     end
 end
@@ -111,7 +112,7 @@ end
     M = ER.Mechanisms
     for spec in MECHANISM_TEST_SPECS
         mech = spec.mechanism
-        m = M.catalytic(mech)
+        m = mech.catalytic
         n = length(eachindex(m.steps))
         # Every mechanism turns the reaction over, and none at rapid equilibrium alone.
         @test (spec.name, M.has_turnover_cycle(m, trues(n))) == (spec.name, true)
@@ -119,7 +120,7 @@ end
               (spec.name, false)
         subsets = [[Int[]]; [[i] for i in 1:n]; [[i, j] for i in 1:n for j in (i + 1):n]]
         masks = [BitVector(k in s for k in 1:n) for s in subsets]
-        mech isa ER.AllostericMechanism &&
+        _testhelper_is_allosteric(mech) &&
             push!(masks, M.steps_in_active_conformation(mech),
                   M.steps_in_inactive_conformation(mech))
         for on in masks
@@ -149,8 +150,8 @@ end
     end
     on = BitVector(k in [_testhelper_edge(aq, t)
                          for t in ("E + A <--> EA", "EA + Q <--> EAQ", "EAQ <--> E")]
-                   for k in eachindex(aq.steps))
-    @test M.has_turnover_cycle(aq, on)
+                   for k in eachindex(aq.catalytic.steps))
+    @test M.has_turnover_cycle(aq.catalytic, on)
     b_only = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -165,10 +166,10 @@ end
     end
     on = BitVector(k in [_testhelper_edge(b_only, t)
                          for t in ("E + B <--> EB", "E <--> EB")]
-                   for k in eachindex(b_only.steps))
-    @test !M.has_turnover_cycle(b_only, on)
+                   for k in eachindex(b_only.catalytic.steps))
+    @test !M.has_turnover_cycle(b_only.catalytic, on)
     # A mask with fewer flags than steps is out of bounds.
-    @test_throws BoundsError M.has_turnover_cycle(aq, trues(2))
+    @test_throws BoundsError M.has_turnover_cycle(aq.catalytic, trues(2))
 end
 
 @testset "segments: a steady-state step inside a segment is no step of the graph" begin
@@ -189,9 +190,9 @@ end
             E(Q) <--> E + Q
         end
     end
-    every = trues(length(eachindex(m.steps)))
+    every = trues(length(eachindex(m.catalytic.steps)))
     text(k) = _testhelper_edge_text(m, k)
-    g = M.rapid_equilibrium_segments(m, every)
+    g = M.rapid_equilibrium_segments(m.catalytic, every)
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q).
     @test g.segments == [[1, 2, 3, 4], [5], [6]]
     # E + B <--> E(B) joins two forms of the first segment, so it is no step of the graph.
@@ -241,53 +242,56 @@ end
             E(Q) <--> E + Q
         end
     end
-    names(forms) = [ER.Mechanisms._form_name(m, f) for f in forms]
-    @test names(eachindex(m.nodes)) == ["E", "EP", "EPQ", "EQ", "ES"]
+    names(forms) = [ER.Mechanisms._form_name(m.catalytic, f) for f in forms]
+    @test names(eachindex(m.catalytic.nodes)) == ["E", "EP", "EPQ", "EQ", "ES"]
     # One edge per group, so the edges group by group are the edges in order.
-    @test [_testhelper_edge_text(m, k) for k in ER.Derivation._flat_edges(m)] ==
+    @test [_testhelper_edge_text(m, k) for k in ER.Derivation._flat_edges(m.catalytic)] ==
           ["E + P <--> EP", "E + Q <--> EQ", "E + S ⇌ ES", "EP + Q ⇌ EPQ", "EQ + P ⇌ EPQ",
            "ES <--> EPQ"]
     @test _testhelper_flags(m) == BitVector([0, 0, 1, 1, 1, 0])
-    @test [ER.Mechanisms._is_free(f) for f in m.nodes] == [true, false, false, false, false]
-    every = trues(length(m.steps))
-    @test ER.Mechanisms._present_species(m, every) == trues(5)
+    @test [ER.Mechanisms._is_free(f) for f in m.catalytic.nodes] ==
+          [true, false, false, false, false]
+    every = trues(length(m.catalytic.steps))
+    @test ER.Mechanisms._present_species(m.catalytic, every) == trues(5)
     # Each segment breadth-first from its first form; offsets per metabolite name (rows
     # P, Q, S) above the segment's lowest.
-    s = ER.Mechanisms.rapid_equilibrium_segments(m, every, _testhelper_flags(m))
+    s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, every, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
     @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
     # Every form of the second segment holds a product, so it has no bottom form.
     @test names(s.bottom) == ["EP", "EPQ", "EQ"]
     # The steady-state steps that join two segments, which are all of them here.
-    g = ER.Mechanisms.rapid_equilibrium_segments(m, every)
+    g = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, every)
     @test g.steps == [1, 2, 6]
     @test (g.segment_of, g.segments, g.offsets, g.bottom) ==
           (s.segment_of, s.segments, s.offsets, s.bottom)
     # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
     # {E(P), E(P, Q)}.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
-    @test ER.Mechanisms._present_species(m, no_p) == trues(5)
-    s = ER.Mechanisms.rapid_equilibrium_segments(m, no_p, _testhelper_flags(m))
+    @test ER.Mechanisms._present_species(m.catalytic, no_p) == trues(5)
+    s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, no_p, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
     @test isempty(s.bottom)
-    @test ER.Mechanisms.rapid_equilibrium_segments(m, no_p).steps == [1, 2, 6]
+    @test ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, no_p).steps == [1, 2, 6]
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
-    @test ER.Mechanisms._present_species(m, bindings) == BitVector([1, 1, 0, 1, 0])
-    s = ER.Mechanisms.rapid_equilibrium_segments(m, bindings, _testhelper_flags(m))
+    @test ER.Mechanisms._present_species(m.catalytic, bindings) ==
+          BitVector([1, 1, 0, 1, 0])
+    s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, bindings,
+                                                 _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E"], ["EP"], ["EQ"]]
     @test s.segment_of == [1, 2, 0, 3, 0]
-    @test ER.Mechanisms.rapid_equilibrium_segments(m, bindings).steps == [1, 2]
+    @test ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, bindings).steps == [1, 2]
     # `re` picks the edges that join segments: with none, each present form stands alone.
-    none = ER.Mechanisms.rapid_equilibrium_segments(m, every, falses(6))
+    none = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, every, falses(6))
     @test length(none.segments) == 5
     @test none.steps == 1:6
 
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
     # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
     # binding of A.
-    am = @_testhelper_unguarded @allosteric_mechanism begin
+    am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A
         products: P
         modifiers: I

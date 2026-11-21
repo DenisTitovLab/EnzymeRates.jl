@@ -36,12 +36,13 @@ _testhelper_topo_mech(rxn, t) = EnzymeRates.Enumeration._candidate(
 # over `rxn`'s names.
 _testhelper_form_names(rxn, t) =
     (m = _testhelper_topo_mech(rxn, t);
-     Set(Symbol(EnzymeRates.Mechanisms._form_name(m, f)) for f in eachindex(m.nodes)))
+     Set(Symbol(EnzymeRates.Mechanisms._form_name(m.catalytic, f))
+         for f in eachindex(m.catalytic.nodes)))
 
 # The names (`_form_name`) of the forms of graph `m` where `name` (its modifier copy when
 # `modifier` holds) is free on some edge (`_forms_where_free`).
 _testhelper_free_at(m, name, modifier = false) =
-    Set(EnzymeRates.Mechanisms._form_name(m, f)
+    Set(EnzymeRates.Mechanisms._form_name(m.catalytic, f)
         for f in findall(EnzymeRates.Enumeration._forms_where_free(_testhelper_candidate(m),
                                                                    name, modifier)))
 
@@ -51,7 +52,8 @@ _testhelper_free_at(m, name, modifier = false) =
 _testhelper_flat_topo(m) =
     (; forms = EnzymeRates.Enumeration._form_records(m),
      steps = [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
-                                          e.rapid_equilibrium, 0) for e in m.steps])
+                                          e.rapid_equilibrium, 0)
+              for e in m.catalytic.steps])
 
 # Connectivity invariant: two enzyme forms identical in conformation+residual
 # whose bound-metabolite sets differ by exactly one metabolite MUST be joined by
@@ -60,7 +62,7 @@ _testhelper_flat_topo(m) =
 # mechanism.
 _testhelper_connectivity_violations(m::EnzymeRates.Mechanism) =
     _testhelper_connectivity_violations(
-        (; forms = EnzymeRates.Enumeration._form_records(m), steps = m.steps))
+        (; forms = EnzymeRates.Enumeration._form_records(m), steps = m.catalytic.steps))
 function _testhelper_connectivity_violations(t)
     _bset(f) = Set(_testhelper_bound(f))
     _testhelper_key(f) = (f.label, f.adds, f.subtracts, Tuple(sort(collect(_bset(f)))))
@@ -120,7 +122,7 @@ end
 
 # The number of rapid-equilibrium segments of the catalytic graph of `m`.
 _testhelper_segment_count(m) =
-    (cm = EnzymeRates.Mechanisms.catalytic(m);
+    (cm = m.catalytic;
      EnzymeRates.Enumeration._re_segment_count(
          cm, _testhelper_flags(cm)))
 
@@ -137,27 +139,29 @@ end
 # Whether `child` keeps the reaction of `parent`: the same substrates and products, and
 # every modifier `parent` binds still bound.
 _testhelper_keeps_reaction(child, parent) =
-    EnzymeRates.Mechanisms.catalytic(child).substrates ==
-        EnzymeRates.Mechanisms.catalytic(parent).substrates &&
-    EnzymeRates.Mechanisms.catalytic(child).products ==
-        EnzymeRates.Mechanisms.catalytic(parent).products &&
-    EnzymeRates.Mechanisms.catalytic(parent).modifiers ⊆
-        EnzymeRates.Mechanisms.catalytic(child).modifiers
+    child.catalytic.substrates ==
+        parent.catalytic.substrates &&
+    child.catalytic.products ==
+        parent.catalytic.products &&
+    parent.catalytic.modifiers ⊆
+        child.catalytic.modifiers
 
 # Whether `m` holds an isomerization step. It reads the graph's steps, not
 # `_testhelper_graph`: the population tests call it on every child of two expansion
 # levels, where building the test reader each time would dominate their run time.
 _testhelper_holds_iso(m) =
-    any(EnzymeRates.Mechanisms._is_iso, EnzymeRates.Mechanisms.catalytic(m).steps)
+    any(EnzymeRates.Mechanisms._is_iso, m.catalytic.steps)
 
 # The rapid-equilibrium flags of each kinetic group's edges of `m`, group by group.
-_testhelper_group_flags(m) = (cm = EnzymeRates.Mechanisms.catalytic(m);
+_testhelper_group_flags(m) = (cm = m.catalytic;
                               [[cm.steps[k].rapid_equilibrium for k in ks]
                                for ks in cm.groups])
 
-# The steps of mechanism `m` apart from their kinetic groups: what a regrouping move keeps.
-_testhelper_ungrouped(m) =
-    [(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium) for e in m.steps]
+# The steps of mechanism or catalytic scheme `m` apart from their kinetic groups: what a
+# regrouping move keeps.
+_testhelper_ungrouped(m::EnzymeRates.Mechanism) = _testhelper_ungrouped(m.catalytic)
+_testhelper_ungrouped(c::EnzymeRates.Mechanisms.CatalyticScheme) =
+    [(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium) for e in c.steps]
 
 # The kinetic groups of `m` whose steps are isomerizations.
 _testhelper_iso_groups(m) =
@@ -179,8 +183,9 @@ _testhelper_is_tc(e) = !isempty(e.taken_up) && !isempty(e.given_off)
 # `preds` turned steady state.
 function _testhelper_flip_flags(m, preds...)
     re = _testhelper_flags(m)
-    hit = EnzymeRates.Enumeration._groups_with(k -> any(p -> p(m.steps[k]), preds), m)
-    re[hit[[e.group for e in m.steps]]] .= false
+    hit = EnzymeRates.Enumeration._groups_with(
+        k -> any(p -> p(m.catalytic.steps[k]), preds), m.catalytic)
+    re[hit[[e.group for e in m.catalytic.steps]]] .= false
     re
 end
 
@@ -197,26 +202,27 @@ _testhelper_flip_matching(m, preds...) =
 function _testhelper_base(m, steps)
     g = EnzymeRates.Enumeration._trimmed(EnzymeRates.Enumeration._form_records(m),
                                          EnzymeRates.Enumeration._numbered_groups(steps))
-    EnzymeRates.Enumeration._candidate(m.substrates, m.products, g.forms, g.steps).mechanism
+    EnzymeRates.Enumeration._candidate(m.catalytic.substrates, m.catalytic.products,
+                                       g.forms, g.steps).mechanism
 end
 
 # The bases of the seed `m` (`_seed_bases`), each built through the checked constructor as
 # a seed variant builds it.
 _testhelper_bases(m) =
-    [EnzymeRates.Enumeration._candidate(m.substrates, m.products, b.forms,
-                                        b.steps).mechanism
+    [EnzymeRates.Enumeration._candidate(m.catalytic.substrates, m.catalytic.products,
+                                        b.forms, b.steps).mechanism
      for b in EnzymeRates.Enumeration._seed_bases(_testhelper_candidate(m))]
 
 # The productive twins of graph `m` over its whole graph (`_productive_twin`).
-_testhelper_twin(m) = EnzymeRates.Enumeration._productive_twin(_testhelper_candidate(m),
-                                                               trues(length(m.steps)))
+_testhelper_twin(m) = EnzymeRates.Enumeration._productive_twin(
+    _testhelper_candidate(m), trues(length(m.catalytic.steps)))
 
 # A kinetic group is catalytic iff it holds a chemistry step (any `step_kind` but
 # `:binding`: an isomerization, a fused binding or a Theorell–Chance step); otherwise it
 # is a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
 # whether a group's `:OnlyA` flip needs a paired regulator to be distinguishable.
 _testhelper_is_catalytic_group(m, g) =
-    (cm = EnzymeRates.Mechanisms.catalytic(m);
+    (cm = m.catalytic;
      any(k -> cm.step_kinds[k] !== :binding,
          findall(e -> e.group == g, cm.steps)))
 
@@ -315,7 +321,7 @@ selection) so Δ=0 expansion children (same param count as the parent) are
 not lost.
 """
 function _testhelper_enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
-    M = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+    M = EnzymeRates.Mechanism
     actual(m) = _testhelper_fitted(m)
     frontier = Dict{Int, Vector{M}}()
     function _testhelper_add!(m)
@@ -398,7 +404,8 @@ end
     @test m_orderA == snapshot[1]
     @test m_split  == snapshot[2]
     @test m_orderB == snapshot[3]
-    @test (m_orderA.nodes, m_orderA.steps) == (snapshot[1].nodes, snapshot[1].steps)
+    @test (m_orderA.catalytic.nodes, m_orderA.catalytic.steps) ==
+          (snapshot[1].catalytic.nodes, snapshot[1].catalytic.steps)
 end
 
 @testset "_testhelper_assert_mechanism_invariants: coverage of every reactant" begin
@@ -427,7 +434,7 @@ end
             E(P) ⇌ E + P
         end
     end)
-    m_unused =
+    m_unused = _testhelper_plain_of(
         _testhelper_canonicalize(EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: S, T
         products: P
@@ -436,7 +443,7 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end), false)).mechanism
+    end))).scheme)
     @test_throws(ErrorException("declared substrate/product T appears in no step"),
                  _testhelper_assert_mechanism_invariants(m_unused))
 end
@@ -555,8 +562,8 @@ end
     # Each topology's first isomerization in that order is its steady-state step.
     function _testhelper_iso_texts(t)
         m = _testhelper_topo_mech(ter_bi_rxn, t)
-        sort([join(m.step_sides[k],
-                   e.rapid_equilibrium ? " ⇌ " : " <--> ") for (k, e) in enumerate(m.steps)
+        sort([join(m.catalytic.step_sides[k], e.rapid_equilibrium ? " ⇌ " : " <--> ")
+              for (k, e) in enumerate(m.catalytic.steps)
               if EnzymeRates.Mechanisms._is_iso(e)])
     end
     @test unique(_testhelper_iso_texts.(
@@ -1063,7 +1070,7 @@ _testhelper_binds_both(m, f) = :A in _testhelper_reactant_names(m, f) &&
                                :P in _testhelper_reactant_names(m, f)
 @test !any(_testhelper_binds_both(m, f)
            for m in _testhelper_mechanisms(
-               EnzymeRates.Enumeration.init_mechanisms(rxn)) for f in m.nodes)
+               EnzymeRates.Enumeration.init_mechanisms(rxn)) for f in m.catalytic.nodes)
 end
 
 @testset "shared_catalytic_site strictly reduces mechanism count" begin
@@ -1094,7 +1101,7 @@ end
 # P binding (RE, :NonequalAI), iso (SS, :OnlyA). The :OnlyA sits on
 # the chemical step (dropped from the Haldane graph), so the mechanism
 # is Haldane-valid with no one-sided :OnlyA binding.
-m_compiled = @allosteric_mechanism begin
+m_compiled = @enzyme_mechanism begin
     substrates: S
     products: P
     oligomeric_state: 2
@@ -1139,7 +1146,7 @@ uu, ub, bb, pp = (_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms
         @test all(isempty(_testhelper_connectivity_violations(m)) for m in specs)
         for s in specs
             if _testhelper_holds_iso(s)
-                @test count(e -> !e.rapid_equilibrium, s.steps) == 1
+                @test count(e -> !e.rapid_equilibrium, s.catalytic.steps) == 1
             else
                 @test count(fs -> !first(fs), _testhelper_group_flags(s)) in (2, 3)
             end
@@ -1190,9 +1197,9 @@ end
 @testset "init_mechanisms: the seeds, then their merged and Theorell–Chance variants" begin
     ER = EnzymeRates
     function _testhelper_kind(m)
-        tc = any(_testhelper_is_tc, m.steps)
-        fused = any(k -> m.step_kinds[k] === :fused_binding,
-                    eachindex(m.steps))
+        tc = any(_testhelper_is_tc, m.catalytic.steps)
+        fused = any(k -> m.catalytic.step_kinds[k] === :fused_binding,
+                    eachindex(m.catalytic.steps))
         (tc ? (fused ? :half_tc : :tc) : :merged,
          count(fs -> !first(fs), _testhelper_group_flags(m)))
     end
@@ -1272,7 +1279,7 @@ end
     @test Set(ub[4:7]) == Set([ordered_p, ordered_q, random_p, random_q])
     for seed in ub[1:3]
         @test length(_testhelper_move(ER._seed_variants, seed, uni_bi_rxn)) ==
-              (length(seed.steps) == 4 ? 1 : 2)
+              (length(seed.catalytic.steps) == 4 ? 1 : 2)
     end
     for v in ub[4:7]
         fitted = _testhelper_fitted(v)
@@ -1649,7 +1656,7 @@ end
         products: P[C], Q[N]
         oligomeric_state: 2
     end
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -1661,7 +1668,7 @@ end
     end
     @test am in _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, seed, rxn2)
     @test isempty(EnzymeRates.Enumeration._chain_flank_groups(am))
-    a_flip = @allosteric_mechanism begin
+    a_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: OnlyA
@@ -1671,7 +1678,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    b_flip = @allosteric_mechanism begin
+    b_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -1681,7 +1688,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    p_flip = @allosteric_mechanism begin
+    p_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -1691,7 +1698,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    q_flip = @allosteric_mechanism begin
+    q_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -1729,13 +1736,13 @@ end
             Estar(B) ⇌ E(Q)
         end
     end
-    members = m.groups
+    members = m.catalytic.groups
     flanks = Set(members[g] for g in EnzymeRates.Enumeration._chain_flank_groups(m))
     @test length(flanks) == 2
     @test all(ks -> length(ks) == 1 &&
-              EnzymeRates.Mechanisms._is_binding(m.steps[only(ks)]),
+              EnzymeRates.Mechanisms._is_binding(m.catalytic.steps[only(ks)]),
               flanks)
-    @test Set(only(m.steps[only(ks)].taken_up).name
+    @test Set(only(m.catalytic.steps[only(ks)].taken_up).name
               for ks in flanks) == Set([:A, :P])
 end
 
@@ -1791,7 +1798,7 @@ end
     # 1. count: 5 all-RE groups, of which A and P are chain flanks → 3 variants.
     @test length(result) == 3
     for r in result
-        @test r isa EnzymeRates.Mechanism
+        @test !_testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
     end
 
@@ -1868,7 +1875,7 @@ end
     result = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
     @test length(result) == 4
     for r in result
-        @test r isa EnzymeRates.Mechanism
+        @test !_testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
         @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
@@ -1917,7 +1924,7 @@ end
         # :EqualAI groups. Each converted group stays :EqualAI (RE K → SS (kf, kr),
         # shared R/T). Cheap-tag RE→SS adds 1 fitted param per variant (no separate
         # T-state pair).
-        ((@allosteric_mechanism begin
+        ((@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -1927,7 +1934,7 @@ end
                 E(S) <--> E(P)    :: EqualAI
             end
         end), [1, 1], [
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -1937,7 +1944,7 @@ end
                     E(S) <--> E(P)    :: EqualAI
                 end
             end),
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -1959,7 +1966,7 @@ end
         # every variant, so flipping a binding group RE→SS adds only that group's own SS
         # rate constant (+1) — it does not introduce a new inactive-state form. Both
         # variants → Δ=1.
-        ((@allosteric_mechanism begin
+        ((@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -1969,7 +1976,7 @@ end
                 E(S) <--> E(P)    :: EqualAI
             end
         end), [1, 1], [
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -1979,7 +1986,7 @@ end
                     E(S) <--> E(P)    :: EqualAI
                 end
             end),
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -1993,7 +2000,7 @@ end
         # :NonequalAI group, BOTH the R-state K and the T-state K_T must split into
         # (kf, kr) and (kf_T, kr_T): P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
         # SS :NonequalAI adds kf_T, kr_T on top of the R-state pair.
-        ((@allosteric_mechanism begin
+        ((@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -2003,7 +2010,7 @@ end
                 E(S) <--> E(P)    :: EqualAI
             end
         end), [1, 2], [
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -2013,7 +2020,7 @@ end
                     E(S) <--> E(P)    :: EqualAI
                 end
             end),
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -2027,7 +2034,7 @@ end
         # first entry above, is a model-space no-op that is never enumerated; the move is
         # still tested on it). :NonequalAI RE→SS adds 2 fitted params per variant (the A-
         # and I-state binding K each split into (kf, kr)).
-        ((@allosteric_mechanism begin
+        ((@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -2037,7 +2044,7 @@ end
                 E(S) <--> E(P)  :: NonequalAI
             end
         end), [2, 2], [
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -2047,7 +2054,7 @@ end
                     E(S) <--> E(P)    :: NonequalAI
                 end
             end),
-            allo(@allosteric_mechanism begin
+            allo(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 oligomeric_state: 2
@@ -2070,9 +2077,9 @@ end
             n_newly_ss = count(((old, new),) -> all(old) && !any(new),
                                zip(_testhelper_group_flags(am), _testhelper_group_flags(r)))
             @test n_newly_ss == 1
-            @test r.allosteric_states == am.allosteric_states
-            @test r.oligomeric_state == am.oligomeric_state
-            @test r.regulatory_sites == am.regulatory_sites
+            @test r.allosteric.allosteric_states == am.allosteric.allosteric_states
+            @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+            @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
             @test _testhelper_keeps_reaction(r, am)
         end
     end
@@ -2181,7 +2188,7 @@ end
     # All four groups A, B, P and Q flip: an allosteric mechanism has no chain
     # flanks (`_chain_flank_groups`). Every child keeps one `:OnlyA` group, the
     # chemistry, and the multiplicity and (empty) regulatory sites.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -2197,7 +2204,7 @@ end
     end
     lift(em) = em
     expected = [
-        lift(@allosteric_mechanism begin
+        lift(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             modifiers: A
@@ -2211,7 +2218,7 @@ end
                 (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
             end
         end),
-        lift(@allosteric_mechanism begin
+        lift(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             modifiers: A
@@ -2225,7 +2232,7 @@ end
                 (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
             end
         end),
-        lift(@allosteric_mechanism begin
+        lift(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             modifiers: A
@@ -2239,7 +2246,7 @@ end
                 (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
             end
         end),
-        lift(@allosteric_mechanism begin
+        lift(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             modifiers: A
@@ -2262,13 +2269,13 @@ end
         @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
     for r in kids
-        @test count(==(:OnlyA), r.allosteric_states) == 1
-        onlya = findfirst(==(:OnlyA), r.allosteric_states)
+        @test count(==(:OnlyA), r.allosteric.allosteric_states) == 1
+        onlya = findfirst(==(:OnlyA), r.allosteric.allosteric_states)
         cm = r.catalytic
         @test EnzymeRates.Mechanisms._is_iso(
             cm.steps[findfirst(e -> e.group == onlya, cm.steps)])
-        @test r.oligomeric_state == am.oligomeric_state
-        @test r.regulatory_sites == am.regulatory_sites
+        @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+        @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
         @test _testhelper_keeps_reaction(r, am)
     end
 end
@@ -2287,7 +2294,7 @@ end
     # child whose catalytic scheme carries a concentration power, and the
     # random-order pair flip would carry B². The three children flip the P
     # binding, the B binding, or the A binding with its mirror.
-    m = EnzymeRates.@allosteric_mechanism begin
+    m = EnzymeRates.@enzyme_mechanism begin
         substrates: A, B
         products: P
         modifiers: I
@@ -2303,7 +2310,7 @@ end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
     expected = [
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P
             modifiers: I
@@ -2317,7 +2324,7 @@ end
                 E(I) + A ⇌ E(A, I)    :: EqualAI
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P
             modifiers: I
@@ -2331,7 +2338,7 @@ end
                 E(I) + A ⇌ E(A, I)    :: EqualAI
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P
             modifiers: I
@@ -2402,23 +2409,23 @@ end
     base = EnzymeRates.Derivation.fitted_parameter_count(m)
     for r in result
         @test EnzymeRates.Derivation.fitted_parameter_count(r) > base
-        @test r isa EnzymeRates.Mechanism
+        @test !_testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
         @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
-        @test length(r.steps) == length(m.steps)
+        @test length(r.catalytic.steps) == length(m.catalytic.steps)
         @test _testhelper_keeps_reaction(r, m)
     end
     # The SS A-binding group has no equilibrium constant to tie, so its
     # context split by B gains alone and is emitted as a single split.
     _testhelper_lone_ss_a(r, ks) =
-        length(ks) == 1 && !r.steps[only(ks)].rapid_equilibrium &&
-        only(r.steps[only(ks)].taken_up).name == :A
+        length(ks) == 1 && !r.catalytic.steps[only(ks)].rapid_equilibrium &&
+        only(r.catalytic.steps[only(ks)].taken_up).name == :A
     a_split =
         [r for r in result
-         if length(r.groups) ==
-                length(m.groups) + 1 &&
+         if length(r.catalytic.groups) ==
+                length(m.catalytic.groups) + 1 &&
              any(ks -> _testhelper_lone_ss_a(r, ks),
-                 r.groups)]
+                 r.catalytic.groups)]
     @test length(a_split) == 1
 end
 
@@ -2427,7 +2434,7 @@ end
     # :NonequalAI. Splitting this group costs more parameters than
     # splitting a :EqualAI RE group (factor 2 for SS pair × factor 2
     # for R/T-state pair).
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -2447,7 +2454,7 @@ end
     # the P and Q groups divide only together, each by the other product. Each part
     # keeps its group's tag.
     expected = [
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
             oligomeric_state: 2
@@ -2460,7 +2467,7 @@ end
                 E(A, B) <--> E(P, Q)                :: EqualAI
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
             oligomeric_state: 2
@@ -2497,7 +2504,7 @@ end
 
     # 3. compilability
     for r in result
-        @test r isa EnzymeRates.AllostericMechanism
+        @test _testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
         @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
@@ -2508,17 +2515,18 @@ end
     # keeps its own. Group ORDER is canonical (not source-preserved), so match each
     # result group to its parent by step content rather than by position.
     for r in result
-        @test length(r.allosteric_states) == length(r.catalytic.groups)
+        @test length(r.allosteric.allosteric_states) == length(r.catalytic.groups)
         @test _testhelper_ungrouped(r.catalytic) == _testhelper_ungrouped(cm)
         for (k, g) in enumerate(e.group for e in r.catalytic.steps)
-            @test r.allosteric_states[g] == am.allosteric_states[cm.steps[k].group]
+            @test r.allosteric.allosteric_states[g] ==
+                  am.allosteric.allosteric_states[cm.steps[k].group]
         end
     end
 
     # 5. preservation
     for r in result
-        @test r.oligomeric_state == am.oligomeric_state
-        @test r.regulatory_sites == am.regulatory_sites
+        @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+        @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
         @test _testhelper_keeps_reaction(r, am)
     end
 end
@@ -2545,7 +2553,7 @@ end
     # group alone may be tied back by that cycle. Tag inheritance is
     # covered by "AllostericMechanism — SS multi-step :NonequalAI
     # split" above.
-    m_seed = @allosteric_mechanism begin
+    m_seed = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -2773,7 +2781,7 @@ end
     # polynomial, at the parent's count, so the split gains nothing and is not emitted.
     # The move emits the two splits that gain, the P group by B and the A group by P, and
     # candidate_mechanisms keeps them beside the other moves' children.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -2794,7 +2802,7 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end
-    p_by_a = @allosteric_mechanism begin
+    p_by_a = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -2815,7 +2823,7 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end
-    p_by_b = @allosteric_mechanism begin
+    p_by_b = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -2836,7 +2844,7 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end
-    a_by_p = @allosteric_mechanism begin
+    a_by_p = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -2892,7 +2900,7 @@ end
     # without deriving its law, so the move weighs every split against that count: the A
     # group split by P and the remaining P group split by B gain, and candidate_mechanisms
     # keeps them beside the other moves' children.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -2913,7 +2921,7 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end
-    a_by_p = @allosteric_mechanism begin
+    a_by_p = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -2935,7 +2943,7 @@ end
             E + Q <--> E(Q)                                         :: EqualAI
         end
     end
-    p_by_b = @allosteric_mechanism begin
+    p_by_b = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
@@ -3001,7 +3009,7 @@ end
     # relaxations. Four split sets raise the count, but the split search asks the guard on
     # each child, so they count as failed, and no superset passes: the move emits no
     # split.
-    am = @_testhelper_unguarded @allosteric_mechanism begin
+    am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -3019,7 +3027,7 @@ end
     @test D._face_names(am.catalytic, D._faces(am.catalytic)[v.face]) == [:P, :Q]
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(2922)))
     msg = D._guard_message(am)
-    @test_throws ErrorException(msg) @allosteric_mechanism begin
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -3030,7 +3038,7 @@ end
             E(Q) + A <--> E(A, Q)                                            :: EqualAI
         end
     end
-    p_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q))                        :: OnlyA
@@ -3040,7 +3048,7 @@ end
             E(Q) + A <--> E(A, Q)                                           :: EqualAI
         end
     end
-    q_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q))                        :: OnlyA
@@ -3050,7 +3058,7 @@ end
             E(Q) + A <--> E(A, Q)                                           :: EqualAI
         end
     end
-    qa_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    qa_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q))                        :: OnlyA
@@ -3089,7 +3097,7 @@ end
     # move emits nothing, and the exit drops the four relaxations. Six split sets raise the
     # count, but the split search asks the guard on each child, so they count as failed,
     # and no superset passes: the move emits no split.
-    am = @_testhelper_unguarded @allosteric_mechanism begin
+    am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I
@@ -3109,7 +3117,7 @@ end
     @test D._face_names(am.catalytic, D._faces(am.catalytic)[v.face]) == [:P, :Q]
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(95)))
     msg = D._guard_message(am)
-    @test_throws ErrorException(msg) @allosteric_mechanism begin
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I
@@ -3127,7 +3135,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: I
     end
-    i_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    i_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
@@ -3138,7 +3146,7 @@ end
             E(P) + A <--> E(A, P)                                           :: EqualAI
         end
     end
-    p_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
@@ -3149,7 +3157,7 @@ end
             E(P) + A <--> E(A, P)                                           :: EqualAI
         end
     end
-    q_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
@@ -3160,7 +3168,7 @@ end
             E(P) + A <--> E(A, P)                                           :: EqualAI
         end
     end
-    pa_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    pa_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
@@ -3202,8 +3210,9 @@ end
         [(t = copy(vt); t[s] .= :OnlyA; t)
          for s in EnzymeRates.Enumeration._subsets(findall(!, chem))[2:end]]
     end
-    parents = unique(EnzymeRates.AllostericMechanism[
-        EnzymeRates.AllostericMechanism(c, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])
+    parents = unique(EnzymeRates.Mechanism[
+        EnzymeRates.Mechanism(c.catalytic, EnzymeRates.Mechanisms.Allostery(
+            t, 1, EnzymeRates.Mechanisms.RegulatorySite[]))
         for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(bi_bi_rxn))
         for c in _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m)
         for t in _testhelper_unfiltered_tags(c)])[1:10:end]
@@ -3250,7 +3259,7 @@ end
     # does the same for the P and Q groups, so splitting the P group by A or by Q gains
     # nothing alone; with the A or the Q group split too, it gains one. The move emits
     # those three children, each fitting as many constants as its dimension.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -3262,7 +3271,7 @@ end
             E(A, B) <--> E(P, Q)                                        :: OnlyA
         end
     end
-    b_by_q = @allosteric_mechanism begin
+    b_by_q = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -3275,7 +3284,7 @@ end
             E(Q) + B ⇌ E(B, Q)                                          :: EqualAI
         end
     end
-    a_by_p_and_p_by_a = @allosteric_mechanism begin
+    a_by_p_and_p_by_a = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -3289,7 +3298,7 @@ end
             E(P) + A ⇌ E(A, P)                                          :: OnlyA
         end
     end
-    q_by_p_and_p_by_q = @allosteric_mechanism begin
+    q_by_p_and_p_by_q = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -3303,7 +3312,7 @@ end
             E(Q) + P ⇌ E(P, Q)                                          :: EqualAI
         end
     end
-    p_by_a = @allosteric_mechanism begin
+    p_by_a = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -3316,7 +3325,7 @@ end
             E(A, B) <--> E(P, Q)                                        :: OnlyA
         end
     end
-    p_by_q = @allosteric_mechanism begin
+    p_by_q = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -3780,10 +3789,11 @@ end
         end
     end
     @test EnzymeRates.Enumeration._redundant_copy_groups(_testhelper_candidate(dropped)) ==
-          [dropped.steps[_testhelper_edge(dropped, "E + Amod ⇌ EAmod")].group]
+          [dropped.catalytic.steps[_testhelper_edge(dropped, "E + Amod ⇌ EAmod")].group]
     # The child's metabolite entries hold the copy beside A, before those of B, P and Q.
-    @test [x.name for x in EnzymeRates.Mechanisms._table(parent)] == [:A, :B, :P, :Q]
-    @test all(k -> [x.name for x in EnzymeRates.Mechanisms._table(k)] ==
+    @test [x.name for x in EnzymeRates.Mechanisms._table(parent.catalytic)] ==
+          [:A, :B, :P, :Q]
+    @test all(k -> [x.name for x in EnzymeRates.Mechanisms._table(k.catalytic)] ==
                    [:A, :A, :B, :P, :Q], kids)
 end
 
@@ -3857,7 +3867,7 @@ end
 
     # Pick variant where I1 binds at multiple forms.
     multi = filter(result1) do r
-        i1_forms = Set(e.to for e in r.steps
+        i1_forms = Set(e.to for e in r.catalytic.steps
                        if EnzymeRates.Mechanisms._is_binding(e) &&
                           only(e.taken_up).name === :I1)
         length(i1_forms) >= 2
@@ -3875,7 +3885,7 @@ end
     # coexist with I1 (fully-competing). Each form's bound names, read
     # off the variant's graph.
     _testhelper_bound_names(r) =
-        [Set(x.name for x in f.bound) for f in r.nodes]
+        [Set(x.name for x in f.bound) for f in r.catalytic.nodes]
     has_coexist = any(result2) do r
         any(b -> :I1 in b && :I2 in b, _testhelper_bound_names(r))
     end
@@ -4007,8 +4017,8 @@ end
         @test any(s -> _testhelper_is_binding(s) && only(s.consumed) === :A &&
                        only(s.consumed_modifier),
                   _testhelper_first_steps(_testhelper_graph(r)))
-        @test length(r.groups) ==
-              length(m.groups) + 1
+        @test length(r.catalytic.groups) ==
+              length(m.catalytic.groups) + 1
         fitted = _testhelper_fitted(r)
         @test fitted == base_fitted + 1
         @test fitted == _testhelper_identifiable_rank(r)
@@ -4766,7 +4776,7 @@ end
         competitive_inhibitors: S
         oligomeric_state: 2
     end
-    onlya = @allosteric_mechanism begin
+    onlya = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -4776,7 +4786,7 @@ end
             E + P ⇌ E(P)      :: EqualAI
         end
     end
-    kept = @allosteric_mechanism begin
+    kept = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4795,7 +4805,7 @@ end
     @test _testhelper_identifiable_rank(kept) == _testhelper_identifiable_rank(onlya) + 1
     @test isempty(
         EnzymeRates.Enumeration._redundant_copy_groups(_testhelper_candidate(kept)))
-    nonequal = @allosteric_mechanism begin
+    nonequal = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -4820,7 +4830,7 @@ end
         competitive_inhibitors: S
         oligomeric_state: 2
     end
-    dead_inactive = @allosteric_mechanism begin
+    dead_inactive = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -4830,7 +4840,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end
-    kept = @allosteric_mechanism begin
+    kept = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4865,7 +4875,7 @@ end
     # constant per state, duplicates E(S) in the active state and is new in the
     # inactive one, so it keeps one phantom, its active-state constant; the copy rule
     # keeps such a `:NonequalAI` copy.
-    kept = @allosteric_mechanism begin
+    kept = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4877,7 +4887,7 @@ end
             E + S::Mod ⇌ E(S::Mod)      :: EqualAI
         end
     end
-    relaxed_p = @allosteric_mechanism begin
+    relaxed_p = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4889,7 +4899,7 @@ end
             E + S::Mod ⇌ E(S::Mod)      :: EqualAI
         end
     end
-    relaxed_copy = @allosteric_mechanism begin
+    relaxed_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4901,7 +4911,7 @@ end
             E + S::Mod ⇌ E(S::Mod)      :: NonequalAI
         end
     end
-    relaxed_s = @allosteric_mechanism begin
+    relaxed_s = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -4971,7 +4981,7 @@ end
     # :I dead-end, :R allosteric. The move must (a) exclude :R from
     # eligible regs (allosteric ligand), (b) append the new dead-end
     # group's allosteric_states tag as :EqualAI.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -5009,7 +5019,7 @@ end
 
     # 3. compilability
     for r in result
-        @test r isa EnzymeRates.AllostericMechanism
+        @test _testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
         @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
@@ -5019,21 +5029,22 @@ end
     for r in result
         @test length(r.catalytic.groups) ==
               length(am.catalytic.groups) + 1
-        @test length(r.allosteric_states) == length(am.allosteric_states) + 1
+        @test length(r.allosteric.allosteric_states) ==
+              length(am.allosteric.allosteric_states) + 1
         # The new group's tag is :EqualAI (appended at the end by the
         # AllostericMechanism wrap kernel).
-        @test r.allosteric_states[end] == :EqualAI
+        @test r.allosteric.allosteric_states[end] == :EqualAI
         # Pre-existing tags preserved positionally.
-        @test r.allosteric_states[1:length(am.allosteric_states)] ==
-            am.allosteric_states
+        @test r.allosteric.allosteric_states[1:length(am.allosteric.allosteric_states)] ==
+            am.allosteric.allosteric_states
     end
 
     # 5. preservation: oligomeric_state and regulatory_sites
     # unchanged (dead-end add does not touch the regulatory-site
     # vector).
     for r in result
-        @test r.oligomeric_state == am.oligomeric_state
-        @test r.regulatory_sites == am.regulatory_sites
+        @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+        @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
     end
 end
 
@@ -5041,7 +5052,7 @@ end
     # Rxn declares only :R as an allosteric regulator
     # (no dead-end inhibitors); all declared regulators are
     # allosteric ligands → eligible_regs is empty → result is empty.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -5080,6 +5091,38 @@ end
 # 4. Allosteric expansion moves
 # ═══════════════════════════════════════════════════════════════════════
 
+# The allosteric-only moves read the parent's regulatory sites or allosteric states, which a
+# plain mechanism lacks.
+@testset "a move for one kind of mechanism refuses the other kind" begin
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+    end
+    plain = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)
+            E(S) <--> E(P)
+            E + P ⇌ E(P)
+        end
+    end
+    c = _testhelper_candidate(plain)
+    @test_throws(ArgumentError(
+        "_expand_add_allosteric_regulator: the mechanism is plain; the move adds a " *
+        "regulator to an allosteric one"),
+        EnzymeRates.Enumeration._expand_add_allosteric_regulator(c, rxn))
+    @test_throws(ArgumentError(
+        "_expand_change_allo_state: the mechanism is plain; the move relaxes the " *
+        "allosteric states of an allosteric one"),
+        EnzymeRates.Enumeration._expand_change_allo_state(c))
+    @test_throws(ArgumentError(
+        "_expand_merge_regulatory_sites: the mechanism is plain; the move merges the " *
+        "regulatory sites of an allosteric one"),
+        EnzymeRates.Enumeration._expand_merge_regulatory_sites(c))
+end
+
 # ─── _expand_to_allosteric ─────────────────────────────────────────────
 @testset "_expand_to_allosteric" begin
 
@@ -5116,7 +5159,7 @@ end
     # 1. count: every non-empty subset of the 4 binding groups is set
     # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
     # inactive conformation). 2^4 - 1 = 15 subsets, all admitted.
-    n_groups = length(m.groups)
+    n_groups = length(m.catalytic.groups)
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(result) == 15
@@ -5132,7 +5175,7 @@ end
     # all-:EqualAI baseline.
     for r in result
         _testhelper_assert_mechanism_invariants(r)
-        @test !all(==(:EqualAI), r.allosteric_states)
+        @test !all(==(:EqualAI), r.allosteric.allosteric_states)
     end
 end
 
@@ -5165,7 +5208,7 @@ end
         products: P[C], Q[NX]
         oligomeric_state: 2
     end
-    a_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    a_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                          :: OnlyA
@@ -5176,7 +5219,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                         :: EqualAI
         end
     end
-    p_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    p_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -5187,7 +5230,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                         :: EqualAI
         end
     end
-    ap_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    ap_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                          :: OnlyA
@@ -5198,7 +5241,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                         :: EqualAI
         end
     end
-    a_every = @_testhelper_unguarded @allosteric_mechanism begin
+    a_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5209,7 +5252,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    q_every = @_testhelper_unguarded @allosteric_mechanism begin
+    q_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5220,7 +5263,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    aq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    aq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5231,7 +5274,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    b_every = @_testhelper_unguarded @allosteric_mechanism begin
+    b_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5242,7 +5285,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    ab_every = @_testhelper_unguarded @allosteric_mechanism begin
+    ab_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5253,7 +5296,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    bq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5264,7 +5307,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    abq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5275,7 +5318,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    p_every = @_testhelper_unguarded @allosteric_mechanism begin
+    p_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5286,7 +5329,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    ap_every = @_testhelper_unguarded @allosteric_mechanism begin
+    ap_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5297,7 +5340,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    pq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    pq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5308,7 +5351,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    apq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    apq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5319,7 +5362,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    bp_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5330,7 +5373,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    abp_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5341,7 +5384,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    bpq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
@@ -5352,7 +5395,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    abpq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                       :: OnlyA
@@ -5375,7 +5418,8 @@ end
     for c in (a_half1, p_half1, ap_half1)
         v = EnzymeRates.Derivation._guard(c)
         names =
-            EnzymeRates.Derivation._face_names(m, EnzymeRates.Derivation._faces(m)[v.face])
+            EnzymeRates.Derivation._face_names(
+                m.catalytic, EnzymeRates.Derivation._faces(m.catalytic)[v.face])
         @test (v.fault, v.limit, names) == (EnzymeRates.Derivation._SPLIT,
                                             EnzymeRates.Derivation._LIMIT_DIFFER, [:A, :B])
     end
@@ -5383,7 +5427,7 @@ end
     @test all(_testhelper_is_valid, kept)
     @test !any(_testhelper_is_valid, setdiff(result, kept))
     @test Set(c for c in _testhelper_children(bi_bi_pp_allo_rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kept)
+              if _testhelper_is_allosteric(c)) == Set(kept)
     # Δ params: each kept child adds L only; every tag is :EqualAI or :OnlyA.
     @test _testhelper_param_deltas(m, kept) == fill(1, 5)
     foreach(_testhelper_assert_mechanism_invariants, kept)
@@ -5417,7 +5461,7 @@ end
         products: P[C], Q[NX]
         oligomeric_state: 2
     end
-    a_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    a_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5430,7 +5474,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
         end
     end
-    p_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    p_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5443,7 +5487,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
         end
     end
-    ap_half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    ap_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5456,7 +5500,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
         end
     end
-    a_every = @_testhelper_unguarded @allosteric_mechanism begin
+    a_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5469,7 +5513,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    q_every = @_testhelper_unguarded @allosteric_mechanism begin
+    q_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5482,7 +5526,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    aq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    aq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5495,7 +5539,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    b_every = @_testhelper_unguarded @allosteric_mechanism begin
+    b_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5508,7 +5552,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    ab_every = @_testhelper_unguarded @allosteric_mechanism begin
+    ab_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5521,7 +5565,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    bq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5534,7 +5578,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    abq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5547,7 +5591,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    p_every = @_testhelper_unguarded @allosteric_mechanism begin
+    p_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5560,7 +5604,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    ap_every = @_testhelper_unguarded @allosteric_mechanism begin
+    ap_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5573,7 +5617,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    pq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    pq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5586,7 +5630,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    apq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    apq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5599,7 +5643,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    bp_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5612,7 +5656,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    abp_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5625,7 +5669,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    bpq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -5638,7 +5682,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
         end
     end
-    abpq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A), E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
@@ -5664,7 +5708,7 @@ end
               _testhelper_candidate.([a_half1, p_half1, ap_half1]))
     @test !any(_testhelper_is_valid, [a_half1, p_half1, ap_half1])
     @test Set(c for c in _testhelper_children(rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kept)
+              if _testhelper_is_allosteric(c)) == Set(kept)
 end
 
 @testset "Mechanism — the tagging move drops a K-type whose law is not hyperbolic" begin
@@ -5695,7 +5739,7 @@ end
         products: P[C], Q[N]
         oligomeric_state: 2
     end
-    k_pe = @_testhelper_unguarded @allosteric_mechanism begin
+    k_pe = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5705,7 +5749,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_qe = @_testhelper_unguarded @allosteric_mechanism begin
+    k_qe = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5715,7 +5759,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_q_ep = @allosteric_mechanism begin
+    k_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5725,7 +5769,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_p_eq = @allosteric_mechanism begin
+    k_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5735,7 +5779,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_pe_qe = @allosteric_mechanism begin
+    k_pe_qe = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5745,7 +5789,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_pe_q_ep = @allosteric_mechanism begin
+    k_pe_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5755,7 +5799,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_pe_p_eq = @allosteric_mechanism begin
+    k_pe_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5765,7 +5809,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_qe_q_ep = @allosteric_mechanism begin
+    k_qe_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5775,7 +5819,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_qe_p_eq = @allosteric_mechanism begin
+    k_qe_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5785,7 +5829,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_q_ep_p_eq = @allosteric_mechanism begin
+    k_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5795,7 +5839,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_pe_qe_q_ep = @allosteric_mechanism begin
+    k_pe_qe_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5805,7 +5849,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_pe_qe_p_eq = @allosteric_mechanism begin
+    k_pe_qe_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5815,7 +5859,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_pe_q_ep_p_eq = @allosteric_mechanism begin
+    k_pe_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5825,7 +5869,7 @@ end
             E + Q ⇌ E(Q)             :: EqualAI
         end
     end
-    k_qe_q_ep_p_eq = @allosteric_mechanism begin
+    k_qe_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5835,7 +5879,7 @@ end
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    k_pe_qe_q_ep_p_eq = @allosteric_mechanism begin
+    k_pe_qe_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + S <--> E(P, Q)       :: OnlyA
@@ -5862,11 +5906,11 @@ end
             _testhelper_candidate(m),
             EnzymeRates.Mechanisms.steps_in_inactive_conformation(dropped))
         v = EnzymeRates.Derivation._guard(dropped)
-        @test (v.fault, EnzymeRates.Mechanisms.step_text(m, v.edge)) ==
+        @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
               (EnzymeRates.Derivation._FAST_STEP_PINNED, step)
     end
     @test Set(c for c in _testhelper_children(rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kids)
+              if _testhelper_is_allosteric(c)) == Set(kids)
 end
 
 @testset "Mechanism — uni-uni: binding-group :OnlyA variants only" begin
@@ -5884,7 +5928,7 @@ end
             E + P ⇌ E(P)
         end
     end
-    only_s = @allosteric_mechanism begin
+    only_s = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -5894,7 +5938,7 @@ end
             E + P ⇌ E(P)      :: EqualAI
         end
     end
-    only_p = @allosteric_mechanism begin
+    only_p = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -5904,7 +5948,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end
-    both = @allosteric_mechanism begin
+    both = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -5947,7 +5991,7 @@ end
     # The S binding, the P binding, or both :OnlyA with the chemistry, at each
     # multiplicity.
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -5957,7 +6001,7 @@ end
                 E(P) ⇌ E + P    :: OnlyA
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -5967,7 +6011,7 @@ end
                 E(P) ⇌ E + P    :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -5977,7 +6021,7 @@ end
                 E(P) ⇌ E + P    :: OnlyA
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 4
@@ -5987,7 +6031,7 @@ end
                 E(P) ⇌ E + P    :: OnlyA
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 4
@@ -5997,7 +6041,7 @@ end
                 E(P) ⇌ E + P    :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 4
@@ -6010,12 +6054,12 @@ end
     ]
     @test length(allo) == 6
     @test Set(allo) == Set(expected)
-    mults = Set(am.oligomeric_state for am in allo)
+    mults = Set(am.allosteric.oligomeric_state for am in allo)
     @test mults == Set([2, 4])
 
     # No regulator declared → the binding-completion variant set (see the
     # uni-uni case: 3 variants) is emitted once per multiplicity.
-    n_groups = length(m.groups)
+    n_groups = length(m.catalytic.groups)
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(allo) == 2 * 3
@@ -6025,15 +6069,15 @@ end
     # :OnlyA, each with the chemical step :OnlyA) — :OnlyA counts 2, 2, 3.
     for cn in (2, 4)
         cn_variants = filter(
-            am -> am.oligomeric_state == cn, allo)
+            am -> am.allosteric.oligomeric_state == cn, allo)
         @test count(
-            am -> all(==(:EqualAI), am.allosteric_states),
+            am -> all(==(:EqualAI), am.allosteric.allosteric_states),
             cn_variants) == 0
         @test count(
-            am -> count(==(:OnlyA), am.allosteric_states) == 2,
+            am -> count(==(:OnlyA), am.allosteric.allosteric_states) == 2,
             cn_variants) == 2
         @test count(
-            am -> count(==(:OnlyA), am.allosteric_states) == 3,
+            am -> count(==(:OnlyA), am.allosteric.allosteric_states) == 3,
             cn_variants) == 1
     end
 end
@@ -6064,7 +6108,7 @@ end
                             uni_uni_allo_2reg)
     # Tags: the P binding, the S binding, the chemistry.
     ktypes_expected = [
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
@@ -6073,7 +6117,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
@@ -6082,7 +6126,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
@@ -6092,9 +6136,8 @@ end
             end
         end)]
     vtypes_expected = [
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
-            allosteric_regulators: R1
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6103,9 +6146,8 @@ end
             end
             regulatory_site(2): R1::OnlyA
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
-            allosteric_regulators: R1
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6114,9 +6156,8 @@ end
             end
             regulatory_site(2): R1::OnlyI
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6125,9 +6166,8 @@ end
             end
             regulatory_site(2): R2::OnlyA
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6144,7 +6184,7 @@ end
     @test all(vtypes_expected) do am
         cat_group = only(g for g in 1:length(am.catalytic.groups)
                          if _testhelper_is_catalytic_group(am, g))
-        am.allosteric_states[cat_group] == :OnlyA
+        am.allosteric.allosteric_states[cat_group] == :OnlyA
     end
 
     # A regulator already bound as a competitive inhibitor in the seed is
@@ -6171,7 +6211,7 @@ end
     # Tags: the P binding, the R1 binding, the S binding, the chemistry. Every binding
     # subset :OnlyA, R1's included, then R2 alone on a site.
     expected_ci = [
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6182,7 +6222,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6193,7 +6233,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6204,7 +6244,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6215,7 +6255,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6226,7 +6266,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6237,7 +6277,7 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
             oligomeric_state: 2
@@ -6248,10 +6288,9 @@ end
                 E(S) <--> E(P)  :: OnlyA
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6261,10 +6300,9 @@ end
             end
             regulatory_site(2): R2::OnlyA
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: S; products: P
             modifiers: R1
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6277,7 +6315,7 @@ end
     @test length(kids_ci) == 9
     @test Set(kids_ci) == Set(expected_ci)
     site_regs = Set(l for am in kids_ci
-                    for s in am.regulatory_sites
+                    for s in am.allosteric.regulatory_sites
                     for l in s.ligands)
     @test site_regs == Set([:R2])
 end
@@ -6297,7 +6335,7 @@ end
     end
     # The K-types: the S binding, the P binding, or both :OnlyA with the chemistry.
     k_types = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -6307,7 +6345,7 @@ end
                 E(P) ⇌ E + P    :: OnlyA
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -6317,7 +6355,7 @@ end
                 E(P) ⇌ E + P    :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -6330,10 +6368,9 @@ end
     ]
     # With R declared, also the V-types: the chemistry :OnlyA with R at a site.
     v_types = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)    :: EqualAI
@@ -6342,10 +6379,9 @@ end
             end
             regulatory_site(2): R::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)    :: EqualAI
@@ -6362,13 +6398,13 @@ end
         @test length(children) == length(expected)
         @test Set(children) == Set(expected)
         for am in children
-            states = am.allosteric_states
+            states = am.allosteric.allosteric_states
             @test !all(==(:EqualAI), states)
             binding_gs = [g for g in 1:length(states)
                           if !_testhelper_is_catalytic_group(base, g)]
             binding_non_equal = any(g -> states[g] != :EqualAI, binding_gs)
             @test binding_non_equal ||
-                !isempty(am.regulatory_sites)
+                !isempty(am.allosteric.regulatory_sites)
         end
     end
 end
@@ -6425,7 +6461,7 @@ end
     end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn_1_2)
     @test length(children) == 7
-    @test all(am -> am.oligomeric_state == 1, children)
+    @test all(am -> am.allosteric.oligomeric_state == 1, children)
     @test Set(children) == Set(
         _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn_1))
 end
@@ -6508,7 +6544,7 @@ end
     # one new site (0 existing reg sites) with each of the 3 non-:EqualAI tags. The
     # :EqualAI branch is gated to "existing site with ≥1 non-:EqualAI ligand", so it
     # does not apply.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
@@ -6529,9 +6565,8 @@ end
             allosteric_regulators: R
             oligomeric_state: 2
         end), :R, [
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: R
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6540,9 +6575,8 @@ end
                 end
                 regulatory_site(2): R::OnlyA
             end),
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: R
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6551,9 +6585,8 @@ end
                 end
                 regulatory_site(2): R::OnlyI
             end),
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: R
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6571,9 +6604,8 @@ end
             allosteric_regulators: S
             oligomeric_state: 2
         end), :S, [
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: S
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6582,9 +6614,8 @@ end
                 end
                 regulatory_site(2): S::OnlyA
             end),
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: S
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6593,9 +6624,8 @@ end
                 end
                 regulatory_site(2): S::OnlyI
             end),
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: S
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6612,9 +6642,8 @@ end
             allosteric_regulators: P
             oligomeric_state: 2
         end), :P, [
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: P
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6623,9 +6652,8 @@ end
                 end
                 regulatory_site(2): P::OnlyA
             end),
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: P
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6634,9 +6662,8 @@ end
                 end
                 regulatory_site(2): P::OnlyI
             end),
-            (@allosteric_mechanism begin
+            (@enzyme_mechanism begin
                 substrates: S; products: P
-                allosteric_regulators: P
                 oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P)    :: EqualAI
@@ -6661,22 +6688,22 @@ end
 
         # 3. each variant has exactly one regulatory site holding the single ligand x,
         # and the tags across the 3 variants are exactly {:OnlyA, :OnlyI, :NonequalAI}.
-        # The added site's multiplicity is am.oligomeric_state.
-        @test all(r -> length(r.regulatory_sites) == 1, result)
+        # The added site's multiplicity is am.allosteric.oligomeric_state.
+        @test all(r -> length(r.allosteric.regulatory_sites) == 1, result)
         @test Set((site.ligands,
                    collect(site.allosteric_states),
                    site.multiplicity)
-                  for r in result for site in r.regulatory_sites) == Set([
-            ([x], [:OnlyA],      am.oligomeric_state),
-            ([x], [:OnlyI],      am.oligomeric_state),
-            ([x], [:NonequalAI], am.oligomeric_state),
+                  for r in result for site in r.allosteric.regulatory_sites) == Set([
+            ([x], [:OnlyA],      am.allosteric.oligomeric_state),
+            ([x], [:OnlyI],      am.allosteric.oligomeric_state),
+            ([x], [:NonequalAI], am.allosteric.oligomeric_state),
         ])
 
         # 4. invariants and preservation: catalytic side and allosteric_states untouched.
         for r in result
             _testhelper_assert_mechanism_invariants(r)
-            @test r.oligomeric_state == am.oligomeric_state
-            @test r.allosteric_states == am.allosteric_states
+            @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+            @test r.allosteric.allosteric_states == am.allosteric.allosteric_states
             @test _testhelper_keeps_reaction(r, am)
         end
     end
@@ -6694,7 +6721,7 @@ end
         competitive_inhibitors: I
         oligomeric_state: 2
     end
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -6716,9 +6743,8 @@ end
     # (existing site has one
     # non-:EqualAI ligand). R2 is un-added; the :EqualAI-at-existing
     # branch fires because R1 qualifies.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: R1
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -6737,9 +6763,8 @@ end
     # on R1's :OnlyA site as :OnlyA, :NonequalAI or :EqualAI.
     allo(em) = em
     expected = [
-        allo(@allosteric_mechanism begin
+        allo(@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: R1, R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6749,9 +6774,8 @@ end
             regulatory_site(2): R1::OnlyA
             regulatory_site(2): R2::OnlyA
         end),
-        allo(@allosteric_mechanism begin
+        allo(@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: R1, R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6761,9 +6785,8 @@ end
             regulatory_site(2): R1::OnlyA
             regulatory_site(2): R2::OnlyI
         end),
-        allo(@allosteric_mechanism begin
+        allo(@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: R1, R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6773,9 +6796,8 @@ end
             regulatory_site(2): R1::OnlyA
             regulatory_site(2): R2::NonequalAI
         end),
-        allo(@allosteric_mechanism begin
+        allo(@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: R1, R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6784,9 +6806,8 @@ end
             end
             regulatory_site(2): R1::OnlyA, R2::OnlyA
         end),
-        allo(@allosteric_mechanism begin
+        allo(@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: R1, R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6795,9 +6816,8 @@ end
             end
             regulatory_site(2): R1::OnlyA, R2::NonequalAI
         end),
-        allo(@allosteric_mechanism begin
+        allo(@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: R1, R2
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)    :: EqualAI
@@ -6822,7 +6842,7 @@ end
 
     # 3. structural: every result has :R2 in some regulatory site.
     for r in result
-        has_r2 = any(r.regulatory_sites) do site
+        has_r2 = any(r.allosteric.regulatory_sites) do site
             any(l -> l === :R2,
                 site.ligands)
         end
@@ -6833,8 +6853,8 @@ end
     # R1). This is the :EqualAI-at-existing branch, gated on R1 (the existing ligand)
     # being non-:EqualAI.
     target = findfirst(result) do r
-        length(r.regulatory_sites) == 1 || return false
-        site = r.regulatory_sites[1]
+        length(r.allosteric.regulatory_sites) == 1 || return false
+        site = r.allosteric.regulatory_sites[1]
         ligs = site.ligands
         states = site.allosteric_states
         idx = findfirst(l -> l === :R2, ligs)
@@ -6845,8 +6865,8 @@ end
 
     # 5. property-style: separate new-site (#sites grows to 2) and existing-site
     # (#sites stays at 1) placements.
-    new_site_variants = filter(r -> length(r.regulatory_sites) == 2, result)
-    existing_site_variants = filter(r -> length(r.regulatory_sites) == 1, result)
+    new_site_variants = filter(r -> length(r.allosteric.regulatory_sites) == 2, result)
+    existing_site_variants = filter(r -> length(r.allosteric.regulatory_sites) == 1, result)
     @test length(new_site_variants) == 3   # 3 non-:EqualAI × new site
     # :OnlyA + :NonequalAI appends onto R1's :OnlyA site + 1 :EqualAI; the :OnlyI
     # append is skipped as redundant (disjoint conformations).
@@ -6855,8 +6875,8 @@ end
     # 6. invariants and preservation: catalytic side and allosteric_states untouched.
     for r in result
         _testhelper_assert_mechanism_invariants(r)
-        @test r.oligomeric_state == am.oligomeric_state
-        @test r.allosteric_states == am.allosteric_states
+        @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+        @test r.allosteric.allosteric_states == am.allosteric.allosteric_states
         @test _testhelper_keeps_reaction(r, am)
     end
 end
@@ -6865,10 +6885,9 @@ end
     # SEED: R1::OnlyI at site 1. Adding R2 enumerates non-:EqualAI
     # tags × 2 site options
     # plus :EqualAI-at-existing (gated on R1 being non-:EqualAI). 7 total.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R1
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)      :: EqualAI
@@ -6899,8 +6918,8 @@ end
     # 4. property: at least one variant has :R2 :EqualAI at site 1
     # (the :EqualAI-at-existing branch, gated on R1 being non-:EqualAI).
     has_eq_at_site1 = any(result) do r
-        length(r.regulatory_sites) == 1 || return false
-        site = r.regulatory_sites[1]
+        length(r.allosteric.regulatory_sites) == 1 || return false
+        site = r.allosteric.regulatory_sites[1]
         ligs = site.ligands
         states = site.allosteric_states
         idx = findfirst(l -> l === :R2, ligs)
@@ -6919,10 +6938,9 @@ end
         allosteric_regulators: R
         oligomeric_state: 2
     end
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)      :: EqualAI
@@ -6948,7 +6966,7 @@ end
         competitive_inhibitors: ATP
         allosteric_regulators: ATP
     end
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: ATP
@@ -6968,11 +6986,10 @@ end
                               rxn)
     # ATP reaches a regulatory site despite its dead-end role: one site of
     # multiplicity 1 per tag the site can carry.
-    expected = [(@allosteric_mechanism begin
+    expected = [(@enzyme_mechanism begin
                     substrates: S
                     products: P
                     modifiers: ATP
-                    allosteric_regulators: ATP
                     oligomeric_state: 1
                     steps: begin
                         E + S ⇌ E(S)      :: EqualAI
@@ -6982,11 +6999,10 @@ end
                     end
                     regulatory_site(1): ATP::OnlyA
                 end),
-                (@allosteric_mechanism begin
+                (@enzyme_mechanism begin
                     substrates: S
                     products: P
                     modifiers: ATP
-                    allosteric_regulators: ATP
                     oligomeric_state: 1
                     steps: begin
                         E + S ⇌ E(S)      :: EqualAI
@@ -6996,11 +7012,10 @@ end
                     end
                     regulatory_site(1): ATP::OnlyI
                 end),
-                @allosteric_mechanism begin
+                @enzyme_mechanism begin
                     substrates: S
                     products: P
                     modifiers: ATP
-                    allosteric_regulators: ATP
                     oligomeric_state: 1
                     steps: begin
                         E + S ⇌ E(S)      :: EqualAI
@@ -7013,7 +7028,7 @@ end
     @test length(result) == 3
     @test Set(result) == Set(expected)
     for r in result
-        @test any(r.regulatory_sites) do site
+        @test any(r.allosteric.regulatory_sites) do site
             any(l -> l === :ATP,
                 site.ligands)
         end
@@ -7026,11 +7041,10 @@ end
     # takes two distinct constants (K_A_EATP_to_E_ATP at the catalytic site, K_A_ATPreg
     # and K_I_ATPreg at the regulatory one), never one name for both, and the mechanism
     # compiles.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: ATP
-        allosteric_regulators: ATP
         oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)            :: EqualAI
@@ -7058,9 +7072,8 @@ end
         allosteric_regulators: ATP
         oligomeric_state: 2
     end
-    parent = @allosteric_mechanism begin
+    parent = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: ATP
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7072,10 +7085,9 @@ end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
                                 parent, rxn)
     expected = [
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
             modifiers: I
-            allosteric_regulators: ATP
             oligomeric_state: 2
             steps: begin
                 E + P ⇌ E(P)            :: EqualAI
@@ -7087,7 +7099,7 @@ end
         end]
     @test length(children) == 1
     @test Set(children) == Set(expected)
-    @test all(c -> !(:ATP in EnzymeRates.Mechanisms.catalytic(c).modifiers), children)
+    @test all(c -> !(:ATP in c.catalytic.modifiers), children)
 end
 
 @testset "skips redundant OnlyI-onto-OnlyA-site append (disjoint states)" begin
@@ -7101,9 +7113,8 @@ end
         allosteric_regulators: A::Activator, I::Inhibitor
         oligomeric_state: 4
     end
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -7117,9 +7128,8 @@ end
     # I on a site of its own at each pure or unequal tag, and on A's site as :OnlyA,
     # :NonequalAI or :EqualAI; not on A's site as :OnlyI.
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7129,9 +7139,8 @@ end
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7141,9 +7150,8 @@ end
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::OnlyI
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7153,9 +7161,8 @@ end
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::NonequalAI
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7164,9 +7171,8 @@ end
             end
             regulatory_site(4): A::OnlyA, I::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7175,9 +7181,8 @@ end
             end
             regulatory_site(4): A::OnlyA, I::NonequalAI
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7189,21 +7194,21 @@ end
     @test length(kids) == 6
     @test Set(kids) == Set(expected)
     _testhelper_st(child, sidx, lig) = begin
-        s = child.regulatory_sites[sidx]
+        s = child.allosteric.regulatory_sites[sidx]
         i = findfirst(l -> l == lig, s.ligands)
         i === nothing ? nothing : s.allosteric_states[i]
     end
-    _testhelper_one_AI_site(c) = length(c.regulatory_sites) == 1 &&
-        Set(only(c.regulatory_sites).ligands) == Set([:A, :I])
+    _testhelper_one_AI_site(c) = length(c.allosteric.regulatory_sites) == 1 &&
+        Set(only(c.allosteric.regulatory_sites).ligands) == Set([:A, :I])
     # redundant: one site with A:OnlyA + I:OnlyI — must be skipped
     @test !any(c -> _testhelper_one_AI_site(c) && _testhelper_st(c,1,:A)==:OnlyA &&
                     _testhelper_st(c,1,:I)==:OnlyI, kids)
     # kept: two-site new-site form carrying I:OnlyI on its own site
     @test any(kids) do c
-        length(c.regulatory_sites) == 2 &&
+        length(c.allosteric.regulatory_sites) == 2 &&
             any(s -> s.ligands == [:I] &&
                      s.allosteric_states == [:OnlyI],
-                c.regulatory_sites)
+                c.allosteric.regulatory_sites)
     end
     # kept: both-OnlyA append (A:OnlyA + I:OnlyA on one site — not disjoint)
     @test any(c -> _testhelper_one_AI_site(c) && _testhelper_st(c,1,:A)==:OnlyA &&
@@ -7220,9 +7225,8 @@ end
         allosteric_regulators: X, Y
         oligomeric_state: 2
     end
-    am_x = @allosteric_mechanism begin
+    am_x = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7231,9 +7235,8 @@ end
         end
         regulatory_site(2): X::OnlyA
     end
-    am_y = @allosteric_mechanism begin
+    am_y = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7243,9 +7246,8 @@ end
         regulatory_site(2): Y::NonequalAI
     end
     # The site both routes reach: X::OnlyA and Y::NonequalAI share one site.
-    shared = @allosteric_mechanism begin
+    shared = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7255,9 +7257,8 @@ end
         regulatory_site(2): X::OnlyA, Y::NonequalAI
     end
     # X::OnlyA and Y::NonequalAI on sites of their own: also reached from either parent.
-    x_y_apart = @allosteric_mechanism begin
+    x_y_apart = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7271,9 +7272,8 @@ end
     # From am_x, Y joins as :OnlyA or :NonequalAI on a new site or X's site, as :OnlyI on a
     # new site only (an :OnlyI ligand on X's all-:OnlyA site acts on a disjoint
     # conformation), and as :EqualAI on X's site.
-    y_onlya_new = @allosteric_mechanism begin
+    y_onlya_new = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7283,9 +7283,8 @@ end
         regulatory_site(2): X::OnlyA
         regulatory_site(2): Y::OnlyA
     end
-    y_onlya_at_x = @allosteric_mechanism begin
+    y_onlya_at_x = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7294,9 +7293,8 @@ end
         end
         regulatory_site(2): X::OnlyA, Y::OnlyA
     end
-    y_onlyi_new = @allosteric_mechanism begin
+    y_onlyi_new = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7306,9 +7304,8 @@ end
         regulatory_site(2): X::OnlyA
         regulatory_site(2): Y::OnlyI
     end
-    y_equalai_at_x = @allosteric_mechanism begin
+    y_equalai_at_x = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7325,9 +7322,8 @@ end
 
     # From am_y, X joins with each non-:EqualAI tag on a new site or Y's site (Y's
     # :NonequalAI site acts on both conformations), and as :EqualAI on Y's site.
-    x_onlyi_new = @allosteric_mechanism begin
+    x_onlyi_new = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7337,9 +7333,8 @@ end
         regulatory_site(2): X::OnlyI
         regulatory_site(2): Y::NonequalAI
     end
-    x_onlyi_at_y = @allosteric_mechanism begin
+    x_onlyi_at_y = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7348,9 +7343,8 @@ end
         end
         regulatory_site(2): X::OnlyI, Y::NonequalAI
     end
-    x_nonequalai_new = @allosteric_mechanism begin
+    x_nonequalai_new = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7360,9 +7354,8 @@ end
         regulatory_site(2): X::NonequalAI
         regulatory_site(2): Y::NonequalAI
     end
-    x_nonequalai_at_y = @allosteric_mechanism begin
+    x_nonequalai_at_y = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7371,9 +7364,8 @@ end
         end
         regulatory_site(2): X::NonequalAI, Y::NonequalAI
     end
-    x_equalai_at_y = @allosteric_mechanism begin
+    x_equalai_at_y = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: X, Y
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7408,7 +7400,7 @@ end
 # allosteric-regulator move places only R2 (at a regulatory site), and the
 # dead-end move binds only R1.
 @testset "allosteric-regulator addition places only R2" begin
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -7422,10 +7414,9 @@ end
                              uni_uni_reg_and_inhibitor)
     # R2 at a new site, once per tag the site can carry.
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)    :: EqualAI
@@ -7434,10 +7425,9 @@ end
             end
             regulatory_site(2): R2::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)    :: EqualAI
@@ -7446,10 +7436,9 @@ end
             end
             regulatory_site(2): R2::OnlyI
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R2
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)    :: EqualAI
@@ -7462,7 +7451,7 @@ end
     @test length(added) == 3
     @test Set(added) == Set(expected)
     site_regs = Set(l for m in added
-                    for s in m.regulatory_sites
+                    for s in m.allosteric.regulatory_sites
                     for l in s.ligands)
     @test site_regs == Set([:R2])
 end
@@ -7491,7 +7480,7 @@ end
             E + R1 ⇌ E(R1)
         end
     end]
-    de_regs = Set(x for m in added for x in EnzymeRates.Mechanisms.catalytic(m).modifiers)
+    de_regs = Set(x for m in added for x in m.catalytic.modifiers)
     @test de_regs == Set([:R1])
 end
 end
@@ -7502,9 +7491,8 @@ end
 @testset "AllostericMechanism — regulator tag removal delta" begin
     # SEED: uni-uni allosteric with one regulator R tagged :OnlyA;
     # all 3 catalytic groups :EqualAI.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -7524,10 +7512,10 @@ end
     # 2. exactly one variant has the R ligand flipped to :NonequalAI
     # (allosteric_states preserved); locate it structurally.
     r_removal = filter(result) do r
-        r.allosteric_states == am.allosteric_states &&
+        r.allosteric.allosteric_states == am.allosteric.allosteric_states &&
             any(s -> any(t -> t == :NonequalAI,
                          s.allosteric_states),
-                r.regulatory_sites)
+                r.allosteric.regulatory_sites)
     end
     @test length(r_removal) == 1
 
@@ -7548,10 +7536,9 @@ end
     # SEED: uni-uni allosteric with R::OnlyI and 3 :EqualAI cat
     # groups. Each non-:NonequalAI entry contributes one variant:
     # 3 cat-group + 1 reg-ligand = 4.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)      :: EqualAI
@@ -7584,10 +7571,10 @@ end
     # 4. exactly one ligand-relaxation variant: the R ligand's tag
     # flipped from :OnlyI to :NonequalAI (located structurally).
     n_r_relaxed = count(result) do r
-        r.allosteric_states == am.allosteric_states &&
+        r.allosteric.allosteric_states == am.allosteric.allosteric_states &&
             any(s -> any(t -> t == :NonequalAI,
                          s.allosteric_states),
-                r.regulatory_sites)
+                r.allosteric.regulatory_sites)
     end
     @test n_r_relaxed == 1
 end
@@ -7596,10 +7583,9 @@ end
     # SEED: allosteric uni-uni with R1::OnlyA + R2::OnlyI at the same
     # regulatory site, all 3 cat groups :EqualAI. Each non-:NonequalAI
     # entry contributes one variant: 3 cat + 2 reg-ligand = 5.
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R1, R2
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)      :: EqualAI
@@ -7633,7 +7619,7 @@ end
     # is relaxed to :NonequalAI (cat states preserved, the other
     # ligand keeps its seed tag). Locate by per-ligand state.
     function _testhelper_site_lig_state(r, lig_name)
-        for site in r.regulatory_sites
+        for site in r.allosteric.regulatory_sites
             for (l, st) in zip(site.ligands,
                                site.allosteric_states)
                 l === lig_name && return st
@@ -7642,12 +7628,12 @@ end
         error("ligand $lig_name not found")
     end
     n_r1_relaxed_only = count(result) do r
-        r.allosteric_states == am.allosteric_states &&
+        r.allosteric.allosteric_states == am.allosteric.allosteric_states &&
             _testhelper_site_lig_state(r, :R1) == :NonequalAI &&
             _testhelper_site_lig_state(r, :R2) == :OnlyI
     end
     n_r2_relaxed_only = count(result) do r
-        r.allosteric_states == am.allosteric_states &&
+        r.allosteric.allosteric_states == am.allosteric.allosteric_states &&
             _testhelper_site_lig_state(r, :R1) == :OnlyA &&
             _testhelper_site_lig_state(r, :R2) == :NonequalAI
     end
@@ -7658,10 +7644,9 @@ end
 @testset "AllostericMechanism — non-default site multiplicity (cat=4, reg=2)" begin
     # SEED: catalytic 4-mer with R::OnlyA at a multiplicity-2 reg site
     # (less than oligomeric_state).
-    em_seed = @allosteric_mechanism begin
+    em_seed = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)      :: EqualAI
@@ -7672,8 +7657,8 @@ end
     end
     am = em_seed
     _testhelper_assert_mechanism_invariants(am)
-    @test am.oligomeric_state == 4
-    @test [s.multiplicity for s in am.regulatory_sites] == [2]
+    @test am.allosteric.oligomeric_state == 4
+    @test [s.multiplicity for s in am.allosteric.regulatory_sites] == [2]
 
     # _expand_change_allo_state must preserve both
     # oligomeric_state and per-site multiplicity independently.
@@ -7681,8 +7666,8 @@ end
     @test !isempty(result)
     for r in result
         _testhelper_assert_mechanism_invariants(r)
-        @test r.oligomeric_state == 4
-        @test [s.multiplicity for s in r.regulatory_sites] == [2]
+        @test r.allosteric.oligomeric_state == 4
+        @test [s.multiplicity for s in r.allosteric.regulatory_sites] == [2]
     end
 end
 
@@ -7695,7 +7680,7 @@ end
         products: P[C]
         oligomeric_state: 2
     end
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
@@ -7704,13 +7689,13 @@ end
             E(S) <--> E(P)  :: EqualAI
         end
     end
-    @test all(t -> t == :EqualAI, am.allosteric_states)
+    @test all(t -> t == :EqualAI, am.allosteric.allosteric_states)
 
     result = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am)
 
     # 1. count: 3 cat-group relaxations + 0 reg-ligand relaxations, each group in turn.
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
@@ -7719,7 +7704,7 @@ end
                 E(S) <--> E(P)  :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
@@ -7728,7 +7713,7 @@ end
                 E(S) <--> E(P)  :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
@@ -7744,24 +7729,24 @@ end
     # 2. each variant has exactly one :NonequalAI entry in
     # allosteric_states; the rest match the seed.
     for r in result
-        @test count(t -> t == :NonequalAI, r.allosteric_states) == 1
-        for i in 1:length(am.allosteric_states)
-            @test r.allosteric_states[i] == :NonequalAI ||
-                  r.allosteric_states[i] == am.allosteric_states[i]
+        @test count(t -> t == :NonequalAI, r.allosteric.allosteric_states) == 1
+        for i in 1:length(am.allosteric.allosteric_states)
+            @test r.allosteric.allosteric_states[i] == :NonequalAI ||
+                  r.allosteric.allosteric_states[i] == am.allosteric.allosteric_states[i]
         end
     end
 
     # 3. preservation: reaction, multiplicity, sites.
     for r in result
         @test _testhelper_keeps_reaction(r, am)
-        @test r.oligomeric_state == am.oligomeric_state
-        @test r.regulatory_sites == am.regulatory_sites
+        @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
+        @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
     end
 end
 
 @testset "AllostericMechanism — already-:NonequalAI: empty (negative)" begin
     # If every tag is :NonequalAI, no relaxation is possible.
-    am_all_neq = @allosteric_mechanism begin
+    am_all_neq = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -7785,7 +7770,7 @@ end
     # children. The predicate reads the graph alone: the guard rejects this parent and each
     # relaxation, since the inactive conformation keeps the two sides of the
     # rapid-equilibrium step E(B; residual = A - P) ⇌ E(Q) joined (`_FAST_STEP_PINNED`).
-    am = @_testhelper_unguarded @allosteric_mechanism begin
+    am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -7798,7 +7783,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
         end
     end
-    a_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    a_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: NonequalAI
@@ -7811,7 +7796,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
         end
     end
-    q_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -7824,7 +7809,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
         end
     end
-    b_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    b_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -7837,7 +7822,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
         end
     end
-    p_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -7850,7 +7835,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
         end
     end
-    abortive_a_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    abortive_a_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -7863,7 +7848,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
         end
     end
-    abortive_p_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    abortive_p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -7918,9 +7903,8 @@ merge_rxn = @enzyme_reaction begin
     allosteric_regulators: A::Activator, I::Inhibitor
     oligomeric_state: 4
 end
-parent = @allosteric_mechanism begin
+parent = @enzyme_mechanism begin
     substrates: S; products: P
-    allosteric_regulators: A, I
     oligomeric_state: 4
     steps: begin
         E + P ⇌ E(P)    :: OnlyA
@@ -7935,13 +7919,13 @@ children = _testhelper_move(EnzymeRates.Enumeration._expand_merge_regulatory_sit
 
 # The allosteric state of ligand `lig` in a child's single merged site.
 _testhelper_merged_state(child, lig) = begin
-    site = only(child.regulatory_sites)
+    site = only(child.allosteric.regulatory_sites)
     idx = findfirst(l -> l == lig,
                     site.ligands)
     site.allosteric_states[idx]
 end
 _testhelper_single_site_names(child) = Set(
-    only(child.regulatory_sites).ligands)
+    only(child.allosteric.regulatory_sites).ligands)
 
 @testset "disjoint OnlyA/OnlyI co-binding skipped; antagonists kept" begin
     # A (:OnlyA) acts only on the active state, I (:OnlyI) only on the
@@ -7957,9 +7941,8 @@ _testhelper_single_site_names(child) = Set(
     @test (:OnlyA, :EqualAI) in states   # inhibitor → antagonist
     @test !((:EqualAI, :EqualAI) in states)  # all-EqualAI dropped
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -7968,9 +7951,8 @@ _testhelper_single_site_names(child) = Set(
             end
             regulatory_site(4): A::EqualAI, I::OnlyI
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8015,9 +7997,8 @@ end
         allosteric_regulators: A1::Activator, A2::Activator
         oligomeric_state: 4
     end
-    p_aa = @allosteric_mechanism begin
+    p_aa = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A1, A2
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -8029,9 +8010,8 @@ end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_merge_regulatory_sites, p_aa)
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A1, A2
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8040,9 +8020,8 @@ end
             end
             regulatory_site(4): A1::OnlyA, A2::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A1, A2
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8051,9 +8030,8 @@ end
             end
             regulatory_site(4): A1::EqualAI, A2::OnlyA
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A1, A2
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8067,7 +8045,8 @@ end
     kept = filter(c -> EnzymeRates.Enumeration._respects_reg_type(c, rxn_aa), kids)
     @test length(kept) == 1
     surviving = only(kept)
-    @test Set(only(surviving.regulatory_sites).allosteric_states) == Set([:OnlyA])
+    @test Set(only(surviving.allosteric.regulatory_sites).allosteric_states) ==
+          Set([:OnlyA])
 end
 
 @testset "different merge routes to one 3-way site dedup" begin
@@ -8078,9 +8057,8 @@ end
         oligomeric_state: 4
     end
     # Route 1: {A,B} co-site + {C} single site → merge → {A,B,C}.
-    p_ab_c = @allosteric_mechanism begin
+    p_ab_c = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A, B, C
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -8091,9 +8069,8 @@ end
         regulatory_site(4): C::OnlyA
     end
     # Route 2: {A,C} co-site + {B} single site → merge → {A,C,B}.
-    p_ac_b = @allosteric_mechanism begin
+    p_ac_b = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A, B, C
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -8106,9 +8083,8 @@ end
     # Both routes reach one site of all three ligands: co-binding, or one ligand
     # retagged :EqualAI.
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8117,9 +8093,8 @@ end
             end
             regulatory_site(4): A::OnlyA, B::OnlyA, C::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8128,9 +8103,8 @@ end
             end
             regulatory_site(4): A::EqualAI, B::OnlyA, C::OnlyA
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8139,9 +8113,8 @@ end
             end
             regulatory_site(4): A::OnlyA, B::EqualAI, C::OnlyA
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8157,7 +8130,7 @@ end
     @test length(kids_ab_c) == length(kids_ac_b) == 4
     @test Set(kids_ab_c) == Set(kids_ac_b) == Set(expected)
     _testhelper_threeway(kids) = only(filter(kids) do c
-        sites = c.regulatory_sites
+        sites = c.allosteric.regulatory_sites
         length(sites) == 1 &&
             length(only(sites).ligands) == 3 &&
             all(==(:OnlyA), only(sites).allosteric_states)
@@ -8181,9 +8154,8 @@ end
         allosteric_regulators: A, B, C
         oligomeric_state: 4
     end
-    p = @allosteric_mechanism begin
+    p = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A, B, C
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -8195,9 +8167,8 @@ end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_merge_regulatory_sites, p)
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8206,9 +8177,8 @@ end
             end
             regulatory_site(4): A::OnlyA, B::OnlyA, C::OnlyI
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8217,9 +8187,8 @@ end
             end
             regulatory_site(4): A::EqualAI, B::OnlyA, C::OnlyI
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8228,9 +8197,8 @@ end
             end
             regulatory_site(4): A::OnlyA, B::EqualAI, C::OnlyI
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, B, C
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -8243,7 +8211,7 @@ end
     @test Set(kids) == Set(expected)
     # The co-binding child keeps every state (no :EqualAI).
     cobind = only(filter(kids) do c
-        !(:EqualAI in only(c.regulatory_sites).allosteric_states)
+        !(:EqualAI in only(c.allosteric.regulatory_sites).allosteric_states)
     end)
     @test _testhelper_merged_state(cobind, :A) == :OnlyA
     @test _testhelper_merged_state(cobind, :B) == :OnlyA
@@ -8251,9 +8219,8 @@ end
 end
 
 @testset "no-op: single-site AllostericMechanism" begin
-    single = @allosteric_mechanism begin
+    single = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -8270,9 +8237,8 @@ end
 # The reason the all-keep OnlyA/OnlyI merge is skipped: merged onto one
 # site it evaluates to the same rate as on separate sites. Confirm
 # numerically over random parameters and concentrations.
-separate = @allosteric_mechanism begin
+separate = @enzyme_mechanism begin
     substrates: S; products: P
-    allosteric_regulators: A, I
     oligomeric_state: 4
     steps: begin
         E + P ⇌ E(P)    :: OnlyA
@@ -8282,9 +8248,8 @@ separate = @allosteric_mechanism begin
     regulatory_site(4): A::OnlyA
     regulatory_site(4): I::OnlyI
 end
-merged = @allosteric_mechanism begin
+merged = @enzyme_mechanism begin
     substrates: S; products: P
-    allosteric_regulators: A, I
     oligomeric_state: 4
     steps: begin
         E + P ⇌ E(P)    :: OnlyA
@@ -8321,7 +8286,7 @@ end
         allosteric_regulators: A::Activator, A2::Activator, I::Inhibitor, I2::Inhibitor, U
         oligomeric_state: 2
     end
-    core = @allosteric_mechanism begin
+    core = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -8334,12 +8299,11 @@ end
     # Whether `core` with one site holding `ligs` at `states` respects the types `r`
     # declares.
     _testhelper_respects(ligs, states, r = rxn) =
-        EnzymeRates.Enumeration._respects_reg_type(EnzymeRates.AllostericMechanism(
-            EnzymeRates.Mechanisms.catalytic(core),
-            core.allosteric_states,
-            core.oligomeric_state,
+        EnzymeRates.Enumeration._respects_reg_type(EnzymeRates.Mechanism(
+            core.catalytic, EnzymeRates.Mechanisms.Allostery(
+            core.allosteric.allosteric_states, core.allosteric.oligomeric_state,
             [EnzymeRates.Mechanisms.RegulatorySite(
-                collect(Symbol, ligs), 2, collect(states))]), r)
+                collect(Symbol, ligs), 2, collect(states))])), r)
 
     # An :unspecified ligand passes in every state, alone or beside another
     # :unspecified ligand: U is declared untyped and Nope is not declared at all.
@@ -8393,9 +8357,8 @@ end
         end
     end
     # The activator R as :OnlyI, against its type, and as :OnlyA.
-    am_bad = @allosteric_mechanism begin
+    am_bad = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -8404,9 +8367,8 @@ end
         end
         regulatory_site(2): R::OnlyI
     end
-    am_good = @allosteric_mechanism begin
+    am_good = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -8417,7 +8379,7 @@ end
     end
 
     kept = filter(c -> EnzymeRates.Enumeration._respects_reg_type(c, rxn),
-        Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+        EnzymeRates.Mechanism[
             m_seed, am_bad, am_good])
     @test m_seed in kept   # Mechanism (no sites) passes trivially
     @test am_good in kept
@@ -8437,9 +8399,8 @@ end
         allosteric_regulators: A1::Activator, A2::Activator
         oligomeric_state: 2
     end
-    am_aa = @allosteric_mechanism begin
+    am_aa = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A1, A2
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -8459,9 +8420,8 @@ end
         allosteric_regulators: A::Activator, I::Inhibitor
         oligomeric_state: 2
     end
-    am_ai = @allosteric_mechanism begin
+    am_ai = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A, I
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -8484,9 +8444,8 @@ end
 # Site permutation with DISTINCT multiplicities. The constructor must permute
 # allosteric_states alongside the catalytic groups and produce the same
 # regulatory_sites ordering (regulatory side) regardless of input site order.
-am_ab = @allosteric_mechanism begin
+am_ab = @enzyme_mechanism begin
     substrates: S; products: P
-    allosteric_regulators: A, B
     oligomeric_state: 2
     steps: begin
         E + P ⇌ E(P)    :: EqualAI
@@ -8496,9 +8455,8 @@ am_ab = @allosteric_mechanism begin
     regulatory_site(2): A::OnlyA
     regulatory_site(4): B::OnlyI
 end
-am_ba = @allosteric_mechanism begin   # sites swapped
+am_ba = @enzyme_mechanism begin   # sites swapped
     substrates: S; products: P
-    allosteric_regulators: A, B
     oligomeric_state: 2
     steps: begin
         E + P ⇌ E(P)    :: EqualAI
@@ -8521,11 +8479,10 @@ end
 # `Base.==` / `Base.hash` on the struct itself. This testset locks in the
 # struct-equality contract that powers that dedup.
 @testset "AllostericMechanism — site multiplicity is part of the dedup key" begin
-# AllostericMechanism: differing site multiplicities → unequal because
+# Mechanism: differing site multiplicities → unequal because
 # multiplicities are part of the structural identity.
-am_m2 = @allosteric_mechanism begin
+am_m2 = @enzyme_mechanism begin
     substrates: S; products: P
-    allosteric_regulators: A
     oligomeric_state: 2
     steps: begin
         E + P ⇌ E(P)    :: EqualAI
@@ -8534,9 +8491,8 @@ am_m2 = @allosteric_mechanism begin
     end
     regulatory_site(2): A::OnlyA
 end
-am_m4 = @allosteric_mechanism begin   # different multiplicity
+am_m4 = @enzyme_mechanism begin   # different multiplicity
     substrates: S; products: P
-    allosteric_regulators: A
     oligomeric_state: 2
     steps: begin
         E + P ⇌ E(P)    :: EqualAI
@@ -8589,17 +8545,18 @@ end
         end
     end
     _testhelper_assert_mechanism_invariants(m_seed)
-    n_groups = length(m_seed.groups)
+    n_groups = length(m_seed.catalytic.groups)
     @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
         "to exercise a non-trivial permutation"
     # Cyclic rotation by one, [g1, g2, …, gN] → [g2, …, gN, g1]: group g written as group
     # g - 1 and group 1 last, the steps written group by group in that order.
-    label = [mod1(e.group - 1, n_groups) for e in m_seed.steps]
+    label = [mod1(e.group - 1, n_groups) for e in m_seed.catalytic.steps]
     order = sortperm(label)
-    m_rotated = EnzymeRates.Mechanism(m_seed.substrates, m_seed.products, m_seed.nodes,
+    m_rotated = _testhelper_plain_mechanism(
+        m_seed.catalytic.substrates, m_seed.catalytic.products, m_seed.catalytic.nodes,
         [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
                                      e.rapid_equilibrium, label[k])
-         for (k, e) in enumerate(m_seed.steps)][order])
+         for (k, e) in enumerate(m_seed.catalytic.steps)][order])
     v = EnzymeRates.Mechanism[m_seed, m_rotated]
     unique!(v)
     @test length(v) == 1
@@ -8686,7 +8643,7 @@ end
     # four spanning trees, so the law counts 336 + 16 = 352. The default filter drops it
     # (`Enumeration._candidates`, the enumerator's limits), where the active count alone
     # would let it through; the parameter limit reads its 16 fitted constants.
-    ktype = @allosteric_mechanism begin
+    ktype = @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
         oligomeric_state: 1
@@ -8740,7 +8697,7 @@ end
             E + P <--> E(P)
         end
     end
-    k_type = @allosteric_mechanism begin
+    k_type = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -8914,7 +8871,7 @@ end
     m = em_seed
     _testhelper_assert_mechanism_invariants(m)
     result = _testhelper_children(uni_uni_allo, [m])
-    allo_count = count(s -> s isa EnzymeRates.AllostericMechanism, result)
+    allo_count = count(s -> _testhelper_is_allosteric(s), result)
     # _expand_to_allosteric on this uni-uni seed (3 kinetic groups: 2
     # binding + 1 catalytic, no regulator declared) tags each nonempty set
     # of the bindings :OnlyA on top of the base whose chemical step is
@@ -8957,7 +8914,7 @@ end
     # SEED: all-:EqualAI AllostericMechanism uni-uni. Passing this to
     # candidate_mechanisms must produce AllostericMechanism expansions
     # (RE→SS rewrapped as allosteric, etc.).
-    aem = @allosteric_mechanism begin
+    aem = @enzyme_mechanism begin
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
@@ -8968,7 +8925,7 @@ end
     end
     am = aem
     result = _testhelper_children(uni_uni_allo, [am])
-    allo_results = filter(s -> s isa EnzymeRates.AllostericMechanism,
+    allo_results = filter(s -> _testhelper_is_allosteric(s),
                           result)
     @test !isempty(allo_results)
     # Every rewrapped allosteric result must preserve the input's
@@ -8976,7 +8933,7 @@ end
     # base move may have changed them) but the allosteric-side
     # metadata is preserved.
     for r in allo_results
-        @test r.oligomeric_state == am.oligomeric_state
+        @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
         @test _testhelper_keeps_reaction(r, am)
     end
 end
@@ -8987,9 +8944,8 @@ end
     # as a dead-end inhibitor — no step in any expansion may bind R
     # (allosteric regulators live in regulatory_sites, not in the
     # catalytic steps).
-    aem = @allosteric_mechanism begin
+    aem = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)    :: EqualAI
@@ -9009,8 +8965,8 @@ end
 @testset "Reg_type filter drops violating children; no-op when typeless" begin
     # True iff `m` places ligand `reg` in allosteric state `st` at any site.
     function _testhelper_has_reg_state(m, reg, st)
-        m isa EnzymeRates.AllostericMechanism || return false
-        for site in m.regulatory_sites
+        _testhelper_is_allosteric(m) || return false
+        for site in m.allosteric.regulatory_sites
             for (lig, s) in zip(site.ligands,
                                 site.allosteric_states)
                 lig == reg && s == st && return true
@@ -9051,7 +9007,7 @@ end
     # The three K-types and the V-type with R at an :OnlyA site; the typeless reaction
     # adds the V-type with R at an :OnlyI site.
     k_and_v = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -9061,7 +9017,7 @@ end
                 E(P) ⇌ E + P    :: OnlyA
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -9071,7 +9027,7 @@ end
                 E(P) ⇌ E + P    :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -9081,10 +9037,9 @@ end
                 E(P) ⇌ E + P    :: OnlyA
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)    :: EqualAI
@@ -9094,10 +9049,9 @@ end
             regulatory_site(2): R::OnlyA
         end),
     ]
-    only_i = @allosteric_mechanism begin
+    only_i = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)    :: EqualAI
@@ -9126,7 +9080,7 @@ end
 end
 
 @testset "Merge move wired for two-site allosteric; no-op for Mechanism" begin
-    # A two-regulatory-site AllostericMechanism: A::Activator on one site,
+    # A two-regulatory-site Mechanism: A::Activator on one site,
     # I::Inhibitor on the other. candidate_mechanisms yields the Δ0
     # one-site merged children (both ligands sharing a single site).
     merge_rxn = @enzyme_reaction begin
@@ -9135,9 +9089,8 @@ end
         allosteric_regulators: A::Activator, I::Inhibitor
         oligomeric_state: 4
     end
-    parent = @allosteric_mechanism begin
+    parent = @enzyme_mechanism begin
         substrates: S; products: P
-        allosteric_regulators: A, I
         oligomeric_state: 4
         steps: begin
             E + P ⇌ E(P)    :: OnlyA
@@ -9150,9 +9103,8 @@ end
     merged = _testhelper_move(EnzymeRates.Enumeration._expand_merge_regulatory_sites,
                               parent)
     expected = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -9161,9 +9113,8 @@ end
             end
             regulatory_site(4): A::EqualAI, I::OnlyI
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S; products: P
-            allosteric_regulators: A, I
             oligomeric_state: 4
             steps: begin
                 E + P ⇌ E(P)    :: OnlyA
@@ -9176,9 +9127,9 @@ end
     @test Set(merged) == Set(expected)
 
     children = _testhelper_children(merge_rxn, [parent])
-    _testhelper_is_merged(c) = c isa EnzymeRates.AllostericMechanism &&
-        length(c.regulatory_sites) == 1 &&
-        Set(only(c.regulatory_sites).ligands) == Set([:A, :I])
+    _testhelper_is_merged(c) = _testhelper_is_allosteric(c) &&
+        length(c.allosteric.regulatory_sites) == 1 &&
+        Set(only(c.allosteric.regulatory_sites).ligands) == Set([:A, :I])
     # The two Δ0 antagonist merge children survive the reg_type filter and
     # appear in the output; the redundant OnlyA/OnlyI co-binding is skipped.
     @test count(_testhelper_is_merged, children) == 2
@@ -9215,11 +9166,11 @@ end
     _testhelper_onlya_mets(am) = (cm = am.catalytic;
         Set(only(cm.steps[first(ks)].taken_up).name
             for (g, ks) in enumerate(cm.groups)
-            if am.allosteric_states[g] === :OnlyA &&
+            if am.allosteric.allosteric_states[g] === :OnlyA &&
                !EnzymeRates.Mechanisms._is_iso(cm.steps[first(ks)])))
 
     seen = Set{UInt64}()
-    frontier = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+    frontier = EnzymeRates.Mechanism[]
     for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
         h = hash(m); h in seen || (push!(seen, h); push!(frontier, m))
     end
@@ -9230,7 +9181,7 @@ end
         nextf = eltype(frontier)[]
         for c in _testhelper_children(rxn, frontier)
             h = hash(c); h in seen || (push!(seen, h); push!(nextf, c))
-            c isa EnzymeRates.AllostericMechanism &&
+            _testhelper_is_allosteric(c) &&
                 (maxdistinct = max(maxdistinct, length(_testhelper_onlya_mets(c))))
         end
         frontier = nextf; gen += 1
@@ -9270,19 +9221,19 @@ end
     init = unique!(
         collect(_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(bi_bi_rxn))))
     @test !isempty(init)
-    _testhelper_holds_tc(m) = any(_testhelper_is_tc, m.steps)
+    _testhelper_holds_tc(m) = any(_testhelper_is_tc, m.catalytic.steps)
     n_ss(m) = count(fs -> !first(fs), _testhelper_group_flags(m))
     _testhelper_kind(m) = _testhelper_holds_iso(m) ? :seed :
                           _testhelper_holds_tc(m) ? :theorell_chance :
                           n_ss(m) == 2 ? :merged_two_groups : :merged_three_groups
     # The groups whose every step binds into a form that has no other step.
     function _testhelper_dead_end_groups(m)
-        degree = zeros(Int, length(m.nodes))
-        for e in m.steps
+        degree = zeros(Int, length(m.catalytic.nodes))
+        for e in m.catalytic.steps
             degree[e.from] += 1; degree[e.to] += 1
         end
-        count(ks -> all(k -> degree[m.steps[k].to] == 1, ks),
-              m.groups)
+        count(ks -> all(k -> degree[m.catalytic.steps[k].to] == 1, ks),
+              m.catalytic.groups)
     end
     counts = Set{Int}()
     tally = Dict{Tuple{Symbol, Int}, Int}()
@@ -9314,7 +9265,7 @@ end
     end
     results = _testhelper_enumerate_all_mechanism(rxn; max_params=8)
     has_allo = any(
-        any(s isa EnzymeRates.AllostericMechanism for s in mechs)
+        any(_testhelper_is_allosteric(s) for s in mechs)
         for (_, mechs) in results)
     @test has_allo
 end
@@ -9344,7 +9295,7 @@ end
 
 @testset "Tagged groups exclude inactive-state params" begin
 # A K-type uni-uni: the P binding and the chemistry :OnlyA, the S binding :EqualAI.
-am = @allosteric_mechanism begin
+am = @enzyme_mechanism begin
     substrates: S
     products: P
     oligomeric_state: 2
@@ -9361,13 +9312,14 @@ _testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].grou
 # through the naming chokepoint) among the parameters. With every :OnlyA group of am
 # tagged :NonequalAI those names do appear, so the first assertion can fail.
 function _testhelper_test_no_inactive_constants(am, g)
-    cm = EnzymeRates.Mechanisms.catalytic(am)
+    cm = am.catalytic
     i_names = EnzymeRates.Derivation._name.(
-        _testhelper_step_parameters(cm, first(cm.groups[g]), true), Ref(am))
+        _testhelper_step_parameters(am, first(cm.groups[g]), true), Ref(am))
     @test isempty(intersect(i_names, parameters(am)))
-    nonequal = EnzymeRates.AllostericMechanism(
-        cm, replace(am.allosteric_states, :OnlyA => :NonequalAI), am.oligomeric_state,
-        am.regulatory_sites)
+    nonequal = EnzymeRates.Mechanism(
+        cm, EnzymeRates.Mechanisms.Allostery(
+                replace(am.allosteric.allosteric_states, :OnlyA => :NonequalAI),
+                am.allosteric.oligomeric_state, am.allosteric.regulatory_sites))
     @test !isempty(
         intersect(i_names, parameters(nonequal)))
 end
@@ -9389,7 +9341,7 @@ end
     # for :NonequalAI groups must still emit their I-state constants in the
     # I-state denominator so they appear in the rate-equation body and in
     # parameters(m).
-    m = @allosteric_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -9450,7 +9402,7 @@ end
 
 @testset "_flux_carrying_groups" begin
     # Every edge of `m` steady state.
-    _testhelper_all_ss(m) = falses(length(m.steps))
+    _testhelper_all_ss(m) = falses(length(_testhelper_flags(m)))
     # Ordered uni-uni: every step is on the catalytic cycle.
     m = @enzyme_mechanism begin
         substrates: S
@@ -9461,7 +9413,8 @@ end
             E + P ⇌ E(P)
         end
     end
-    @test all(EnzymeRates.Enumeration._flux_carrying_groups(m, _testhelper_all_ss(m)))
+    @test all(EnzymeRates.Enumeration._flux_carrying_groups(m.catalytic,
+                                                            _testhelper_all_ss(m)))
 
     # A dead-end leaf hanging off the cycle is a bridge: not flux-carrying.
     leaf = @enzyme_mechanism begin
@@ -9474,9 +9427,10 @@ end
             E(P) + S ⇌ E(P, S)
         end
     end
-    fc = EnzymeRates.Enumeration._flux_carrying_groups(leaf, _testhelper_all_ss(leaf))
+    fc = EnzymeRates.Enumeration._flux_carrying_groups(leaf.catalytic,
+                                                       _testhelper_all_ss(leaf))
     # The leaf group is the one whose step forms the doubly-bound E(P, S).
-    @test !fc[leaf.steps[_testhelper_edge(leaf, "EP + S ⇌ EPS")].group]
+    @test !fc[leaf.catalytic.steps[_testhelper_edge(leaf, "EP + S ⇌ EPS")].group]
     @test count(!, fc) == 1
 
     # Ping-pong: the second chemistry step starts at rapid equilibrium and lies
@@ -9493,7 +9447,7 @@ end
             Estar(B) ⇌ E(Q)
         end
     end
-    @test all(EnzymeRates.Enumeration._flux_carrying_groups(pingpong,
+    @test all(EnzymeRates.Enumeration._flux_carrying_groups(pingpong.catalytic,
                                                             _testhelper_all_ss(pingpong)))
 
     # An inhibitor bound to both E and E(S), with the mirror E(I)+S ⇌ E(I,S): the
@@ -9501,7 +9455,7 @@ end
     # cycle E→E(I)→E(I,S)→E(S)→E(P)→E passes through chemistry and every step,
     # inhibitor binding included, carries net flux. Contrast the pendant square
     # below, whose inhibitors bind only free E.
-    mirror = EnzymeRates.@allosteric_mechanism begin
+    mirror = EnzymeRates.@enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -9520,7 +9474,7 @@ end
     # Two inhibitors binding only free E form a binding-only square joined to the
     # cycle at the single form E: no cycle through it contains chemistry, so its
     # four groups are not flux-carrying.
-    pendant = EnzymeRates.@allosteric_mechanism begin
+    pendant = EnzymeRates.@enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I, J
@@ -9558,7 +9512,8 @@ end
             E(Q) ⇌ E + Q
         end
     end
-    @test all(EnzymeRates.Enumeration._flux_carrying_groups(pp, _testhelper_all_ss(pp)))
+    @test all(EnzymeRates.Enumeration._flux_carrying_groups(pp.catalytic,
+                                                            _testhelper_all_ss(pp)))
     # A Theorell–Chance step consumes B and releases P in one edge, so the
     # mechanism has no isomerization step. The cycle E → E(A) → E(Q) → E has
     # weight 1 + 2 + 1 = 4 = one turnover times the four reactants, so it is
@@ -9572,9 +9527,10 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    @test all(EnzymeRates.Enumeration._flux_carrying_groups(tc, _testhelper_all_ss(tc)))
+    @test all(EnzymeRates.Enumeration._flux_carrying_groups(tc.catalytic,
+                                                            _testhelper_all_ss(tc)))
     @test EnzymeRates.Enumeration._flux_carrying_groups(
-        tc, _testhelper_flags(tc)) ==
+        tc.catalytic, _testhelper_flags(tc)) ==
           [!first(fs) for fs in _testhelper_group_flags(tc)]
 
     # A merged central complex X with two fused steps into it and no
@@ -9591,7 +9547,8 @@ end
         end
     end
     @test all(
-        EnzymeRates.Enumeration._flux_carrying_groups(merged, _testhelper_all_ss(merged)))
+        EnzymeRates.Enumeration._flux_carrying_groups(merged.catalytic,
+                                                      _testhelper_all_ss(merged)))
 
     # An RE shunt. E + A and E + Q are steady-state while the abortive route
     # E(Q) + A ⇌ E(A, Q) ⇌ E(A) + Q stays at rapid equilibrium. The segment
@@ -9616,13 +9573,14 @@ end
     end
     # Each group's first edge.
     _testhelper_firsts(m) =
-        [m.steps[first(ks)] for ks in m.groups]
+        [m.catalytic.steps[first(ks)] for ks in m.catalytic.groups]
     ss_binding(e) = EnzymeRates.Mechanisms._is_binding(e) && !e.rapid_equilibrium
     flags = EnzymeRates.Enumeration._flux_carrying_groups(
-        shunt, _testhelper_flags(shunt))
+        shunt.catalytic, _testhelper_flags(shunt))
     for (g, e) in enumerate(_testhelper_firsts(shunt))
         if ss_binding(e)
-            @test EnzymeRates.Mechanisms._form_name(shunt, e.from) == "E" && !flags[g]
+            @test EnzymeRates.Mechanisms._form_name(shunt.catalytic, e.from) == "E" &&
+                  !flags[g]
         elseif EnzymeRates.Mechanisms._is_iso(e)
             @test flags[g]
         else
@@ -9631,7 +9589,8 @@ end
     end
     @test count(ss_binding, _testhelper_firsts(shunt)) == 2
     @test all(
-        EnzymeRates.Enumeration._flux_carrying_groups(shunt, _testhelper_all_ss(shunt)))
+        EnzymeRates.Enumeration._flux_carrying_groups(shunt.catalytic,
+                                                      _testhelper_all_ss(shunt)))
 
     # A balanced self-loop: E + A is steady-state, but E and E(A) already share
     # a segment through E ⇌ E(Q) ⇌ E(A, Q) ⇌ E(A), so the step is a self-loop
@@ -9654,11 +9613,11 @@ end
     v = EnzymeRates.Derivation._guard(loop)
     @test (v.fault, v.limit, v.face) ===
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms.step_text(loop, v.edge) == "E + Q ⇌ E(Q)"
+    @test EnzymeRates.Mechanisms.step_text(loop.catalytic, v.edge) == "E + Q ⇌ E(Q)"
     @test _testhelper_respeed_verdicts(loop; rng = Random.MersenneTwister(92),
                                        law = :limit)[2] === :pattern
     lflags = EnzymeRates.Enumeration._flux_carrying_groups(
-        loop, _testhelper_flags(loop))
+        loop.catalytic, _testhelper_flags(loop))
     for (g, e) in enumerate(_testhelper_firsts(loop))
         if ss_binding(e)
             @test !lflags[g]
@@ -9668,7 +9627,7 @@ end
     end
     @test count(ss_binding, _testhelper_firsts(loop)) == 1
     @test EnzymeRates.Enumeration._re_segment_count(
-        loop, _testhelper_flags(loop)) == 1
+        loop.catalytic, _testhelper_flags(loop)) == 1
 end
 
 @testset "MERGE, ELIM and the seed tests on the ordered bi-bi seed" begin
@@ -9684,9 +9643,9 @@ end
         end
     end
     # Each name's uptake sign: the names are A, B, P, Q.
-    @test ER.Enumeration._name_signs(seed) == [1, 1, -1, -1]
-    iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.steps))
-    merged = ER.Enumeration._merge_isomerization(seed.steps, iso)
+    @test ER.Enumeration._name_signs(seed.catalytic) == [1, 1, -1, -1]
+    iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.catalytic.steps))
+    merged = ER.Enumeration._merge_isomerization(seed.catalytic.steps, iso)
     # The isomerization's product side E(P, Q) takes over E(A, B)'s steps.
     base = _testhelper_base(seed, merged)
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
@@ -9704,15 +9663,15 @@ end
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
     # every step RE: infinite rate
-    @test ER.Mechanisms.has_turnover_cycle(base,
+    @test ER.Mechanisms.has_turnover_cycle(base.catalytic,
                                            _testhelper_flags(base))
-    @test !ER.Mechanisms.has_turnover_cycle(seed,
+    @test !ER.Mechanisms.has_turnover_cycle(seed.catalytic,
                                             _testhelper_flags(seed))
     _testhelper_variant(ss) = .!BitVector([_testhelper_binds(base, ss...)(e)
-                                           for e in base.steps])
-    _testhelper_clean(m, re) = !ER.Mechanisms.has_turnover_cycle(m, re) &&
-        ER.Enumeration._has_vmax(m, re, m.substrates) &&
-        ER.Enumeration._has_vmax(m, re, m.products) &&
+                                           for e in base.catalytic.steps])
+    _testhelper_clean(m, re) = !ER.Mechanisms.has_turnover_cycle(m.catalytic, re) &&
+        ER.Enumeration._has_vmax(m.catalytic, re, m.catalytic.substrates) &&
+        ER.Enumeration._has_vmax(m.catalytic, re, m.catalytic.products) &&
         !ER.Enumeration._chemistry_equilibrates_both_sides(_testhelper_candidate(m), re)
     # Track 4 table 4.3: {A, Pˣ}, {Bˣ, Q}, {Bˣ, Pˣ} clean; {A, Q} fails C (B is not
     # needed); {A, Bˣ} has no forward Vmax; {Pˣ, Q} no reverse Vmax; singletons none.
@@ -9728,14 +9687,17 @@ end
           _testhelper_clean(base, _testhelper_variant([:B, :P]))
     @test ER.Enumeration._chemistry_equilibrates_both_sides(_testhelper_candidate(base),
                                                             _testhelper_variant([:A, :Q]))
-    @test !ER.Enumeration._has_vmax(base, _testhelper_variant([:A, :B]), base.substrates)
-    @test !ER.Enumeration._has_vmax(base, _testhelper_variant([:P, :Q]), base.products)
+    @test !ER.Enumeration._has_vmax(base.catalytic, _testhelper_variant([:A, :B]),
+                                    base.catalytic.substrates)
+    @test !ER.Enumeration._has_vmax(base.catalytic, _testhelper_variant([:P, :Q]),
+                                    base.catalytic.products)
     @test all(x -> !_testhelper_clean(base, _testhelper_variant([x])), (:A, :B, :P, :Q))
     # ELIM of the merged complex: one step E(A) + B → E(Q) + P, written from the binding
     # of a substrate, in a group of its own after the others; all three SS is clean.
     # The seed's node holding `xs`.
-    at(xs...) = only(findall(n -> [x.name for x in n.bound] == [xs...], seed.nodes))
-    tc_steps = ER.Enumeration._eliminate_form(merged, iso.to, seed.substrates)
+    at(xs...) = only(findall(n -> [x.name for x in n.bound] == [xs...],
+                             seed.catalytic.nodes))
+    tc_steps = ER.Enumeration._eliminate_form(merged, iso.to, seed.catalytic.substrates)
     # Labelled 6, after the merged groups 1, 2, 3 and 5 (the isomerization's group 4
     # went with it).
     @test last(tc_steps) ==
@@ -9751,12 +9713,12 @@ end
             E + Q ⇌ E(Q)
         end
     end)
-    group_of(pred) = tc.steps[only(findall(pred, tc.steps))].group
+    group_of(pred) = tc.catalytic.steps[only(findall(pred, tc.catalytic.steps))].group
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
     # E → E(A) → E(Q) → E, all RE
-    @test ER.Mechanisms.has_turnover_cycle(tc, _testhelper_flags(tc))
-    _testhelper_ss(which) = BitVector([!(e.group in which) for e in tc.steps])
+    @test ER.Mechanisms.has_turnover_cycle(tc.catalytic, _testhelper_flags(tc))
+    _testhelper_ss(which) = BitVector([!(e.group in which) for e in tc.catalytic.steps])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
     # and no RE step is left for C. {A, Q}: the RE Theorell–Chance step gives B off one
@@ -9768,10 +9730,13 @@ end
           !_testhelper_clean(tc, _testhelper_ss([gQ, gTC]))
     @test ER.Enumeration._chemistry_equilibrates_both_sides(_testhelper_candidate(tc),
                                                             _testhelper_ss([gA, gQ]))
-    @test !ER.Enumeration._has_vmax(tc, _testhelper_ss([gA, gTC]), tc.substrates)
-    @test !ER.Enumeration._has_vmax(tc, _testhelper_ss([gQ, gTC]), tc.products)
+    @test !ER.Enumeration._has_vmax(tc.catalytic, _testhelper_ss([gA, gTC]),
+                                    tc.catalytic.substrates)
+    @test !ER.Enumeration._has_vmax(tc.catalytic, _testhelper_ss([gQ, gTC]),
+                                    tc.catalytic.products)
     # ELIM needs two bindings into the form: E(A)'s second step binds B out of it.
-    @test ER.Enumeration._eliminate_form(merged, at(:A), seed.substrates) === nothing
+    @test ER.Enumeration._eliminate_form(merged, at(:A),
+                                         seed.catalytic.substrates) === nothing
     # The seed itself is not degenerate; the probe agrees on every verdict above.
     @test !ER.Enumeration._degenerate(_testhelper_candidate(seed))
     @test !_testhelper_degenerate(seed)
@@ -9808,16 +9773,16 @@ end
             E(Q) + A::Mod ⇌ E(A::Mod, Q)
         end
     end
-    @test ER.Mechanisms._table(m) ==
+    @test ER.Mechanisms._table(m.catalytic) ==
           [ER.Mechanisms.Metabolite(:A, false), ER.Mechanisms.Metabolite(:A, true),
            ER.Mechanisms.Metabolite(:B, false), ER.Mechanisms.Metabolite(:P, false),
            ER.Mechanisms.Metabolite(:Q, false)]
-    @test ER.Enumeration._name_signs(m) == [1, 1, -1, -1]
-    copy_binding = only(k for k in eachindex(m.steps)
-                        if any(x -> x.modifier, m.steps[k].taken_up))
-    @test ER.Enumeration._uptake_weight(m, copy_binding) == 1
-    @test ER.Enumeration._exchanges(m, copy_binding, m.substrates)
-    @test !ER.Enumeration._exchanges(m, copy_binding, m.products)
+    @test ER.Enumeration._name_signs(m.catalytic) == [1, 1, -1, -1]
+    copy_binding = only(k for k in eachindex(m.catalytic.steps)
+                        if any(x -> x.modifier, m.catalytic.steps[k].taken_up))
+    @test ER.Enumeration._uptake_weight(m.catalytic, copy_binding) == 1
+    @test ER.Enumeration._exchanges(m.catalytic, copy_binding, m.catalytic.substrates)
+    @test !ER.Enumeration._exchanges(m.catalytic, copy_binding, m.catalytic.products)
 end
 
 @testset "ELIM refuses the uni-uni merged complex" begin
@@ -9830,8 +9795,8 @@ end
             E + P ⇌ E(P)
         end
     end
-    iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.steps))
-    merged = ER.Enumeration._merge_isomerization(seed.steps, iso)
+    iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.catalytic.steps))
+    merged = ER.Enumeration._merge_isomerization(seed.catalytic.steps, iso)
     # S binds E into the merged complex E(P), and P binds E into it as well.
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
     # rejects; the constructor builds them unchecked.
@@ -9844,7 +9809,8 @@ end
     end)
     # Both of E(P)'s steps start at E, so a Theorell–Chance step E + S → E + P would join
     # E to itself.
-    @test ER.Enumeration._eliminate_form(merged, iso.to, seed.substrates) === nothing
+    @test ER.Enumeration._eliminate_form(merged, iso.to,
+                                         seed.catalytic.substrates) === nothing
 end
 
 @testset "has_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
@@ -9865,8 +9831,8 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    @test !ER.Mechanisms.has_turnover_cycle(m, _testhelper_flags(m))
-    @test ER.Mechanisms.has_turnover_cycle(m, trues(length(m.steps)))
+    @test !ER.Mechanisms.has_turnover_cycle(m.catalytic, _testhelper_flags(m))
+    @test ER.Mechanisms.has_turnover_cycle(m.catalytic, trues(length(m.catalytic.steps)))
 end
 
 @testset "C on the ping-pong seed and its single flips" begin
@@ -9889,8 +9855,8 @@ end
     # by the RE Q binding (away from E(Q) it gives Q off): C fails. At zero products the
     # forms past the steady-state step drain to E and E(A), so B is not needed.
     re = _testhelper_flags(seed)
-    @test ER.Enumeration._has_vmax(seed, re, seed.substrates) &&
-          ER.Enumeration._has_vmax(seed, re, seed.products)
+    @test ER.Enumeration._has_vmax(seed.catalytic, re, seed.catalytic.substrates) &&
+          ER.Enumeration._has_vmax(seed.catalytic, re, seed.catalytic.products)
     @test ER.Enumeration._chemistry_equilibrates_both_sides(_testhelper_candidate(seed), re)
     @test ER.Enumeration._degenerate(_testhelper_candidate(seed))
     @test _testhelper_degenerate(seed)
@@ -9902,8 +9868,8 @@ end
         re = _testhelper_flip_flags(seed, _testhelper_binds(seed, x))
         m = ER.Enumeration._with_flags(_testhelper_candidate(seed), re).mechanism
         fails_c = x in (:A, :P)
-        @test ER.Enumeration._has_vmax(seed, re, seed.substrates) &&
-              ER.Enumeration._has_vmax(seed, re, seed.products)
+        @test ER.Enumeration._has_vmax(seed.catalytic, re, seed.catalytic.substrates) &&
+              ER.Enumeration._has_vmax(seed.catalytic, re, seed.catalytic.products)
         @test (x, ER.Enumeration._chemistry_equilibrates_both_sides(
             _testhelper_candidate(seed), re)) ==
               (x, fails_c)
@@ -9915,7 +9881,7 @@ end
     # for this seed. Tagging the second half alone would leave the two sides of its
     # rapid-equilibrium isomerization joined in the inactive conformation, which the guard
     # rejects (`_FAST_STEP_PINNED`).
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -9975,10 +9941,10 @@ end
             E + P <--> E(P)
         end
     end
-    @test !ER.Enumeration._has_vmax(only_s, _testhelper_flags(only_s),
-                                    only_s.substrates)
-    @test !ER.Enumeration._has_vmax(only_p, _testhelper_flags(only_p),
-                                    only_p.products)
+    @test !ER.Enumeration._has_vmax(only_s.catalytic, _testhelper_flags(only_s),
+                                    only_s.catalytic.substrates)
+    @test !ER.Enumeration._has_vmax(only_p.catalytic, _testhelper_flags(only_p),
+                                    only_p.catalytic.products)
     @test _testhelper_degenerate(only_s) && _testhelper_degenerate(only_p)
     # The twin is skipped as the seed's twin, not as degenerate.
     @test !ER.Enumeration._degenerate(
@@ -10198,7 +10164,7 @@ end
     # A Theorell–Chance base holds its TC step and the bindings of the other half's two
     # metabolites, x and y.
     function _testhelper_tc_rejected(g)
-        x, y = [only(e.taken_up).name for e in g.steps
+        x, y = [only(e.taken_up).name for e in g.catalytic.steps
                 if ER.Mechanisms._is_binding(e)]
         bx, by = _testhelper_binds(g, x), _testhelper_binds(g, y)
         [_testhelper_flip_matching(g, ps...)
@@ -10278,10 +10244,11 @@ end
         @test !_testhelper_degenerate(v)
     end
     # ELIM refuses the merged complex: it has three steps.
-    iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.steps))
-    merged = ER.Enumeration._merge_isomerization(seed.steps, iso)
+    iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.catalytic.steps))
+    merged = ER.Enumeration._merge_isomerization(seed.catalytic.steps, iso)
     @test count(s -> s.to == iso.to, merged) == 3
-    @test ER.Enumeration._eliminate_form(merged, iso.to, seed.substrates) === nothing
+    @test ER.Enumeration._eliminate_form(merged, iso.to,
+                                         seed.catalytic.substrates) === nothing
     # The merged base, the only one: the isomerization merged onto E(P, Q), every step RE.
     base = only(_testhelper_bases(seed))
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
@@ -10483,18 +10450,19 @@ end
     # ordered/random seed, merged and both halves for the ping-pong seed.
     all_bases = [b for seed in (ordered, shared_b, ordered_random, ping_pong)
                  for b in _testhelper_bases(seed)]
-    @test length.(getfield.(all_bases, :groups)) == [4, 3, 4, 4, 4, 4, 3, 3]
+    @test length.(getfield.(getfield.(all_bases, :catalytic), :groups)) ==
+          [4, 3, 4, 4, 4, 4, 3, 3]
     # The screen's verdict and the predicates' verdict on every subset of the groups of the
     # base `m`, every edge of which is at rapid equilibrium.
     function _testhelper_sweep(m)
         screen = ER.Enumeration._seed_candidate_screen(_testhelper_candidate(m))
-        map(0:(2^length(m.groups) - 1)) do bits
+        map(0:(2^length(m.catalytic.groups) - 1)) do bits
             ss = BitVector([isodd(bits >> (g - 1))
-                            for g in 1:length(m.groups)])
-            re = BitVector([!ss[e.group] for e in m.steps])
-            expected = !ER.Mechanisms.has_turnover_cycle(m, re) &&
-                ER.Enumeration._has_vmax(m, re, m.substrates) &&
-                ER.Enumeration._has_vmax(m, re, m.products) &&
+                            for g in 1:length(m.catalytic.groups)])
+            re = BitVector([!ss[e.group] for e in m.catalytic.steps])
+            expected = !ER.Mechanisms.has_turnover_cycle(m.catalytic, re) &&
+                ER.Enumeration._has_vmax(m.catalytic, re, m.catalytic.substrates) &&
+                ER.Enumeration._has_vmax(m.catalytic, re, m.catalytic.products) &&
                 !ER.Enumeration._chemistry_equilibrates_both_sides(_testhelper_candidate(m),
                                                                    re)
             (ss, screen(re), expected)
@@ -10518,16 +10486,17 @@ end
                       _testhelper_mechanisms(ER.Enumeration.init_mechanisms(bi_bi_pp_rxn)))
     pp_bases = [b for seed in pp_seeds for b in _testhelper_bases(seed)]
     # The fused bindings of base `b` that bind one of `names`, not as a modifier copy.
-    _testhelper_fused(b, names) = [e for (k, e) in enumerate(b.steps)
-        if b.step_kinds[k] === :fused_binding &&
+    _testhelper_fused(b, names) = [e for (k, e) in enumerate(b.catalytic.steps)
+        if b.catalytic.step_kinds[k] === :fused_binding &&
            (x = only(e.taken_up); !x.modifier && x.name in names)]
     # Whether a fused binding of a substrate enters a form of three or more edges.
-    _testhelper_three_step_complex(b) = any(_testhelper_fused(b, b.substrates)) do e
-        count(d -> e.to in (d.from, d.to), b.steps) >= 3
+    _testhelper_three_step_complex(b) =
+        any(_testhelper_fused(b, b.catalytic.substrates)) do e
+        count(d -> e.to in (d.from, d.to), b.catalytic.steps) >= 3
     end
     @test (length(pp_seeds), length(pp_bases)) == (62, 86)
-    @test count(b -> !isempty(_testhelper_fused(b, b.products)), pp_bases) == 8
-    @test count(b -> !isempty(_testhelper_fused(b, b.products)) &&
+    @test count(b -> !isempty(_testhelper_fused(b, b.catalytic.products)), pp_bases) == 8
+    @test count(b -> !isempty(_testhelper_fused(b, b.catalytic.products)) &&
                      _testhelper_three_step_complex(b), pp_bases) == 8
     @test count(_testhelper_three_step_complex, pp_bases) == 35 + 8
     outcomes = [o for b in pp_bases for o in _testhelper_sweep(b)]
@@ -10559,7 +10528,8 @@ end
     ER = EnzymeRates
     # The form of graph `m` whose name (`_form_name`) is `nm`.
     _testhelper_form_called(m, nm) =
-        only(f for f in eachindex(m.nodes) if ER.Mechanisms._form_name(m, f) == "$nm")
+        only(f for f in eachindex(m.catalytic.nodes)
+             if ER.Mechanisms._form_name(m.catalytic, f) == "$nm")
     # A twin is asked for a modifier copy by its name, and 0 means none.
 
     # Ordered bi-bi. A copy of A at E has the composition of E(A), its twin; at E(Q)
@@ -10636,8 +10606,9 @@ end
     # Twins are found by offsets; composition only breaks a tie between forms with the
     # complex's offsets. This twin differs from the complex in conformation or residual,
     # so no form has the complex's composition.
-    _testhelper_label_residual(f) = (iso.nodes[f].conformation, iso.nodes[f].added,
-                                     iso.nodes[f].subtracted)
+    _testhelper_label_residual(f) = (iso.catalytic.nodes[f].conformation,
+                                     iso.catalytic.nodes[f].added,
+                                     iso.catalytic.nodes[f].subtracted)
     @test _testhelper_label_residual(estar_s) !=
           _testhelper_label_residual(_testhelper_form_called(iso, :E))
     iso_ss = @enzyme_mechanism begin
@@ -10753,7 +10724,7 @@ end
     # state that twin is E(S), formed from E by the RE S binding.
     # S binding `:OnlyA`: the inactive state holds E, E(P) and an `:EqualAI` copy's
     # E(S*), and no productive form bound to S. The copy is new there and kept.
-    onlya_with_equalai_copy = @allosteric_mechanism begin
+    onlya_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -10771,7 +10742,7 @@ end
         _testhelper_identifiable_rank(onlya_with_equalai_copy)
     # An `:OnlyA` copy binds the active state only, where E(S) is its twin: redundant,
     # its constant one fitted parameter above the rank.
-    onlya_with_onlya_copy = @allosteric_mechanism begin
+    onlya_with_onlya_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -10789,7 +10760,7 @@ end
         _testhelper_identifiable_rank(onlya_with_onlya_copy) + 1
     # S binding `:NonequalAI`: E(S) exists in both states and is the twin in each, so an
     # `:EqualAI` copy is redundant.
-    nonequal_with_equalai_copy = @allosteric_mechanism begin
+    nonequal_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -10808,7 +10779,7 @@ end
     # Every catalytic group `:OnlyA`: the inactive state has no catalytic step, yet it
     # holds its free enzyme, so an `:EqualAI` copy binds E there, where E(S*) has no
     # twin: kept. An `:OnlyA` copy binds the active state only and is redundant.
-    all_onlya_with_equalai_copy = @allosteric_mechanism begin
+    all_onlya_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -10824,7 +10795,7 @@ end
         _testhelper_candidate(all_onlya_with_equalai_copy)))
     @test _testhelper_fitted(all_onlya_with_equalai_copy) ==
         _testhelper_identifiable_rank(all_onlya_with_equalai_copy)
-    all_onlya_with_onlya_copy = @allosteric_mechanism begin
+    all_onlya_with_onlya_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -10849,7 +10820,7 @@ end
     # in neither law: the active law drops the :OnlyI group, and the inactive law prunes
     # E(S, J) behind the :OnlyA J binding. Read over every step, E(S, J, S::Mod) would
     # have no twin and the copy would be kept.
-    copy_beyond = @allosteric_mechanism begin
+    copy_beyond = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S, J
@@ -10870,7 +10841,7 @@ end
     @test _testhelper_fitted(copy_beyond) == _testhelper_identifiable_rank(copy_beyond) + 1
     # Tagged :EqualAI, the copy also binds the active conformation, at E and at E(S, J),
     # where E(S, J, S::Mod) has no twin: kept.
-    equalai_copy = @allosteric_mechanism begin
+    equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S, J
@@ -10889,7 +10860,7 @@ end
     # Every catalytic group is :OnlyA, so the inactive law holds free E alone, and the
     # active law drops the :OnlyI I binding: the copy binds in neither state, and its
     # constant is not fitted.
-    neither = @allosteric_mechanism begin
+    neither = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -10918,11 +10889,11 @@ end
     ER = EnzymeRates
     # The kinetic groups of graph `m` whose bindings take up the entry `x`.
     _testhelper_groups_binding_entry(m, x) =
-        unique(e.group for e in m.steps
+        unique(e.group for e in m.catalytic.steps
                if ER.Mechanisms._is_binding(e) && only(e.taken_up) == x)
     # The one group of `m` that binds a modifier copy.
     _testhelper_copy_group(m) =
-        only(unique(e.group for e in m.steps
+        only(unique(e.group for e in m.catalytic.steps
                     if ER.Mechanisms._is_binding(e) && only(e.taken_up).modifier))
 
     # B1: ordered bi-bi with A* at E. The twin E(A) is formed
@@ -10964,7 +10935,7 @@ end
         end
     end
     g3 = _testhelper_copy_group(case3)
-    @test ER.Enumeration._all_twin(_testhelper_candidate(case3), case3.groups[g3],
+    @test ER.Enumeration._all_twin(_testhelper_candidate(case3), case3.catalytic.groups[g3],
                                    _testhelper_twin(case3))
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(case3)))
     @test _testhelper_fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
@@ -11011,7 +10982,7 @@ end
         end
     end
     gh = _testhelper_copy_group(h1)
-    @test ER.Enumeration._all_twin(_testhelper_candidate(h1), h1.groups[gh],
+    @test ER.Enumeration._all_twin(_testhelper_candidate(h1), h1.catalytic.groups[gh],
                                    _testhelper_twin(h1))
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(h1)))
     @test _testhelper_fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
@@ -11131,7 +11102,7 @@ end
     v = ER.Derivation._guard(ss_mirror)
     @test (v.fault, v.limit, v.face) ===
           (ER.Derivation._SPLIT, ER.Derivation._LIMIT_SPEED, 3)
-    @test ER.Mechanisms.step_text(ss_mirror, v.edge) == "E + A ⇌ E(A)"
+    @test ER.Mechanisms.step_text(ss_mirror.catalytic, v.edge) == "E + A ⇌ E(A)"
     @test _testhelper_respeed_verdicts(ss_mirror; rng = Random.MersenneTwister(94),
                                        law = :limit)[3] === :pattern
     @test ER.Derivation.fitted_parameter_count(ss_mirror) == 8 &&
@@ -11207,13 +11178,14 @@ end
             E + P <--> E(P)
         end
     end
-    members = fused_re.groups
+    members = fused_re.catalytic.groups
     copy_g = _testhelper_copy_group(fused_re)
     fused_k = _testhelper_edge(fused_re, "E + A ⇌ EP")
-    fused_g = fused_re.steps[fused_k].group
-    p_g = fused_re.steps[_testhelper_edge(fused_re, "E + P <--> EP")].group
+    fused_g = fused_re.catalytic.steps[fused_k].group
+    p_g = fused_re.catalytic.steps[_testhelper_edge(fused_re, "E + P <--> EP")].group
     twin = _testhelper_twin(fused_re)
-    @test twin(fused_re.steps[only(members[copy_g])].from, :A) == fused_re.steps[fused_k].to
+    @test twin(fused_re.catalytic.steps[only(members[copy_g])].from, :A) ==
+          fused_re.catalytic.steps[fused_k].to
     C(g) = ER.Enumeration._GaugeClass(g, 0, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(fused_re), members, copy_g,
                                           twin, ER.Enumeration._one_state_class) ==
@@ -11307,7 +11279,7 @@ end
     # asks K_B·ρ_A, the inactive K_B·ρ_I. Each state alone has a gauge; the two together
     # have none, and the copy adds an identifiable constant (rank one above the
     # mechanism without it).
-    tied = @allosteric_mechanism begin
+    tied = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: A
@@ -11321,7 +11293,7 @@ end
             E + A::Mod ⇌ E(A::Mod)      :: EqualAI
         end
     end
-    tied_parent = @allosteric_mechanism begin
+    tied_parent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -11359,12 +11331,12 @@ end
             (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod), E(A) + P::Mod ⇌ E(A, P::Mod))
         end
     end
-    members = m.groups
-    copy_g = m.steps[_testhelper_edge(m, "E + Amod ⇌ EAmod")].group
+    members = m.catalytic.groups
+    copy_g = m.catalytic.steps[_testhelper_edge(m, "E + Amod ⇌ EAmod")].group
     twin = _testhelper_twin(m)
     @test copy_g == 2
-    @test ER.Mechanisms._form_name(m, 2) == "EA"
-    @test [twin(m.steps[k].from, :A) for k in members[copy_g]] == [2, 2]
+    @test ER.Mechanisms._form_name(m.catalytic, 2) == "EA"
+    @test [twin(m.catalytic.steps[k].from, :A) for k in members[copy_g]] == [2, 2]
     @test ER.Enumeration._GaugeClass(2, 0, 1) != ER.Enumeration._GaugeClass(0, 2, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(m), members, copy_g, twin,
                                           ER.Enumeration._one_state_class) === nothing
@@ -11488,7 +11460,7 @@ end
     # An allosteric mechanism is scored on its catalytic steps: uni-bi with the
     # P group at steady state carries Q² (the segment {E(P), E(P, Q)} plus the
     # edge E(Q) → E(P, Q)).
-    allo_unibi_flip_p = @allosteric_mechanism begin
+    allo_unibi_flip_p = @enzyme_mechanism begin
         substrates: S
         products: P, Q
         oligomeric_state: 2
@@ -11596,7 +11568,8 @@ end
     end
     # The forms (`_form_name`) where a step binds the copy A::Mod.
     _testhelper_copy_sites(k) =
-        Set(Symbol(EnzymeRates.Mechanisms._form_name(k, e.from)) for e in k.steps
+        Set(Symbol(EnzymeRates.Mechanisms._form_name(k.catalytic, e.from))
+            for e in k.catalytic.steps
             if EnzymeRates.Mechanisms._is_binding(e) &&
                 only(e.taken_up).modifier)
     with_a =
@@ -11646,7 +11619,7 @@ end
     # inactive law reaches A² and P². The predicate reads the graph alone: the guard
     # rejects this mechanism, since in the inactive conformation the :OnlyA step
     # E(B; residual = A - P) ⇌ E(Q) bridges forms that the other steps keep apart.
-    merged_abortive = @_testhelper_unguarded @allosteric_mechanism begin
+    merged_abortive = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             (E + A ⇌ E(A),
@@ -11665,7 +11638,7 @@ end
         maximum(numerator(EnzymeRates.Derivation._mexp(mono, C.vars.index[x]))
                 for mono in keys(C.D.terms)))
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(
-        _testhelper_candidate(EnzymeRates.Mechanisms.catalytic(merged_abortive)))
+        _testhelper_candidate(merged_abortive.catalytic))
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
         _testhelper_candidate(merged_abortive))
     @test _testhelper_inactive_degree(merged_abortive, :A) == 2
@@ -11675,7 +11648,7 @@ end
     # abortive complex: both laws are hyperbolic. The guard rejects this one too: the
     # inactive conformation keeps the two sides of the rapid-equilibrium step
     # E(B; residual = A - P) ⇌ E(Q) joined.
-    split_abortive = @_testhelper_unguarded @allosteric_mechanism begin
+    split_abortive = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                           :: EqualAI
@@ -11700,7 +11673,7 @@ end
     # without raising any catalytic-site binding to a power, so the rule does
     # not apply.
     allo_unibi_flip_p_one_subunit =
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 1
@@ -11771,7 +11744,7 @@ end
     n_nonhyperbolic = 0
     for rxn in (unibi, pingpong)
         mets = Symbol[x.name for x in vcat(rxn.substrates, rxn.products)]
-        level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+        level = EnzymeRates.Mechanism[
             m for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))]
         mechs = copy(level)
         for _ in 1:2
@@ -11779,9 +11752,10 @@ end
             append!(mechs, level)
         end
         unique!(mechs)
-        derived = Dict{Tuple{Symbol, EnzymeRates.Mechanism, BitVector}, Bool}()
+        derived = Dict{Tuple{Symbol, EnzymeRates.Mechanisms.CatalyticScheme, BitVector},
+                       Bool}()
         _testhelper_state_hyperbolic(m, state) = get!(derived,
-            (state, EnzymeRates.Mechanisms.catalytic(m),
+            (state, m.catalytic,
              state === :A ? EnzymeRates.Mechanisms.steps_in_active_conformation(m) :
              EnzymeRates.Mechanisms.steps_in_inactive_conformation(m))) do
             L = EnzymeRates.Derivation._law(m)
@@ -11791,7 +11765,7 @@ end
             EnzymeRates.Derivation.rate_equation_term_count(m) <= 337 || continue
             structural = EnzymeRates.Enumeration._hyperbolic_catalysis(
                 _testhelper_candidate(m))
-            if m isa EnzymeRates.Mechanism
+            if !_testhelper_is_allosteric(m)
                 @test structural ==
                       _testhelper_hyperbolic(EnzymeRates.Derivation._law(m), mets)
             else
@@ -11821,13 +11795,13 @@ end
     end
     # Flipping E + S ⇌ E(S) cuts the one segment in two.
     @test EnzymeRates.Enumeration._re_segment_count(
-        m, _testhelper_flags(m)) == 1
+        m.catalytic, _testhelper_flags(m)) == 1
     flipped = _testhelper_flags(m)
     flipped[_testhelper_edge(m, "E + S ⇌ ES")] = false
-    @test EnzymeRates.Enumeration._re_segment_count(m, flipped) == 2
+    @test EnzymeRates.Enumeration._re_segment_count(m.catalytic, flipped) == 2
 
     # Allosteric: measured on its catalytic groups.
-    am = EnzymeRates.@allosteric_mechanism begin
+    am = EnzymeRates.@enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -11848,18 +11822,19 @@ end
     flips = [(seed, g)
              for seed in _testhelper_mechanisms(
                  EnzymeRates.Enumeration.init_mechanisms(bi_bi_rxn))
-             for (g, ks) in enumerate(seed.groups)
-             if all(k -> seed.steps[k].rapid_equilibrium, ks)]
+             for (g, ks) in enumerate(seed.catalytic.groups)
+             if all(k -> seed.catalytic.steps[k].rapid_equilibrium, ks)]
     @test length(flips) == 508
     @test all(flips) do (seed, g)
         re = _testhelper_flags(seed)
-        re[[e.group == g for e in seed.steps]] .= false
-        flipped = EnzymeRates.Mechanisms._canonicalize(
-            seed.substrates, seed.products, seed.nodes,
+        re[[e.group == g for e in seed.catalytic.steps]] .= false
+        flipped = _testhelper_plain_of(EnzymeRates.Mechanisms._canonicalize(
+            seed.catalytic.substrates, seed.catalytic.products, seed.catalytic.nodes,
             [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off, re[k],
-                                         e.group) for (k, e) in enumerate(seed.steps)]
-        ).mechanism
-        EnzymeRates.Enumeration._re_segment_count(seed, re) ==
+                                         e.group)
+             for (k, e) in enumerate(seed.catalytic.steps)]
+        ).scheme)
+        EnzymeRates.Enumeration._re_segment_count(seed.catalytic, re) ==
             length(first(_testhelper_re_segments(_testhelper_graph(flipped))))
     end
 end
@@ -11881,7 +11856,7 @@ end
 "Whole-group flip of groups `gs` of `m` to steady state (test helper)."
 function _testhelper_flip_groups(m, gs)
     re = _testhelper_flags(m)
-    re[[e.group in gs for e in m.steps]] .= false
+    re[[e.group in gs for e in m.catalytic.steps]] .= false
     EnzymeRates.Enumeration._with_flags(_testhelper_candidate(m), re).mechanism
 end
 
@@ -11900,11 +11875,13 @@ end
     end
     # The names of the forms the edges of `part`, a part of graph `ctx`, start from.
     _testhelper_src_forms(part, ctx) =
-        Set(Symbol(EnzymeRates.Mechanisms._form_name(ctx, ctx.steps[k].from)) for k in part)
+        Set(Symbol(EnzymeRates.Mechanisms._form_name(ctx.catalytic,
+                                                     ctx.catalytic.steps[k].from))
+            for k in part)
     # The kinetic group of the edge of `ctx` whose text is `text`.
-    _testhelper_group_of(ctx, text) = ctx.steps[_testhelper_edge(ctx, text)].group
+    _testhelper_group_of(ctx, text) = ctx.catalytic.steps[_testhelper_edge(ctx, text)].group
     ga = _testhelper_group_of(m, "E + A ⇌ EA")
-    a_group = findall(e -> e.group == ga, m.steps)
+    a_group = findall(e -> e.group == ga, m.catalytic.steps)
     @test length(a_group) == 3
     bps = EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), ga)
     @test length(bps) == 2
@@ -11926,8 +11903,8 @@ end
     @test _testhelper_src_forms(bps[2][2], m) == Set([:EB])
     # _context_form: a binding is stored taking its metabolite up, so the context form
     # is its source.
-    @test EnzymeRates.Enumeration._context_form(m, first(a_group)) ==
-          m.steps[first(a_group)].from
+    @test EnzymeRates.Enumeration._context_form(m.catalytic, first(a_group)) ==
+          m.catalytic.steps[first(a_group)].from
     # _context_form: a steady-state step that gives off one metabolite found in neither
     # end's bound list (the Segel ping-pong step shape) is stored as the binding it
     # reverses, F + P → E(A), so its context form is F, the form P binds to.
@@ -11941,10 +11918,10 @@ end
         end
     end
     segel_k = _testhelper_edge(segel, "F + P <--> EA")
-    @test EnzymeRates.Enumeration._context_form(segel, segel_k) ==
-          segel.steps[segel_k].from ==
-          only(f for f in eachindex(segel.nodes)
-               if EnzymeRates.Mechanisms._form_name(segel, f) == "F")
+    @test EnzymeRates.Enumeration._context_form(segel.catalytic, segel_k) ==
+          segel.catalytic.steps[segel_k].from ==
+          only(f for f in eachindex(segel.catalytic.nodes)
+               if EnzymeRates.Mechanisms._form_name(segel.catalytic, f) == "F")
     # A two-step group with one context has one bipartition; a group whose
     # source forms carry no other ligand has none.
     @test length(EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m),
@@ -12030,8 +12007,8 @@ end
     none, a_p, ab_p = [_testhelper_edge(residues, t) for t in (
         "E + Q ⇌ EQ", "E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP",
         "E_res_plusA_plusB_minusP + Q ⇌ EQ_res_plusA_plusB_minusP")]
-    @test EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(residues),
-                                                        residues.steps[none].group) ==
+    @test EnzymeRates.Enumeration._context_bipartitions(
+              _testhelper_candidate(residues), residues.catalytic.steps[none].group) ==
           [([none], [a_p, ab_p]), ([none, ab_p], [a_p]), ([none, a_p], [ab_p])]
 
     # Conformation as a context: A binds E, Estar, and Estar(B), which B's binding to
@@ -12060,7 +12037,7 @@ end
 end
 
 @testset "_context_bipartitions separates an inhibitor-bound mirror" begin
-    am = EnzymeRates.@allosteric_mechanism begin
+    am = EnzymeRates.@enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -12103,7 +12080,7 @@ end
     @test EnzymeRates.Enumeration._with_flags(_testhelper_candidate(m),
                                               BitVector([1, 1, 0])).mechanism == m
 
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -12114,7 +12091,7 @@ end
     end
     @test EnzymeRates.Enumeration._with_flags(_testhelper_candidate(am),
                                               BitVector([1, 0, 0])).mechanism ==
-          @allosteric_mechanism begin
+          @enzyme_mechanism begin
               substrates: S
               products: P
               steps: begin
@@ -12172,10 +12149,11 @@ end
               end
           end
     @test EnzymeRates.Enumeration._regrouped(
-        _testhelper_candidate(m), [e.group for e in m.steps], flags(m)).mechanism == m
+        _testhelper_candidate(m), [e.group for e in m.catalytic.steps],
+        flags(m)).mechanism == m
 
     # Each new group of an allosteric mechanism takes the tag of its first step's group.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -12188,7 +12166,7 @@ end
     end
     @test EnzymeRates.Enumeration._regrouped(_testhelper_candidate(am), split,
                                              flags(am.catalytic)).mechanism ==
-          @allosteric_mechanism begin
+          @enzyme_mechanism begin
               substrates: A, B
               products: P, Q
               steps: begin
@@ -12214,19 +12192,21 @@ end
             E(A, B) <--> E(P, Q)
         end
     end
-    g = m.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
+    g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
     bp = only(EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), g))
     child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
                                                         [(g, bp)]).mechanism
     # The steps stay; only the group of the second part is new.
-    @test length(child.groups) ==
-          length(m.groups) + 1
-    @test child.nodes == m.nodes && _testhelper_ungrouped(child) == _testhelper_ungrouped(m)
-    _testhelper_members(c, k) = findall(e -> e.group == c.steps[k].group, c.steps)
+    @test length(child.catalytic.groups) ==
+          length(m.catalytic.groups) + 1
+    @test child.catalytic.nodes == m.catalytic.nodes &&
+          _testhelper_ungrouped(child) == _testhelper_ungrouped(m)
+    _testhelper_members(c, k) =
+        findall(e -> e.group == c.catalytic.steps[k].group, c.catalytic.steps)
     @test _testhelper_members(child, first(bp[1])) == bp[1]
     @test _testhelper_members(child, first(bp[2])) == bp[2]
 
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -12246,11 +12226,11 @@ end
     achild = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(am),
                                                          [(ga, bpa)]).mechanism
     @test _testhelper_ungrouped(achild.catalytic) == _testhelper_ungrouped(cm)
-    @test [achild.allosteric_states[achild.catalytic.steps[first(part)].group] for part in bpa] ==
-          [:NonequalAI, :NonequalAI]
-    @test achild.oligomeric_state == 2
-    @test achild.regulatory_sites ==
-          am.regulatory_sites
+    @test [achild.allosteric.allosteric_states[achild.catalytic.steps[first(part)].group]
+           for part in bpa] == [:NonequalAI, :NonequalAI]
+    @test achild.allosteric.oligomeric_state == 2
+    @test achild.allosteric.regulatory_sites ==
+          am.allosteric.regulatory_sites
 end
 
 @testset "_revert_zero_flux_parts" begin
@@ -12274,27 +12254,29 @@ end
     end
     abortive = [_testhelper_edge(m, "EQ + B <--> EBQ"),
                 _testhelper_edge(m, "EP + B <--> EBP")]
-    g = only(unique(m.steps[k].group for k in abortive))
-    @test sort(findall(e -> e.group == g, m.steps)) == sort(abortive)
-    @test !any(k -> m.steps[k].rapid_equilibrium, abortive)
+    g = only(unique(m.catalytic.steps[k].group for k in abortive))
+    @test sort(findall(e -> e.group == g, m.catalytic.steps)) == sort(abortive)
+    @test !any(k -> m.catalytic.steps[k].rapid_equilibrium, abortive)
     @test EnzymeRates.Enumeration._flux_carrying_edges(
-        m, _testhelper_flags(m))[abortive] == falses(2)
+        m.catalytic, _testhelper_flags(m))[abortive] == falses(2)
     bp = only(EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), g))
     @test all(part -> length(part) == 1, bp)
     reverted =
-        EnzymeRates.Enumeration._revert_zero_flux_parts(m, bp, falses(length(m.steps)))
+        EnzymeRates.Enumeration._revert_zero_flux_parts(m.catalytic, bp,
+                                                        falses(length(m.catalytic.steps)))
     @test sort(reverted) == sort(abortive)
     @test isempty(
-        EnzymeRates.Enumeration._revert_zero_flux_parts(m, bp, trues(length(m.steps))))
+        EnzymeRates.Enumeration._revert_zero_flux_parts(m.catalytic, bp,
+                                                        trues(length(m.catalytic.steps))))
     # The child built with those flags holds both parts at rapid equilibrium, each its
     # forms and lists unchanged.
     re = _testhelper_flags(m)
     re[reverted] .= true
     child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m), [(g, bp)],
                                                         re).mechanism
-    @test [(e.from, e.to, e.taken_up, e.given_off) for e in child.steps] ==
-          [(e.from, e.to, e.taken_up, e.given_off) for e in m.steps]
-    @test all(k -> child.steps[k].rapid_equilibrium, abortive)
+    @test [(e.from, e.to, e.taken_up, e.given_off) for e in child.catalytic.steps] ==
+          [(e.from, e.to, e.taken_up, e.given_off) for e in m.catalytic.steps]
+    @test all(k -> child.catalytic.steps[k].rapid_equilibrium, abortive)
 end
 
 "Closure of `seed` under `gen`, by structural identity."
@@ -12359,8 +12341,8 @@ end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
         @test EnzymeRates.Enumeration._chain_flank_groups(m) ==
-              Set(g for (g, ks) in enumerate(m.groups)
-                  if !EnzymeRates.Mechanisms._is_iso(m.steps[only(ks)]))
+              Set(g for (g, ks) in enumerate(m.catalytic.groups)
+                  if !EnzymeRates.Mechanisms._is_iso(m.catalytic.steps[only(ks)]))
         @test isempty(kids)
         @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
     end
@@ -12558,7 +12540,8 @@ end
         v = EnzymeRates.Derivation._guard(single_A)
         @test (v.fault, v.limit, v.face) ===
               (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_SPEED, 3)
-        @test EnzymeRates.Mechanisms.step_text(single_A, v.edge) == "E(A) + B ⇌ E(A, B)"
+        @test EnzymeRates.Mechanisms.step_text(single_A.catalytic, v.edge) ==
+              "E(A) + B ⇌ E(A, B)"
         @test _testhelper_respeed_verdicts(single_A; rng = Random.MersenneTwister(93),
                                            law = :limit)[3] === :pattern
         for single in (
@@ -12737,18 +12720,19 @@ end
         # A group of graph `x`, edges `ks`, by the metabolite its first step binds (`:iso`
         # for none) and the forms (`_form_name`) its steps bind to.
         _testhelper_group_key(x, ks) =
-            (e = x.steps[first(ks)];
+            (e = x.catalytic.steps[first(ks)];
              (EnzymeRates.Mechanisms._is_binding(e) ?
               only(e.taken_up).name : :iso,
               Set(Symbol(
-                  EnzymeRates.Mechanisms._form_name(x, x.steps[k].from)) for k in ks)))
+                  EnzymeRates.Mechanisms._form_name(x.catalytic, x.catalytic.steps[k].from))
+                for k in ks)))
         # Each group is pinned by the metabolite it binds and the forms it binds to.
         A1, A2 = (:A, Set([:E, :EC])), (:A, Set([:EB, :EBC]))
         B1, B2 = (:B, Set([:E, :EC])), (:B, Set([:EA, :EAC]))
         C = (:C, Set([:E, :EA, :EB, :EAB]))
         P, Q, R = (:P, Set([:EQR])), (:Q, Set([:ER])), (:R, Set([:E]))
         _testhelper_group_of(key) =
-            only(g for (g, ks) in enumerate(m.groups)
+            only(g for (g, ks) in enumerate(m.catalytic.groups)
                  if _testhelper_group_key(m, ks) == key)
         flip(keys...) = _testhelper_flip_groups(m, [_testhelper_group_of(k) for k in keys])
         expected = [
@@ -12765,9 +12749,9 @@ end
         @test Set(kids) == Set(expected)
         for c in kids
             ss = count((A1, A2, B1, B2)) do key
-                ks = only(ks for ks in c.groups
+                ks = only(ks for ks in c.catalytic.groups
                           if _testhelper_group_key(c, ks) == key)
-                !any(k -> c.steps[k].rapid_equilibrium, ks)
+                !any(k -> c.catalytic.steps[k].rapid_equilibrium, ks)
             end
             @test ss != 1
         end
@@ -12871,7 +12855,7 @@ end
         @test length(kids) == 3
         @test Set(kids) == Set([flipS, flipP, flipQ])
 
-        allo = @allosteric_mechanism begin
+        allo = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 2
@@ -12882,7 +12866,7 @@ end
                 (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
             end
         end
-        allo_flipS = @allosteric_mechanism begin
+        allo_flipS = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 2
@@ -12903,7 +12887,7 @@ end
         # The conformational equilibrium adds no concentration power, so the
         # flip move keeps the P and Q flips it drops for two subunits, and emits
         # the same three flips as the plain mechanism.
-        allo_one = @allosteric_mechanism begin
+        allo_one = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 1
@@ -12914,7 +12898,7 @@ end
                 (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
             end
         end
-        flipS_one = @allosteric_mechanism begin
+        flipS_one = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 1
@@ -12925,7 +12909,7 @@ end
                 (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
             end
         end
-        flipP_one = @allosteric_mechanism begin
+        flipP_one = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 1
@@ -12936,7 +12920,7 @@ end
                 (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
             end
         end
-        flipQ_one = @allosteric_mechanism begin
+        flipQ_one = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             oligomeric_state: 1
@@ -13149,7 +13133,7 @@ end
         cl = _testhelper_closure(
             m, p -> _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group,
                                      p))
-        @test maximum(length(m.groups) for m in cl) == 13
+        @test maximum(length(m.catalytic.groups) for m in cl) == 13
         @test maximum(EnzymeRates.Derivation.fitted_parameter_count(m) for m in cl) == 9
         @test length(cl) == 16
     end
@@ -13391,7 +13375,7 @@ end
         r0 = _testhelper_identifiable_rank(m)
         @test r0 == base
         rejected = 0
-        g = m.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
+        g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
         for bp in EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), g)
             child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
                                                                 [(g, bp)]).mechanism
@@ -13417,8 +13401,8 @@ end
                 E(A, B) <--> E(P, Q)
             end
         end
-        gi = m.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
-        a_group = findall(e -> e.group == gi, m.steps)
+        gi = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
+        a_group = findall(e -> e.group == gi, m.catalytic.steps)
         @test length(a_group) == 4
         bps = EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), gi)
         # Context B and context P each divide the four A steps two and two, a
@@ -13427,7 +13411,8 @@ end
         even_bp = first(bp for bp in bps if length(bp[1]) == 2)
         child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
                                                             [(gi, even_bp)]).mechanism
-        @test Set(findall(e -> e.group == child.steps[k].group, child.steps)
+        @test Set(findall(e -> e.group == child.catalytic.steps[k].group,
+                          child.catalytic.steps)
                   for k in a_group) ==
               Set(even_bp)
     end
@@ -13452,8 +13437,8 @@ end
             (D <--> E, D(S) <--> E(S))
         end
     end
-    @test m.steps[_testhelper_edge(m, "ES <--> DS")].group ==
-          m.steps[_testhelper_edge(m, "E <--> D")].group
+    @test m.catalytic.steps[_testhelper_edge(m, "ES <--> DS")].group ==
+          m.catalytic.steps[_testhelper_edge(m, "E <--> D")].group
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m)
     expected = [@enzyme_mechanism begin
         substrates: S
@@ -13592,7 +13577,7 @@ end
         end
     end
     worst = seed
-    @test length(worst.steps) == 55
+    @test length(worst.catalytic.steps) == 55
     split = @timed _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group,
                                     worst)
     rest = @timed vcat(
@@ -13702,7 +13687,7 @@ end
     kids = _testhelper_children(bi_bi_rxn, init)
     @test length(init) == 239
     @test length(kids) == 2797
-    @test count(k -> k isa EnzymeRates.AllostericMechanism, kids) == 1799
+    @test count(k -> _testhelper_is_allosteric(k), kids) == 1799
     @test all(c -> _testhelper_build(_testhelper_written(c)) == c, [init; kids])
 end
 
@@ -13732,7 +13717,7 @@ end
             E + P <--> E(P)
         end
     end
-    k_type = @allosteric_mechanism begin
+    k_type = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -13766,7 +13751,7 @@ end
     # P's binding is :OnlyA: restored, it would join E to E(P) in the inactive
     # conformation beside the :OnlyA P binding, which then has no path to its limit
     # (admission's existence test). One child.
-    k_type = @allosteric_mechanism begin
+    k_type = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 1
@@ -13775,7 +13760,7 @@ end
             E + P ⇌ E(P)       :: OnlyA
         end
     end
-    p_relaxed = @allosteric_mechanism begin
+    p_relaxed = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 1
@@ -13814,7 +13799,7 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    only_a = @allosteric_mechanism begin
+    only_a = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -13822,7 +13807,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    only_q = @allosteric_mechanism begin
+    only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: EqualAI
@@ -13830,7 +13815,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    a_and_q = @allosteric_mechanism begin
+    a_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -13891,7 +13876,7 @@ end
         products: P[C], Q[N]
         oligomeric_state: 2
     end
-    only_a = @_testhelper_unguarded @allosteric_mechanism begin
+    only_a = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: OnlyA
@@ -13900,7 +13885,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    only_p = @allosteric_mechanism begin
+    only_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: EqualAI
@@ -13909,7 +13894,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    only_q = @allosteric_mechanism begin
+    only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: EqualAI
@@ -13918,7 +13903,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    a_and_p = @allosteric_mechanism begin
+    a_and_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: OnlyA
@@ -13927,7 +13912,7 @@ end
             E + Q ⇌ E(Q)                :: EqualAI
         end
     end
-    a_and_q = @allosteric_mechanism begin
+    a_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: OnlyA
@@ -13936,7 +13921,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    p_and_q = @allosteric_mechanism begin
+    p_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: EqualAI
@@ -13945,7 +13930,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    all_three = @allosteric_mechanism begin
+    all_three = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(A)             :: OnlyA
@@ -13956,7 +13941,7 @@ end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(m2))
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m2, rxn2)
-    @test all(c -> c isa EnzymeRates.AllostericMechanism, kids)
+    @test all(c -> _testhelper_is_allosteric(c), kids)
     @test length(kids) == 7
     @test Set(kids) == Set([only_a, only_p, only_q, a_and_p, a_and_q, p_and_q,
                             all_three])
@@ -14000,7 +13985,7 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    only_a = @_testhelper_unguarded @allosteric_mechanism begin
+    only_a = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: OnlyA
@@ -14009,7 +13994,7 @@ end
             E + Q ⇌ E(Q)                                 :: EqualAI
         end
     end
-    only_p = @allosteric_mechanism begin
+    only_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: EqualAI
@@ -14018,7 +14003,7 @@ end
             E + Q ⇌ E(Q)                                 :: EqualAI
         end
     end
-    only_q = @allosteric_mechanism begin
+    only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: EqualAI
@@ -14027,7 +14012,7 @@ end
             E + Q ⇌ E(Q)                                 :: OnlyA
         end
     end
-    a_and_p = @allosteric_mechanism begin
+    a_and_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: OnlyA
@@ -14036,7 +14021,7 @@ end
             E + Q ⇌ E(Q)                                 :: EqualAI
         end
     end
-    a_and_q = @allosteric_mechanism begin
+    a_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: OnlyA
@@ -14045,7 +14030,7 @@ end
             E + Q ⇌ E(Q)                                 :: OnlyA
         end
     end
-    p_and_q = @allosteric_mechanism begin
+    p_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: EqualAI
@@ -14054,7 +14039,7 @@ end
             E + Q ⇌ E(Q)                                 :: OnlyA
         end
     end
-    all_three = @allosteric_mechanism begin
+    all_three = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                              :: OnlyA
@@ -14124,11 +14109,11 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    chemistry = [ks for ks in m.groups
-                 if any(k -> m.step_kinds[k] !== :binding, ks)]
+    chemistry = [ks for ks in m.catalytic.groups
+                 if any(k -> m.catalytic.step_kinds[k] !== :binding, ks)]
     @test length(chemistry) == 2
-    @test all(ks -> m.step_kinds[first(ks)] === :binding, chemistry)
-    only_q = @allosteric_mechanism begin
+    @test all(ks -> m.catalytic.step_kinds[first(ks)] === :binding, chemistry)
+    only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
@@ -14137,7 +14122,7 @@ end
             E(Q) + P <--> E(P, Q)                        :: EqualAI
         end
     end
-    only_p = @allosteric_mechanism begin
+    only_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
@@ -14146,7 +14131,7 @@ end
             E(Q) + P <--> E(P, Q)                        :: OnlyA
         end
     end
-    p_and_q = @allosteric_mechanism begin
+    p_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
@@ -14207,7 +14192,7 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    q_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14217,7 +14202,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: EqualAI
         end
     end
-    b_at_eq_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    b_at_eq_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14227,7 +14212,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: OnlyA
         end
     end
-    p_q_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    p_q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14237,7 +14222,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: EqualAI
         end
     end
-    p_b_at_eq_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    p_b_at_eq_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14247,7 +14232,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: OnlyA
         end
     end
-    q_b_at_eq_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    q_b_at_eq_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14257,7 +14242,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: OnlyA
         end
     end
-    all_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    all_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14267,7 +14252,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: OnlyA
         end
     end
-    p_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    p_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14278,8 +14263,8 @@ end
         end
     end
     function _testhelper_admission_fault(t)
-        am = EnzymeRates.AllostericMechanism(m, t, 1,
-                                             EnzymeRates.Mechanisms.RegulatorySite[])
+        am = EnzymeRates.Mechanism(m.catalytic, EnzymeRates.Mechanisms.Allostery(t, 1,
+                                             EnzymeRates.Mechanisms.RegulatorySite[]))
         EnzymeRates.Derivation._admission(
             am, EnzymeRates.Derivation._built_reading(am)).fault
     end
@@ -14328,7 +14313,7 @@ end
         substrates: A[C], B[N], D[X]
         products: P[CN], Q[X]
     end
-    base_q = @allosteric_mechanism begin
+    base_q = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -14340,7 +14325,7 @@ end
              E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: OnlyA
         end
     end
-    b_alone = @allosteric_mechanism begin
+    b_alone = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -14352,7 +14337,7 @@ end
              E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: EqualAI
         end
     end
-    p_on_q = @allosteric_mechanism begin
+    p_on_q = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -14364,7 +14349,7 @@ end
              E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: OnlyA
         end
     end
-    p_on_every = @allosteric_mechanism begin
+    p_on_every = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -14379,13 +14364,15 @@ end
     D = EnzymeRates.Derivation
     tags = EnzymeRates.Enumeration._tagging_bases(_testhelper_candidate(m))
     @test length(tags) == 1
-    @test EnzymeRates.AllostericMechanism(
-        m, only(tags), 1, EnzymeRates.Mechanisms.RegulatorySite[]) == base_q
+    @test EnzymeRates.Mechanism(
+        m.catalytic, EnzymeRates.Mechanisms.Allostery(
+            only(tags), 1, EnzymeRates.Mechanisms.RegulatorySite[])) == base_q
     vt = [c ? :OnlyA : :EqualAI for c in EnzymeRates.Enumeration._chemistry_groups(
         _testhelper_candidate(m))]
-    v = D._guard(EnzymeRates.AllostericMechanism(
-        m, vt, 1, EnzymeRates.Mechanisms.RegulatorySite[]))
-    @test (v.fault, EnzymeRates.Mechanisms.step_text(m, v.edge)) ==
+    v = D._guard(EnzymeRates.Mechanism(
+        m.catalytic,
+        EnzymeRates.Mechanisms.Allostery(vt, 1, EnzymeRates.Mechanisms.RegulatorySite[])))
+    @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
           (D._FILLED, "E(; residual = B + D - Q) + A ⇌ E(P)")
     @test _testhelper_is_valid(b_alone) &&
           !EnzymeRates.Enumeration._kept_forms_keep_a_binding(b_alone)
@@ -14398,7 +14385,7 @@ end
                                               rng = Random.MersenneTwister(13964)))
     _testhelper_check_law_against_limit(p_on_every)
     @test Set(c for c in _testhelper_children(rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kids)
+              if _testhelper_is_allosteric(c)) == Set(kids)
 end
 
 @testset "change_allo_state emits each relaxation; the exit drops one that is pinned" begin
@@ -14410,7 +14397,7 @@ end
     # E(Q), so it cannot be switched off (`_FAST_STEP_PINNED`), and the exit drops it.
     # Relaxing P's bindings or B's binding at E(Q) leaves Q's cut, and the guard accepts
     # both. The chemistry does not relax while a binding is :OnlyA. Three children.
-    q_tagged = @_testhelper_unguarded @allosteric_mechanism begin
+    q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14420,7 +14407,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: EqualAI
         end
     end
-    p_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14430,7 +14417,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: EqualAI
         end
     end
-    b_at_eq_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    b_at_eq_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14440,7 +14427,7 @@ end
             E(Q) + B <--> E(B, Q)                                           :: NonequalAI
         end
     end
-    q_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
@@ -14601,7 +14588,7 @@ end
             E(P) <--> E + P
             E(Q) <--> E + Q
         end
-    end), false))
+    end)))
     @test !isempty(_testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
                                     parent, rxn))
     # The exit keeps the two flips that cut the segment, one product release steady state.
@@ -14667,7 +14654,7 @@ end
             E + I ⇌ E(I)
         end
     end
-    iinh_only_a = @allosteric_mechanism begin
+    iinh_only_a = @enzyme_mechanism begin
         substrates: Iinh
         products: P
         oligomeric_state: 1
@@ -14677,7 +14664,7 @@ end
             E(P) ⇌ E + P            :: EqualAI
         end
     end
-    p_only_a = @allosteric_mechanism begin
+    p_only_a = @enzyme_mechanism begin
         substrates: Iinh
         products: P
         oligomeric_state: 1
@@ -14687,7 +14674,7 @@ end
             E(P) ⇌ E + P            :: OnlyA
         end
     end
-    both_only_a = @allosteric_mechanism begin
+    both_only_a = @enzyme_mechanism begin
         substrates: Iinh
         products: P
         oligomeric_state: 1
@@ -14837,7 +14824,7 @@ end
     @test length(kids) == 6
     @test Set(kids) == Set(expected)
     @test all(c -> _testhelper_keeps_reaction(c, m) &&
-              :I in EnzymeRates.Mechanisms.catalytic(c).modifiers,
+              :I in c.catalytic.modifiers,
               kids)
 end
 
@@ -14855,12 +14842,12 @@ end
     end
     # Whether form `f` of graph `c` carries a modifier.
     _testhelper_inhibitor_bound(c, f) =
-        any(x -> x.modifier, c.nodes[f].bound)
+        any(x -> x.modifier, c.catalytic.nodes[f].bound)
     n_children = 0; n_half = 0
     seeds = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     for m in seeds, c in _testhelper_move(
         EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
-        branch = [e for e in c.steps if _testhelper_inhibitor_bound(c, e.from) &&
+        branch = [e for e in c.catalytic.steps if _testhelper_inhibitor_bound(c, e.from) &&
                                         _testhelper_inhibitor_bound(c, e.to)]
         bound_in_branch = Set(only(e.taken_up).name
                               for e in branch if EnzymeRates.Mechanisms._is_binding(e))
@@ -15111,18 +15098,19 @@ end
     # binding to ≥2 bound complexes (no free-E member) — the split the `:OnlyA`
     # orphaning would otherwise break.
     _testhelper_has_lumped_bound_group(m) =
-        any(m.groups) do ks
-        length(ks) ≥ 2 && all(k -> !isempty(m.nodes[m.steps[k].from].bound), ks)
+        any(m.catalytic.groups) do ks
+        length(ks) ≥ 2 &&
+            all(k -> !isempty(m.catalytic.nodes[m.catalytic.steps[k].from].bound), ks)
     end
     # Whether the first step of a group, edges `ks` of `m`, binds into a form that holds
     # nothing bound.
-    _testhelper_is_free_e_binding(m, ks) = (e = m.steps[first(ks)];
-        isempty(m.nodes[e.from].bound) && EnzymeRates.Mechanisms._is_binding(e))
+    _testhelper_is_free_e_binding(m, ks) = (e = m.catalytic.steps[first(ks)];
+        isempty(m.catalytic.nodes[e.from].bound) && EnzymeRates.Mechanisms._is_binding(e))
     n_reproducers = 0
     for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
         _testhelper_has_lumped_bound_group(m) || continue
         pn = _testhelper_fitted(m)
-        free_e = Set(g for (g, ks) in enumerate(m.groups)
+        free_e = Set(g for (g, ks) in enumerate(m.catalytic.groups)
                      if _testhelper_is_free_e_binding(m, ks))
         iso = Set(_testhelper_iso_groups(m))
         children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -15135,8 +15123,8 @@ end
         # lumped downstream group's binding :EqualAI, so its shared constant
         # stays merged → Δ = 1.
         clean = filter(children) do c
-            Set(g for g in 1:length(c.allosteric_states)
-                if c.allosteric_states[g] == :OnlyA) ==
+            Set(g for g in 1:length(c.allosteric.allosteric_states)
+                if c.allosteric.allosteric_states[g] == :OnlyA) ==
                 union(free_e, iso)
         end
         @test length(clean) == 1
@@ -15151,17 +15139,17 @@ end
     # Tag-stripped skeleton: normalize every regulator state to :OnlyA so the
     # 2^n one-ligand-site state assignments of a lineage collapse to one key.
     # The catalytic backbone and allosteric_states are preserved.
-    _testhelper_skeleton_key(m) = hash(EnzymeRates.AllostericMechanism(
-        EnzymeRates.Mechanisms.catalytic(m), m.allosteric_states,
-        m.oligomeric_state,
+    _testhelper_skeleton_key(m) = hash(EnzymeRates.Mechanism(
+        m.catalytic, EnzymeRates.Mechanisms.Allostery(m.allosteric.allosteric_states,
+        m.allosteric.oligomeric_state,
         [EnzymeRates.Mechanisms.RegulatorySite(
             s.ligands, s.multiplicity,
             fill(:OnlyA, length(s.allosteric_states)))
-                 for s in m.regulatory_sites]))
+                 for s in m.allosteric.regulatory_sites])))
 
     # The allosteric state of ligand `reg` wherever it sits, or :none.
     function _testhelper_state_of(m, reg)
-        for site in m.regulatory_sites
+        for site in m.allosteric.regulatory_sites
             for (lig, st) in zip(site.ligands,
                                  site.allosteric_states)
                 lig == reg && return st
@@ -15186,13 +15174,13 @@ end
         # Every seed is a fully-regulated, cheap-state AllostericMechanism with X
         # and Y each at their own single-ligand site.
         for s in seeds_xy
-            @test s isa EnzymeRates.AllostericMechanism
+            @test _testhelper_is_allosteric(s)
             @test EnzymeRates.Enumeration._bound_allo_regs(s) == Set([:X, :Y])
-            sites = s.regulatory_sites
+            sites = s.allosteric.regulatory_sites
             @test length(sites) == 2
             @test all(length(si.ligands) == 1 for si in sites)
             @test :NonequalAI ∉ [
-                s.allosteric_states;
+                s.allosteric.allosteric_states;
                 [st for si in sites for st in si.allosteric_states]]
         end
         # Each lineage contributes exactly 2² = 4 state assignments.
@@ -15251,7 +15239,7 @@ end
         # conformations, so a seed carries its base catalytic count + n_required
         # + 1 (L). Compile is slow; sample a few seeds.
         for s in seeds_xy[1:min(3, length(seeds_xy))]
-            base = EnzymeRates.Mechanisms.catalytic(s)
+            base = _testhelper_plain_of(s)
             base_count = _testhelper_fitted(base)
             seed_count = _testhelper_fitted(s)
             @test seed_count == base_count + n_required + 1
@@ -15270,7 +15258,7 @@ end
         # No allosteric-lifting move fires: every seed is a plain Mechanism that
         # binds I as a dead-end competitive binding, and carries no L.
         for s in seeds
-            @test s isa EnzymeRates.Mechanism
+            @test !_testhelper_is_allosteric(s)
             @test :I in EnzymeRates.Enumeration._bound_comp_inhibitors(
                 _testhelper_candidate(s))
         end
@@ -15335,7 +15323,7 @@ end
     seeds = _testhelper_mechanisms(
         ER.Enumeration.seed_mechanisms(rxn, Set{Symbol}(), Set([:I])))
     _testhelper_fused(m) =
-        (cm = ER.Mechanisms.catalytic(m);
+        (cm = m.catalytic;
          any(k -> cm.step_kinds[k] === :fused_binding, eachindex(cm.steps)))
     @test all(m -> :I in ER.Enumeration._bound_comp_inhibitors(_testhelper_candidate(m)),
               seeds)
@@ -15350,8 +15338,8 @@ end
                  EnzymeRates.Enumeration._bound_comp_inhibitors(_testhelper_candidate(m)))
     function _testhelper_serial_seed_reference(rxn, req_allo, req_comp)
         visited = Set{UInt64}()
-        queue = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
-        seeds = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
+        queue = EnzymeRates.Mechanism[]
+        seeds = EnzymeRates.Mechanism[]
         _testhelper_enq(m) = begin
             h = hash(m)
             h in visited && return
@@ -15362,7 +15350,7 @@ end
             EnzymeRates.Enumeration.init_mechanisms(rxn)); _testhelper_enq(m); end
         while !isempty(queue)
             m = popfirst!(queue)
-            lifted = isempty(req_allo) ? [] : m isa EnzymeRates.Mechanism ?
+            lifted = isempty(req_allo) ? [] : !_testhelper_is_allosteric(m) ?
                 _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn) :
                 _testhelper_move(EnzymeRates.Enumeration._expand_add_allosteric_regulator,
                                  m, rxn)
@@ -15412,10 +15400,9 @@ end
     # conformation keeps the two sides of the rapid-equilibrium step
     # E(B; residual = A - P) ⇌ E(Q) joined (`_FAST_STEP_PINNED`), so it is no seed either.
     # With both halves tagged it stays.
-    half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                        :: EqualAI
@@ -15433,10 +15420,9 @@ end
                                     ER.Derivation._faces(half1.catalytic)[v.face]) ==
           [:A, :B]
     @test half1 ∉ seeds
-    half2 = @_testhelper_unguarded @allosteric_mechanism begin
+    half2 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                        :: EqualAI
@@ -15450,10 +15436,9 @@ end
     end
     @test ER.Derivation._guard(half2).fault === ER.Derivation._FAST_STEP_PINNED
     @test half2 ∉ seeds
-    both = @allosteric_mechanism begin
+    both = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                        :: EqualAI
@@ -15473,7 +15458,7 @@ end
 # AllostericMechanism constructor canonicalizes group order.
 _testhelper_tags_by_bound_metabolite(x) = Dict(
     (s = first(steps); _testhelper_is_binding(s) ? only(s.consumed) : :chem) =>
-        x.allosteric_states[g]
+        x.allosteric.allosteric_states[g]
     for (g, steps) in enumerate(_testhelper_groups(_testhelper_graph(x))))
 
 # ─── _expand_change_allo_state admission filter ────────────────────────
@@ -15484,7 +15469,7 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
     # chemical step (`k_I = 0`) makes the parent legal. Relaxing that
     # chemical step to :NonequalAI restores a finite `k_I` and strands the
     # binding, so that child has no thermodynamic reading and is dropped.
-    parent = @allosteric_mechanism begin
+    parent = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -15512,7 +15497,7 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
     # :NonequalAI-chemistry variant is anyway rate-equivalent to this fully-dead
     # form (the inactive binds nothing, so k_I is unobservable), so no hypothesis
     # is lost.
-    balanced = @allosteric_mechanism begin
+    balanced = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -15532,10 +15517,9 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
     # A regulatory ligand's tag does not enter admission —
     # a regulator site completes no catalytic cycle — so relaxing one can
     # never strand an :OnlyA binding, and that branch needs no filter.
-    reg_parent = @allosteric_mechanism begin
+    reg_parent = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: OnlyA
@@ -15547,7 +15531,7 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
     reg_kids = _testhelper_move(ER.Enumeration._expand_change_allo_state, reg_parent)
     # 2 surviving cat relaxations + the R-ligand relaxation, which survives.
     @test length(reg_kids) == 3
-    @test count(k -> only(k.regulatory_sites).allosteric_states ==
+    @test count(k -> only(k.allosteric.regulatory_sites).allosteric_states ==
                      [:NonequalAI], reg_kids) == 1
 end
 
@@ -15574,7 +15558,7 @@ end
         products: P[C], Q[NX]
         allosteric_regulators: R
     end
-    half1 = @allosteric_mechanism begin
+    half1 = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(; residual = A - P) + P :: OnlyA
@@ -15582,7 +15566,7 @@ end
             E(; residual = A - P) + B <--> E(Q)  :: EqualAI
         end
     end
-    half2 = @allosteric_mechanism begin
+    half2 = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(; residual = A - P) + P :: EqualAI
@@ -15590,7 +15574,7 @@ end
             E(; residual = A - P) + B <--> E(Q)  :: OnlyA
         end
     end
-    every = @allosteric_mechanism begin
+    every = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(; residual = A - P) + P :: OnlyA
@@ -15598,7 +15582,7 @@ end
             E(; residual = A - P) + B <--> E(Q)  :: OnlyA
         end
     end
-    k_q_every = @allosteric_mechanism begin
+    k_q_every = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(; residual = A - P) + P :: OnlyA
@@ -15606,9 +15590,8 @@ end
             E(; residual = A - P) + B <--> E(Q)  :: OnlyA
         end
     end
-    v_every_a = @allosteric_mechanism begin
+    v_every_a = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A <--> E(; residual = A - P) + P :: OnlyA
             E + Q <--> E(Q)                      :: EqualAI
@@ -15616,9 +15599,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    v_every_i = @allosteric_mechanism begin
+    v_every_i = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A <--> E(; residual = A - P) + P :: OnlyA
             E + Q <--> E(Q)                      :: EqualAI
@@ -15628,7 +15610,8 @@ end
     end
     @test all(_testhelper_is_valid, [half1, half2])
     @test Set(
-        EnzymeRates.AllostericMechanism(m, t, 1, EnzymeRates.Mechanisms.RegulatorySite[])
+        EnzymeRates.Mechanism(m.catalytic, EnzymeRates.Mechanisms.Allostery(
+            t, 1, EnzymeRates.Mechanisms.RegulatorySite[]))
         for t in EnzymeRates.Enumeration._tagging_bases(
             _testhelper_candidate(m))) == Set([every])
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -15640,7 +15623,7 @@ end
         k_q_every; rng = Random.MersenneTwister(15209), corners = true))
     _testhelper_check_law_against_limit(k_q_every)
     @test Set(c for c in _testhelper_children(rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kids)
+              if _testhelper_is_allosteric(c)) == Set(kids)
 end
 
 @testset "the tagging move builds a random-order ping-pong on both half-reactions" begin
@@ -15671,7 +15654,7 @@ end
         products: P[C], Q[NX]
         allosteric_regulators: R
     end
-    half1 = @_testhelper_unguarded @allosteric_mechanism begin
+    half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15682,7 +15665,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: EqualAI
         end
     end
-    every = @_testhelper_unguarded @allosteric_mechanism begin
+    every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15701,9 +15684,9 @@ end
     _testhelper_check_law_against_limit(every)
     bases = EnzymeRates.Enumeration._tagging_bases(_testhelper_candidate(m))
     @test length(bases) == 1
-    @test EnzymeRates.AllostericMechanism(m, only(bases), 1,
-                                          EnzymeRates.Mechanisms.RegulatorySite[]) == every
-    a_every = @_testhelper_unguarded @allosteric_mechanism begin
+    @test EnzymeRates.Mechanism(m.catalytic, EnzymeRates.Mechanisms.Allostery(
+              only(bases), 1, EnzymeRates.Mechanisms.RegulatorySite[])) == every
+    a_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15714,7 +15697,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    q_every = @_testhelper_unguarded @allosteric_mechanism begin
+    q_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15725,7 +15708,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    aq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    aq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15736,7 +15719,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    b_every = @_testhelper_unguarded @allosteric_mechanism begin
+    b_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15747,7 +15730,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    ab_every = @_testhelper_unguarded @allosteric_mechanism begin
+    ab_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15758,7 +15741,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    bq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15769,7 +15752,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    abq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15780,7 +15763,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    p_every = @_testhelper_unguarded @allosteric_mechanism begin
+    p_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15791,7 +15774,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    ap_every = @_testhelper_unguarded @allosteric_mechanism begin
+    ap_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15802,7 +15785,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    pq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    pq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15813,7 +15796,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    apq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    apq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15824,7 +15807,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    bp_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15835,7 +15818,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    abp_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15846,7 +15829,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    bpq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    bpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
@@ -15857,7 +15840,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    abpq_every = @_testhelper_unguarded @allosteric_mechanism begin
+    abpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
@@ -15868,9 +15851,8 @@ end
             E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
         end
     end
-    v_a = @_testhelper_unguarded @allosteric_mechanism begin
+    v_a = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
             (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
@@ -15881,9 +15863,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    v_i = @_testhelper_unguarded @allosteric_mechanism begin
+    v_i = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
             (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
@@ -15903,7 +15884,7 @@ end
     @test all(_testhelper_is_valid, kept)
     @test !any(_testhelper_is_valid, setdiff(kids, kept))
     @test Set(c for c in _testhelper_children(rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kept)
+              if _testhelper_is_allosteric(c)) == Set(kept)
 end
 
 @testset "the tagging search extends a tag set whose child the guard rejects" begin
@@ -15943,7 +15924,7 @@ end
         products: P[CN], Q[X]
         allosteric_regulators: R
     end
-    base_bd = @allosteric_mechanism begin
+    base_bd = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -15955,7 +15936,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
         end
     end
-    base_bq = @allosteric_mechanism begin
+    base_bq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -15967,7 +15948,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
         end
     end
-    base_dq = @allosteric_mechanism begin
+    base_dq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -15979,7 +15960,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
         end
     end
-    q_alone = @_testhelper_unguarded @allosteric_mechanism begin
+    q_alone = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -15991,7 +15972,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
         end
     end
-    b_alone = @allosteric_mechanism begin
+    b_alone = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16003,7 +15984,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
         end
     end
-    d_alone = @allosteric_mechanism begin
+    d_alone = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -16015,7 +15996,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
         end
     end
-    a_alone = @_testhelper_unguarded @allosteric_mechanism begin
+    a_alone = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -16027,7 +16008,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
         end
     end
-    p_on_bd = @allosteric_mechanism begin
+    p_on_bd = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16039,7 +16020,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
         end
     end
-    p_on_bq = @allosteric_mechanism begin
+    p_on_bq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16051,7 +16032,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
         end
     end
-    p_on_dq = @allosteric_mechanism begin
+    p_on_dq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -16063,7 +16044,7 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
         end
     end
-    p_on_every = @allosteric_mechanism begin
+    p_on_every = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16075,9 +16056,8 @@ end
              E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
         end
     end
-    r_on_bd_a = @allosteric_mechanism begin
+    r_on_bd_a = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
             (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16089,9 +16069,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    r_on_bd_i = @allosteric_mechanism begin
+    r_on_bd_i = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
             (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16103,9 +16082,8 @@ end
         end
         regulatory_site(1): R::OnlyI
     end
-    r_on_bq_a = @allosteric_mechanism begin
+    r_on_bq_a = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
             (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -16117,9 +16095,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    r_on_bq_i = @allosteric_mechanism begin
+    r_on_bq_i = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
             (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
@@ -16131,9 +16108,8 @@ end
         end
         regulatory_site(1): R::OnlyI
     end
-    r_on_dq_a = @allosteric_mechanism begin
+    r_on_dq_a = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
             (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16145,9 +16121,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    r_on_dq_i = @allosteric_mechanism begin
+    r_on_dq_i = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
             (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
@@ -16162,7 +16137,7 @@ end
 
     D = EnzymeRates.Derivation
     v = D._guard(q_alone)
-    @test (v.fault, EnzymeRates.Mechanisms.step_text(m, v.edge)) ==
+    @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
           (D._FAST_STEP_PINNED,
            "E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q)")
     @test _testhelper_is_valid(b_alone)
@@ -16170,25 +16145,25 @@ end
     @test _testhelper_is_valid(d_alone)
     @test !EnzymeRates.Enumeration._kept_forms_keep_a_binding(d_alone)
     v = D._guard(a_alone)
-    @test (v.fault, EnzymeRates.Mechanisms.step_text(m, v.edge)) ==
+    @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
           (D._FAST_STEP_PINNED, "E(; residual = B + D - Q) + A ⇌ E(P)")
     # Each single group stops the inactive conformation's catalysis, so each is a
     # candidate the search tries before the pairs.
-    @test all(c -> c.catalytic == m &&
+    @test all(c -> c.catalytic == m.catalytic &&
                    EnzymeRates.Enumeration._stops_inactive_turnover(
-                       _testhelper_candidate(m), c.allosteric_states),
+                       _testhelper_candidate(m), c.allosteric.allosteric_states),
               [q_alone, b_alone, d_alone, a_alone])
     bases = EnzymeRates.Enumeration._tagging_bases(_testhelper_candidate(m))
     @test length(bases) == 3
-    @test Set(EnzymeRates.AllostericMechanism(m, t, 1,
-                                              EnzymeRates.Mechanisms.RegulatorySite[])
+    @test Set(EnzymeRates.Mechanism(m.catalytic, EnzymeRates.Mechanisms.Allostery(t, 1,
+                                              EnzymeRates.Mechanisms.RegulatorySite[]))
               for t in bases) == Set([base_bd, base_bq, base_dq])
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(kids) == 10
     @test Set(kids) == Set([p_on_bd, p_on_bq, p_on_dq, p_on_every, r_on_bd_a, r_on_bd_i,
                             r_on_bq_a, r_on_bq_i, r_on_dq_a, r_on_dq_i])
     @test Set(c for c in _testhelper_children(rxn, [m])
-              if c isa EnzymeRates.AllostericMechanism) == Set(kids)
+              if _testhelper_is_allosteric(c)) == Set(kids)
 end
 
 @testset "change_allo_state relaxes a ping-pong K-type's binding, not its chemistry" begin
@@ -16198,7 +16173,7 @@ end
     # half-reactions instead (testset "the tagging move builds a three-step ping-pong on
     # both half-reactions"). Q's binding relaxes, and admission accepts it; the chemistry
     # does not relax while a binding is :OnlyA. One child.
-    k_type = @_testhelper_unguarded @allosteric_mechanism begin
+    k_type = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(; residual = A - P) + P :: EqualAI
@@ -16206,7 +16181,7 @@ end
             E(; residual = A - P) + B <--> E(Q)  :: OnlyA
         end
     end
-    q_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(; residual = A - P) + P :: EqualAI
@@ -16236,9 +16211,8 @@ end
         products: P[C], Q[NX]
         allosteric_regulators: R
     end
-    v_type = @_testhelper_unguarded @allosteric_mechanism begin
+    v_type = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
@@ -16249,9 +16223,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    a_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    a_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: NonequalAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
@@ -16262,9 +16235,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    b_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    b_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: NonequalAI
@@ -16275,9 +16247,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    q_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
@@ -16288,9 +16259,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    p_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
@@ -16301,9 +16271,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    chemistry_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    chemistry_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
@@ -16314,9 +16283,8 @@ end
         end
         regulatory_site(1): R::OnlyA
     end
-    site_relaxed = @_testhelper_unguarded @allosteric_mechanism begin
+    site_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
-        allosteric_regulators: R
         steps: begin
             E + A ⇌ E(A)                                       :: EqualAI
             E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
@@ -16360,7 +16328,7 @@ end
     # bindings whose arrows still point away from E and close no cycle, so admission
     # accepts all four. The chemistry relaxation is not tried while a
     # binding is :OnlyA.
-    partial = @allosteric_mechanism begin
+    partial = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -16370,7 +16338,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    a_relaxed = @allosteric_mechanism begin
+    a_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: NonequalAI
@@ -16380,7 +16348,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    b_relaxed = @allosteric_mechanism begin
+    b_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -16390,7 +16358,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    p_relaxed = @allosteric_mechanism begin
+    p_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -16400,7 +16368,7 @@ end
             E + Q ⇌ E(Q)                :: OnlyA
         end
     end
-    q_relaxed = @allosteric_mechanism begin
+    q_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
@@ -16460,7 +16428,7 @@ end
     end
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
     tagged = [
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             oligomeric_state: 2
@@ -16471,7 +16439,7 @@ end
                 E + Q <--> E(Q)                                       :: OnlyA
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             oligomeric_state: 2
@@ -16482,7 +16450,7 @@ end
                 E + Q <--> E(Q)                                       :: EqualAI
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             oligomeric_state: 2
@@ -16493,10 +16461,9 @@ end
                 E + Q <--> E(Q)                                       :: OnlyA
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(P; residual = A - P)                        :: OnlyA
@@ -16506,10 +16473,9 @@ end
             end
             regulatory_site(2): R::OnlyA
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(P; residual = A - P)                        :: OnlyA
@@ -16562,7 +16528,7 @@ end
         end]
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
     second_admitted = [
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
@@ -16571,7 +16537,7 @@ end
                 E + Q <--> E(Q)                                       :: OnlyA
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
@@ -16580,7 +16546,7 @@ end
                 E + Q <--> E(Q)                                       :: EqualAI
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
@@ -16589,7 +16555,7 @@ end
                 E + Q <--> E(Q)                                       :: OnlyA
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
@@ -16598,7 +16564,7 @@ end
                 E + Q <--> E(Q)                                       :: OnlyA
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
@@ -16607,9 +16573,8 @@ end
                 E + Q <--> E(Q)                                       :: OnlyA
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
-            allosteric_regulators: R
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
                 E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
@@ -16618,9 +16583,8 @@ end
             end
             regulatory_site(2): R::OnlyA
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
-            allosteric_regulators: R
             steps: begin
                 E + A <--> E(P; residual = A - P)                     :: OnlyA
                 E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
@@ -16629,7 +16593,7 @@ end
             end
             regulatory_site(2): R::OnlyI
         end)]
-    second_rejected = @_testhelper_unguarded @allosteric_mechanism begin
+    second_rejected = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
             E + A <--> E(P; residual = A - P)                     :: OnlyA
@@ -16644,7 +16608,7 @@ end
     @test Set(second_moved) == Set([second_admitted; second_rejected])
     @test all(_testhelper_is_valid, second_admitted)
     v = EnzymeRates.Derivation._guard(second_rejected)
-    @test (v.fault, EnzymeRates.Mechanisms.step_text(second, v.edge)) ==
+    @test (v.fault, EnzymeRates.Mechanisms.step_text(second.catalytic, v.edge)) ==
           (EnzymeRates.Derivation._FILLED, "E(; residual = A - P) + B ⇌ E(Q)")
     @test all(_testhelper_admission_agreement(second_rejected;
                                               rng = Random.MersenneTwister(82),
@@ -16660,7 +16624,7 @@ end
     # its two sides joined and stops it, while E(S) stays in its law, reached from E(P) by
     # the chemistry, and the guard admits the law. No binding that runs there enters
     # E(S), so `_kept_forms_keep_a_binding` is false and the enumerator does not build it.
-    shut_door = @allosteric_mechanism begin
+    shut_door = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -16673,7 +16637,7 @@ end
     @test !En._kept_forms_keep_a_binding(shut_door)
     @test !En._enumerator_keeps(shut_door)
     # The chemistry :OnlyA too: E(S) is cut off.
-    k_type = @allosteric_mechanism begin
+    k_type = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -16684,7 +16648,7 @@ end
     end
     @test En._kept_forms_keep_a_binding(k_type) && En._enumerator_keeps(k_type)
     # A merged complex still made by a product binding stays.
-    merged_v_type = @allosteric_mechanism begin
+    merged_v_type = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -16698,7 +16662,7 @@ end
     # The active conformation is read alike: S's binding :OnlyI keeps E(S), reached from
     # E(P), in the active law with no binding into it that runs there. (The guard rejects
     # this one too: the active conformation turns nothing over.)
-    shut_door_active = @_testhelper_unguarded @allosteric_mechanism begin
+    shut_door_active = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -16756,7 +16720,7 @@ end
     v = EnzymeRates.Derivation._guard(a_alone)
     @test (v.fault, v.limit, v.face) ===
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms.step_text(a_alone, v.edge) == "E + P ⇌ E(P)"
+    @test EnzymeRates.Mechanisms.step_text(a_alone.catalytic, v.edge) == "E + P ⇌ E(P)"
     @test _testhelper_respeed_verdicts(a_alone; rng = Random.MersenneTwister(91),
                                        law = :limit)[v.face] === :pattern
     flags = _testhelper_flags(parent)
@@ -16841,7 +16805,7 @@ end
     # one conformation, passes. The move's guard reads the child's two conformations, so
     # the A flip fails, and none of its supersets is minimal: the children are the four
     # other single flips.
-    parent = @allosteric_mechanism begin
+    parent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 1
@@ -16856,7 +16820,7 @@ end
             E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
         end
     end
-    a_flip = @_testhelper_unguarded @allosteric_mechanism begin
+    a_flip = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 1
@@ -16876,7 +16840,7 @@ end
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 3)
     @test _testhelper_respeed_verdicts(a_flip; rng = Random.MersenneTwister(29),
                                        law = :limit)[v.face] === :pattern
-    cm = EnzymeRates.Mechanisms.catalytic(parent)
+    cm = parent.catalytic
     flags = _testhelper_flags(cm)
     a = cm.steps[_testhelper_edge(parent, "E + A ⇌ EA")].group
     flags[[e.group == a for e in cm.steps]] .= false
@@ -16886,7 +16850,7 @@ end
     @test _testhelper_is_valid(
         EnzymeRates.Enumeration._with_flags(_testhelper_candidate(cm), flags).mechanism)
     expected = [
-        (@allosteric_mechanism begin      # Q@E
+        (@enzyme_mechanism begin      # Q@E
             substrates: A, B
             products: P, Q
             oligomeric_state: 1
@@ -16901,7 +16865,7 @@ end
                 E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin      # B@F
+        (@enzyme_mechanism begin      # B@F
             substrates: A, B
             products: P, Q
             oligomeric_state: 1
@@ -16916,7 +16880,7 @@ end
                 E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin      # P@F
+        (@enzyme_mechanism begin      # P@F
             substrates: A, B
             products: P, Q
             oligomeric_state: 1
@@ -16931,7 +16895,7 @@ end
                 E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin      # the second half's chemistry
+        (@enzyme_mechanism begin      # the second half's chemistry
             substrates: A, B
             products: P, Q
             oligomeric_state: 1
@@ -16966,12 +16930,12 @@ end
     end
     seeds = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     children = _testhelper_children(rxn, seeds)
-    allo = [m for m in [seeds; children] if m isa EnzymeRates.AllostericMechanism]
+    allo = [m for m in [seeds; children] if _testhelper_is_allosteric(m)]
     @test length(seeds) == 1
     @test length(allo) == 5
-    @test all(m -> :OnlyI ∉ m.allosteric_states, allo)
+    @test all(m -> :OnlyI ∉ m.allosteric.allosteric_states, allo)
     @test any(m -> any(s -> :OnlyI in s.allosteric_states,
-                       m.regulatory_sites), allo)
+                       m.allosteric.regulatory_sites), allo)
 end
 
 @testset "candidate_mechanisms expands degenerate seeds instead of fitting them" begin
@@ -16994,7 +16958,7 @@ end
     # Only a flip changes which steps are at rapid equilibrium, so every other move leaves
     # a degenerate seed's child degenerate.
     kids = _testhelper_children(
-        rxn, Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[degenerate...])
+        rxn, EnzymeRates.Mechanism[degenerate...])
     @test Set(filter(m -> !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(m)),
                      kids)) == Set(cures)
     @test Set(base) ==
@@ -17113,7 +17077,7 @@ end
         substrates: S[C]
         products: P[C]
     end
-    seed = @allosteric_mechanism begin
+    seed = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -17129,7 +17093,7 @@ end
     end
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
     between = [
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17143,7 +17107,7 @@ end
                 F(P) ⇌ E(P)         :: EqualAI
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17157,7 +17121,7 @@ end
                 F(P) ⇌ E(P)         :: EqualAI
             end
         end),
-        @_testhelper_unguarded(@allosteric_mechanism begin
+        @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17171,7 +17135,7 @@ end
                 F(P) <--> E(P)      :: EqualAI
             end
         end)]
-    kept = @allosteric_mechanism begin
+    kept = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -17186,7 +17150,7 @@ end
         end
     end
     expected = [
-        (@allosteric_mechanism begin    # F + S
+        (@enzyme_mechanism begin    # F + S
             substrates: S
             products: P
             steps: begin
@@ -17200,7 +17164,7 @@ end
                 F(P) ⇌ E(P)         :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin    # F + P ⇌ F(P), F(P) ⇌ E(P)
+        (@enzyme_mechanism begin    # F + P ⇌ F(P), F(P) ⇌ E(P)
             substrates: S
             products: P
             steps: begin
@@ -17254,7 +17218,7 @@ end
         substrates: A[C], B[N], D[X]
         products: P[CN], Q[X]
     end
-    seed = @allosteric_mechanism begin
+    seed = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17270,7 +17234,7 @@ end
             E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
         end
     end
-    b_flip = @allosteric_mechanism begin
+    b_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B <--> E(B), E(D) + B <--> E(B, D),
@@ -17287,7 +17251,7 @@ end
             E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
         end
     end
-    p_flip = @allosteric_mechanism begin
+    p_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17303,7 +17267,7 @@ end
             E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
         end
     end
-    a_flip = @allosteric_mechanism begin
+    a_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17319,7 +17283,7 @@ end
             E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
         end
     end
-    chemistry_flip = @allosteric_mechanism begin
+    chemistry_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17335,7 +17299,7 @@ end
             E(B, D) <--> E(Q; residual = B + D - Q)                           :: OnlyA
         end
     end
-    dq_flip = @allosteric_mechanism begin
+    dq_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17352,7 +17316,7 @@ end
             E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
         end
     end
-    d_flip = @_testhelper_unguarded @allosteric_mechanism begin
+    d_flip = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17369,7 +17333,7 @@ end
             E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
         end
     end
-    q_flip = @_testhelper_unguarded @allosteric_mechanism begin
+    q_flip = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
@@ -17395,7 +17359,7 @@ end
               (D._PUMPED, [:P, :Q])
     end
     @test D._guard_message(d_flip) ==
-          "AllostericMechanism: at zero P and Q, E(; residual = B + D - Q) + Q ⇌ " *
+          "Mechanism: at zero P and Q, E(; residual = B + D - Q) + Q ⇌ " *
           "E(Q; residual = B + D - Q) feeds the forms E_res_plusB_plusD_minusQ, " *
           "EA_res_plusB_plusD_minusQ of the inactive conformation, which leave only " *
           "through the vanishing step E(A; residual = B + D - Q) <--> E(P) while " *
@@ -17423,7 +17387,7 @@ end
         substrates: S[C]
         products: P[C]
     end
-    seed = @_testhelper_unguarded @allosteric_mechanism begin
+    seed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -17435,7 +17399,7 @@ end
     end
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
     kept = [
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17445,7 +17409,7 @@ end
                 F ⇌ E             :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17455,7 +17419,7 @@ end
                 F ⇌ E             :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17465,7 +17429,7 @@ end
                 F ⇌ E             :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17475,7 +17439,7 @@ end
                 F <--> E          :: EqualAI
             end
         end),
-        (@allosteric_mechanism begin
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -17485,7 +17449,7 @@ end
                 F <--> E          :: EqualAI
             end
         end),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin

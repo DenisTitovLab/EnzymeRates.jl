@@ -5,7 +5,7 @@
 const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
     m for m in (
         # k_ENADPyruvate_to_ENAD_Pyruvate family (EqualAI-shared dependent-param partition)
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             oligomeric_state: 4
@@ -23,7 +23,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             end
         end),
         # K_ELactateNAD_to_ELactate_NAD family (NonequalAI dependent-param partition)
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             oligomeric_state: 4
@@ -47,7 +47,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
         # binding at E(NAD) steady-state: at rapid equilibrium beside the steady-state NAD
         # binding it traps E(NAD) at zero products, which the guard rejects
         # (test_rate_eq_derivation.jl).
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             oligomeric_state: 4

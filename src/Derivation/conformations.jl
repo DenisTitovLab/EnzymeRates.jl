@@ -5,11 +5,10 @@
 group's allosteric state, one flag per catalytic step: the active conformation those of
 `:OnlyI` groups, the inactive one those of `:OnlyA` groups. A plain mechanism excludes
 none."""
-function _excluded_steps(am::Mechanisms.AllostericMechanism, c::Int)
-    state = c == 1 ? :OnlyI : :OnlyA
-    (e -> am.allosteric_states[e.group] === state).(am.catalytic.steps)
+function _excluded_steps(m::Mechanisms.Mechanism, c::Int)
+    state, states = c == 1 ? :OnlyI : :OnlyA, m.allosteric.allosteric_states
+    (e -> !isempty(states) && states[e.group] === state).(m.catalytic.steps)
 end
-_excluded_steps(m::Mechanisms.Mechanism, ::Int) = falses(length(m.steps))
 
 """
     exclusion_components(am, c::Symbol) -> Vector{Int}
@@ -21,7 +20,7 @@ included, labelled by its smallest form index, so free E's label is 1. A form ou
 E's component is cut off in `c`; the guard's built readings of how `c` switches off each
 step it excludes (`_built_reading`) read these components.
 """
-function exclusion_components(am::Mechanisms.AllostericMechanism, c::Symbol)
+function exclusion_components(am::Mechanisms.Mechanism, c::Symbol)
     excluded = _excluded_steps(am, c === :active ? 1 : c === :inactive ? 2 :
         throw(ArgumentError("a conformation is :active or :inactive, not :$c")))
     m = am.catalytic
@@ -73,7 +72,6 @@ free E when its bound side's part is farther than its unbound side's.
 
 """
     _built_reading(am, r = _ALL_LOSE_AFFINITY) -> _Reading
-    _built_reading(m::Mechanisms.Mechanism) -> _Reading
 
 How the conformations of `am` switch off its catalytic steps in the guard's built reading
 `r`, read from the reaction graph alone. A conformation keeps a step it does not exclude.
@@ -86,12 +84,13 @@ equilibrium or steady state, as every step does in both conformations: a steady-
 is stopped, and a rapid-equilibrium one is not switched off (`_CANNOT_SWITCH_OFF`).
 Thermodynamics pins the equilibrium constant only of such a step inside one group; one
 between two groups could lose a direction, as the search tries (`_consistent_columns`),
-but the built readings let only an uptake lose. A plain mechanism `m` has one conformation,
+but the built readings let only an uptake lose. A plain mechanism has one conformation,
 which runs every step.
 """
-function _built_reading(am::Mechanisms.AllostericMechanism,
+function _built_reading(am::Mechanisms.Mechanism,
                         r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
     steps = am.catalytic.steps
+    _is_allosteric(am) || return fill(_RUNS, length(steps), 1)
     reading = fill(_RUNS, length(steps), 2)
     for c in 1:2
         excluded = _excluded_steps(am, c)
@@ -127,4 +126,3 @@ function _built_reading(am::Mechanisms.AllostericMechanism,
     end
     reading
 end
-_built_reading(m::Mechanisms.Mechanism) = fill(_RUNS, length(m.steps), 1)

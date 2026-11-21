@@ -17,15 +17,16 @@ check (`_derivation_input`, `_well_posed`). Both read the verdict through the me
 (`_Memo`). The constructors and the Sig decoder do not call it, so code that builds a
 mechanism internally never trips a check meant for the mechanisms it returns.
 """
-function check_valid_rate_equation(m::_AnyMech)
+function check_valid_rate_equation(m::Mechanisms.Mechanism)
     _check_verdict(m, _memo_verdict(m))
     true
 end
-check_valid_rate_equation(::Type{Bool}, m::_AnyMech) = _memo_verdict(m).fault === _NO_FAULT
+check_valid_rate_equation(::Type{Bool}, m::Mechanisms.Mechanism) =
+    _memo_verdict(m).fault === _NO_FAULT
 
 """Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
 fault."""
-function _check_verdict(m::_AnyMech, v)
+function _check_verdict(m::Mechanisms.Mechanism, v)
     v.fault === _NO_FAULT || error(_guard_message(m))
     nothing
 end
@@ -164,11 +165,11 @@ end
 """The metabolite names of `m`, sorted: the guard's name `n` (a row of a network's
 `change`, a bit of its `takes` and of a face) is the `n`th. A reactant's modifier copy
 reads as its reactant, as they share a concentration."""
-_guard_names(m::Mechanisms.Mechanism) = sort!(Mechanisms.metabolites(m))
+_guard_names(m::Mechanisms.CatalyticScheme) = sort!(Mechanisms.metabolites(m))
 
 """The guard's name (`_guard_names`) of `m`'s first substrate, whose uptake counts
 turnover."""
-_turnover_name(m::Mechanisms.Mechanism) =
+_turnover_name(m::Mechanisms.CatalyticScheme) =
     searchsortedfirst(_guard_names(m), first(m.substrates))
 
 """The node of form `f` in copy `c` of `net`."""
@@ -216,7 +217,7 @@ vanishing where `vanish_forward[k, c]` does and the reverse where `vanish_revers
 does; with two copies, the fast flip between the copies of free E, which takes up and
 gives off nothing.
 """
-function _network(m::Mechanisms.Mechanism, present::BitVector, use::BitMatrix,
+function _network(m::Mechanisms.CatalyticScheme, present::BitVector, use::BitMatrix,
                   fast::BitMatrix, vanish_forward::BitMatrix, vanish_reverse::BitMatrix)
     nf, ncopies = length(m.enzyme_forms), size(use, 2)
     names = _guard_names(m)
@@ -256,17 +257,13 @@ mechanism's two copies, copy `c` holding the steps of its conformation
 (`steps_in_active_conformation`, `steps_in_inactive_conformation`) and the forms they
 touch, free E always, joined by the flip at free E.
 """
-function _law_network(m::Mechanisms.Mechanism)
-    n = length(m.steps)
-    fast = falses(n, 1)
-    fast[:, 1] .= _re_flags(m)
-    _network(m, trues(length(m.enzyme_forms)), trues(n, 1), fast, falses(n, 1),
-             falses(n, 1))
-end
-function _law_network(am::Mechanisms.AllostericMechanism)
-    m = Mechanisms.catalytic(am)
+function _law_network(am::Mechanisms.Mechanism)
+    m = am.catalytic
     re = _re_flags(m)
     n, nf = length(m.steps), length(m.enzyme_forms)
+    _is_allosteric(am) ||
+        return _network(m, trues(nf), trues(n, 1), reshape(re, n, 1), falses(n, 1),
+                        falses(n, 1))
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
     for (c, mask) in enumerate((Mechanisms.steps_in_active_conformation(am),
                                 Mechanisms.steps_in_inactive_conformation(am)))
@@ -290,8 +287,8 @@ vanishes both ways (admission rejects a rapid-equilibrium one, `_FAST_STEP_PINNE
 plain mechanism's one conformation runs every step (`_built_reading`), so its ε-network is
 its law network.
 """
-function _eps_network(mech::_AnyMech, re::BitVector, reading::_Reading)
-    m = Mechanisms.catalytic(mech)
+function _eps_network(mech::Mechanisms.Mechanism, re::BitVector, reading::_Reading)
+    m = mech.catalytic
     dims = size(reading)
     fast, vanish_forward, vanish_reverse = falses(dims), falses(dims), falses(dims)
     for c in axes(reading, 2), k in axes(reading, 1)
@@ -313,7 +310,7 @@ shares its reactant's name and so is zeroed with it; a regulatory-site ligand is
 only when it also binds the catalytic site. No face zeroes a substrate together with a
 product.
 """
-function _faces(m::Mechanisms.Mechanism)
+function _faces(m::Mechanisms.CatalyticScheme)
     names = _guard_names(m)
     substrates, products = m.substrates, m.products
     bit(x::Symbol) = UInt64(1) << (searchsortedfirst(names, x) - 1)
@@ -329,7 +326,7 @@ end
 _zeroes(face::UInt64, n::Int) = (face >> (n - 1)) & 1 == 1
 
 """The metabolite names that face `face` of `m` zeroes (`_faces`), sorted."""
-_face_names(m::Mechanisms.Mechanism, face::UInt64) =
+_face_names(m::Mechanisms.CatalyticScheme, face::UInt64) =
     [x for (n, x) in enumerate(_guard_names(m)) if _zeroes(face, n)]
 
 """The tree transitions from node `x` up to its root in the forest `parent` (each node's
@@ -424,7 +421,7 @@ end
 The well-posedness guard (spec section 8) on `m`, plain or allosteric: its verdict
 (`_guard_with_reading`), `_WELL_POSED` when every check passes.
 """
-_guard(mech::_AnyMech) = _guard_with_reading(mech).verdict
+_guard(mech::Mechanisms.Mechanism) = _guard_with_reading(mech).verdict
 
 """
     _admitting_reading(m) -> Union{_Reading, Nothing}
@@ -432,7 +429,7 @@ _guard(mech::_AnyMech) = _guard_with_reading(mech).verdict
 The reading of how the conformations of `m` switch off its excluded steps with which the
 guard admits `m` (`_guard_with_reading`), `nothing` when it rejects `m`.
 """
-function _admitting_reading(mech::_AnyMech)
+function _admitting_reading(mech::Mechanisms.Mechanism)
     g = _guard_with_reading(mech)
     g.verdict === _WELL_POSED ? g.reading : nothing
 end
@@ -461,15 +458,7 @@ the first consistent reading tried; or, when it tried none, an active conformati
 turns nothing over (`_NO_ACTIVE_TURNOVER`), else that there are too many readings to
 search (`_TOO_MANY_READINGS`).
 """
-function _guard_with_reading(m::Mechanisms.Mechanism)
-    reading = _built_reading(m)
-    isempty(_shared_constant_names(m)) ||
-        return (; verdict = _Verdict(_SHARED_NAME, _LIMIT_UNTESTED, 0, 0, 0), reading)
-    Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
-        return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0), reading)
-    (; verdict = _verdict_under(m, reading), reading)
-end
-function _guard_with_reading(am::Mechanisms.AllostericMechanism)
+function _guard_with_reading(am::Mechanisms.Mechanism)
     m = am.catalytic
     first_reading = _built_reading(am)
     isempty(_shared_constant_names(am)) ||
@@ -478,6 +467,9 @@ function _guard_with_reading(am::Mechanisms.AllostericMechanism)
     Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0),
                 reading = first_reading)
+    # A plain mechanism excludes no step, so its one reading runs every step.
+    _is_allosteric(am) ||
+        return (; verdict = _verdict_under(am, first_reading), reading = first_reading)
     # The built readings, in order. The first consistent reading tried, and its verdict,
     # are the ones a rejection reports.
     tried = _Reading[]
@@ -557,8 +549,8 @@ class 2 on the ε-network of that reading (`_re_turnover_verdict`), admission's 
 (`_admission_interior`), then class 3 and admission's face condition on every face
 (`_faces_verdict`), the first fault winning; `_WELL_POSED` when every check passes.
 """
-function _verdict_under(mech::_AnyMech, reading::_Reading)
-    eps = _eps_network(mech, _re_flags(Mechanisms.catalytic(mech)), reading)
+function _verdict_under(mech::Mechanisms.Mechanism, reading::_Reading)
+    eps = _eps_network(mech, _re_flags(mech.catalytic), reading)
     v = _re_turnover_verdict(eps)
     v === _WELL_POSED || return v
     v = _admission_interior(mech, reading)
@@ -858,7 +850,7 @@ carries the stage it stopped at, the edge that feeds the trap or joins it to its
 trap carries the copy its forms share (`_common_copy`). A face the limit test accepts
 reports `_LIMIT_EQUAL`.
 """
-function _check_face(mech::_AnyMech, net::_Network, faces::Vector{UInt64},
+function _check_face(mech::Mechanisms.Mechanism, net::_Network, faces::Vector{UInt64},
                      i::Int)
     s = _face_structure(net, faces[i])
     stage = _face_stage(s)
@@ -893,12 +885,11 @@ The first fault of `mech` face by face, in the order of `_faces`, from its ε-ne
 is `eps`; then, for an allosteric mechanism, admission's face condition on `eps`
 (`_admission_face`). `_WELL_POSED` when every face passes.
 """
-function _faces_verdict(m::Mechanisms.Mechanism, eps::_Network)
-    faces = _faces(m)
-    _first_face_fault(i -> _check_face(m, eps, faces, i), faces)
-end
-function _faces_verdict(am::Mechanisms.AllostericMechanism, eps::_Network)
-    law, faces = _law_network(am), _faces(Mechanisms.catalytic(am))
+function _faces_verdict(am::Mechanisms.Mechanism, eps::_Network)
+    faces = _faces(am.catalytic)
+    _is_allosteric(am) ||
+        return _first_face_fault(i -> _check_face(am, eps, faces, i), faces)
+    law = _law_network(am)
     _first_face_fault(faces) do i
         v = _check_face(am, law, faces, i)
         v.fault === _NO_FAULT ? _admission_face(am, eps, law, faces, i) : v

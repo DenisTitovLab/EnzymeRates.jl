@@ -28,12 +28,12 @@ Base.hash(f::_FormRecord, h::UInt) =
     CandidateMechanism
 
 A mechanism the enumerator proposes for a reaction (`candidate_mechanisms`). Its field
-`mechanism`, a `Mechanism` or an `AllostericMechanism`, is the mechanism to fit and
-report. Two candidates are `==` and hash alike exactly when their mechanisms are.
+`mechanism`, a `Mechanism`, is the mechanism to fit and report. Two candidates are `==`
+and hash alike exactly when their mechanisms are.
 """
 struct CandidateMechanism
-    mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-    # The record of each form, at the form's index in `mechanism`'s catalytic graph. The
+    mechanism::Mechanisms.Mechanism
+    # The record of each form, at the form's index in `mechanism`'s catalytic scheme. The
     # moves read a form's contents here, never from the mechanism.
     forms::Vector{_FormRecord}
 end
@@ -43,40 +43,35 @@ Base.:(==)(a::CandidateMechanism, b::CandidateMechanism) = a.mechanism == b.mech
 Base.hash(c::CandidateMechanism, h::UInt) = hash(c.mechanism, h)
 
 """
-    _candidate(substrates, products, forms, steps) -> CandidateMechanism
-    _candidate(substrates, products, forms, steps, allosteric_states, oligomeric_state,
-               regulatory_sites) -> CandidateMechanism
+    _candidate(substrates, products, forms, steps, allostery = <plain>)
+        -> CandidateMechanism
     _candidate(parent::CandidateMechanism, allosteric_states, oligomeric_state,
                regulatory_sites) -> CandidateMechanism
 
 The candidate whose forms have the records `forms` and whose steps are `steps` (`from` and
-`to` index `forms`), built and checked by the `Mechanism` constructor, or by the
-`AllostericMechanism` constructor with `allosteric_states[l]` the state of written kinetic
-group `l`. The third gives `parent`'s catalytic graph, with its records, the allosteric
-states, oligomeric state and regulatory sites given. The only place in `Enumeration` that
-builds a mechanism. The constructors put the forms in canonical order, so the candidate
-holds the record of each form as the built mechanism orders them.
+`to` index `forms`), with the allostery `allostery`, whose `allosteric_states[l]` is the
+state of written kinetic group `l`, built and checked by the `Mechanism` constructor; a
+plain mechanism by default. The second gives `parent`'s catalytic scheme, with its
+records, the allosteric states, oligomeric state and regulatory sites given. The only
+place in `Enumeration` that builds a mechanism. The constructors put the forms in
+canonical order, so the candidate holds the record of each form as the built mechanism
+orders them.
 """
 function _candidate(substrates::Vector{Symbol}, products::Vector{Symbol},
-                    forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step})
-    m = Mechanisms.Mechanism(substrates, products, _enzyme_form.(forms), steps)
-    CandidateMechanism(m, _form_records(m))
-end
-function _candidate(substrates::Vector{Symbol}, products::Vector{Symbol},
                     forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step},
-                    allosteric_states::Vector{Symbol}, oligomeric_state::Int,
-                    regulatory_sites::Vector{Mechanisms.RegulatorySite})
-    m = Mechanisms.AllostericMechanism(substrates, products, _enzyme_form.(forms), steps,
-                                       allosteric_states, oligomeric_state,
-                                       regulatory_sites)
+                    allostery::Mechanisms.Allostery =
+                        Mechanisms.Allostery(Symbol[], 1, Mechanisms.RegulatorySite[]))
+    m = Mechanisms.Mechanism(
+        Mechanisms.CatalyticScheme(substrates, products, _enzyme_form.(forms), steps),
+        allostery)
     CandidateMechanism(m, _form_records(m))
 end
 _candidate(parent::CandidateMechanism, allosteric_states::Vector{Symbol},
            oligomeric_state::Int, regulatory_sites::Vector{Mechanisms.RegulatorySite}) =
     CandidateMechanism(
-        Mechanisms.AllostericMechanism(Mechanisms.catalytic(parent.mechanism),
-                                       allosteric_states, oligomeric_state,
-                                       regulatory_sites),
+        Mechanisms.Mechanism(parent.mechanism.catalytic,
+                             Mechanisms.Allostery(allosteric_states, oligomeric_state,
+                                                  regulatory_sites)),
         parent.forms)
 
 """The `Mechanisms` form that the record `f` describes."""
@@ -88,13 +83,13 @@ _enzyme_form(f::_FormRecord) =
 """
     _form_records(m) -> Vector{_FormRecord}
 
-The record of each form of the catalytic graph of `m`, a `Mechanism` or an
-`AllostericMechanism`, read from the form's contents, in form order. It makes the record
-of a mechanism written by hand (and, through `_candidate`, of one the enumerator builds):
-the only place in `Enumeration` that reads a form's contents from a mechanism.
+The record of each form of the catalytic scheme of mechanism `m`, read from the form's
+contents, in form order. It makes the record of a mechanism written by hand (and, through
+`_candidate`, of one the enumerator builds): the only place in `Enumeration` that reads a
+form's contents from a mechanism.
 """
-_form_records(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
+_form_records(m::Mechanisms.Mechanism) =
     _FormRecord[_FormRecord(n.conformation, Symbol[x.name for x in n.bound if !x.modifier],
                             Symbol[x.name for x in n.bound if x.modifier], n.added,
                             n.subtracted)
-                for n in Mechanisms.catalytic(m).nodes]
+                for n in m.catalytic.nodes]

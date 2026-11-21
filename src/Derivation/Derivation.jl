@@ -11,8 +11,8 @@ public check_valid_rate_equation, compile_rate_equation, dependent_parameter_val
     fitted_parameter_count, parameter_units, parameters, rate_equation_term_count,
     rate_equation_dedup_key, rate_equation_string
 
-"""A plain or an allosteric mechanism."""
-const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+"""Whether `m` is allosteric: its kinetic groups carry allosteric states."""
+_is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
 
 """The two conformations by the index the guard gives them: 1 active, 2 inactive."""
 const _CONFORMATIONS = (:active, :inactive)
@@ -23,7 +23,7 @@ _copies(held::Vector{Mechanisms.Metabolite}, name::Symbol) =
     count(x -> x.name === name, held)
 
 """The rapid-equilibrium flag of each step of `m`."""
-_re_flags(m::Mechanisms.Mechanism) = BitVector(s.rapid_equilibrium for s in m.steps)
+_re_flags(m::Mechanisms.CatalyticScheme) = BitVector(s.rapid_equilibrium for s in m.steps)
 
 """Whether the equilibrium constant of step `e` at rapid equilibrium is named after the
 reverse of its stored direction. A binding, a step that takes up or gives off one
@@ -35,7 +35,7 @@ _constant_named_in_reverse(e::Mechanisms.Step) =
 
 """The kinetic groups of `m`, numbered by their steps' `group`: each group's steps, in step
 order."""
-function _kinetic_groups(m::Mechanisms.Mechanism)
+function _kinetic_groups(m::Mechanisms.CatalyticScheme)
     G = maximum(e -> e.group, m.steps; init = 0)
     [findall(e -> e.group == g, m.steps) for g in 1:G]
 end
@@ -61,10 +61,8 @@ include("memo.jl")
 # and runs `_rate_body`, so all of them compile into the package image rather than in
 # each session.
 precompile(_guard, (Mechanisms.Mechanism,))
-precompile(_guard, (Mechanisms.AllostericMechanism,))
 precompile(_derivation_input, (Type{<:_CompiledRateEquation},))
 precompile(Tuple{typeof(_mechanism_from_sig), Int, Vararg{Int}})
 precompile(_rate_body, (Mechanisms.Mechanism,))
-precompile(_rate_body, (Mechanisms.AllostericMechanism,))
 
 end

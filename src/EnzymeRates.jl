@@ -1,5 +1,5 @@
 # ABOUTME: Top-level module; defines the exported names and include order.
-# ABOUTME: Exports the 16 names promised to users and wires together src/ source files.
+# ABOUTME: Exports the 15 names promised to users and wires together src/ source files.
 """Finds the best mechanism for a reaction from measured rates."""
 module EnzymeRates
 
@@ -9,7 +9,7 @@ export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
 # DSL
-export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
+export @enzyme_reaction, @enzyme_mechanism
 
 # Core API
 export compile_rate_equation, rate_equation_string, parameters,
@@ -28,12 +28,12 @@ using Distributed
 include("Data/Data.jl")
 using .Data: Data
 include("Mechanisms/Mechanisms.jl")
-using .Mechanisms: Mechanisms, EnzymeReaction, Mechanism, AllostericMechanism, metabolites
+using .Mechanisms: Mechanisms, EnzymeReaction, Mechanism, metabolites
 include("Derivation/Derivation.jl")
 using .Derivation: Derivation, compile_rate_equation, rate_equation_string, parameters,
     dependent_parameter_values
 include("DSL/DSL.jl")
-using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
+using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism
 include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation, test_rate_equation
 include("Enumeration/Enumeration.jl")

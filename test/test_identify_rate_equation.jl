@@ -64,10 +64,9 @@ end
     # The constrained allosteric mechanism: K-type allosteric
     # with S, P only in R-state (`:OnlyA` binding groups) and R
     # only in T-state (`:OnlyI` ligand tag).
-    test_mechanism = @allosteric_mechanism begin
+    test_mechanism = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         steps: begin
             E + S ⇌ E(S)     :: OnlyA
             E(S) <--> E(P)   :: NonequalAI
@@ -425,7 +424,7 @@ end
         @test results isa
             IdentifyRateEquationResults
         @test results.best isa
-            Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}
+            EnzymeRates.Mechanism
         @test nrow(results.cv_results) > 0
         @test "cv_score" in names(
             results.cv_results)
@@ -720,10 +719,9 @@ end
             E(P) ⇌ E + P
         end
     end
-    regulated = @allosteric_mechanism begin
+    regulated = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
@@ -917,7 +915,7 @@ end
     added = Int[]
     # Typed as the pipeline types a mechanism, plain or allosteric, so each call dispatches
     # on the mechanism's run-time type.
-    for em in Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[re_binding,
+    for em in EnzymeRates.Mechanism[re_binding,
                                                                           ss_binding]
         full = FittingProblem(em, prob.rate_data.data, prob.rate_data.Keq;
                               absolute=prob.rate_data.absolute,
@@ -1582,7 +1580,7 @@ end
 # the law. Written out directly so the tests are self-contained and cheap. The tests
 # re-verify the collision at run time.
 function _testhelper_dedup_twins()
-    m1 = @allosteric_mechanism begin
+    m1 = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -1592,7 +1590,7 @@ function _testhelper_dedup_twins()
             E(P) ⇌ E + P       :: OnlyA
         end
     end
-    m2 = @allosteric_mechanism begin
+    m2 = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -1630,7 +1628,7 @@ end
     end
     prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference=_testhelper_row_reference(data))
-    pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
+    pair = EnzymeRates.Mechanism[m1, m2]
 
     memo = Dict{String, EnzymeRates._Fit}()
     opt = _testhelper_CountingStubOpt(; uval = log(5.0))
@@ -1685,7 +1683,7 @@ end
     end
 
     # Cross-batch memo hit: a later batch with the same key refits NOTHING.
-    single = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1]
+    single = EnzymeRates.Mechanism[m1]
     reuse_log = String[]
     reused, _ = EnzymeRates._process_batch(_testhelper_candidate.(single), prob;
         optimizer=opt, n_restarts=1,
@@ -1731,7 +1729,7 @@ end
 # two sort it to different fitted positions. Returns the two and a problem on their
 # reaction.
 function _testhelper_unibi_pair()
-    equal = @allosteric_mechanism begin
+    equal = @enzyme_mechanism begin
         substrates: A
         products: P, Q
         oligomeric_state: 2
@@ -1742,7 +1740,7 @@ function _testhelper_unibi_pair()
             E + Q ⇌ E(Q)             :: OnlyA
         end
     end
-    only_active = @allosteric_mechanism begin
+    only_active = @enzyme_mechanism begin
         substrates: A
         products: P, Q
         oligomeric_state: 2
@@ -1948,7 +1946,7 @@ function _testhelper_phantom_pair()
             E + P ⇌ E(P)
         end
     end
-    phantom = @allosteric_mechanism begin
+    phantom = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -2009,7 +2007,7 @@ end
     # holds (the plain flip move never emits it: `_chain_flank_groups` keeps B's group
     # at rapid equilibrium). It is fitted as an ordinary candidate under its own key,
     # unflagged, its L fitted.
-    m3268 = @allosteric_mechanism begin
+    m3268 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -2058,10 +2056,9 @@ end
             E + P ⇌ E(P)
         end
     end
-    regulated = @allosteric_mechanism begin
+    regulated = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)       :: EqualAI
@@ -2176,7 +2173,7 @@ end
     # and retcode, and `_ingest!` keeps both out of the frontier and the cv pool.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
-    batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[parent, phantom]
+    batch = EnzymeRates.Mechanism[parent, phantom]
     memo = Dict{String, EnzymeRates._Fit}()
     lines = String[]
     opt = _testhelper_CountingStubOpt(; throw_first = true)
@@ -2236,7 +2233,7 @@ end
     # Two L phantoms of the uni seed, tag-set siblings with one law and one key. When the
     # seed's fit throws, both are demoted and one fit serves their key; a key that `memo`
     # already holds is read, not fitted again, so a phantom with a usable fit never fails.
-    m1 = @allosteric_mechanism begin
+    m1 = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -2245,7 +2242,7 @@ end
             E(P) ⇌ E + P       :: OnlyA
         end
     end
-    m2 = @allosteric_mechanism begin
+    m2 = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -2372,7 +2369,7 @@ end
 # the split form's extra constant back, so both are one law, with one key.
 @testset "allosteric split/merge pair: the split form is the merged form's model" begin
     # Split form: 8 catalytic groups.
-    am1 = @allosteric_mechanism begin
+    am1 = @enzyme_mechanism begin
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
         oligomeric_state: 4
@@ -2390,7 +2387,7 @@ end
         end
     end
     # Merged form: 7 groups.
-    am2 = @allosteric_mechanism begin
+    am2 = @enzyme_mechanism begin
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
         oligomeric_state: 4
@@ -2581,7 +2578,7 @@ end
     # turns rapid equilibrium and closes a turnover cycle with the X complex's substrate
     # binding, so the whole graph has no reverse maximal rate. The guard admits the
     # mechanism.
-    route = @allosteric_mechanism begin
+    route = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: X
@@ -2614,7 +2611,7 @@ end
     # here the X route's two Theorell–Chance steps, each taking up S and giving off P,
     # would close a turnover cycle. Read through the edge mask, the active law keeps
     # only its three steady-state steps, which have a maximal rate both ways.
-    tc_route = @_testhelper_unguarded @allosteric_mechanism begin
+    tc_route = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: X
@@ -2638,7 +2635,7 @@ end
     # ways: the steady-state F(X) <--> E(X) keeps the route from closing a
     # rapid-equilibrium turnover cycle. Read through the edge mask, the route lies
     # outside the active law.
-    merged_route = @_testhelper_unguarded @allosteric_mechanism begin
+    merged_route = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: X
@@ -2672,7 +2669,7 @@ end
     # step, that step takes up S and gives off P in rapid equilibrium (condition C), and
     # the maximal rate again exists both ways; read through the edge mask, the step lies
     # outside the active law.
-    re_tc_route = @_testhelper_unguarded @allosteric_mechanism begin
+    re_tc_route = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: X
@@ -2826,10 +2823,9 @@ end
             E + Q ⇌ E(Q)
         end
     end
-    allosteric = @allosteric_mechanism begin
+    allosteric = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: I, J
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
@@ -2840,5 +2836,5 @@ end
     end
     @test [EnzymeRates._mechanism_id(sprint(show, em))
            for em in (plain, ping_pong, allosteric)] ==
-          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "c3db71453a776221"]
+          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "31d05a04563642b7"]
 end

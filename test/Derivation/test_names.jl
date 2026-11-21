@@ -32,10 +32,9 @@ const ER = EnzymeRates
     # columns; the inactive copies of the :OnlyA step lie outside the inactive law
     # (block 2) and come first, then the inactive binding (block 1), then the active
     # columns (block 0). An :OnlyA step's inactive copy takes its own name.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
@@ -58,10 +57,9 @@ end
 @testset "_regulator_constant: a regulator ligand's constant per conformation" begin
     M = ER.Mechanisms
     D = ER.Derivation
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R, X, Y, Z
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: EqualAI
@@ -246,10 +244,9 @@ end
 
     # An allosteric mechanism ends with its regulator constants, which have the units of
     # their ligand, the last metabolite, and L, which has none.
-    allosteric = @allosteric_mechanism begin
+    allosteric = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
@@ -425,10 +422,9 @@ end
 end
 
 @testset "_name(p, ::AllostericMechanism) chokepoint" begin
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: EqualAI
@@ -445,10 +441,9 @@ end
     @test ER.Derivation._name(P(rep_bind, 1, true), am) === :K_I_ES_to_E_S
 
     # An :EqualAI isomerization, steady-state and at rapid equilibrium, has no state tag.
-    ss_iso = @allosteric_mechanism begin
+    ss_iso = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
@@ -460,10 +455,9 @@ end
     rep_iso = _testhelper_edge(ss_iso, "ES <--> EP")
     @test ER.Derivation._name(P(rep_iso, 1, false), ss_iso) === :k_ES_to_EP
     @test ER.Derivation._name(P(rep_iso, 2, false), ss_iso) === :k_EP_to_ES
-    re_iso = @allosteric_mechanism begin
+    re_iso = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S <--> E(S)   :: NonequalAI
@@ -475,7 +469,7 @@ end
     @test ER.Derivation._name(P(_testhelper_edge(re_iso, "ES ⇌ EP"), 1, false), re_iso) ===
           :K_ES_to_EP
 
-    lig = first(am.regulatory_sites[1].ligands)
+    lig = first(am.allosteric.regulatory_sites[1].ligands)
     R = ER.Derivation._RegulatorParameter
     @test ER.Derivation._name(R(lig, false), am) === :K_A_Rreg
     @test ER.Derivation._name(R(lig, true), am) === :K_I_Rreg
@@ -521,10 +515,9 @@ end
     @test ER.Derivation._name(P(k, 2, false), ss_bind) === :k_ES_to_E_S
 
     # I-state token on RE and SS steps
-    am_ss = @allosteric_mechanism begin
+    am_ss = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
@@ -551,10 +544,9 @@ end
     end
     @test ER.Derivation._name(P(_testhelper_edge(re_iso, "ES ⇌ EP"), 1, false), re_iso) ===
           :K_ES_to_EP
-    am_re = @allosteric_mechanism begin
+    am_re = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S <--> E(S)   :: EqualAI
@@ -603,8 +595,8 @@ end
     # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
     # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
     mech = m
-    k = only(k for k in eachindex(mech.steps)
-             if mech.step_kinds[k] !== :binding)
+    k = only(k for k in eachindex(mech.catalytic.steps)
+             if mech.catalytic.step_kinds[k] !== :binding)
     kon, koff = _testhelper_step_parameters(mech, k)
     @test (kon.slot, koff.slot) == (1, 2)
     @test ER.Derivation._name(kon, mech) == :k_EQ_P_to_EAB &&
@@ -681,7 +673,7 @@ end
     _testhelper_check_law_against_oracle(inh)
     # The allosteric state tag follows the prefix: a :NonequalAI binding has an
     # A-state and an I-state constant, an :EqualAI binding one shared constant.
-    allo = @allosteric_mechanism begin
+    allo = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -720,8 +712,8 @@ end
     _testhelper_check_law_against_oracle(pingpong)
     # One name per class: a rapid-equilibrium group's K, a steady-state group's kf, kr.
     pm = pingpong
-    @test length(pp_names) == sum(pm.steps[first(ks)].rapid_equilibrium ? 1 : 2
-                                  for ks in pm.groups)
+    @test length(pp_names) == sum(pm.catalytic.steps[first(ks)].rapid_equilibrium ? 1 : 2
+                                  for ks in pm.catalytic.groups)
 end
 
 @testset "a modifier-only name is bare, a reactant's copy is Xmod in its form's name" begin
@@ -811,9 +803,9 @@ end
     end
     m = forward
     @test backward == m
-    k = only(k for (k, e) in enumerate(m.steps) if ER.Mechanisms._is_iso(e))
-    @test ER.Mechanisms._form_name(m, m.steps[k].from) == "F" &&
-          ER.Mechanisms._form_name(m, m.steps[k].to) == "E"
+    k = only(k for (k, e) in enumerate(m.catalytic.steps) if ER.Mechanisms._is_iso(e))
+    @test ER.Mechanisms._form_name(m.catalytic, m.catalytic.steps[k].from) == "F" &&
+          ER.Mechanisms._form_name(m.catalytic, m.catalytic.steps[k].to) == "E"
     kf, kr = _testhelper_step_parameters(m, k)
     @test ER.Derivation._name(kf, m) == :k_F_to_E && ER.Derivation._name(kr, m) == :k_E_to_F
 end

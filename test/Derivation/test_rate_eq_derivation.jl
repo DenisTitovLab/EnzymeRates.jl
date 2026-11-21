@@ -141,14 +141,14 @@ step. A ligand of regulatory site `j` (the written order of `raw`'s sites) gives
 """
 function _testhelper_written_params(m, all_params::NamedTuple; raw)
     mech = m
-    allo = mech isa EnzymeRates.AllostericMechanism
+    allo = _testhelper_is_allosteric(mech)
     g = _testhelper_graph(mech)
     c = _testhelper_canonicalize(raw)
-    c.mechanism == EnzymeRates.Mechanisms.catalytic(mech) ||
+    c.scheme == mech.catalytic ||
         error("raw writes another mechanism than m")
     # The test reader's steps run group by group, each group in edge order.
     flat = reduce(
-        vcat, EnzymeRates.Mechanisms.catalytic(mech).groups)
+        vcat, mech.catalytic.groups)
     out = Pair{Symbol, Any}[]
     for i in eachindex(c.edge_of)
         s = g.steps[findfirst(==(c.edge_of[i]), flat)]
@@ -174,7 +174,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
         end
     end
     if allo
-        for (pos, site) in enumerate(mech.regulatory_sites)
+        for (pos, site) in enumerate(mech.allosteric.regulatory_sites)
             j = _testhelper_positional_site_idx(site, pos, raw.regulatory_sites)
             for (lig, tag) in zip(site.ligands,
                                   site.allosteric_states)
@@ -825,7 +825,7 @@ subunit, where the MWC law is the exact steady state. The allosteric specs and
 body, to 1e-20."""
 function _testhelper_test_mass_action_oracle(spec::_testhelper_MechanismTestSpec)
     @testset "Mass-action oracle" begin
-        bigfloat = spec.mechanism isa EnzymeRates.AllostericMechanism ||
+        bigfloat = _testhelper_is_allosteric(spec.mechanism) ||
                    spec.name in _testhelper_bigfloat_body_specs
         _testhelper_check_law_against_oracle(spec.mechanism; bigfloat)
     end
@@ -916,10 +916,9 @@ end
 
     # An allosteric mechanism compiles alike; its law equals the mass-action steady state
     # of one protomer (`_testhelper_check_law_against_oracle`).
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
@@ -1079,10 +1078,12 @@ const _testhelper_fused_cases = [
     end
     m = em
     form(text) =
-        only(f for f in eachindex(m.nodes) if ER.Mechanisms._form_name(m, f) == text)
+        only(f for f in eachindex(m.catalytic.nodes)
+             if ER.Mechanisms._form_name(m.catalytic, f) == text)
     a_copy, ab, e = form("EAmod"), form("EAb"), form("E")
     @test e == 1 && a_copy < ab
-    s = ER.Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)))
+    s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic,
+                                                 trues(length(m.catalytic.steps)))
     @test all(seg -> seg[1] == minimum(seg), s.segments)
     @test s.segments[s.segment_of[e]][1] == e
     @test s.segment_of[a_copy] == s.segment_of[ab] == s.segment_of[e]
@@ -1207,9 +1208,9 @@ const _testhelper_tc_cases = (
     end
     # canonical orientation: the substrate side is `from`
     m = tc_ss
-    e = only(e for e in m.steps
+    e = only(e for e in m.catalytic.steps
              if !ER.Mechanisms._is_iso(e) && !ER.Mechanisms._is_binding(e))
-    @test ER.Mechanisms._form_name(m, e.from) == "EA" &&
+    @test ER.Mechanisms._form_name(m.catalytic, e.from) == "EA" &&
           e.taken_up == [ER.Mechanisms.Metabolite(:B, false)]
     @test :k_EA_B_to_EQ_P in _testhelper_step_constant_names(tc_ss)
     @test :k_EQ_P_to_EA_B in _testhelper_step_constant_names(tc_ss)
@@ -1241,7 +1242,7 @@ end
     @test ER.rate_equation_string(tc_backwards) ==
           ER.rate_equation_string(_testhelper_tc_cases.tc_ss)
     ems = Any[spec.mechanism for spec in MECHANISM_TEST_SPECS
-              if spec.mechanism isa ER.Mechanism]
+              if !_testhelper_is_allosteric(spec.mechanism)]
     append!(ems, _testhelper_fused_cases, values(_testhelper_tc_cases), [tc_backwards])
     for em in ems
         m = em
@@ -1253,7 +1254,7 @@ end
         end
     end
     for spec in MECHANISM_TEST_SPECS
-        spec.mechanism isa ER.AllostericMechanism || continue
+        _testhelper_is_allosteric(spec.mechanism) || continue
         am = spec.mechanism
         for flipped in _testhelper_variants(_testhelper_written(am))
             am2 = _testhelper_build(flipped)
@@ -1277,7 +1278,7 @@ end
     cm = am.catalytic
     members = cm.groups
     onlyA_groups = [g for g in eachindex(members)
-                    if am.allosteric_states[g] === :OnlyA]
+                    if am.allosteric.allosteric_states[g] === :OnlyA]
     @test length(onlyA_groups) == 2
     onlyA_firsts = [cm.steps[first(members[g])] for g in onlyA_groups]
     @test count(e -> EnzymeRates.Mechanisms._is_binding(e) &&
@@ -1360,7 +1361,7 @@ end
     # reproducer takes the fix the message prints, that step steady-state, which passes
     # every face and keeps the steady-state speed k_I_E_NAD_to_ENAD dependent.
     NO = EnzymeRates.Derivation._NO_FAULT
-    trap = @_testhelper_unguarded @allosteric_mechanism begin
+    trap = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
         oligomeric_state: 4
@@ -1391,7 +1392,7 @@ end
                                        law = :limit) ==
           [:agree, :pattern, :agree, :agree, :agree, :pattern, :agree]
     msg = EnzymeRates.Derivation._guard_message(trap)
-    @test_throws ErrorException(msg) @allosteric_mechanism begin
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
         oligomeric_state: 4
@@ -1978,7 +1979,7 @@ end
             E(P) <--> E + P
             E(Q) <--> E + Q
         end
-    end), false))
+    end)))
     mechs = [[s.mechanism for s in MECHANISM_TEST_SPECS]; rejected]
     questions = (m -> D.check_valid_rate_equation(Bool, m),
                  D.check_valid_rate_equation,
@@ -2215,11 +2216,10 @@ end
 
     # Allosteric: both conformations count. An all-SS uni-uni has G = 3 segments and
     # τ = 3 spanning trees, 9, and its inactive conformation keeps every step: 9 more.
-    allo = @allosteric_mechanism begin
+    allo = @enzyme_mechanism begin
         substrates: F6P
         products: F16BP
         oligomeric_state: 2
-        allosteric_regulators: I
         steps: begin
             E + F6P <--> E(F6P)      :: EqualAI
             E(F6P) <--> E(F16BP)     :: EqualAI
@@ -2296,12 +2296,11 @@ end
 @testset "a metabolite named after a constant is rejected" begin
     # An allosteric regulator named L would take the conformational constant's name.
     @test_throws(ErrorException(
-        "AllostericMechanism: L is a reserved name; Keq, L, N, params, concs " *
+        "Mechanism: L is a reserved name; Keq, L, N, params, concs " *
         "and v are kept for a rate equation's constants and local names"),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: L
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)     :: EqualAI
@@ -2333,13 +2332,12 @@ end
 # take the constant of a ligand R or X. A ligand name holds no `_`.
 @testset "a ligand name holding `_` is rejected" begin
     @test_throws(ErrorException(
-        "AllostericMechanism: the metabolite name A_R holds `_`; constant names join " *
+        "Mechanism: the metabolite name A_R holds `_`; constant names join " *
         "metabolite names with `_`, so a metabolite name holds none"),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
-            allosteric_regulators: R, A_R
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -2349,13 +2347,12 @@ end
             regulatory_site(2): A_R::EqualAI
         end)
     @test_throws(ErrorException(
-        "AllostericMechanism: the metabolite name I_X holds `_`; constant names join " *
+        "Mechanism: the metabolite name I_X holds `_`; constant names join " *
         "metabolite names with `_`, so a metabolite name holds none"),
-        @allosteric_mechanism begin
+        @enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
-            allosteric_regulators: X, I_X
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -2365,11 +2362,10 @@ end
         end)
 
     # Renamed, the :EqualAI ligand has a constant of its own.
-    renamed = @allosteric_mechanism begin
+    renamed = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
-        allosteric_regulators: R, T
         steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: NonequalAI
@@ -2428,21 +2424,25 @@ function _testhelper_unchecked(raw::NamedTuple)
     for (l, t) in enumerate(raw.allosteric_states)
         tags[c.group_of[l]] = t
     end
-    EnzymeRates.AllostericMechanism(c.mechanism, tags, raw.oligomeric_state,
-        [EnzymeRates.Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.allosteric_states)
-         for s in raw.regulatory_sites])
+    EnzymeRates.Mechanism(
+        c.scheme,
+        EnzymeRates.Mechanisms.Allostery(
+            tags, raw.oligomeric_state,
+            [EnzymeRates.Mechanisms.RegulatorySite(s.ligands, s.multiplicity,
+                                                   s.allosteric_states)
+             for s in raw.regulatory_sites]))
 end
 
 @testset "constants that would share a name are rejected by the guard" begin
     # The walker reads the block the field-by-field raw value writes.
-    @test EnzymeRates.DSL.raw_mechanism(_testhelper_relabelled_block(:F), true) ==
+    @test EnzymeRates.DSL.raw_mechanism(_testhelper_relabelled_block(:F)) ==
           _testhelper_relabelled_raw(:F)
     for label in (:A, :I)
         reason = "`$label` cannot be a conformation label: constant names tag a " *
                  "conformation with A_ or I_ (`k_A_ES_to_EP`), so the labels A and I " *
                  "could give two constants one name; choose another label."
-        @test_throws("@allosteric_mechanism: " * reason,
-                     eval(:(@allosteric_mechanism $(_testhelper_relabelled_block(label)))))
+        @test_throws("@enzyme_mechanism: " * reason,
+                     eval(:(@enzyme_mechanism $(_testhelper_relabelled_block(label)))))
         @test_throws("@enzyme_mechanism: " * reason, eval(:(@enzyme_mechanism begin
             substrates: b
             products:   Eb
@@ -2462,7 +2462,7 @@ end
     # active constant of the :NonequalAI step E(b) <--> A(Eb).
     am_a = _testhelper_unchecked(_testhelper_relabelled_raw(:A))
     conformation_a = am_a
-    clash_a = ErrorException("AllostericMechanism: constants of this mechanism's rate " *
+    clash_a = ErrorException("Mechanism: constants of this mechanism's rate " *
                              "equation share a name (k_A_Eb_to_AEb). Rename a metabolite " *
                              "or a conformation label so that each constant has a name " *
                              "of its own.")
@@ -2486,7 +2486,7 @@ end
     # :NonequalAI step's inactive constant.
     am_i = _testhelper_unchecked(_testhelper_relabelled_raw(:I))
     conformation_i = am_i
-    clash_i = ErrorException("AllostericMechanism: constants of this mechanism's rate " *
+    clash_i = ErrorException("Mechanism: constants of this mechanism's rate " *
                              "equation share a name (k_I_Eb_to_IEb). Rename a metabolite " *
                              "or a conformation label so that each constant has a name " *
                              "of its own.")
@@ -2495,7 +2495,7 @@ end
     @test_throws clash_i rate_equation_string(conformation_i)
 
     # Labelled F, each constant has a name of its own.
-    renamed = eval(:(@allosteric_mechanism $(_testhelper_relabelled_block(:F))))
+    renamed = eval(:(@enzyme_mechanism $(_testhelper_relabelled_block(:F))))
     @test parameters(renamed) == (:K_Eb_to_E_b, :K_F_to_E, :k_A_Eb_to_FEb, :k_FEb_to_F_Eb,
                                   :k_F_Eb_to_FEb, :k_I_Eb_to_FEb, :L)
     @test renamed ==
@@ -2522,7 +2522,7 @@ end
             E(minusQ; residual = A - P) <--> E(; residual = A - P - Q)
         end
     end)
-    residual_clash = _testhelper_build(EnzymeRates.DSL.raw_mechanism(residual_block, false))
+    residual_clash = _testhelper_build(EnzymeRates.DSL.raw_mechanism(residual_block))
     clash_residual = ErrorException(
         "Mechanism: constants of this mechanism's rate equation share a name " *
         "(k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP, " *
@@ -2591,7 +2591,7 @@ end
     # the R-state catalyzes (k_T = 0). The T-state therefore carries no flux
     # (N_T = 0) and never populates E(S), so no reverse-catalysis weight leaks
     # into Q_I. As K_A_ES_to_E_S → ∞ (weaker R-state binding), rate vanishes.
-    onlyR_sub = @allosteric_mechanism begin
+    onlyR_sub = @enzyme_mechanism begin
         substrates: S
         products:   P
         oligomeric_state: 2
@@ -2613,7 +2613,7 @@ end
     # V-type only: all bindings :EqualAI but catalysis :OnlyA. T-state binds
     # substrate normally but cannot catalyze (k_T = 0), so N_T = 0. As L → ∞
     # (T-state dominant) the rate vanishes.
-    vtype = @allosteric_mechanism begin
+    vtype = @enzyme_mechanism begin
         substrates: S
         products:   P
         oligomeric_state: 2
@@ -2638,10 +2638,9 @@ end
     # also when `:OnlyA` and `:NonequalAI` catalytic groups coexist; read as association
     # constants (`K * S`) they would halve the rate below.
     # S binding :NonequalAI, catalysis :OnlyA, P binding :NonequalAI.
-    m_mix = @allosteric_mechanism begin
+    m_mix = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: I
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
@@ -2672,10 +2671,9 @@ end
     # at chemical equilibrium. (Over-parametrized; the enumerator will skip such
     # degenerate configs in a follow-up PR.)
     # B binding (step 2) :NonequalAI, rest :EqualAI.
-    m_ro = @allosteric_mechanism begin
+    m_ro = @enzyme_mechanism begin
         substrates: A, B
         products:   P, Q
-        allosteric_regulators: I
         oligomeric_state: 2
         steps: begin
             E + A <--> E(A)            :: EqualAI
@@ -2706,10 +2704,9 @@ end
 
 
 @testset "rate_equation_string allosteric byte-identical fixture" begin
-    m_allo = @allosteric_mechanism begin
+    m_allo = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)     :: NonequalAI
@@ -2757,10 +2754,9 @@ end
     @testset "_testhelper_edge_names and the regulator constants" begin
         flat_names(am, state) = reduce(vcat, _testhelper_edge_names(am, state))
         # :NonequalAI cat groups + :NonequalAI reg ligand → both conformations named.
-        aem = @allosteric_mechanism begin
+        aem = @enzyme_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
@@ -2783,10 +2779,9 @@ end
         # Balanced :OnlyA bindings (both S and P) keep the :NonequalAI iso
         # Haldane-valid. The inactive conformation keeps no form but E, so its law has
         # no step and the :OnlyA reg ligand no inactive constant.
-        aem_skip = @allosteric_mechanism begin
+        aem_skip = @enzyme_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: OnlyA
@@ -2804,10 +2799,9 @@ end
 
         # An :OnlyI reg ligand has an inactive constant and no active one; an :EqualAI
         # ligand one bare constant, listed with the active ones.
-        am_onlyi = @allosteric_mechanism begin
+        am_onlyi = @enzyme_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
@@ -2820,10 +2814,9 @@ end
         @test _testhelper_regulator_names(am_onlyi) == [:K_I_Rreg]
         @test _testhelper_regulator_constants(am_onlyi, :I) ==
               [:K_I_Rreg]
-        am_equal = @allosteric_mechanism begin
+        am_equal = @enzyme_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
@@ -2846,10 +2839,9 @@ end
     # mid-name I_ token, not string(active) * "_T"; a rate polynomial with
     # structural I-names beside _T-suffixed independent names would make
     # the compiled rate law error with a KeyError.
-    m = @allosteric_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: PEP, ADP
         products:   Pyruvate, ATP
-        allosteric_regulators: ATP, F16BP
         oligomeric_state: 4
         steps: begin
             (E + PEP ⇌ E(PEP),
@@ -2887,7 +2879,7 @@ end
     # conformation. The tied constants are dependents, so the mechanism fits the same
     # constants as the one that groups B's two bindings outright, and its law takes the
     # same values.
-    tie = @allosteric_mechanism begin
+    tie = @enzyme_mechanism begin
         substrates: A, B
         products: P
         oligomeric_state: 2
@@ -2899,7 +2891,7 @@ end
             E(P) ⇌ E + P                       :: NonequalAI
         end
     end
-    grouped = @allosteric_mechanism begin
+    grouped = @enzyme_mechanism begin
         substrates: A, B
         products: P
         oligomeric_state: 2
@@ -2926,7 +2918,7 @@ end
     # Random-order allosteric bi-bi with an :OnlyA catalytic step → dead inactive
     # state. Verified pre-fix to crash with an UndefVarError on the I-state
     # release rate of A from E(A).
-    m = @allosteric_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2

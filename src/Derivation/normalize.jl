@@ -15,9 +15,8 @@ struct _Norm
 end
 
 """The variables of `vars` that hold `m`'s substrates (the unit rule's `substrates`)."""
-_substrate_vars(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
-                vars::_Vars) =
-    Int[vars.index[x] for x in Mechanisms.catalytic(m).substrates]
+_substrate_vars(m::Mechanisms.Mechanism, vars::_Vars) =
+    Int[vars.index[x] for x in m.catalytic.substrates]
 
 """
     _term_key(mo, vars, substrates) -> key

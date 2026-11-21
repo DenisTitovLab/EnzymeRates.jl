@@ -122,10 +122,9 @@ using OptimizationCMAEvolutionStrategy
     @testset "reference scaling leaves L and binding constants" begin
         # MWC uni-uni, catalysis in the active conformation only; X binds the inactive
         # conformation, Y both with different constants.
-        two_site = @allosteric_mechanism begin
+        two_site = @enzyme_mechanism begin
             substrates: S
             products: P
-            allosteric_regulators: X, Y
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI

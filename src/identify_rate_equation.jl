@@ -7,8 +7,6 @@ using CSV
 using Statistics
 using SHA: sha256
 
-const _AnyMech = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-
 """
     IdentifyRateEquationProblem{D}
 
@@ -82,14 +80,14 @@ end
 Results from `identify_rate_equation`.
 
 # Fields
-- `best`: the selected mechanism, a `Mechanism` or an `AllostericMechanism` (1-SE rule
+- `best`: the selected mechanism, a `Mechanism` (1-SE rule
   on the LOOCV scores; see Model selection in `identify_rate_equation`)
 - `cv_results`: `DataFrame` with LOOCV results for
   top candidates per param count; the same table as `loocv_results.csv`, so its
   `rate_equation` column holds the law without its coefficient values
 """
 struct IdentifyRateEquationResults
-    best::_AnyMech
+    best::Mechanisms.Mechanism
     cv_results::DataFrame
 end
 
@@ -407,7 +405,7 @@ struct _Fit
     values::Vector{Float64}
     loss::Float64
     retcode::Symbol
-    source::_AnyMech
+    source::Mechanisms.Mechanism
     source_id::String
     at_bound::Vector{Bool}
 end
@@ -444,8 +442,8 @@ _unflagged(r::_Pass1Record) = _Pass1Record(r.candidate, r.fitted, r.text, r.mech
 """The order in which record `r` reads its fit's values (`_Fit`): the canonical order of
 the law whose fit it reads (`canon0`), then `L` for an MWC law."""
 _fit_order(r::_Pass1Record) =
-    r.candidate.mechanism isa Mechanisms.AllostericMechanism ? [r.canon0.order; :L] :
-    r.canon0.order
+    isempty(r.candidate.mechanism.allosteric.allosteric_states) ? r.canon0.order :
+    [r.canon0.order; :L]
 
 """
 The parameters of record `r` as its row holds them, in its `parameters` order: a fit's
@@ -473,7 +471,7 @@ end
 """A mechanism that failed at derivation, compilation, fit or expansion, with the
 exception message captured as a string. Kept for the CSV + summary."""
 struct FitFailure
-    mech::_AnyMech
+    mech::Mechanisms.Mechanism
     error::String
 end
 
@@ -1071,7 +1069,7 @@ function _cv_model_selection(
     # losses in `groups` order, and column ci of `scores` candidate ci's.
     groups = unique(prob.rate_data.data.group)
     fit_keys = unique(e.fit_key for e in candidates)
-    folds = Tuple{_AnyMech, eltype(groups)}[(memo[k].source, g)
+    folds = Tuple{Mechanisms.Mechanism, eltype(groups)}[(memo[k].source, g)
                                             for k in fit_keys for g in groups]
     fold_losses = _pmap_to_vector(Float64, folds) do (m, g)
         _cross_validation_loss(m, prob.rate_data.data, g, prob.rate_data.Keq;

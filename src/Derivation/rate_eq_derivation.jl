@@ -16,7 +16,7 @@ given, never fitted. The rate law computes every other constant from these and `
 [`dependent_parameter_values`](@ref)). Errors when the rate law of `m` is not defined
 (`check_valid_rate_equation`).
 """
-function parameters(m::_AnyMech)
+function parameters(m::Mechanisms.Mechanism)
     check_valid_rate_equation(m)
     Tuple(_memo_solve(m).fitted)
 end
@@ -35,7 +35,7 @@ up, a regulator's constant +1 for its ligand, and `L` none. A reactant's modifie
 counts as the reactant. Errors when the rate law of `m` is not defined
 (`check_valid_rate_equation`).
 """
-function parameter_units(m::_AnyMech)
+function parameter_units(m::Mechanisms.Mechanism)
     check_valid_rate_equation(m)
     info = _memo_solve(m).info
     column = Dict(x => j for (j, x) in enumerate(Mechanisms.metabolites(m)))
@@ -50,9 +50,9 @@ end
 """Writes the units of `p`, the `i`-th fitted constant of `m`, into row `i` of `units`
 (`parameter_units`), whose rows start at zero; `column` maps each metabolite of `m` to its
 column."""
-function _write_units!(units, i::Int, p::_StepParameter, m::_AnyMech,
+function _write_units!(units, i::Int, p::_StepParameter, m::Mechanisms.Mechanism,
                        column::Dict{Symbol, Int})
-    e = Mechanisms.catalytic(m).steps[p.step]
+    e = m.catalytic.steps[p.step]
     add!(xs, power) = foreach(x -> units.concentrations[i, column[x.name]] += power, xs)
     if e.rapid_equilibrium
         # An equilibrium constant is what the direction it is named after gives off over
@@ -66,10 +66,10 @@ function _write_units!(units, i::Int, p::_StepParameter, m::_AnyMech,
     end
     nothing
 end
-_write_units!(units, i::Int, p::_RegulatorParameter, m::_AnyMech,
+_write_units!(units, i::Int, p::_RegulatorParameter, m::Mechanisms.Mechanism,
               column::Dict{Symbol, Int}) =
     (units.concentrations[i, column[p.ligand]] += 1; nothing)
-_write_units!(units, i::Int, ::_AllostericParameter, m::_AnyMech,
+_write_units!(units, i::Int, ::_AllostericParameter, m::Mechanisms.Mechanism,
               column::Dict{Symbol, Int}) = nothing
 
 """The dependent constants of the joint solve `s` in name order, less the kinetic-group
@@ -106,7 +106,7 @@ julia> dependent_parameter_values(m, p, 4.0)
 (k_EP_to_ES = 0.375,)
 ```
 """
-function dependent_parameter_values(m::_AnyMech, params::NamedTuple, Keq::Real)
+function dependent_parameter_values(m::Mechanisms.Mechanism, params::NamedTuple, Keq::Real)
     s = _solve(_well_posed(m))
     absent = Symbol[k for k in s.fitted if !haskey(params, k)]
     isempty(absent) || error("dependent_parameter_values: params must hold every name " *

@@ -16,7 +16,7 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
     append!(children, _expand_re_to_ss(parent))
     append!(children, _expand_split_kinetic_group(parent))
     append!(children, _expand_add_dead_end_regulator(parent, reaction))
-    if parent.mechanism isa Mechanisms.Mechanism
+    if !_is_allosteric(parent.mechanism)
         append!(children, _expand_to_allosteric(parent, reaction))
     else
         append!(children, _expand_add_allosteric_regulator(parent, reaction),

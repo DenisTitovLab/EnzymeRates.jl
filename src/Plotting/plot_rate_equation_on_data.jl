@@ -199,7 +199,7 @@ largest.
   and `Rate` checked as a concentration.
 """
 function plot_rate_equation_on_data(
-        @nospecialize(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}),
+        @nospecialize(m::Mechanisms.Mechanism),
         @nospecialize(params::NamedTuple), table, Keq::Real; absolute::Bool = false,
         concentration_unit::AbstractString = "M", columns::Integer = 5,
         figure::NamedTuple = (;), axis::NamedTuple = (;))

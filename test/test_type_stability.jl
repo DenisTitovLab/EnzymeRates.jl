@@ -16,8 +16,7 @@ include("type_stability_harness.jl")
     # runs per data row: a site in `loss!` would run on every row of every evaluation.
     error_messages = (;
         reason = "builds an error message, so it runs only once something has failed",
-        functions = [:_guard_message, :_face_message, :_atom_conserving_message,
-                     :_exc_string])
+        functions = [:_guard_message, :_atom_conserving_message, :_exc_string])
     value_to_type = (;
         reason = "lifts a run-time value (a mechanism's steps, a table's or a row's " *
                  "names) to a type, which is what makes the code after it concrete",
@@ -60,10 +59,9 @@ include("type_stability_harness.jl")
             E(P) ⇌ E + P
         end
     end
-    allosteric = @allosteric_mechanism begin
+    allosteric = @enzyme_mechanism begin
         substrates: S
         products: P
-        allosteric_regulators: X
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
@@ -83,31 +81,31 @@ include("type_stability_harness.jl")
 
     @testset "Mechanisms" begin
         @_testhelper_no_dispatch Mech.check_conformation_label(:A, "label")
-        @_testhelper_no_dispatch Mech.form_text(plain, 1)
-        @_testhelper_no_dispatch Mech.step_text(plain, 1)
-        @_testhelper_no_dispatch Mech.has_turnover_cycle(plain, ::BitVector)
+        @_testhelper_no_dispatch Mech.form_text(plain.catalytic, 1)
+        @_testhelper_no_dispatch Mech.step_text(plain.catalytic, 1)
+        @_testhelper_no_dispatch Mech.has_turnover_cycle(plain.catalytic, ::BitVector)
         @_testhelper_no_dispatch Mech.has_unbalanced_cycle(
             ::Vector{Int}, ::Vector{Int}, ::Vector{Int}, ::BitVector, ::Vector{Int},
             ::Vector{Int})
-        @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(plain, ::BitVector)
+        @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(plain.catalytic,
+                                                                 ::BitVector)
         @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(
-            plain, ::BitVector, ::BitVector)
+            plain.catalytic, ::BitVector, ::BitVector)
 
-        @_testhelper_no_dispatch EnzymeRates.Mechanism(
+        @_testhelper_no_dispatch Mech.CatalyticScheme(
             ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Mech.EnzymeForm},
             ::Vector{Mech.Step})
-        @_testhelper_no_dispatch EnzymeRates.AllostericMechanism(
-            ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Mech.EnzymeForm},
-            ::Vector{Mech.Step}, ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
-        @_testhelper_no_dispatch EnzymeRates.AllostericMechanism(
-            plain, ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
+        @_testhelper_no_dispatch Mech.Allostery(
+            ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
+        @_testhelper_no_dispatch EnzymeRates.Mechanism(
+            ::Mech.CatalyticScheme, ::Mech.Allostery)
 
         @testset "$form" for (form, m) in pairs(forms)
             @_testhelper_no_dispatch metabolites(m)
             @_testhelper_no_dispatch Mech.steps_in_active_conformation(m)
             @_testhelper_no_dispatch Mech.steps_in_inactive_conformation(m)
-            @_testhelper_no_dispatch Mech.catalytic(m)
         end
+        @_testhelper_no_dispatch metabolites(plain.catalytic)
     end
 
     @testset "Derivation" begin
@@ -144,7 +142,8 @@ include("type_stability_harness.jl")
         end
         @_testhelper_no_dispatch Deriv._name(::Deriv._RegulatorParameter, allosteric)
         @_testhelper_no_dispatch Deriv._name(::Deriv._AllostericParameter, allosteric)
-        @_testhelper_no_dispatch Deriv.rate_equation_term_count(plain, ::BitVector)
+        @_testhelper_no_dispatch Deriv.rate_equation_term_count(plain.catalytic,
+                                                                ::BitVector)
     end
 
     @testset "Enumeration" begin
@@ -186,7 +185,7 @@ include("type_stability_harness.jl")
             plain_table, ::Vector{Symbol}, 2.0)
         @_testhelper_dispatches_in value_to_type EnzymeRates.Data.RateData(
             plain_table, ::Vector{Symbol}, 2.0; reference = [(S = 1.0,) => 1.0])
-        @_testhelper_dispatches_in error_messages expr_walk EnzymeRates.DSL.parse_mechanism(
+        @_testhelper_dispatches_in expr_walk EnzymeRates.DSL.parse_mechanism(
             "the mechanism's text")
     end
 
@@ -239,7 +238,7 @@ include("type_stability_harness.jl")
         @_testhelper_dispatches_in(
             draws_a_figure,
             plot_rate_equation_on_data(
-                ::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism},
+                ::EnzymeRates.Mechanism,
                 ::NamedTuple, plain_table, 2.0))
         @_testhelper_dispatches_in(
             value_to_type, draws_a_figure,

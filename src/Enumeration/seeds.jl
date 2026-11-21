@@ -400,8 +400,8 @@ fused binding of a substrate enters, a binding that is not plain (`_is_binding`,
 flags count."""
 function _merged_complexes(c::CandidateMechanism, subs::Vector{Symbol},
                            on::BitVector = trues(length(
-                               Mechanisms.catalytic(c.mechanism).steps)))
-    steps = Mechanisms.catalytic(c.mechanism).steps
+                               c.mechanism.catalytic.steps)))
+    steps = c.mechanism.catalytic.steps
     unique(steps[k].to for k in eachindex(steps)
            if on[k] && _is_binding(steps[k]) && !_is_plain_binding(c, k) &&
               _holds(steps[k].taken_up, subs))
@@ -422,7 +422,7 @@ the candidate's rapid-equilibrium edges and more, and adding edges never removes
 cycle, so a turnover cycle of the candidate fails both tests.
 """
 function _seed_candidate_screen(c::CandidateMechanism)
-    m = c.mechanism::Mechanisms.Mechanism
+    m = c.mechanism.catalytic
     ks = eachindex(m.steps)
     any(k -> _is_iso(m.steps[k]), ks) &&
         error("_seed_candidate_screen: the seed base holds an isomerization; a base " *
@@ -464,7 +464,7 @@ Theorell–Chance base, one per complex that can be eliminated, in the order of 
 isomerizations.
 """
 function _seed_bases(c::CandidateMechanism)
-    m = c.mechanism::Mechanisms.Mechanism
+    m = c.mechanism.catalytic
     isos = filter(_is_iso, m.steps)
     joined = foldl(_merge_isomerization, isos; init = m.steps)
     merged = Mechanisms.Step[Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off, true,
@@ -480,11 +480,13 @@ end
 """Whether the flags `re` make the merged base `base` its seed's lumping twin: each merged
 complex, forms `cx` of `base`, has two edges, both steady state and each alone in its
 group."""
-_lumping_twin(base::Mechanisms.Mechanism, cx::Vector{Int}, re::BitVector) = all(cx) do f
-    at = findall(e -> f == e.from || f == e.to, base.steps)
-    length(at) == 2 &&
-        all(k -> !re[k] && count(e -> e.group == base.steps[k].group, base.steps) == 1,
-            at)
+function _lumping_twin(base::Mechanisms.CatalyticScheme, cx::Vector{Int}, re::BitVector)
+    all(cx) do f
+        at = findall(e -> f == e.from || f == e.to, base.steps)
+        length(at) == 2 &&
+            all(k -> !re[k] && count(e -> e.group == base.steps[k].group, base.steps) == 1,
+                at)
+    end
 end
 
 """
@@ -504,7 +506,7 @@ at the same count. A base's groups come in canonical order, so the variants come
 order of their flip sets over those groups; each is built and checked.
 """
 function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
-    m = c.mechanism::Mechanisms.Mechanism
+    m = c.mechanism.catalytic
     variants = CandidateMechanism[]
     for (i, b) in enumerate(_seed_bases(c))
         base = _candidate(m.substrates, m.products, b.forms, b.steps)
@@ -512,8 +514,7 @@ function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
         flips = _minimal_flips(_seed_candidate_screen(base), base)
         if i == 1
             cx = _merged_complexes(base, m.substrates)
-            filter!(re -> !_lumping_twin(base.mechanism::Mechanisms.Mechanism, cx, re),
-                    flips)
+            filter!(re -> !_lumping_twin(base.mechanism.catalytic, cx, re), flips)
         end
         append!(variants, [_with_flags(base, re) for re in flips])
     end
@@ -643,25 +644,23 @@ function _seed_node_children(
     # The return type states what inference cannot read through `pmap`.
     pmap(frontier) do c
         children = CandidateMechanism[]
-        isempty(required_allo) || append!(children, c.mechanism isa Mechanisms.Mechanism ?
-            _expand_to_allosteric(c, rxn) : _expand_add_allosteric_regulator(c, rxn))
+        isempty(required_allo) || append!(children, _is_allosteric(c.mechanism) ?
+            _expand_add_allosteric_regulator(c, rxn) : _expand_to_allosteric(c, rxn))
         append!(children, _expand_add_dead_end_regulator(c, rxn))
         filter!(child -> _is_seed_node(child, rxn, required_allo, required_comp),
                 children)
     end
 end
 
-"""Names of the allosteric regulators bound at `m`'s regulatory sites (empty for
-a `Mechanism`)."""
-_bound_allo_regs(::Mechanisms.Mechanism) = Set{Symbol}()
-_bound_allo_regs(am::Mechanisms.AllostericMechanism) =
-    Set{Symbol}(lig for site in am.regulatory_sites
-                for lig in site.ligands)
+"""Names of the allosteric regulators bound at `m`'s regulatory sites (empty for a plain
+mechanism)."""
+_bound_allo_regs(m::Mechanisms.Mechanism) =
+    Set{Symbol}(lig for site in m.allosteric.regulatory_sites for lig in site.ligands)
 
 """Names of the competitive inhibitors some step of candidate `c` takes up as a modifier
 copy (`_copy_change`)."""
 function _bound_comp_inhibitors(c::CandidateMechanism)
-    steps = Mechanisms.catalytic(c.mechanism).steps
+    steps = c.mechanism.catalytic.steps
     Set{Symbol}(x.name for k in eachindex(steps) for x in steps[k].taken_up
                 if _copy_change(c, k, x.name) > 0)
 end
@@ -676,10 +675,10 @@ optional regulator bound, and reg-type-respecting.
 function _is_seed_node(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction,
                        required_allo::Set{Symbol}, required_comp::Set{Symbol})
     m = c.mechanism
-    m isa Mechanisms.AllostericMechanism && (:NonequalAI in m.allosteric_states ||
+    (:NonequalAI in m.allosteric.allosteric_states ||
         any(site -> length(site.ligands) != 1 ||
                     only(site.allosteric_states) == :NonequalAI,
-            m.regulatory_sites)) && return false
+            m.allosteric.regulatory_sites)) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(c), required_comp) || return false
     _respects_reg_type(m, rxn) || return false

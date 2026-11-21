@@ -81,7 +81,7 @@ end
 # weighs 1 in both (fA = fI = 1), so the law is H·Q_A/(D_A + L·D_I). The gate checks the
 # derived rate against the independent mass-action ground truth.
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
-    onlyA = @allosteric_mechanism begin
+    onlyA = @enzyme_mechanism begin
         substrates: S ; products: P ; oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)     :: OnlyA
@@ -143,7 +143,7 @@ end
 # segment and free E weighs 1 in both (fA = fI = 1), so the law is H·Q_A/(D_A + L·D_I).
 # The gate checks the derived rate against the independent mass-action ground truth.
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
-    multiA = @allosteric_mechanism begin
+    multiA = @enzyme_mechanism begin
         substrates: A, B ; products: P ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)          :: OnlyA
@@ -229,7 +229,7 @@ end
 # between the conformations (fA ≠ fI). The cross weights fA, fI supply the common
 # free-enzyme basis this regime needs; dropping them gets it wrong. Regression guard.
 @testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
-    metabD = @allosteric_mechanism begin
+    metabD = @enzyme_mechanism begin
         substrates: S, B ; products: P ; oligomeric_state: 1
         steps: begin
             E + S <--> E(S)      :: OnlyA
@@ -386,7 +386,7 @@ end
             E(B; residual = A - P) <--> E + Q
         end
     end
-    alloEq = @allosteric_mechanism begin
+    alloEq = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
@@ -553,7 +553,7 @@ end
 # holds to 1.3e-13. rtol 1e-10 clears that noise floor with three orders to spare
 # and is still seven orders tighter than any real error mode.
 @testset ":NonequalAI ping-pong MWC derivation matches mass-action ground truth" begin
-    allo = @allosteric_mechanism begin
+    allo = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
@@ -684,7 +684,7 @@ end
     # conformation's other steps join the two sides of E(B; residual = A - P) ⇌ E(Q), a
     # rapid-equilibrium step no reading switches off. (Half 1 alone fails class 3 at zero
     # substrates and at B = 0.)
-    both = @allosteric_mechanism begin
+    both = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -704,7 +704,7 @@ end
            :K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B,
            :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
            :k_A_EA_to_EP_res_plusA_minusP, :L)
-    half2 = @_testhelper_unguarded @allosteric_mechanism begin
+    half2 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
@@ -743,7 +743,7 @@ end
 # `den = D_A^n + L`: the inactive conformation is free E alone (`_flip_only_law`:
 # Q = 0, D = 1).
 @testset "fully-inert inactive contributes L to the denominator" begin
-    inert = @allosteric_mechanism begin
+    inert = @enzyme_mechanism begin
         substrates: S ; products: P ; oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)   :: OnlyA
@@ -794,7 +794,7 @@ end
 # conformation keeps its free-enzyme root and every face passes; the derivation must
 # handle it.
 @testset "ping-pong :OnlyA I-state keeps a reachable free-enzyme root" begin
-    err1 = @_testhelper_unguarded @allosteric_mechanism begin
+    err1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -818,7 +818,7 @@ end
               :direction_dependent
     end
     @test_throws ErrorException(
-        ER.Derivation._guard_message(err1)) @allosteric_mechanism begin
+        ER.Derivation._guard_message(err1)) @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -831,7 +831,7 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    half2 = @_testhelper_unguarded @allosteric_mechanism begin
+    half2 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -850,7 +850,7 @@ end
     @test any(face -> _testhelper_epath_verdict(half2; rng = MersenneTwister(762), face,
                                                 reading = only(readings)) !== :converges,
               _testhelper_faces(half2))
-    half2_ss = @allosteric_mechanism begin
+    half2_ss = @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -1011,7 +1011,7 @@ end
     rng = MersenneTwister(20260716)
     for nprot in (1, 2, 3)
         allo = nprot == 1 ?
-            @allosteric_mechanism(begin
+            @enzyme_mechanism(begin
                 substrates: A, B ; products: P ; oligomeric_state: 1
                 steps: begin
                     E + A <--> E(A)        :: EqualAI
@@ -1020,7 +1020,7 @@ end
                     E + P ⇌ E(P)           :: EqualAI
                 end
             end) : nprot == 2 ?
-            @allosteric_mechanism(begin
+            @enzyme_mechanism(begin
                 substrates: A, B ; products: P ; oligomeric_state: 2
                 steps: begin
                     E + A <--> E(A)        :: EqualAI
@@ -1029,7 +1029,7 @@ end
                     E + P ⇌ E(P)           :: EqualAI
                 end
             end) :
-            @allosteric_mechanism(begin
+            @enzyme_mechanism(begin
                 substrates: A, B ; products: P ; oligomeric_state: 3
                 steps: begin
                     E + A <--> E(A)        :: EqualAI
@@ -1098,7 +1098,7 @@ end
     # E(ADP) is a rapid-equilibrium step whose sides the inactive conformation's other
     # steps join, which no reading switches off; with that step steady-state the mechanism
     # is admitted (half 1 alone fails class 3, as it does for the ping-pong above).
-    dead = @_testhelper_unguarded @allosteric_mechanism begin
+    dead = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -1136,7 +1136,7 @@ end
     @test length(converging) == 1
     @test _testhelper_admission_faults(dead; reading = only(converging))[3] ===
           ER.Derivation._FILLED
-    @test_throws ErrorException(msg) @allosteric_mechanism begin
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -1149,7 +1149,7 @@ end
             E + ADP ⇌ E(ADP)                                                      :: EqualAI
         end
     end
-    pinned = @_testhelper_unguarded @allosteric_mechanism begin
+    pinned = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1
@@ -1167,7 +1167,7 @@ end
                                  ER.Derivation._LIMIT_UNTESTED, 0, 2,
                                  _testhelper_edge(pinned,
                                                   "EF6P_res_plusATP_minusF16BP ⇌ EADP"))
-    half2 = @allosteric_mechanism begin
+    half2 = @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         oligomeric_state: 1

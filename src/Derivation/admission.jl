@@ -6,9 +6,9 @@
 """Admission's arcs in conformation `c` of `reading`: the edges of `am`'s catalytic graph
 that lose a direction there, in edge order, each as `(lower side's form, higher side's
 form, edge)`, so that it points uphill, along the direction that vanishes."""
-function _arcs(am::Mechanisms.AllostericMechanism, c::Int, reading::_Reading)
+function _arcs(am::Mechanisms.Mechanism, c::Int, reading::_Reading)
     arcs = NTuple{3, Int}[]
-    for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
+    for (k, e) in enumerate(am.catalytic.steps)
         reading[k, c] === _LOSES_FORWARD && push!(arcs, (e.from, e.to, k))
         reading[k, c] === _LOSES_REVERSE && push!(arcs, (e.to, e.from, k))
     end
@@ -17,7 +17,7 @@ end
 
 """The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
 excludes none."""
-_first_excluded(am::Mechanisms.AllostericMechanism, c::Int) =
+_first_excluded(am::Mechanisms.Mechanism, c::Int) =
     something(findfirst(_excluded_steps(am, c)), 0)
 
 """
@@ -95,9 +95,9 @@ arcs (`_arcs`), each pointing uphill:
   the first excluded edge between a component free E's reaches and one it does not).
 The verdict carries the conformation and the edge (face 0); `_WELL_POSED` when all hold.
 """
-function _interior_verdict(am::Mechanisms.AllostericMechanism, c::Int, excluded::BitVector,
+function _interior_verdict(am::Mechanisms.Mechanism, c::Int, excluded::BitVector,
                            comp::Vector{Int}, reading::_Reading)
-    for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
+    for (k, e) in enumerate(am.catalytic.steps)
         o = reading[k, c]
         (o === _CANNOT_SWITCH_OFF || o === _STOPPED && e.rapid_equilibrium) &&
             return _Verdict(_FAST_STEP_PINNED, _LIMIT_UNTESTED, 0, c, k)
@@ -109,7 +109,7 @@ function _interior_verdict(am::Mechanisms.AllostericMechanism, c::Int, excluded:
         comp[high] == comp[1] && return _Verdict(_ARC_CYCLE, _LIMIT_UNTESTED, 0, c, k)
     end
     reached = _reached_components(comp, arcs)
-    for (k, e) in enumerate(Mechanisms.catalytic(am).steps)
+    for (k, e) in enumerate(am.catalytic.steps)
         excluded[k] && reached[comp[e.from]] != reached[comp[e.to]] &&
             return _Verdict(_ISLAND, _LIMIT_UNTESTED, 0, c, k)
     end
@@ -125,7 +125,7 @@ conformation whose tags exclude an edge (`_excluded_steps`), the checks of
 A reading is consistent when none of `_interior_verdict`'s faults arises. A plain
 mechanism excludes no edge, so its interior passes.
 """
-function _admission_interior(am::Mechanisms.AllostericMechanism, reading::_Reading)
+function _admission_interior(am::Mechanisms.Mechanism, reading::_Reading)
     for c in 1:2
         excluded = _excluded_steps(am, c)
         any(excluded) || continue
@@ -139,15 +139,14 @@ end
 """Admission's turnover check, which reads no reading: when tags exclude edges of the
 active conformation of `am`, its law network still holds a cycle that turns the reaction
 over (`_NO_ACTIVE_TURNOVER`, led by the first edge it excludes); `_WELL_POSED` otherwise."""
-function _active_turnover_verdict(am::Mechanisms.AllostericMechanism)
+function _active_turnover_verdict(am::Mechanisms.Mechanism)
     k = _first_excluded(am, 1)
     k != 0 &&
-        !Mechanisms.has_turnover_cycle(Mechanisms.catalytic(am),
+        !Mechanisms.has_turnover_cycle(am.catalytic,
                                        Mechanisms.steps_in_active_conformation(am)) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
-_admission_interior(::Mechanisms.Mechanism, ::_Reading) = _WELL_POSED
 
 """
     _consistent_columns(am, c) -> (; pinned, too_many, columns)
@@ -163,8 +162,8 @@ stopped, in that order; the columns run through these choices with the last step
 fastest. With more than `_MAX_CHOICES_PER_CONFORMATION` choices, `too_many` holds and
 `columns` is empty.
 """
-function _consistent_columns(am::Mechanisms.AllostericMechanism, c::Int)
-    steps = Mechanisms.catalytic(am).steps
+function _consistent_columns(am::Mechanisms.Mechanism, c::Int)
+    steps = am.catalytic.steps
     excluded = _excluded_steps(am, c)
     comp = exclusion_components(am, _CONFORMATIONS[c])
     reading = fill(_RUNS, length(steps), 2)
@@ -210,8 +209,8 @@ end
 """The edges of a shortest path from form `a` to form `b` over the edges of `am`'s
 catalytic graph that conformation `c` keeps, in path order; empty when `a == b`. Callers
 pass two forms those edges join."""
-function _kept_path(am::Mechanisms.AllostericMechanism, c::Int, a::Int, b::Int)
-    m = Mechanisms.catalytic(am)
+function _kept_path(am::Mechanisms.Mechanism, c::Int, a::Int, b::Int)
+    m = am.catalytic
     nforms = length(m.enzyme_forms)
     via = zeros(Int, nforms)
     seen = falses(nforms)
@@ -247,12 +246,13 @@ end
 Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the guard
 (`_guard`). Every fix that retags steps in admission's messages is checked this way.
 """
-function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
-    states = copy(am.allosteric_states)
-    states[[Mechanisms.catalytic(am).steps[k].group for k in ks]] .= tag
-    retagged = Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), states,
-                                              am.oligomeric_state,
-                                              am.regulatory_sites)
+function _retag_passes(am::Mechanisms.Mechanism, ks, tag::Symbol)
+    states = copy(am.allosteric.allosteric_states)
+    states[[am.catalytic.steps[k].group for k in ks]] .= tag
+    retagged = Mechanisms.Mechanism(am.catalytic,
+                                    Mechanisms.Allostery(states,
+                                                         am.allosteric.oligomeric_state,
+                                                         am.allosteric.regulatory_sites))
     _guard(retagged) === _WELL_POSED
 end
 
@@ -261,23 +261,21 @@ Whether `mech` with the kinetic group of edge `k` made steady-state passes the g
 (`_guard`). Every fix that makes a group steady-state in the guard's messages, but class
 2's, is checked this way.
 """
-function _steady_state_passes(mech::_AnyMech, k::Int)
-    m = Mechanisms.catalytic(mech)
+function _steady_state_passes(mech::Mechanisms.Mechanism, k::Int)
+    m = mech.catalytic
     g = m.steps[k].group
     steps = [Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off,
                              s.rapid_equilibrium && s.group != g, s.group) for s in m.steps]
     _guard(_with_steps(mech, steps)) === _WELL_POSED
 end
 
-"""`m` with the catalytic steps `steps`, each in the kinetic group its `group` labels,
-built by the constructors; an allosteric mechanism keeps its tags, multiplicity and
-sites."""
+"""`m` with the catalytic steps `steps`, each in the kinetic group of `m` its `group`
+labels, built by the constructors; it keeps the allostery of `m`."""
 _with_steps(m::Mechanisms.Mechanism, steps::Vector{Mechanisms.Step}) =
-    Mechanisms.Mechanism(m.substrates, m.products, m.nodes, steps)
-_with_steps(am::Mechanisms.AllostericMechanism, steps::Vector{Mechanisms.Step}) =
-    Mechanisms.AllostericMechanism(am.catalytic.substrates, am.catalytic.products,
-                                   am.catalytic.nodes, steps, am.allosteric_states,
-                                   am.oligomeric_state, am.regulatory_sites)
+    Mechanisms.Mechanism(Mechanisms.CatalyticScheme(m.catalytic.substrates,
+                                                    m.catalytic.products,
+                                                    m.catalytic.nodes, steps),
+                         m.allosteric)
 
 """
 The message of admission's verdict `v` on `am`, judged with its excluded steps switched
@@ -287,9 +285,9 @@ steady-state fix through `_steady_state_passes`. A fault of the active conformat
 offered the fixes of the same fault in the inactive conformation, with `:OnlyI` in place
 of `:OnlyA`.
 """
-function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
+function _admission_message(am::Mechanisms.Mechanism, v::_Verdict,
                             reading::_Reading)
-    m = Mechanisms.catalytic(am)
+    m = am.catalytic
     c, k = v.conformation, v.edge
     conf = c == 1 ? "active" : "inactive"
     # The state that excludes steps from conformation `c`, and its text.
@@ -306,7 +304,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
         # The guard reports the fault only for a step inside one group, whose sides the
         # steps conformation `c` keeps join.
         joins = _kept_path(am, c, m.steps[k].from, m.steps[k].to)
-        msg = "AllostericMechanism: in the $conf conformation the rapid-equilibrium step " *
+        msg = "Mechanism: in the $conf conformation the rapid-equilibrium step " *
               "$(line(k)) is tagged $tag, but the steps that conformation keeps still " *
               "join its two sides. Thermodynamics then fixes its equilibrium constant, " *
               "and a step keeps its kind in both conformations, so it cannot be switched " *
@@ -319,7 +317,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
     elseif v.fault === _TOO_MANY_READINGS
         who = c == 0 ? "the two conformations together" : "the $conf conformation"
         most = c == 0 ? _MAX_READING_PAIRS : _MAX_CHOICES_PER_CONFORMATION
-        return "AllostericMechanism: $who can switch off the tagged steps in more " *
+        return "Mechanism: $who can switch off the tagged steps in more " *
                "than $most ways, too many for the guard to search, and none of the three " *
                "ways it tries first fits the rule for switching them off, so it cannot " *
                "show that the rate law is the limit."
@@ -334,7 +332,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
             outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
             forms = [String(m.enzyme_forms[_form_of(eps, u)]) *
                      _conformation_suffix(eps, u) for u in outside]
-            return "AllostericMechanism: $(phrase)the forms $(join(forms, ", ")) " *
+            return "Mechanism: $(phrase)the forms $(join(forms, ", ")) " *
                    "hold the enzyme they receive and are reached only through tagged " *
                    "steps, so the steady state depends on where the enzyme starts."
         elseif v.fault === _FILLED
@@ -351,7 +349,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
             pooled = [String(m.enzyme_forms[_form_of(eps, u)]) for u in findall(pool)]
             leave = length(pooled) == 1 ? "$name leaves" :
                     "the forms $(join(pooled, ", ")) leave"
-            msg = "AllostericMechanism: $(phrase)in the $conf conformation the $tag " *
+            msg = "Mechanism: $(phrase)in the $conf conformation the $tag " *
                   "rapid-equilibrium step $(line(k)) runs one way into $name, at a rate " *
                   "that vanishes yet grows with the rapid-equilibrium speed, and $leave " *
                   "only through the slower $(steps(ways)), so $name fills faster than it " *
@@ -368,14 +366,14 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
                   "their weight does not depend on how fast $(vanish(exits))"
             from, to = m.steps[k].from, m.steps[k].to
             inside = s.stranded[_node(eps, from, c)] && s.stranded[_node(eps, to, c)]
-            return "AllostericMechanism: $(phrase)$(line(k)) " *
+            return "Mechanism: $(phrase)$(line(k)) " *
                    (inside ? "runs one way among" : "feeds") * " the forms " *
                    "$(join([String(m.enzyme_forms[_form_of(eps, u)])
                             for u in basin], ", ")) of " *
                    "the $conf conformation, $out."
         elseif c == 0
             ks = _bridging_edges(eps, s.fed .& .!s.stranded, s.n0, s.alive .& eps.vanishing)
-            return "AllostericMechanism: $(phrase)the tagged steps $(lines(ks)) of both " *
+            return "Mechanism: $(phrase)the tagged steps $(lines(ks)) of both " *
                    "conformations together bridge forms that each conformation's other " *
                    "steps keep apart, so admission cannot show that the limit does not " *
                    "depend on how fast those steps vanish."
@@ -384,14 +382,14 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
         (; van) = _copy_transitions(eps, s.alive, nodes, c)
         ks = _bridging_edges(eps, nodes, s.n0, van)
         bridge = steps(ks) * (length(ks) == 1 ? " bridges" : " bridge")
-        msg = "AllostericMechanism: $(phrase)the $tag $bridge forms of the $conf " *
+        msg = "Mechanism: $(phrase)the $tag $bridge forms of the $conf " *
               "conformation that its other steps keep apart, so admission cannot show " *
               "that the limit does not depend on how fast $(vanish(ks))."
         return _steady_state_passes(am, k) ?
                msg * " Make the kinetic group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER
         ks = findall(_excluded_steps(am, 1))
-        msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
+        msg = "Mechanism: without its :OnlyI steps $(lines(ks)) the active " *
               "conformation turns no substrate into product, but it must catalyze the " *
               "reaction."
         # A closure over `ks`, which other branches assign too, would box it.
@@ -569,7 +567,7 @@ end
 
 """How a message names face `face` of `m`: nothing for the interior, else `at zero `, its
 zeroed names (`_face_names`) and `place`, then a comma."""
-_face_phrase(m::Mechanisms.Mechanism, face::UInt64, place::String = "") =
+_face_phrase(m::Mechanisms.CatalyticScheme, face::UInt64, place::String = "") =
     face == 0 ? "" :
     "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * place * ", "
 
@@ -778,9 +776,9 @@ condition refuses with `_BRIDGE` passes when the condition finds no fault once m
 refused with `_PUMPED` is not run again: its stranded form's group cannot drain, so it is
 never set aside, and free E still feeds it through the transition that pumps it.
 """
-function _admission_face(am::Mechanisms.AllostericMechanism, eps::_Network, law::_Network,
+function _admission_face(am::Mechanisms.Mechanism, eps::_Network, law::_Network,
                          faces::Vector{UInt64}, i::Int)
-    x = _turnover_name(Mechanisms.catalytic(am))
+    x = _turnover_name(am.catalytic)
     v = _face_condition(eps, law.present, faces[i], x)
     if v.fault === _BRIDGE
         # A second route between two forms already in equilibrium changes nothing, and with
@@ -803,11 +801,11 @@ Admission alone, the excluded steps switched off as `reading` says: the interior
 (`_admission_interior`), then the face condition on every face (`_admission_face`) of the
 ε-network of that reading, class 3 not run.
 """
-function _admission(am::Mechanisms.AllostericMechanism, reading::_Reading)
+function _admission(am::Mechanisms.Mechanism, reading::_Reading)
     v = _admission_interior(am, reading)
     v.fault === _NO_FAULT || return v
-    eps = _eps_network(am, _re_flags(Mechanisms.catalytic(am)), reading)
+    eps = _eps_network(am, _re_flags(am.catalytic), reading)
     law = _law_network(am)
-    faces = _faces(Mechanisms.catalytic(am))
+    faces = _faces(am.catalytic)
     _first_face_fault(i -> _admission_face(am, eps, law, faces, i), faces)
 end

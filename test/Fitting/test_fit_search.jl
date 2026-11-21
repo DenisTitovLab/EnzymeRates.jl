@@ -42,7 +42,7 @@ function _testhelper_check_centres_match_law(mechanism, rng)
     m = mechanism
     rate = compile_rate_equation(m)
     mets = Tuple(metabolites(m))
-    catalytic = EnzymeRates.Mechanisms.catalytic(m)
+    catalytic = m.catalytic
     s = Dict(x => exp(randn(rng)) for x in mets)
     f = Dict(x => exp(2 * randn(rng)) for x in mets)
     sf = Dict(x => s[x] * f[x] for x in mets)
@@ -180,10 +180,9 @@ end
             m, _testhelper_scales_table(metabolites(m), s, r), 2.0))))
         s = Dict(:S => 10.0, :P => 100.0, :R => 1000.0)
         r = 4.0
-        allosteric = @allosteric_mechanism begin
+        allosteric = @enzyme_mechanism begin
             substrates: S
             products:   P
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)     :: EqualAI

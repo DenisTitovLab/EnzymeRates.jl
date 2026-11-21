@@ -65,10 +65,9 @@ end
     ]
 
     # ── Helper: an allosteric uni-uni with an inactive-state regulator R ──────
-    allo = @allosteric_mechanism begin
+    allo = @enzyme_mechanism begin
         substrates: S
         products:   P
-        allosteric_regulators: R
         oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
@@ -308,10 +307,9 @@ end
     # dispatch at run time while the rate law stays fast, and `@inferred loss!` passes
     # since the result is a Float64 either way, so they measure allocations.
     @testset "loss! allocates nothing whatever the table's column types" begin
-        two_regulators = @allosteric_mechanism begin
+        two_regulators = @enzyme_mechanism begin
             substrates: A, B
             products: P
-            allosteric_regulators: R, Q
             oligomeric_state: 4
             steps: begin
                 E + A ⇌ E(A) :: EqualAI
@@ -322,7 +320,7 @@ end
             regulatory_site(4): R::OnlyI
             regulatory_site(4): Q::NonequalAI
         end
-        no_regulators = @allosteric_mechanism begin
+        no_regulators = @enzyme_mechanism begin
             substrates: A
             products: P
             oligomeric_state: 1
@@ -494,10 +492,9 @@ end
                 E(Q) <--> E + Q
             end
         end
-        allosteric_bi_bi = @allosteric_mechanism begin
+        allosteric_bi_bi = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            allosteric_regulators: R
             oligomeric_state: 2
             steps: begin
                 E + A <--> E(A)            :: EqualAI

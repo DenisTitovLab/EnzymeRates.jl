@@ -9,10 +9,10 @@ and conformation, except that the copy of an edge in the conformation that exclu
 (`excluded`, the steps each conformation excludes, `_excluded_steps`: an `:OnlyA` edge's
 inactive copy, an `:OnlyI` edge's active one) is a class of its own.
 """
-_class(m::_AnyMech, excluded::NTuple{2, BitVector}, c::_StepParameter) =
+_class(m::Mechanisms.Mechanism, excluded::NTuple{2, BitVector}, c::_StepParameter) =
     excluded[c.inactive ? 2 : 1][c.step] ?
     (c.step, c.slot, c.inactive, true) :
-    (Mechanisms.catalytic(m).steps[c.step].group, c.slot, c.inactive, false)
+    (m.catalytic.steps[c.step].group, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
@@ -31,7 +31,7 @@ enzyme forms it joins — so it contributes zero. Do NOT add a from-bound/to-bou
 difference for it: that double-counts metabolites already accounted for by the binding
 and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
 """
-function _fundamental_cycles(m::Mechanisms.Mechanism, flat::Vector{Int})
+function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
     forms = eachindex(m.enzyme_forms)
     path = [zeros(Int, length(flat)) for _ in forms]   # signed tree edges from the root
     seen, tree = falses(length(forms)), falses(length(flat))
@@ -95,10 +95,10 @@ member of each kinetic class (`_class`), setting it equal to the class's first m
 slot by slot. `law[k]` tells whether edge `k` lies in the inactive conformation's law,
 `tags` holds each group's tag and `flat` the edges group by group.
 """
-function _joint_system(m::_AnyMech, cols = _constant_columns(m))
-    cm = Mechanisms.catalytic(m)
+function _joint_system(m::Mechanisms.Mechanism, cols = _constant_columns(m))
+    cm = m.catalytic
     (; columns, flat, tags, law) = cols
-    allosteric = m isa Mechanisms.AllostericMechanism
+    allosteric = _is_allosteric(m)
     index = Dict(c => i for (i, c) in enumerate(columns))
     # An inactive constant reads its own column when its group has one, else the active.
     column(k, slot, inactive) =
@@ -240,7 +240,7 @@ Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's ac
 a copy on a form its conformation prunes) are eliminated first, so no dependent of the
 law reads them.
 """
-function _solve(m::_AnyMech)
+function _solve(m::Mechanisms.Mechanism)
     cols = _constant_columns(m)
     sys = _joint_system(m, cols)
     M, pivots = _reduce_joint_system(sys.A, sys.rhs)
@@ -257,7 +257,8 @@ function _solve(m::_AnyMech)
     end
     independents = sort!(filter(i -> cols.kept_in_law[i], free); by = i -> string(names[i]))
     column = Dict(c => i for (i, c) in enumerate(sys.columns))
-    if m isa Mechanisms.AllostericMechanism
+    allosteric = _is_allosteric(m)
+    if allosteric
         for (i, c) in enumerate(sys.columns)
             key = _StepParameter(c.step, c.slot, true)
             c.inactive || haskey(column, key) || (column[key] = i)
@@ -265,7 +266,7 @@ function _solve(m::_AnyMech)
     end
     info = _Parameter[sys.columns[independents]; _regulator_parameters(m)]
     fitted = [names[independents]; _regulator_names(m)]
-    if m isa Mechanisms.AllostericMechanism
+    if allosteric
         push!(info, _AllostericParameter())
         push!(fitted, _name(_AllostericParameter(), m))
     end
@@ -284,10 +285,9 @@ _pivot_row_exponents(M::Matrix{<:Rational}, r::Int, keq_column::Int, free::Vecto
 conformation, then the inactive conformation's own, site by site; an `:EqualAI` ligand's
 one parameter is listed with the active ones, and a ligand has none in a conformation it
 is absent from. A plain mechanism has none."""
-_regulator_parameters(::Mechanisms.Mechanism) = _RegulatorParameter[]
-function _regulator_parameters(am::Mechanisms.AllostericMechanism)
+function _regulator_parameters(am::Mechanisms.Mechanism)
     params(inactive) = _RegulatorParameter[
-        _RegulatorParameter(lig, inactive) for site in am.regulatory_sites
+        _RegulatorParameter(lig, inactive) for site in am.allosteric.regulatory_sites
         for (lig, tag) in zip(site.ligands, site.allosteric_states)
         if !(inactive && tag === :EqualAI) && tag !== (inactive ? :OnlyA : :OnlyI)]
     [params(false); params(true)]
@@ -295,13 +295,12 @@ end
 
 """The names of the regulator parameters of `m` (`_regulator_parameters`), in their
 order."""
-_regulator_names(::Mechanisms.Mechanism) = Symbol[]
-_regulator_names(am::Mechanisms.AllostericMechanism) =
+_regulator_names(am::Mechanisms.Mechanism) =
     Symbol[_name(p, am) for p in _regulator_parameters(am)]
 
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""
-fitted_parameter_count(m::_AnyMech) = length(_solve(m).fitted)
+fitted_parameter_count(m::Mechanisms.Mechanism) = length(_solve(m).fitted)
 
 # ─── Cycle-space helpers of the limit test ─────────────────────────────────
 

@@ -193,14 +193,14 @@ steady-state speed per kinetic group and conformation (one for both of an `:Equa
 group), a rapid-equilibrium speed per edge and conformation, the flip's speed;
 concentrations `conc` per name, zero on the face.
 """
-function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueStream)
-    m = Mechanisms.catalytic(mech)
+function _model_point(mech::Mechanisms.Mechanism, ncopies::Int, face::UInt64,
+                      rng::_ResidueStream)
+    m = mech.catalytic
     nf, names = length(m.enzyme_forms), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
     excluded = [_excluded_steps(mech, c) for c in 1:ncopies]
-    equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
-                  mech.allosteric_states[g] === :EqualAI
+    equal_ai(g) = _is_allosteric(mech) && mech.allosteric.allosteric_states[g] === :EqualAI
     function drop!(row, k, c, dir)
         a, b = m.steps[k].from, m.steps[k].to
         row[(c - 1) * nf + a] += dir
@@ -269,7 +269,8 @@ _respeed_point(pt, rng::_ResidueStream) =
 """The rate mod p of every transition of `net` at the concentrations `conc` (per name):
 its speed times `K` in the stored direction, its speed alone in reverse, times each
 metabolite it takes up, a fast one times `Λ` unless `Λ` is 0."""
-function _rates_p(m::Mechanisms.Mechanism, net::_Network, pt, conc::Vector{Int64}, Λ::Int64)
+function _rates_p(m::Mechanisms.CatalyticScheme, net::_Network, pt, conc::Vector{Int64},
+                  Λ::Int64)
     names = _guard_names(m)
     r = zeros(Int64, length(net.from))
     for t in eachindex(net.from)
@@ -340,7 +341,7 @@ end
 """The face chain's limit mod p as every rapid-equilibrium speed grows, by interpolating
 the rate's numerator and its tree-sum denominator in Λ (degree below the closed class's
 size) on the face chain's closed class; `_INFINITE` when the rate grows with Λ."""
-function _limit_by_interpolation(m::Mechanisms.Mechanism, net::_Network, s, pt,
+function _limit_by_interpolation(m::Mechanisms.CatalyticScheme, net::_Network, s, pt,
                                  h::Vector{Int}, x1::Int, rng::_ResidueStream)
     C = s.closed[1]
     n = length(C)
@@ -375,8 +376,8 @@ end
 
 """The law mod p at concentrations `conc` with every name present: segment weights and
 the slow segment chain over every segment."""
-function _law_inside(m::Mechanisms.Mechanism, net::_Network, s, pt, conc::Vector{Int64},
-                     h::Vector{Int}, x1::Int)
+function _law_inside(m::Mechanisms.CatalyticScheme, net::_Network, s, pt,
+                     conc::Vector{Int64}, h::Vector{Int}, x1::Int)
     r = _rates_p(m, net, pt, conc, Int64(0))
     w = _eq_weights_p(net, s.segments, r)
     W = [_invp(reduce(_addp, w[S]; init = Int64(0))) for S in s.segments]
@@ -400,7 +401,7 @@ end
 """The law's value mod p on the face: its limit as the zeroed concentrations go to zero
 along two random directions, by rational reconstruction in their scale; `_UNDEFINED` when
 a direction meets a pole or the two differ."""
-function _law_by_reconstruction(m::Mechanisms.Mechanism, net::_Network, s, pt,
+function _law_by_reconstruction(m::Mechanisms.CatalyticScheme, net::_Network, s, pt,
                                 h::Vector{Int}, x1::Int, face::UInt64,
                                 rng::_ResidueStream)
     found = Int64[]
@@ -428,9 +429,9 @@ law's face value by reconstruction as the zeroed concentrations vanish. On a dif
 third limit at new speeds tells `_LIMIT_DIFFER` from `_LIMIT_SPEED`. A false
 `_LIMIT_EQUAL` has probability at most twice the degree over p.
 """
-function _face_limit_check(mech::_AnyMech, net::_Network, s, face::UInt64,
+function _face_limit_check(mech::Mechanisms.Mechanism, net::_Network, s, face::UInt64,
                            seed::UInt64)
-    m = Mechanisms.catalytic(mech)
+    m = mech.catalytic
     rng = _ResidueStream(seed)
     x1 = _turnover_name(m)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.

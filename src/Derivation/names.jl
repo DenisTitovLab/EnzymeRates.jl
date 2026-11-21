@@ -63,7 +63,7 @@ side is its form's name (`enzyme_forms`), then the name of each metabolite the s
 up or gives off there, in name order, joined by `_` (`EA_B` for `EA + B`). A reactant's
 modifier copy is written as the reactant; the form it binds into keeps the copy's name
 (`ESmod`), so the two bindings name their constants apart."""
-function _sides(m::Mechanisms.Mechanism, k::Int)
+function _sides(m::Mechanisms.CatalyticScheme, k::Int)
     e = m.steps[k]
     side(f, held) =
         join([String(m.enzyme_forms[f]); sort!([String(x.name) for x in held])], "_")
@@ -77,11 +77,11 @@ edge's constant is one class in both conformations; the copy of an edge in the
 conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active one) is a class of its own, named after its own edge.
 """
-function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
+function _constant_sides(m::Mechanisms.Mechanism, k::Int, slot::Int, state::Symbol,
                          kept::Dict{Tuple{Int, Int, Bool}, Int})
-    cm = Mechanisms.catalytic(m)
+    cm = m.catalytic
     g = cm.steps[k].group
-    group_tag = m isa Mechanisms.AllostericMechanism ? m.allosteric_states[g] : :None
+    group_tag = _is_allosteric(m) ? m.allosteric.allosteric_states[g] : :None
     group_tag === (state === :I ? :OnlyA : :OnlyI) && return _sides(cm, k)
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
     _sides(cm, kept[(g, slot, inactive)])
@@ -90,9 +90,10 @@ end
 """The conformation tag of `p` in `m`, the one its name takes: `:None` in a plain
 mechanism; `:I` for an inactive copy; `:EqualAI` or `:A` for an active constant of an
 allosteric mechanism."""
-_conformation_tag(m::_AnyMech, p::_StepParameter) =
-    m isa Mechanisms.Mechanism ? :None : p.inactive ? :I :
-    m.allosteric_states[m.catalytic.steps[p.step].group] === :EqualAI ? :EqualAI : :A
+_conformation_tag(m::Mechanisms.Mechanism, p::_StepParameter) =
+    !_is_allosteric(m) ? :None : p.inactive ? :I :
+    m.allosteric.allosteric_states[m.catalytic.steps[p.step].group] === :EqualAI ?
+    :EqualAI : :A
 
 # Every edge constant is named after the reaction of its class's kept member: a rate
 # constant (`k_`) after the direction it drives, an equilibrium constant (`K_`) after
@@ -102,8 +103,8 @@ _conformation_tag(m::_AnyMech, p::_StepParameter) =
 # metabolites on one side, in the stored direction (`K_ES_to_EP`). `kept` is
 # `_kept_members(m)`, which a caller that names many constants of one mechanism computes
 # once and passes.
-function _name(p::_StepParameter, m::_AnyMech, kept = _kept_members(m))
-    cm = Mechanisms.catalytic(m)
+function _name(p::_StepParameter, m::Mechanisms.Mechanism, kept = _kept_members(m))
+    cm = m.catalytic
     state = _conformation_tag(m, p)
     s = _constant_sides(m, p.step, p.slot, state, kept)
     e = cm.steps[p.step]
@@ -116,19 +117,19 @@ end
 
 """
 Regulator-site parameter: state tag + ligand name + "reg". No site index —
-the AllostericMechanism constructor enforces that each ligand appears at most
+the Mechanism constructor enforces that each ligand appears at most
 once across all sites. An `:EqualAI` ligand has one bare name in both conformations
 (`K_<ligand>reg`); any other ligand takes its conformation's `K_A_` or `K_I_` name.
 """
-function _name(p::_RegulatorParameter, am::Mechanisms.AllostericMechanism)
-    tag = only(t for site in am.regulatory_sites
+function _name(p::_RegulatorParameter, am::Mechanisms.Mechanism)
+    tag = only(t for site in am.allosteric.regulatory_sites
                for (lig, t) in zip(site.ligands, site.allosteric_states)
                if lig === p.ligand)
     state = tag === :EqualAI ? :EqualAI : p.inactive ? :I : :A
     Symbol("K_", _state_tag(state), String(p.ligand), "reg")
 end
 
-_name(::_AllostericParameter, ::Mechanisms.AllostericMechanism) = :L
+_name(::_AllostericParameter, ::Mechanisms.Mechanism) = :L
 
 # ─── Kept members of kinetic classes ─────────────────────────────────
 
@@ -149,7 +150,7 @@ the places of its two forms in `ranks.forms`, the earlier place first, and of it
 metabolites in `ranks.metabolites` (`_lean_ranks`), the earlier places kept; last its
 stored place `k`. The key decides which constants are fitted, never the law.
 """
-function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int, ranks)
+function _priority_key(m::Mechanisms.CatalyticScheme, k::Int, slot::Int, block::Int, ranks)
     e = m.steps[k]
     held = length(e.taken_up) + length(e.given_off)
     shape = held == 0 ? 3 : held == 1 ? 1 : 2
@@ -172,7 +173,7 @@ end
 """The places of the forms and the metabolites of `m` in the order the lean graph stores
 them: free E first, then the other forms by name; the metabolites in `metabolites(m)`
 order, a modifier copy at its reactant's place."""
-function _lean_ranks(m::Mechanisms.Mechanism)
+function _lean_ranks(m::Mechanisms.CatalyticScheme)
     by_name = sortperm(String.(m.enzyme_forms[2:end]))
     (; forms = invperm([1; by_name .+ 1]),
      metabolites = Dict(x => i for (i, x) in enumerate(Mechanisms.metabolites(m))))
@@ -180,14 +181,15 @@ end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism, whose groups are
 numbered 1 to the largest `group` of its steps."""
-_solve_tags(m::Mechanisms.Mechanism) = fill(:None, maximum(e -> e.group, m.steps; init = 0))
-_solve_tags(am::Mechanisms.AllostericMechanism) = am.allosteric_states
+_solve_tags(m::Mechanisms.Mechanism) =
+    _is_allosteric(m) ? m.allosteric.allosteric_states :
+    fill(:None, maximum(e -> e.group, m.catalytic.steps; init = 0))
 
 """Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
 law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`
 edge of the inactive conformation's law (`law`), whose one constant the inactive law
 reads."""
-_in_active_law(cm::Mechanisms.Mechanism, k::Int, tags::Vector{Symbol}, law::BitVector,
+_in_active_law(cm::Mechanisms.CatalyticScheme, k::Int, tags::Vector{Symbol}, law::BitVector,
                alaw::BitVector) =
     alaw[k] || (tags[cm.steps[k].group] === :EqualAI && law[k])
 
@@ -209,11 +211,11 @@ lies in the active conformation's law (`steps_in_active_conformation`; `_in_acti
 adds the `:EqualAI` constants the inactive law reads). A plain mechanism has no inactive
 law.
 """
-function _ordered_columns(m::_AnyMech)
-    cm = Mechanisms.catalytic(m)
+function _ordered_columns(m::Mechanisms.Mechanism)
+    cm = m.catalytic
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
-    allosteric = m isa Mechanisms.AllostericMechanism
+    allosteric = _is_allosteric(m)
     law = allosteric ? Mechanisms.steps_in_inactive_conformation(m) :
           falses(length(cm.steps))
     alaw = Mechanisms.steps_in_active_conformation(m)
@@ -241,8 +243,8 @@ law when it has one; an `:EqualAI` group's edges share their active class; the c
 edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI`
 edge's active one) is a class of its own, so neither of these appears.
 """
-function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
-    cm = Mechanisms.catalytic(m)
+function _kept_members(m::Mechanisms.Mechanism, cols = _ordered_columns(m))
+    cm = m.catalytic
     kept = Dict{Tuple{Int, Int, Bool}, Int}()
     for c in cols.columns
         g = cm.steps[c.step].group
@@ -273,10 +275,10 @@ elimination order, so that it stands for the class. `flat` holds the steps group
 group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of the
 inactive conformation (`steps_in_inactive_conformation`; none for a plain mechanism).
 """
-function _constant_columns(m::_AnyMech)
+function _constant_columns(m::Mechanisms.Mechanism)
     cols = _ordered_columns(m)
     kept = _kept_members(m, cols)
-    cm = Mechanisms.catalytic(m)
+    cm = m.catalytic
     names = [_name(c, m, kept) for c in cols.columns]
     in_law = BitVector([c.inactive ? cols.law[c.step] :
                         _in_active_law(cm, c.step, cols.tags, cols.law, cols.alaw)
@@ -302,7 +304,7 @@ modifier named `minusQ`, the side `E(; residual = A - P) + minusQ` and the form
 `E(; residual = A - P - Q)` both render `E_res_plusA_minusP_minusQ`, and the constructors
 accept a step between them.
 """
-function _shared_constant_names(m::_AnyMech)
+function _shared_constant_names(m::Mechanisms.Mechanism)
     cols = _constant_columns(m)
     names = [cols.names[cols.kept_in_law]; _regulator_names(m)]
     unique!([x for x in names if count(==(x), names) > 1])
@@ -321,12 +323,12 @@ inactive one). An `:EqualAI` ligand has one bare name in both conformations
 `K_A_` or `K_I_` name. Renders the name via the `_name(::_RegulatorParameter, am)`
 chokepoint.
 """
-function _regulator_constant(am::Mechanisms.AllostericMechanism, lig::Symbol, tag::Symbol,
-                            inactive::Bool)
+function _regulator_constant(am::Mechanisms.Mechanism, lig::Symbol, tag::Symbol,
+                             inactive::Bool)
     tag === (inactive ? :OnlyA : :OnlyI) && return nothing
     _name(_RegulatorParameter(lig, inactive), am)
 end
 
 """The steps group by group, each group in step order: the order the joint solve and the
 derivation read them in."""
-_flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, _kinetic_groups(m); init = Int[])
+_flat_edges(m::Mechanisms.CatalyticScheme) = reduce(vcat, _kinetic_groups(m); init = Int[])

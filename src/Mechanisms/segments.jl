@@ -11,7 +11,7 @@
 The nodes of `m` that the steps `on` keeps touch, one flag per node: a sub-graph's law,
 segments and network cover these.
 """
-function _present_species(m::Mechanism, on::BitVector)
+function _present_species(m::CatalyticScheme, on::BitVector)
     present = falses(length(m.nodes))
     for (k, e) in enumerate(m.steps)
         on[k] && (present[e.from] = present[e.to] = true)
@@ -21,7 +21,7 @@ end
 
 """The distinct metabolite names of `m` (the names of `_table`), sorted: a reactant and its
 modifier copy share one, as they share a concentration."""
-function _distinct_names(m::Mechanism)
+function _distinct_names(m::CatalyticScheme)
     names = Symbol[]
     for n in m.nodes
         foreach(x -> push!(names, x.name), n.bound)
@@ -116,7 +116,7 @@ exactly where initial-rate data sit. A segment whose weights vanish only at a co
 mixing a substrate and a product (a mixed abortive complex, or the ping-pong `E` /
 `E(; residual)` pair) is harmless: no turnover is possible at that corner.
 """
-function rapid_equilibrium_segments(m::Mechanism, on::BitVector,
+function rapid_equilibrium_segments(m::CatalyticScheme, on::BitVector,
                                     re::BitVector = BitVector(s.rapid_equilibrium
                                                               for s in m.steps))
     nf = length(m.nodes)
@@ -192,7 +192,7 @@ function has_unbalanced_cycle(from, to, weight, on, parent, offset)
 end
 
 """
-    has_turnover_cycle(m::Mechanism, on::BitVector) -> Bool
+    has_turnover_cycle(m::CatalyticScheme, on::BitVector) -> Bool
 
 Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
 of the forms rises along each step by its uptake of the first substrate (a modifier copy
@@ -203,7 +203,7 @@ cycle that does not is read by that uptake alone. The guard's class 1 rejects a
 mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a turnover
 cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
 """
-function has_turnover_cycle(m::Mechanism, on::BitVector)
+function has_turnover_cycle(m::CatalyticScheme, on::BitVector)
     # The first substrate, whose net uptake, a modifier copy counting as it, is the rate.
     s1 = m.substrates[1]
     uptake(list::Vector{Metabolite}) = count(x -> x.name === s1, list)

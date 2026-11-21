@@ -13,10 +13,13 @@ _testhelper_step(f, t, up, off, re) = (; f, t, up, off, re)
 # The allosteric mechanism over substrates `subs` and products `prods`, catalytic
 # multiplicity 2, whose steps are `steps`, step `j` alone in group `j`, tagged `states[j]`.
 _testhelper_one_step_groups(subs, prods, steps, states) =
-    ER.AllostericMechanism(subs, prods, [n for s in steps for n in (s.f, s.t)],
-        [ER.Mechanisms.Step(2j - 1, 2j, s.up, s.off, s.re, j)
-         for (j, s) in enumerate(steps)],
-        collect(Symbol, states), 2, ER.Mechanisms.RegulatorySite[])
+    ER.Mechanism(
+        ER.Mechanisms.CatalyticScheme(
+            subs, prods, [n for s in steps for n in (s.f, s.t)],
+            [ER.Mechanisms.Step(2j - 1, 2j, s.up, s.off, s.re, j)
+             for (j, s) in enumerate(steps)]),
+        ER.Mechanisms.Allostery(collect(Symbol, states), 2,
+                                ER.Mechanisms.RegulatorySite[]))
 # `re` flags which of the S-binding, chemistry and P-release steps are rapid
 # equilibrium; a steady-state binding carries kon/koff.
 function _testhelper_uni(states; re=(true,false,true))

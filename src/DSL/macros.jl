@@ -1,5 +1,5 @@
-# ABOUTME: The DSL macros @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism,
-# ABOUTME: which build a reaction or a mechanism and check a mechanism with the guard.
+# ABOUTME: The DSL macros @enzyme_reaction and @enzyme_mechanism, which build a reaction
+# ABOUTME: or a mechanism, plain or allosteric, and check a mechanism with the guard.
 
 """
     @enzyme_reaction begin
@@ -72,13 +72,16 @@ end
         substrates: S, ...
         products: P, ...
         modifiers: I, ...
+        oligomeric_state: 2              # an allosteric mechanism only
         steps: begin
-            E + S ⇌ E(S)
+            E + S ⇌ E(S)                 # :: EqualAI on every statement, if allosteric
             ...
         end
+        regulatory_site(2): X::OnlyA     # an allosteric mechanism only
     end
 
-Build a mechanism from its elementary steps. The value is a `Mechanism`, which
+Build a mechanism from its elementary steps. The value is a [`Mechanism`](@ref
+EnzymeRates.Mechanisms.Mechanism), which
 [`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation) turns into a
 rate law that evaluates without allocating. Two writings of one mechanism give equal
 values. It prints as the block that builds it, each list sorted and one line per kinetic
@@ -87,12 +90,12 @@ group in canonical order.
 Labels:
 - `substrates:` and `products:` (required) name the reactants, without atoms; atoms
   belong in [`@enzyme_reaction`](@ref).
-- `modifiers:` names the metabolites that bind the enzyme without reacting, such as
-  inhibitors and activators. A substrate or product listed here may bind as a modifier
+- `modifiers:` names the metabolites that bind the catalytic site without reacting, such
+  as inhibitors and activators. A substrate or product listed here may bind as a modifier
   as well.
 - `steps:` (required) holds the steps in one `begin ... end` block.
-- `substrates:`, `products:` and `modifiers:` may repeat; their names accumulate. The
-  allosteric labels and step tags belong in [`@allosteric_mechanism`](@ref).
+- `substrates:`, `products:` and `modifiers:` may repeat; their names accumulate.
+- `oligomeric_state:` and `regulatory_site(n):` belong to an allosteric mechanism (below).
 
 Steps, one per line:
 - `lhs ⇌ rhs` is a rapid-equilibrium step and `lhs <--> rhs` a steady-state one; either
@@ -124,12 +127,44 @@ its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_t
 as `_res_plusA_minusP`; a constant writes the metabolite a step takes up or gives off by
 its name alone (`K_ESSmod_to_ES_S`).
 
+An allosteric (MWC) mechanism: the enzyme is active (A) or inactive (I), the free
+enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory sites
+apart from the catalytic one. A mechanism is allosteric when its statements carry
+allosteric states: every statement of `steps:` ends with one, a step after its right-hand
+side, a parenthesized group after its closing parenthesis, and `(step,) :: State` for a
+group of one. Some statements with a state and others without is an error. Only an
+allosteric mechanism takes:
+- `oligomeric_state:` (default 1), the number of catalytic subunits.
+- `regulatory_site(n): X::State, Y::State`, one regulatory site, present `n` times, and
+  its ligands in any order, each with its state. A ligand sits on one site line. It binds
+  only its regulatory site, unless `modifiers:` lists it too, which lets it bind the
+  catalytic site as well.
+
+A state says how a statement's constants, or a ligand's binding, differ between the
+conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
+and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
+one only. A catalytic statement or a ligand takes any of the four, as long as the active
+conformation still turns substrate into product. The conformations interconvert only at
+free E.
+
 When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
 sit, with an error that names the steps at fault: no cycle of steps turns substrates into
 products; a cycle of rapid-equilibrium steps does, so the rate has no finite value; or, with
 every product, every substrate, one reactant or every modifier absent, the steady state is
 not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up.
 It also rejects a law with no value there (0/0).
+
+A step with a state is switched off in the conformation that lacks it, and it keeps its
+kind, rapid equilibrium or steady state, in both. The steps that conformation keeps join
+the forms into groups, and every group but free E's lies higher in energy and holds no
+enzyme: a switched-off step between two groups loses its rate uphill and keeps its rate
+downhill, or, at steady state, may stop; one inside a group stops at steady state, and at
+rapid equilibrium cannot be switched off, so the macro rejects it. The macro looks for
+energies of the groups under which the rate law is the limit, and rejects the states when
+it finds none (under each, a face's steady state depends on where the enzyme starts, or
+the macro cannot show that the limit does not depend on how fast the switched-off
+constants vanish), or when the states allow more choices than it searches and none of the
+few it tries first gives the limit (see [How an excluded step is switched off](@ref)).
 
 Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
 a modifier, which inhibits at high substrate:
@@ -157,73 +192,17 @@ K_ESSmod_to_ES_S
 K_ES_to_E_S
 k_ES_to_EP
 ```
-"""
-macro enzyme_mechanism(block)
-    return :($_checked_mechanism($(raw_mechanism(block, false))))
-end
 
-"""
-    @allosteric_mechanism begin
-        substrates: S, ...
-        products: P, ...
-        modifiers: I, ...
-        allosteric_regulators: X, ...
-        oligomeric_state: 2
-        steps: begin
-            E + S ⇌ E(S) :: EqualAI
-            ...
-        end
-        regulatory_site(2): X::OnlyA, ...
-    end
-
-Build a two-conformation (MWC) mechanism: the enzyme is active (A) or inactive (I), the
-free enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory
-sites apart from the catalytic one. The value is an `AllostericMechanism`, which
-[`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation) turns into a
-rate law that evaluates without allocating. It prints as the block that builds it, each
-list sorted, `oligomeric_state:` written out and one line per kinetic group in canonical
-order.
-
-It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
-- `allosteric_regulators:` names the metabolites that bind regulatory sites. An
-  allosteric regulator binds only its regulatory site, unless `modifiers:` lists it too,
-  which lets it bind the catalytic site as well.
-- `oligomeric_state:` (default 1) is the number of catalytic subunits.
-- `regulatory_site(n): X::Tag, Y::Tag` is one regulatory site, present `n` times, and
-  its ligands in any order, each with its tag. Each ligand is an allosteric regulator,
-  and each allosteric regulator sits on exactly one site line.
-- Every statement of `steps:` ends with its tag: a step after its right-hand side, a
-  parenthesized group after its closing parenthesis, and `(step,) :: Tag` for a group of
-  one.
-
-A tag says how a statement's constants, or a ligand's binding, differ between the
-conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
-and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
-one only. A catalytic statement or a ligand takes any of the four, as long as the active
-conformation still turns substrate into product. The conformations interconvert only at
-free E.
-
-A tagged step is switched off in the conformation that lacks it, and it keeps its kind,
-rapid equilibrium or steady state, in both. The steps that conformation keeps join the
-forms into groups, and every group but free E's lies higher in energy and holds no enzyme:
-a tagged step between two groups loses its rate uphill and keeps its rate downhill, or, at
-steady state, may stop; one inside a group stops at steady state, and at rapid equilibrium
-cannot be switched off, so the macro rejects it. The macro looks for energies of the groups
-under which the rate law is the limit, and rejects the tag set when it finds none (under
-each, a face's steady state depends on where the enzyme starts, or the macro cannot show
-that the limit does not depend on how fast the tagged constants vanish), or when the tag
-set allows more choices than it searches and none of the few it tries first gives the
-limit (see [How an excluded step is switched off](@ref)). The checks of
-[`@enzyme_mechanism`](@ref) apply as well.
+An allosteric mechanism with two subunits and a regulatory site for an activator X and an
+inhibitor Y:
 
 ```jldoctest
 julia> using EnzymeRates
 
-julia> am = @allosteric_mechanism begin
+julia> am = @enzyme_mechanism begin
            substrates: A, B
            products: P, Q
            modifiers: I, P
-           allosteric_regulators: X, Y
            oligomeric_state: 2
            steps: begin
                E + A ⇌ E(A)                          :: EqualAI
@@ -251,6 +230,6 @@ K_I_Yreg
 L
 ```
 """
-macro allosteric_mechanism(block)
-    return :($_checked_mechanism($(raw_mechanism(block, true))))
+macro enzyme_mechanism(block)
+    return :($_checked_mechanism($(raw_mechanism(block))))
 end

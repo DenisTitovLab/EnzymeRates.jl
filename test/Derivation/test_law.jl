@@ -37,10 +37,10 @@ end
     n_plain = 0
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        m isa EnzymeRates.Mechanism || continue
+        _testhelper_is_allosteric(m) && continue
         n_plain += 1
-        mask = trues(length(m.steps))
-        @test EnzymeRates.Derivation.rate_equation_term_count(m, mask) ===
+        mask = trues(length(m.catalytic.steps))
+        @test EnzymeRates.Derivation.rate_equation_term_count(m.catalytic, mask) ===
               Int(_testhelper_laplacian_tree_count(m, mask))
     end
     @test n_plain == 31
@@ -74,7 +74,7 @@ end
 @testset "the plain law equals the exact steady state on every plain spec" begin
     for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
         m = spec.mechanism
-        m isa EnzymeRates.Mechanism || continue
+        _testhelper_is_allosteric(m) && continue
         @testset "$(spec.name)" begin
             L = EnzymeRates.Derivation._law(m)
             rng = Random.MersenneTwister(500 + i)
@@ -93,15 +93,15 @@ end
     rng = Random.MersenneTwister(7)
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        m isa EnzymeRates.Mechanism || continue
+        _testhelper_is_allosteric(m) && continue
         @testset "$(spec.name)" begin
             L = EnzymeRates.Derivation._law(m)
             @test L.vars.names == [EnzymeRates.metabolites(m);
                                    EnzymeRates.Derivation._solve(m).fitted; :Keq]
             env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
                                          for x in L.vars.names)
-            H = prod(env[x] for x in m.substrates) -
-                prod(env[x] for x in m.products) / env[:Keq]
+            H = prod(env[x] for x in m.catalytic.substrates) -
+                prod(env[x] for x in m.catalytic.products) / env[:Keq]
             @test isapprox(_testhelper_poly_value(L.H, L.vars, env), H;
                            rtol = big(10)^-60)
             @test !iszero(L.Q) && all(>(0), values(L.Q.terms))
@@ -119,7 +119,7 @@ end
     # constants both conformations share (:EqualAI); the inactive mask keeps all three
     # steps, the binding under its inactive constant. Both laws number their variables
     # alike: the mechanism's concentrations, the solve's independents, then Keq.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -148,13 +148,13 @@ end
         end
     end
     s = EnzymeRates.Derivation._solve(am)
-    cm, mets = EnzymeRates.Mechanisms.catalytic(am), EnzymeRates.metabolites(am)
+    cm, mets = am.catalytic, EnzymeRates.metabolites(am)
     active = EnzymeRates.Derivation._law(
         cm, s, EnzymeRates.Mechanisms.steps_in_active_conformation(am);
-        concentrations = mets)
+        concentrations = mets, shown = am)
     inactive = EnzymeRates.Derivation._law(
         cm, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am);
-        inactive = true, concentrations = mets)
+        inactive = true, concentrations = mets, shown = am)
     @test active.vars == inactive.vars
     @test active.vars.names == [mets; s.names[s.independents]; :Keq]
     rng = Random.MersenneTwister(71)
@@ -177,9 +177,10 @@ end
     # canonical form gives back.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
-        m isa EnzymeRates.Mechanism || continue
-        back = EnzymeRates.Mechanism(m.substrates, m.products, m.nodes,
-                                     reverse(_testhelper_turned.(m.steps)))
+        _testhelper_is_allosteric(m) && continue
+        c = m.catalytic
+        back = _testhelper_plain_mechanism(c.substrates, c.products, c.nodes,
+                                           reverse(_testhelper_turned.(c.steps)))
         @test EnzymeRates.Derivation._law(back) == EnzymeRates.Derivation._law(m)
     end
     # A same-model regrouping: the binding square ties B's two dissociation constants,
@@ -214,14 +215,14 @@ end
 @testset "plain laws satisfy detailed balance" begin
     for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
         m = spec.mechanism
-        m isa EnzymeRates.Mechanism || continue
+        _testhelper_is_allosteric(m) && continue
         L = EnzymeRates.Derivation._law(m)
         rng = Random.MersenneTwister(600 + i)
         env = Dict{Symbol, BigFloat}(x => exp(4 * big(rand(rng)) - 2)
                                      for x in L.vars.names)
-        p1 = first(m.products)
-        env[p1] = env[:Keq] * prod(env[x] for x in m.substrates) /
-                  prod((env[x] for x in m.products if x != p1);
+        p1 = first(m.catalytic.products)
+        env[p1] = env[:Keq] * prod(env[x] for x in m.catalytic.substrates) /
+                  prod((env[x] for x in m.catalytic.products if x != p1);
                        init = big(1))
         off = copy(env)
         off[p1] /= 10
@@ -278,14 +279,15 @@ end
             E(Q) <--> E + Q
         end
     end
-    mask = BitVector([EnzymeRates.Mechanisms.step_text(m, k) in ("E + A <--> E(A)",
-                                                                  "E(Q) + P <--> E(P, Q)")
-                      for k in eachindex(m.steps)])
-    @test EnzymeRates.Derivation.rate_equation_term_count(m, mask) == 0
+    mask = BitVector([EnzymeRates.Mechanisms.step_text(m.catalytic, k) in
+                      ("E + A <--> E(A)", "E(Q) + P <--> E(P, Q)")
+                      for k in eachindex(m.catalytic.steps)])
+    @test EnzymeRates.Derivation.rate_equation_term_count(m.catalytic, mask) == 0
     msg = "internal error: the steady-state steps of this mechanism " *
           "do not join its rapid-equilibrium segments"
     @test_throws ErrorException(msg) EnzymeRates.Derivation._law(
-        m, EnzymeRates.Derivation._solve(m), mask)
+        m.catalytic, EnzymeRates.Derivation._solve(m), mask;
+        concentrations = metabolites(m), shown = m)
 end
 
 @testset "_law refuses a law over the term cap" begin
@@ -345,13 +347,12 @@ end
         end
     end
     bad = _testhelper_overflowing(EnzymeRates.Derivation._solve(mm))
-    err = @test_throws ErrorException EnzymeRates.Derivation._law(mm, bad,
-                                                                  trues(length(mm.steps)))
+    err = @test_throws ErrorException EnzymeRates.Derivation._law(mm, bad)
     @test startswith(err.value.msg, "internal error: the rate law of this mechanism " *
                                     "leaves Int64 arithmetic")
     @test endswith(err.value.msg, sprint(show, mm))
     # An MWC law's message names the allosteric mechanism, not its catalytic graph.
-    am = @allosteric_mechanism begin
+    am = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -377,7 +378,7 @@ end
     # conformation and combined, and the fitted names count the declared dimension. A
     # second derivation gives an equal law with an equal hash.
     specs = [s for s in MECHANISM_TEST_SPECS
-             if s.mechanism isa EnzymeRates.AllostericMechanism]
+             if _testhelper_is_allosteric(s.mechanism)]
     @test length(specs) == 11
     for (i, spec) in enumerate(specs)
         @testset "$(spec.name)" begin
@@ -408,7 +409,7 @@ end
     # inactive numerator is live. The oracle solves the concerted network of n protomers,
     # each moving through its conformation's forms, all flipping together at free E.
     mechs = (
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P
             oligomeric_state: 1
@@ -419,7 +420,7 @@ end
                 E + P ⇌ E(P)           :: EqualAI
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P
             oligomeric_state: 2
@@ -430,7 +431,7 @@ end
                 E + P ⇌ E(P)           :: EqualAI
             end
         end),
-        @allosteric_mechanism(begin
+        @enzyme_mechanism(begin
             substrates: A, B
             products: P
             oligomeric_state: 3
@@ -477,10 +478,10 @@ end
                 law = _testhelper_evaluate_law(A, merge(params, concs))
                 @test abs(law - exact) <= big(10)^-20 * abs(exact)
             end
-            cm = EnzymeRates.Mechanisms.catalytic(sub)
+            cm = sub.catalytic
             onlyi =
                 Set(x for (k, ns) in enumerate(_testhelper_edge_names(sub, :I))
-                    if sub.allosteric_states[cm.steps[k].group] === :OnlyI
+                    if sub.allosteric.allosteric_states[cm.steps[k].group] === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
             @test !isempty(onlyi)
@@ -493,7 +494,7 @@ end
     # Both bindings :OnlyA: the inactive conformation's free E binds nothing, so that
     # conformation is free E alone. It turns nothing over and weighs 1, so the law is
     # H·QA/(DA + L), and it adds nothing to the term count.
-    inert = @allosteric_mechanism begin
+    inert = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -548,7 +549,7 @@ end
     # counts 4,320 + 4,320 = 8,640: over the cap of 5,000, though each conformation is
     # under it. The engine refuses it before any polynomial product, with
     # RateEquationTooLargeError's message.
-    em = @allosteric_mechanism begin
+    em = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -571,8 +572,8 @@ end
     cm = am.catalytic
     amask, imask = EnzymeRates.Mechanisms.steps_in_active_conformation(am),
         EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)
-    @test _testhelper_laplacian_tree_count(cm, amask) == 4320
-    @test _testhelper_laplacian_tree_count(cm, imask) == 4320
+    @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), amask) == 4320
+    @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), imask) == 4320
     @test EnzymeRates.Derivation.rate_equation_term_count(cm, amask) <=
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     @test EnzymeRates.Derivation.rate_equation_term_count(am) == 8640
