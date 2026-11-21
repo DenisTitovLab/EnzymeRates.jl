@@ -1885,54 +1885,6 @@ end
         @test sites[1].multiplicity == 1
         @test sites[1].allosteric_states == [:OnlyA, :NonequalAI]
     end
-
-    @testset "_sig_of / _mechanism_from_sig roundtrip" begin
-        # One fixture built from the walker's value: two substrates, two products, a
-        # modifier-only name bound by a step, a covalent residual, a Theorell–Chance step,
-        # and steps at rapid equilibrium and at steady state. It holds no reactant's
-        # modifier copy.
-        m = ER.DSL._construct(ER.DSL.raw_mechanism(:(begin
-            substrates: A, B
-            products: P, Q
-            modifiers: I
-            steps: begin
-                E + A ⇌ EA
-                EA <--> E_res_plusA_minusP + P
-                E_res_plusA_minusP + B <--> EQ
-                EA + B <--> EQ + P
-                E + Q ⇌ EQ
-                E + I ⇌ EI
-            end
-        end)))
-
-        sig = ER.Derivation._sig_of(m)
-        @test sig isa Tuple
-        @test ER.Derivation._mechanism_from_sig(sig) == m   # roundtrip
-
-        # The Sig is the compiled rate law's only parameter.
-        rate = compile_rate_equation(m)
-        @test typeof(rate) === ER.Derivation._CompiledRateEquation{sig}
-
-        # Roundtrip through the type-parameter form preserves everything.
-        @test ER.Derivation._mechanism_from_sig(typeof(rate).parameters[1]) == m
-
-        # A regulator that no step binds is no part of a mechanism, so the init mechanism
-        # of a reaction that declares one compiles to the law of the reaction's without
-        # it.
-        without_u = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-        end
-        with_u = @enzyme_reaction begin
-            substrates: S[C]
-            products: P[C]
-            competitive_inhibitors: U
-        end
-        @test compile_rate_equation(
-            only(_testhelper_mechanisms(ER.Enumeration.init_mechanisms(with_u)))) ===
-              compile_rate_equation(
-                  only(_testhelper_mechanisms(ER.Enumeration.init_mechanisms(without_u))))
-    end
 end
 
 # The exception that `f()` throws, or `nothing` when it returns.

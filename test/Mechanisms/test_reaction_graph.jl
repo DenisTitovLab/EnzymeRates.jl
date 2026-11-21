@@ -1,5 +1,5 @@
-# ABOUTME: Tests of the reaction-graph mechanism types: content order and identity,
-# ABOUTME: canonical form and checks, its sub-graph reads, the Sig and speed.
+# ABOUTME: Tests of the reaction-graph mechanism types: identity, canonical form and
+# ABOUTME: checks, its sub-graph reads and the speed of its constructor.
 
 using Statistics: median
 
@@ -240,6 +240,7 @@ end
             other = _testhelper_build(
                 _testhelper_rewrite(spec.raw; order, direction, labels))
             @test other == m && hash(other) == hash(m)
+            @test compile_rate_equation(other) === compile_rate_equation(m)
         end
     end
 end
@@ -697,71 +698,6 @@ end
                  _testhelper_uniuni(metabolites = [:S, :P, :Q], products = [2, 3]))
     @test_throws(ErrorException("Mechanism: modifier I is declared, but no step binds it"),
                  _testhelper_uniuni(metabolites = [:S, :P, :I]))
-end
-
-"""The graph whose Sig (`Derivation._sig_of`) is `sig`, decoded without specializing on
-the Sig's type, as a compiled law's generated methods decode it."""
-Base.@nospecializeinfer _testhelper_decode(@nospecialize(sig)) =
-    ER.Derivation._mechanism_from_sig(sig)
-
-@testset "a graph's Sig decodes to the graph, and equal graphs share one law" begin
-    @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        x = _testhelper_build(spec.raw)
-        sig = ER.Derivation._sig_of(x)
-        @test sig isa Tuple
-        @test _testhelper_decode(sig) == x
-        rate = compile_rate_equation(x)
-        @test typeof(rate).parameters[1] === sig
-        @test _testhelper_decode(typeof(rate).parameters[1]) == x
-        @test compile_rate_equation(_testhelper_build(_testhelper_rewrite(spec.raw))) ===
-              rate
-    end
-    m = _testhelper_graph_uniuni()
-    @test _testhelper_decode(ER.Derivation._sig_of(m)) == m
-    am = ER.Mechanism(
-        m.catalytic, ER.Mechanisms.Allostery([:EqualAI, :NonequalAI, :OnlyA], 4,
-        [EnzymeRates.Mechanisms.RegulatorySite([:X, :R], 2, [:OnlyA, :OnlyI])]))
-    @test _testhelper_decode(ER.Derivation._sig_of(am)) == am
-    # A name outside ASCII, sorting last among 31 substrates.
-    names = [[Symbol("S", i) for i in 1:30]; :αKG; :P]
-    wide = _testhelper_plain_mechanism(
-        names, [:E; [Symbol("E", x) for x in names]], collect(1:31), [32],
-        [ER.Mechanisms.Step(1, i + 1, [i], Int[], true, i) for i in 1:32])
-    @test wide.catalytic.metabolites[31] === :αKG
-    @test _testhelper_decode(ER.Derivation._sig_of(wide)) == wide
-end
-
-"""Uni-uni whose substrate's name holds `n` characters: a Sig no other test decodes."""
-_testhelper_long_named(n) = let S = Symbol("S", "x"^(n - 1)), ES = Symbol("ES", "x"^(n - 1))
-    _testhelper_build(_testhelper_walk(:(begin
-        substrates: $S
-        products: P
-        steps: begin
-            E + $S ⇌ $ES
-            $ES <--> EP
-            EP ⇌ E + P
-        end
-    end)))
-end
-
-@testset "the Sig decoder compiles once, whatever the mechanism" begin
-    # A compiled law's generated methods decode its Sig without specializing on its type,
-    # so the decoder compiles once: after one decode, decoding the Sigs of three other
-    # mechanisms adds no method instance.
-    instances(f) = count(_ -> true, Base.specializations(only(methods(f))))
-    _testhelper_allosteric_long_named(n) =
-        ER.Mechanism(_testhelper_long_named(n).catalytic,
-                     ER.Mechanisms.Allostery([:EqualAI, :EqualAI, :OnlyA], 2,
-                                             EnzymeRates.Mechanisms.RegulatorySite[]))
-    decoder = ER.Derivation._mechanism_from_sig
-    for build in (_testhelper_long_named, _testhelper_allosteric_long_named)
-        lengths = (301, 401, 501, 601)
-        sigs = [typeof(compile_rate_equation(build(n))).parameters[1] for n in lengths]
-        @test _testhelper_decode(sigs[1]) == build(lengths[1])
-        before = instances(decoder)
-        foreach(_testhelper_decode, sigs[2:4])
-        @test instances(decoder) == before
-    end
 end
 
 @testset "a graph written back as its forms and steps builds the same graph" begin

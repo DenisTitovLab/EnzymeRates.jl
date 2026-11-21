@@ -218,6 +218,11 @@ _testhelper_group_members(c::EnzymeRates.Mechanisms.CatalyticScheme) =
 _testhelper_metabolite(c::EnzymeRates.Mechanisms.CatalyticScheme, x::Symbol) =
     only(findall(==(x), c.metabolites))
 
+"""The graph whose Sig (`Derivation._sig_of`) is `sig`, decoded without specializing on
+the Sig's type, as a compiled law's generated methods decode it."""
+Base.@nospecializeinfer _testhelper_decode(@nospecialize(sig)) =
+    EnzymeRates.Derivation._mechanism_from_sig(sig)
+
 """The rapid-equilibrium flag of each step of the mechanism or catalytic scheme `m`."""
 _testhelper_flags(c::EnzymeRates.Mechanisms.CatalyticScheme) =
     BitVector(e.rapid_equilibrium for e in c.steps)
