@@ -178,8 +178,9 @@ function _lean_ranks(m::Mechanisms.Mechanism)
      metabolites = Dict(x => i for (i, x) in enumerate(Mechanisms.metabolites(m))))
 end
 
-"""Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
-_solve_tags(m::Mechanisms.Mechanism) = fill(:None, length(_kinetic_groups(m)))
+"""Each kinetic group's allosteric tag, `:None` for a plain mechanism, whose groups are
+numbered 1 to the largest `group` of its steps."""
+_solve_tags(m::Mechanisms.Mechanism) = fill(:None, maximum(e -> e.group, m.steps; init = 0))
 _solve_tags(am::Mechanisms.AllostericMechanism) = am.allosteric_states
 
 """Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
