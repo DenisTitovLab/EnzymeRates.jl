@@ -2207,6 +2207,77 @@ end
     @test one_reversed != mirrored
     @test issubset(["Estar <--> E", "Estar(A) <--> E(A)"], stored(mirrored))
     @test issubset(["Estar <--> E", "E(A) <--> Estar(A)"], stored(one_reversed))
+    # The last tie is broken by the forms' names, free E first, not by the order the forms
+    # are stored in. E(b) and Ea(b) are both one step from free E, and the isomerization
+    # between them lies on no cycle that turns the reaction over: it runs from Ea(b),
+    # named Eab, which comes before Eb, though E(b) is stored first.
+    by_name = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: b
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + b ⇌ E(b)
+            E + b ⇌ Ea(b)
+            E(b) <--> Ea(b)
+        end
+    end
+    @test findfirst(==(:Eb), by_name.enzyme_forms) <
+          findfirst(==(:Eab), by_name.enzyme_forms)
+    @test "Ea(b) <--> E(b)" in stored(by_name)
+    @test (@_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: b
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + b ⇌ E(b)
+            E + b ⇌ Ea(b)
+            Ea(b) <--> E(b)
+        end
+    end) == by_name
+    # A group's lead, among members equally near free E, is the one whose forms come first
+    # by name. Neither isomerization below lies on a cycle that turns the reaction over,
+    # and all four forms are one step from free E. Ea <--> Fa leads, named before
+    # E(z) <--> F(z), though E(z) is stored before Ea; it runs from Ea, and E(z) <--> F(z),
+    # written in the same direction as Fa <--> Ea, runs from F(z).
+    lead_by_name = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: z
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + z ⇌ E(z)
+            E + z ⇌ F(z)
+            E <--> Ea
+            E <--> Fa
+            (E(z) <--> F(z), Fa <--> Ea)
+        end
+    end
+    @test findfirst(==(:Ez), lead_by_name.enzyme_forms) <
+          findfirst(==(:Ea), lead_by_name.enzyme_forms)
+    @test issubset(["Ea <--> Fa", "F(z) <--> E(z)"], stored(lead_by_name))
+    @test (@_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: z
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + z ⇌ E(z)
+            E + z ⇌ F(z)
+            E <--> Ea
+            E <--> Fa
+            (Ea <--> Fa, F(z) <--> E(z))
+        end
+    end) == lead_by_name
 end
 
 @testset "the tied steps of one kinetic group turn as one" begin
@@ -2262,6 +2333,18 @@ end
         end
     end
     @test :K_F_to_E in parameters(re)
+    # A group whose isomerizations join different pairs of conformations is a mechanism:
+    # its members turn with the lead as written.
+    @test ER.Mechanism(@enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> E + P
+            (E ⇌ F, F ⇌ G, G ⇌ E)
+        end
+    end) isa ER.Mechanism
 end
 
 # The edges of the one kinetic group of `mech`'s catalytic graph that neither binds nor
@@ -2354,6 +2437,21 @@ end
     _testhelper_check_law_against_oracle(plain)
     _testhelper_check_law_against_oracle(allo)
 
+    # Exchanges that switch conformation in opposite directions as J displaces I build;
+    # without the J bindings the guard rejects them at zero I and J, for E(J).
+    @test (@_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            (E + I ⇌ E(I), F + I ⇌ F(I))
+            (E(I) + J <--> F(J) + I, F(I) + J <--> E(J) + I)
+        end
+    end) isa ER.Mechanism
     # Without the J bindings the guard rejects the mechanism at zero modifiers.
     dead_ends = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A

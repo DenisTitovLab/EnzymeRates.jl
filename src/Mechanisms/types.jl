@@ -614,8 +614,9 @@ function _orientation(written::Vector{Step}, forms::Vector{String},
     verdict = [isempty(e.taken_up) || isempty(e.given_off) ?
                length(e.taken_up) - length(e.given_off) :
                net(e.taken_up) - net(e.given_off) for e in written]
-    _turnover_directions!(verdict, written, nf, substrates[1])
-    distance = _distance_from_free_E(written, nf)
+    at = _steps_at_forms(written, nf)
+    _turnover_directions!(verdict, written, at, substrates[1])
+    distance = _distance_from_free_E(written, at)
     # Each form's place: free E first, then the others by name. Rule 5 and the group rule
     # break their ties by it, so a direction follows the forms' names and not the order
     # the forms are stored in.
@@ -630,40 +631,66 @@ function _orientation(written::Vector{Step}, forms::Vector{String},
     fwd
 end
 
-"""How many steps of `written` separate each of its `nf` forms from free E, form 1, along
-steps taken either way; `typemax(Int)` for a form no steps join to it."""
-function _distance_from_free_E(written::Vector{Step}, nf::Int)
-    distance = fill(typemax(Int), nf)
-    nf == 0 && return distance
+"""The steps of `written` at each of its `nf` forms: those that touch form `u` are
+`at.steps[at.start[u]:(at.start[u + 1] - 1)]`, a step joining a form to itself twice."""
+function _steps_at_forms(written::Vector{Step}, nf::Int)
+    start = zeros(Int, nf + 1)
+    for e in written
+        start[e.from + 1] += 1
+        start[e.to + 1] += 1
+    end
+    start[1] = 1
+    for u in 1:nf
+        start[u + 1] += start[u]
+    end
+    steps, filled = Vector{Int}(undef, 2 * length(written)), start[1:nf]
+    for (k, e) in enumerate(written), u in (e.from, e.to)
+        steps[filled[u]] = k
+        filled[u] += 1
+    end
+    (; start, steps)
+end
+
+"""The form at the other end of step `e` from form `u`."""
+_other_end(e::Step, u::Int) = e.from == u ? e.to : e.from
+
+"""How many steps of `written` separate each of its forms from free E, form 1, along
+steps taken either way (`at`, from `_steps_at_forms`); `typemax(Int)` for a form no
+steps join to it."""
+function _distance_from_free_E(written::Vector{Step}, at)
+    distance = fill(typemax(Int), length(at.start) - 1)
+    isempty(distance) && return distance
     distance[1] = 0
     queue, head = [1], 0
     while head < length(queue)
         u = queue[head += 1]
-        for e in written, (a, b) in ((e.from, e.to), (e.to, e.from))
-            a == u && distance[b] == typemax(Int) || continue
-            distance[b] = distance[u] + 1
-            push!(queue, b)
+        for i in at.start[u]:(at.start[u + 1] - 1)
+            v = _other_end(written[at.steps[i]], u)
+            distance[v] == typemax(Int) || continue
+            distance[v] = distance[u] + 1
+            push!(queue, v)
         end
     end
     distance
 end
 
 """
-    _turnover_directions!(verdict, written, nf, s1) -> verdict
+    _turnover_directions!(verdict, written, at, s1) -> verdict
 
-Decide each step `k` of `written` (its ends among `nf` forms) that `verdict` leaves at
-`0`: `verdict[k]` becomes `1` when the shortest closed walk that takes step `k` once, as
-written, and takes up one of the first substrate `s1` net (a modifier copy counting as
-it) is shorter than any that takes the step the other way, `-1` when it is longer, and
-stays `0` when there is none either way or both are equally long. The walk may pass a
-form twice, so a step on a cycle that turns nothing over finds a walk each way of one
-length, round a turnover cycle in either direction, and is decided by neither.
+Decide each step `k` of `written` (`at` lists its steps by form, `_steps_at_forms`) that
+`verdict` leaves at `0`: `verdict[k]` becomes `1` when the shortest closed walk that takes
+step `k` once, as written, and takes up one of the first substrate `s1` net (a modifier
+copy counting as it) is shorter than any that takes the step the other way, `-1` when it
+is longer, and stays `0` when there is none either way or both are equally long. The walk
+may pass a form twice, so a step on a cycle that turns nothing over finds a walk each way
+of one length, round a turnover cycle in either direction, and is decided by neither.
 """
-function _turnover_directions!(verdict::Vector{Int}, written::Vector{Step}, nf::Int,
-                               s1::Symbol)
+function _turnover_directions!(verdict::Vector{Int}, written::Vector{Step}, at, s1::Symbol)
     any(iszero, verdict) || return verdict
+    nf = length(at.start) - 1
     uptake = [count(x -> x.name === s1, e.taken_up) - count(x -> x.name === s1, e.given_off)
               for e in written]
+    reached, forms = falses(nf), Int[]
     # The search runs breadth first over (form, net uptake of s1) and keeps the net uptake
     # within ±span, as many as there are forms, so that it ends: a walk round a turnover
     # cycle takes up more on every turn. Each queued state carries its walk's length.
@@ -673,6 +700,22 @@ function _turnover_directions!(verdict::Vector{Int}, written::Vector{Step}, nf::
     for k in eachindex(written)
         verdict[k] == 0 || continue
         from, to = written[k].from, written[k].to
+        # A step whose ends no other steps join lies on no cycle. Looking first keeps the
+        # search below from visiting every (form, net uptake) pair for such a step.
+        fill!(reached, false)
+        empty!(forms)
+        reached[to] = true
+        push!(forms, to)
+        head = 0
+        while head < length(forms) && !reached[from]
+            u = forms[head += 1]
+            for i in at.start[u]:(at.start[u + 1] - 1)
+                at.steps[i] == k && continue
+                v = _other_end(written[at.steps[i]], u)
+                reached[v] || (reached[v] = true; push!(forms, v))
+            end
+        end
+        reached[from] || continue
         # The walk back from `to` to `from`, without step `k`, takes up `1 - uptake[k]`
         # net when step `k` as written turns the reaction over, and `-1 - uptake[k]` when
         # step `k` taken the other way does.
@@ -688,11 +731,12 @@ function _turnover_directions!(verdict::Vector{Int}, written::Vector{Step}, nf::
         # walk of that length has been found.
         while head < length(queue) && queue[head + 1][3] < min(a, b)
             u, n, d = queue[head += 1]
-            for (j, e) in enumerate(written)
+            for i in at.start[u]:(at.start[u + 1] - 1)
+                j = at.steps[i]
                 j == k && continue
-                v, x = e.from == u ? (e.to, uptake[j]) :
-                       e.to == u ? (e.from, -uptake[j]) : (0, 0)
-                (v == 0 || abs(n + x) > span || seen[v, n + x + span + 1]) && continue
+                v = _other_end(written[j], u)
+                x = written[j].from == u ? uptake[j] : -uptake[j]
+                (abs(n + x) > span || seen[v, n + x + span + 1]) && continue
                 seen[v, n + x + span + 1] = true
                 v == from && n + x == ahead && (a = d + 1)
                 v == from && n + x == behind && (b = d + 1)
