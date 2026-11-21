@@ -727,7 +727,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
@@ -1526,7 +1526,7 @@ end
     ktype = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S1, S2
         products: P1, P2
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + P1 <--> E(P1) :: OnlyA
             E + P2 <--> E(P2) :: OnlyA
@@ -1763,7 +1763,7 @@ function _testhelper_dedup_twins()
     m1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)       :: OnlyA
             E(S) <--> E(P)     :: NonequalAI
@@ -1773,7 +1773,7 @@ function _testhelper_dedup_twins()
     m2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)       :: OnlyA
             E(S) <--> E(P)     :: OnlyA
@@ -1914,7 +1914,7 @@ function _testhelper_unibi_pair()
     equal = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A
         products: P, Q
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A <--> E(A)          :: OnlyA
             E(A) <--> E(P, Q)        :: OnlyA
@@ -1925,7 +1925,7 @@ function _testhelper_unibi_pair()
     only_active = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A
         products: P, Q
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A <--> E(A)          :: OnlyA
             E(A) <--> E(P, Q)        :: OnlyA
@@ -2248,7 +2248,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)       :: EqualAI
             E(S) <--> E(P)     :: OnlyA
@@ -2560,7 +2560,7 @@ end
     am1 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD))   :: EqualAI
             (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
@@ -2578,7 +2578,7 @@ end
     am2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD),
              E(NADH) + Lactate ⇌ E(Lactate, NADH))                           :: EqualAI
@@ -3031,7 +3031,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: I, J
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
@@ -3041,5 +3041,5 @@ end
     end
     @test [EnzymeRates._mechanism_id(sprint(show, _testhelper_lift(em)))
            for em in (plain, ping_pong, allosteric)] ==
-          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "3d6c468d7b38224b"]
+          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "c3db71453a776221"]
 end

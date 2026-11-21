@@ -128,7 +128,7 @@ using OptimizationCMAEvolutionStrategy
             substrates: S
             products: P
             allosteric_regulators: X, Y
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: OnlyA

@@ -68,7 +68,7 @@ function _constant_sides(m::_AnyMech, k::Int, slot::Int, state::Symbol,
                          kept::Dict{Tuple{Int, Int, Bool}, Int})
     cm = Mechanisms.catalytic(m)
     g = cm.steps[k].group
-    group_tag = m isa Mechanisms.AllostericMechanism ? m.mwc_tags[g] : :None
+    group_tag = m isa Mechanisms.AllostericMechanism ? m.allosteric_states[g] : :None
     group_tag === (state === :I ? :OnlyA : :OnlyI) && return cm.step_sides[k]
     inactive = state === :I && group_tag in (:NonequalAI, :OnlyI)
     cm.step_sides[kept[(g, slot, inactive)]]
@@ -79,7 +79,7 @@ mechanism; `:I` for an inactive copy; `:EqualAI` or `:A` for an active constant 
 allosteric mechanism."""
 _conformation_tag(m::_AnyMech, p::StepParameter) =
     m isa Mechanisms.Mechanism ? :None : p.inactive ? :I :
-    m.mwc_tags[m.catalytic.steps[p.step].group] === :EqualAI ? :EqualAI : :A
+    m.allosteric_states[m.catalytic.steps[p.step].group] === :EqualAI ? :EqualAI : :A
 
 # Every edge constant is named after the reaction of its class's kept member: a rate
 # constant (`k_`) after the direction it drives, an equilibrium constant (`K_`) after
@@ -109,7 +109,8 @@ once across all sites. An `:EqualAI` ligand has one bare name in both conformati
 """
 function name(p::RegulatorParameter, am::Mechanisms.AllostericMechanism)
     tag = only(t for site in am.regulatory_sites
-               for (lig, t) in zip(site.ligands, site.mwc_tags) if lig === p.ligand)
+               for (lig, t) in zip(site.ligands, site.allosteric_states)
+               if lig === p.ligand)
     state = tag === :EqualAI ? :EqualAI : p.inactive ? :I : :A
     Symbol("K_", _state_tag(state), String(p.ligand), "reg")
 end
@@ -142,7 +143,7 @@ end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
 _solve_tags(m::Mechanisms.Mechanism) = fill(:None, length(m.groups))
-_solve_tags(am::Mechanisms.AllostericMechanism) = am.mwc_tags
+_solve_tags(am::Mechanisms.AllostericMechanism) = am.allosteric_states
 
 """Whether the active column of edge `k` of `cm`, in a group tagged `tags`, enters the
 law: its edge lies in the active conformation's law (`alaw`), or it is an `:EqualAI`

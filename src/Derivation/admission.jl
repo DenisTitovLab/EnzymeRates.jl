@@ -246,10 +246,10 @@ Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the
 (`_guard`). Every fix that retags steps in admission's messages is checked this way.
 """
 function _retag_passes(am::Mechanisms.AllostericMechanism, ks, tag::Symbol)
-    states = copy(am.mwc_tags)
+    states = copy(am.allosteric_states)
     states[[Mechanisms.catalytic(am).steps[k].group for k in ks]] .= tag
     retagged = Mechanisms.AllostericMechanism(Mechanisms.catalytic(am), states,
-                                              am.catalytic_multiplicity,
+                                              am.oligomeric_state,
                                               am.regulatory_sites)
     _guard(retagged) === _WELL_POSED
 end
@@ -274,8 +274,8 @@ _with_steps(m::Mechanisms.Mechanism, steps::Vector{Mechanisms.Step}) =
     Mechanisms.Mechanism(m.substrates, m.products, m.nodes, steps)
 _with_steps(am::Mechanisms.AllostericMechanism, steps::Vector{Mechanisms.Step}) =
     Mechanisms.AllostericMechanism(am.catalytic.substrates, am.catalytic.products,
-                                   am.catalytic.nodes, steps, am.mwc_tags,
-                                   am.catalytic_multiplicity, am.regulatory_sites)
+                                   am.catalytic.nodes, steps, am.allosteric_states,
+                                   am.oligomeric_state, am.regulatory_sites)
 
 """
 The message of admission's verdict `v` on `am`, judged with its excluded steps switched

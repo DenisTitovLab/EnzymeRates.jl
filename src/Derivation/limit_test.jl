@@ -200,7 +200,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
     nv = ncopies * nf + nnames
     excluded(k, c) = _excluded_steps(mech, c)[k]
     equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
-                  mech.mwc_tags[g] === :EqualAI
+                  mech.allosteric_states[g] === :EqualAI
     function drop!(row, k, c, dir)
         a, b = m.steps[k].from, m.steps[k].to
         row[(c - 1) * nf + a] += dir

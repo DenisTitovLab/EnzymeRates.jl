@@ -62,7 +62,7 @@ end
         substrates: S
         products: P
         modifiers: S
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)                    :: EqualAI
             E(S) + S::Mod ⇌ E(S, S::Mod)    :: OnlyA

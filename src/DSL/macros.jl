@@ -26,7 +26,7 @@ oligomeric states the search may use.
   allosteric state that activates or inhibits; an untagged one (`:unspecified`) may take
   either. Only these entries take a type tag. A name may be both a competitive
   inhibitor and an allosteric regulator.
-- `oligomeric_state:` gives the catalytic multiplicities the search may assign: one
+- `oligomeric_state:` gives the oligomeric states the search may assign: one
   positive Int, or a tuple of distinct ones such as `(1, 2, 4)`. It defaults to 1 and is
   given at most once.
 - `shared_catalytic_site:` lists `(substrate, product)` pairs, in either order, that bind
@@ -168,7 +168,7 @@ end
         products: P, ...
         modifiers: I, ...
         allosteric_regulators: X, ...
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S) :: EqualAI
             ...
@@ -181,13 +181,13 @@ free enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind re
 sites apart from the catalytic one. The value is an `AllostericEnzymeMechanism`, the
 compiled form that [`rate_equation`](@ref EnzymeRates.Derivation.rate_equation)
 evaluates without allocating. It prints as the block that builds it, each list sorted,
-`catalytic_multiplicity:` written out and one line per kinetic group in canonical order.
+`oligomeric_state:` written out and one line per kinetic group in canonical order.
 
 It takes the labels and step syntax of [`@enzyme_mechanism`](@ref), and:
 - `allosteric_regulators:` names the metabolites that bind regulatory sites. An
   allosteric regulator binds only its regulatory site, unless `modifiers:` lists it too,
   which lets it bind the catalytic site as well.
-- `catalytic_multiplicity:` (default 1) is the number of catalytic subunits.
+- `oligomeric_state:` (default 1) is the number of catalytic subunits.
 - `regulatory_site(n): X::Tag, Y::Tag` is one regulatory site, present `n` times, and
   its ligands in any order, each with its tag. Each ligand is an allosteric regulator,
   and each allosteric regulator sits on exactly one site line.
@@ -223,7 +223,7 @@ julia> am = @allosteric_mechanism begin
            products: P, Q
            modifiers: I, P
            allosteric_regulators: X, Y
-           catalytic_multiplicity: 2
+           oligomeric_state: 2
            steps: begin
                E + A ⇌ E(A)                          :: EqualAI
                E(A) + B ⇌ E(A, B)                    :: NonequalAI

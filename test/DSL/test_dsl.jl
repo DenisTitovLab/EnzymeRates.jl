@@ -186,7 +186,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         @test_throws Exception eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + F6P ⇌ E(F6P) :: EqualAI
                 E(F6P) <--> E(F16BP)
@@ -201,7 +201,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             :(@allosteric_mechanism begin
                 substrates: F6P
                 products:   F16BP
-                catalytic_multiplicity: 2
+                oligomeric_state: 2
                 steps: begin
                     E + F6P ⇌ E(F6P) :: EqualAI
                     E(F6P) <--> E(F16BP) :: OnlyI
@@ -215,7 +215,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                      "`regulatory_site(2): I::OnlyA`.", eval(:(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             allosteric_regulators: I, J
             steps: begin
                 E + F6P ⇌ E(F6P) :: EqualAI
@@ -232,7 +232,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                      "closing paren.", eval(:(@allosteric_mechanism begin
             substrates: S, A
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
                 E(A, S) <--> E(P)   :: EqualAI
@@ -270,7 +270,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
 
         # An unknown regulator state is reported by RegulatorySite when the expansion
         # runs.
-        @test_throws "MWC tag Bogus must be one of" eval(:(@allosteric_mechanism begin
+        @test_throws "allosteric state Bogus must be one of" eval(:(@allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: X
@@ -344,12 +344,12 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                 E(P) ⇌ E + P
             end
         end))
-        @test_throws "`catalytic_multiplicity:` given more than once" eval(
+        @test_throws "`oligomeric_state:` given more than once" eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_multiplicity: 2
-                catalytic_multiplicity: 4
+                oligomeric_state: 2
+                oligomeric_state: 4
                 steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
@@ -396,7 +396,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             products:   P
             allosteric_regulators: X
             allosteric_regulators: Y
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
@@ -407,7 +407,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             substrates: S
             products:   P
             allosteric_regulators: X, Y
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
@@ -550,7 +550,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
 
     @testset "@enzyme_mechanism rejects each allosteric-only label" begin
         for line in (:(allosteric_regulators: A),
-                     :(catalytic_multiplicity: 2),
+                     :(oligomeric_state: 2),
                      :(regulatory_site(2): A::OnlyA))
             @test_throws "belong in @allosteric_mechanism" eval(:(@enzyme_mechanism begin
                 substrates: S
@@ -637,7 +637,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         one_tuple = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             allosteric_regulators: A, I
 
             steps: begin
@@ -652,7 +652,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         bare = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             allosteric_regulators: A, I
 
             steps: begin
@@ -810,11 +810,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                 products:   P[C]
                 oligomeric_state: 0
             end))
-        @test_throws "`catalytic_multiplicity:` must be a positive Int, got 2.0." eval(
+        @test_throws "`oligomeric_state:` must be a positive Int, got 2.0." eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_multiplicity: 2.0
+                oligomeric_state: 2.0
                 steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
@@ -840,11 +840,11 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
                 products:   P[C]
                 oligomeric_state: true
             end))
-        @test_throws "`catalytic_multiplicity:` must be a positive Int, got true." eval(
+        @test_throws "`oligomeric_state:` must be a positive Int, got true." eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_multiplicity: true
+                oligomeric_state: true
                 steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                     E(S) <--> E(P)    :: EqualAI
@@ -969,9 +969,9 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
 
     @testset "@enzyme_reaction names its labels for any other" begin
         # Regulators go under `competitive_inhibitors:` or `allosteric_regulators:`, the
-        # catalytic multiplicities under `oligomeric_state:`; any other label is reported
+        # oligomeric states under `oligomeric_state:`; any other label is reported
         # as unknown, with the valid ones.
-        for label in (:regulators, :dead_end_inhibitors, :allowed_catalytic_multiplicities)
+        for label in (:regulators, :dead_end_inhibitors, :allowed_oligomeric_states)
             @test_throws("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
                          "substrates, products, competitive_inhibitors, " *
                          "allosteric_regulators, oligomeric_state, shared_catalytic_site.",
@@ -1075,14 +1075,14 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             products: P[C]
             oligomeric_state: 4
         end
-        @test rxn.allowed_catalytic_multiplicities == [4]
+        @test rxn.allowed_oligomeric_states == [4]
 
         # Without oligomeric_state defaults to 1
         rxn2 = @enzyme_reaction begin
             substrates: S[C]
             products: P[C]
         end
-        @test rxn2.allowed_catalytic_multiplicities == [1]
+        @test rxn2.allowed_oligomeric_states == [1]
 
         # A tuple of multiplicities
         rxn3 = @enzyme_reaction begin
@@ -1090,10 +1090,10 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             products: P[C]
             oligomeric_state: (1, 2, 4)
         end
-        @test rxn3.allowed_catalytic_multiplicities == [1, 2, 4]
+        @test rxn3.allowed_oligomeric_states == [1, 2, 4]
     end
 
-    @testset "@enzyme_reaction sets the catalytic multiplicities once" begin
+    @testset "@enzyme_reaction sets the oligomeric states once" begin
         # A second `oligomeric_state:` line errors; it never replaces the first.
         @test_throws "@enzyme_reaction: `oligomeric_state:` given more than once." eval(
             :(@enzyme_reaction begin
@@ -1110,13 +1110,13 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             products:   P[C]
             oligomeric_state: (2,)
         end))
-        @test one_tuple.allowed_catalytic_multiplicities == [2]
+        @test one_tuple.allowed_oligomeric_states == [2]
         several = @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             oligomeric_state: (4, 1, 2)
         end
-        @test several.allowed_catalytic_multiplicities == [1, 2, 4]
+        @test several.allowed_oligomeric_states == [1, 2, 4]
         # An empty tuple leaves the search no multiplicity.
         @test_throws("@enzyme_reaction: `oligomeric_state:` takes one Int or a tuple of " *
                      "one or more Ints, such as `(1, 2, 4)`; got ().",
@@ -1185,7 +1185,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         # The reaction shapes the tests use: one formula per reactant, competitive
         # inhibitors with a reactant among them, allosteric regulators with and without
         # types, a name in both regulator roles, declared in either order, one
-        # or several catalytic multiplicities and shared catalytic sites. The printed
+        # or several oligomeric states and shared catalytic sites. The printed
         # text builds an equal reaction.
         reactions = [
             @enzyme_reaction(begin
@@ -1338,7 +1338,7 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
             substrates: A
             products:   P
             allosteric_regulators: A, P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(A)          :: EqualAI
                 E(A) <--> E(P)        :: NonequalAI
@@ -1687,7 +1687,7 @@ end
             products:   P, Q
             modifiers:  I, P
             allosteric_regulators: X, Y
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(A)                              :: EqualAI
                 E(A) + B ⇌ E(A, B)                        :: NonequalAI
@@ -1700,7 +1700,7 @@ end
             regulatory_site(2): X::OnlyA, Y::OnlyI
         end
         @test am isa AllostericEnzymeMechanism
-        @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 2
+        @test EnzymeRates.AllostericMechanism(am).oligomeric_state == 2
         @test parameters(am, FittedParameters()) == (:K_A_EAB_to_EA_B, :K_EA_to_E_A,
             :K_EI_to_E_I, :K_EPQ_to_EQ_P, :K_EPmodQ_to_EQ_Pmod, :K_EQ_to_E_Q,
             :K_I_EAB_to_EA_B, :k_A_EAB_to_EPQ, :K_A_Xreg, :K_I_Yreg, :L)
@@ -1708,7 +1708,7 @@ end
         _testhelper_check_law_against_oracle(am)
     end
 
-    @testset "catalytic_multiplicity: defaults to 1" begin
+    @testset "oligomeric_state: defaults to 1" begin
         am = @allosteric_mechanism begin
             substrates: S
             products:   P
@@ -1720,7 +1720,7 @@ end
             end
             regulatory_site(1): X::OnlyI
         end
-        @test EnzymeRates.AllostericMechanism(am).catalytic_multiplicity == 1
+        @test EnzymeRates.AllostericMechanism(am).oligomeric_state == 1
         @test parameters(am, FittedParameters()) ==
               (:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_I_Xreg, :L)
         _testhelper_check_law_against_oracle(am)
@@ -1774,7 +1774,7 @@ end
             steps = [St(1, 2, M[], [s], true, 1), St(3, 4, [i], M[], true, 2),
                      St(5, 6, [i], M[], true, 2), St(7, 8, M[], [p], false, 3),
                      St(9, 10, [smod], M[], true, 4)])
-        # An allosteric block adds a tag per group label, the catalytic multiplicity
+        # An allosteric block adds a tag per group label, the oligomeric state
         # (1 when omitted) and its sites, each ligand list as written.
         allo = EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
@@ -1792,9 +1792,9 @@ end
                      F(:E, M[])],
             steps = [St(1, 2, [s], M[], true, 1), St(3, 4, M[], M[], false, 2),
                      St(5, 6, M[], [p], true, 3)],
-            mwc_tags = [:EqualAI, :OnlyA, :NonequalAI], catalytic_multiplicity = 1,
+            allosteric_states = [:EqualAI, :OnlyA, :NonequalAI], oligomeric_state = 1,
             regulatory_sites = [(; ligands = [:Y, :X], multiplicity = 2,
-                                 mwc_tags = [:OnlyI, :OnlyA])])
+                                 allosteric_states = [:OnlyI, :OnlyA])])
     end
 
     @testset "::Mod marks a substrate or product under modifiers: only" begin
@@ -2080,7 +2080,7 @@ end
                      F(:E, M[])],
             steps = [St(1, 2, [s], M[], true, 1), St(3, 4, M[], M[], false, 2),
                      St(5, 6, M[], [p], true, 3)],
-            mwc_tags = [:EqualAI, :OnlyA, :EqualAI], catalytic_multiplicity = 1,
+            allosteric_states = [:EqualAI, :OnlyA, :EqualAI], oligomeric_state = 1,
             regulatory_sites = EnzymeRates.DSL._WrittenSite[])
         @test_throws "@enzyme_mechanism: a parenthesized group holds no step" eval(
             :(@enzyme_mechanism begin
@@ -2096,7 +2096,7 @@ end
     @testset "labels: the valid ones, each single-valued label once with one value" begin
         plain_labels = "Valid labels: substrates, products, modifiers, steps. " *
                        "Allosteric declarations (`allosteric_regulators:`, " *
-                       "`catalytic_multiplicity:`, `regulatory_site(n):`) belong in " *
+                       "`oligomeric_state:`, `regulatory_site(n):`) belong in " *
                        "@allosteric_mechanism."
         for label in (:regulators, :catalytic_steps, :catalytic_inhibitors)
             @test_throws("@enzyme_mechanism: unknown label `$label:`. " * plain_labels,
@@ -2110,7 +2110,7 @@ end
             end)))
         end
         allo_labels = "Valid labels: substrates, products, modifiers, " *
-                      "allosteric_regulators, catalytic_multiplicity, steps, " *
+                      "allosteric_regulators, oligomeric_state, steps, " *
                       "regulatory_site(n)."
         for label in (:catalytic_steps, :catalytic_inhibitors, :regulators)
             @test_throws("@allosteric_mechanism: unknown label `$label:`. " * allo_labels,
@@ -2123,12 +2123,12 @@ end
                 end
             end)))
         end
-        @test_throws("@allosteric_mechanism: `catalytic_multiplicity:` takes one " *
+        @test_throws("@allosteric_mechanism: `oligomeric_state:` takes one " *
                      "positive Int; got 2, 4.", eval(Meta.parse("""
             @allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_multiplicity: 2, 4
+                oligomeric_state: 2, 4
                 steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                 end
@@ -2158,12 +2158,12 @@ end
                 E(S) <--> E + P
             end
         end))
-        @test_throws "`catalytic_multiplicity:` given more than once" eval(
+        @test_throws "`oligomeric_state:` given more than once" eval(
             :(@allosteric_mechanism begin
                 substrates: S
                 products:   P
-                catalytic_multiplicity: 2
-                catalytic_multiplicity: 2
+                oligomeric_state: 2
+                oligomeric_state: 2
                 steps: begin
                     E + S ⇌ E(S)      :: EqualAI
                 end
@@ -2242,7 +2242,7 @@ end
                 E(P) ⇌ E + P      :: EqualAI
             end
         end
-        @test_throws "MWC tag Bogus must be one of" @allosteric_mechanism begin
+        @test_throws "allosteric state Bogus must be one of" @allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: X
@@ -2341,7 +2341,7 @@ end
                 products: P
                 modifiers: I
                 allosteric_regulators: I, S
-                catalytic_multiplicity: 12
+                oligomeric_state: 12
                 steps: begin
                     E + S ⇌ E(S)                         :: EqualAI
                     E(S) <--> E(P)                       :: OnlyA
@@ -2472,7 +2472,7 @@ end
             @allosteric_mechanism begin
                 substrates: Ac, CoA
                 products: AcCoA
-                catalytic_multiplicity: 1
+                oligomeric_state: 1
                 steps: begin
                     E + Ac ⇌ E(Ac) :: EqualAI
                     E(Ac) + CoA ⇌ E(Ac, CoA) :: EqualAI
@@ -2520,7 +2520,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
             E(S) <--> E(P)    :: OnlyA
@@ -2528,10 +2528,10 @@ end
         end
         regulatory_site(2): R::OnlyI
     end), true)
-    @test allosteric == (; plain..., mwc_tags = [:NonequalAI, :OnlyA, :EqualAI],
-                         catalytic_multiplicity = 2,
+    @test allosteric == (; plain..., allosteric_states = [:NonequalAI, :OnlyA, :EqualAI],
+                         oligomeric_state = 2,
                          regulatory_sites = [(; ligands = [:R], multiplicity = 2,
-                                              mwc_tags = [:OnlyI])])
+                                              allosteric_states = [:OnlyI])])
 
     # Names that spell every string one way pass; Ac + CoA and AcCoA spell AcCoA twice.
     @test DSL.check_uniquely_decodable(plain) === nothing
@@ -2550,7 +2550,7 @@ end
         "two forms would share a name; rename a metabolite")
     @test_throws two_ways DSL.check_uniquely_decodable(clash)
     @test_throws two_ways DSL.check_uniquely_decodable(
-        (; clash..., mwc_tags = [:EqualAI, :EqualAI, :EqualAI], catalytic_multiplicity = 1,
+        (; clash..., allosteric_states = [:EqualAI, :EqualAI, :EqualAI], oligomeric_state = 1,
          regulatory_sites = DSL._WrittenSite[]))
 
     # The constructors build the value a block writes (`_construct`) from its nodes and

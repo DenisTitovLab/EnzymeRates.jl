@@ -35,10 +35,10 @@
             E(P) ⇌ E + P
         end
     end)
-    mwc_tags = fill(:NonequalAI, length(base.groups))
+    allosteric_states = fill(:NonequalAI, length(base.groups))
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:NonequalAI])
-    am = EnzymeRates.AllostericMechanism(base, mwc_tags, 2, [site])
-    @test am.mwc_tags == mwc_tags
+    am = EnzymeRates.AllostericMechanism(base, allosteric_states, 2, [site])
+    @test am.allosteric_states == allosteric_states
     m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
     params_allo = parameters(m_allo)
     @test any(occursin("_I_", string(p)) for p in params_allo)

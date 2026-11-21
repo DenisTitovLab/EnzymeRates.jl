@@ -354,7 +354,7 @@ end
     am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)       :: EqualAI
             E(S) <--> E(P)     :: NonequalAI
@@ -411,7 +411,7 @@ end
         @allosteric_mechanism(begin
             substrates: A, B
             products: P
-            catalytic_multiplicity: 1
+            oligomeric_state: 1
             steps: begin
                 E + A <--> E(A)        :: EqualAI
                 E(A) + B ⇌ E(A, B)     :: EqualAI
@@ -422,7 +422,7 @@ end
         @allosteric_mechanism(begin
             substrates: A, B
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A <--> E(A)        :: EqualAI
                 E(A) + B ⇌ E(A, B)     :: EqualAI
@@ -433,7 +433,7 @@ end
         @allosteric_mechanism(begin
             substrates: A, B
             products: P
-            catalytic_multiplicity: 3
+            oligomeric_state: 3
             steps: begin
                 E + A <--> E(A)        :: EqualAI
                 E(A) + B ⇌ E(A, B)     :: EqualAI
@@ -480,7 +480,7 @@ end
             cm = EnzymeRates.Mechanisms.catalytic(sub)
             onlyi =
                 Set(x for (k, ns) in enumerate(_testhelper_edge_names(sub, :I))
-                    if sub.mwc_tags[cm.steps[k].group] === :OnlyI
+                    if sub.allosteric_states[cm.steps[k].group] === :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
             @test !isempty(onlyi)

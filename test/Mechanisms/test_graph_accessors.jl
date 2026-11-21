@@ -80,7 +80,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
             E(S) <--> E(P)    :: OnlyA
@@ -119,8 +119,8 @@ end
 
     @testset "allosteric parts" begin
         # Each tag follows its group to the canonical group number.
-        @test [am.mwc_tags[g] for g in 1:3] == [:EqualAI, :NonequalAI, :OnlyA]
-        @test am.catalytic_multiplicity == 2
+        @test [am.allosteric_states[g] for g in 1:3] == [:EqualAI, :NonequalAI, :OnlyA]
+        @test am.oligomeric_state == 2
         @test am.regulatory_sites == [M.RegulatorySite([:R], 2, [:OnlyI])]
     end
 

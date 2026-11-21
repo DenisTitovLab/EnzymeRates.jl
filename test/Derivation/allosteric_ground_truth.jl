@@ -82,7 +82,7 @@ end
 # derived rate against the independent mass-action ground truth.
 @testset "OnlyA MWC derivation matches mass-action ground truth" begin
     onlyA = @allosteric_mechanism begin
-        substrates: S ; products: P ; catalytic_multiplicity: 1
+        substrates: S ; products: P ; oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)     :: OnlyA
             E(S) <--> E(P)   :: OnlyA
@@ -142,7 +142,7 @@ end
 # The gate checks the derived rate against the independent mass-action ground truth.
 @testset "multi-OnlyA MWC derivation matches mass-action ground truth" begin
     multiA = @allosteric_mechanism begin
-        substrates: A, B ; products: P ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)          :: OnlyA
             E(A) + B ⇌ E(A, B)    :: OnlyA
@@ -227,7 +227,7 @@ end
 # free-enzyme basis this regime needs; dropping them gets it wrong. Regression guard.
 @testset "metabolite-bearing-D MWC derivation matches mass-action ground truth" begin
     metabD = @allosteric_mechanism begin
-        substrates: S, B ; products: P ; catalytic_multiplicity: 1
+        substrates: S, B ; products: P ; oligomeric_state: 1
         steps: begin
             E + S <--> E(S)      :: OnlyA
             E(S) + B ⇌ E(S, B)   :: EqualAI
@@ -382,7 +382,7 @@ end
         end
     end
     alloEq = @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: EqualAI
@@ -548,7 +548,7 @@ end
 # and is still seven orders tighter than any real error mode.
 @testset ":NonequalAI ping-pong MWC derivation matches mass-action ground truth" begin
     allo = @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: NonequalAI
@@ -676,7 +676,7 @@ end
     # rapid-equilibrium step no reading switches off. (Half 1 alone fails class 3 at zero
     # substrates and at B = 0.)
     both = @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
             E(A) <--> E(P; residual = A - P)                      :: OnlyA
@@ -696,7 +696,7 @@ end
            :K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P, :K_EQ_to_E_Q,
            :k_A_EA_to_EP_res_plusA_minusP, :L)
     half2 = @_testhelper_unguarded @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                                          :: EqualAI
             E(A) <--> E(P; residual = A - P)                      :: EqualAI
@@ -735,7 +735,7 @@ end
 # Q = 0, D = 1).
 @testset "fully-inert inactive contributes L to the denominator" begin
     inert = @allosteric_mechanism begin
-        substrates: S ; products: P ; catalytic_multiplicity: 1
+        substrates: S ; products: P ; oligomeric_state: 1
         steps: begin
             E + S ⇌ E(S)   :: OnlyA
             E(S) <--> E(P) :: EqualAI
@@ -787,7 +787,7 @@ end
     err1 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
@@ -811,7 +811,7 @@ end
         ER.Derivation._guard_message(err1)) @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
@@ -824,7 +824,7 @@ end
     half2 = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
@@ -843,7 +843,7 @@ end
     half2_ss = @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
@@ -1001,7 +1001,7 @@ end
     for nprot in (1, 2, 3)
         allo = nprot == 1 ?
             @allosteric_mechanism(begin
-                substrates: A, B ; products: P ; catalytic_multiplicity: 1
+                substrates: A, B ; products: P ; oligomeric_state: 1
                 steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
@@ -1010,7 +1010,7 @@ end
                 end
             end) : nprot == 2 ?
             @allosteric_mechanism(begin
-                substrates: A, B ; products: P ; catalytic_multiplicity: 2
+                substrates: A, B ; products: P ; oligomeric_state: 2
                 steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
@@ -1019,7 +1019,7 @@ end
                 end
             end) :
             @allosteric_mechanism(begin
-                substrates: A, B ; products: P ; catalytic_multiplicity: 3
+                substrates: A, B ; products: P ; oligomeric_state: 3
                 steps: begin
                     E + A <--> E(A)        :: EqualAI
                     E(A) + B ⇌ E(A, B)     :: EqualAI
@@ -1089,7 +1089,7 @@ end
     dead = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
@@ -1127,7 +1127,7 @@ end
     @test_throws ErrorException(msg) @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
@@ -1140,7 +1140,7 @@ end
     pinned = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
@@ -1158,7 +1158,7 @@ end
     half2 = @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI

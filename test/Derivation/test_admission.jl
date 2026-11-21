@@ -876,7 +876,7 @@ end
     am = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP) :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP) :: NonequalAI
@@ -902,7 +902,7 @@ end
     ldh = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A) :: EqualAI
             E(A) + B <--> E(A, B) :: EqualAI
@@ -2353,7 +2353,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)        :: OnlyA
             E(S) <--> E(P)      :: EqualAI
@@ -2365,7 +2365,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S <--> E(S)     :: OnlyA
             E(S) <--> E(P)      :: EqualAI
@@ -3137,7 +3137,7 @@ end
     pingpong_dimer = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)                                            :: EqualAI
             E + Q ⇌ E(Q)                                            :: EqualAI
@@ -3182,7 +3182,7 @@ end
         backward = EnzymeRates.AllostericMechanism(
             EnzymeRates.Mechanisms._unchecked_mechanism(cm.substrates, cm.products,
                                                         cm.nodes, cm.steps[back]),
-            pingpong.mwc_tags, 1, pingpong.regulatory_sites)
+            pingpong.allosteric_states, 1, pingpong.regulatory_sites)
         @test D._guard(backward) == D._WELL_POSED
         @test D._admitting_reading(backward) == r[back, :]
     end
@@ -5284,7 +5284,7 @@ end
     am = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + Lactate <--> E(Lactate),
              E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
@@ -6123,7 +6123,7 @@ end
     k = _testhelper_edge(no_limit, "E + I ⇌ EI")
     e = no_limit.catalytic.steps[k]
     joins = D._kept_path(no_limit, 1, e.from, e.to)
-    retagged = copy(no_limit.mwc_tags)
+    retagged = copy(no_limit.allosteric_states)
     retagged[[no_limit.catalytic.steps[j].group for j in joins]] .= :OnlyI
     @test D._guard(EnzymeRates.AllostericMechanism(
               no_limit.catalytic, retagged, 1,

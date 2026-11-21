@@ -160,8 +160,8 @@ _testhelper_written(m::EnzymeRates.Mechanism) =
      modifiers = m.modifiers, nodes = copy(m.nodes),
      steps = copy(m.steps))
 _testhelper_written(am::EnzymeRates.AllostericMechanism) =
-    (; _testhelper_written(am.catalytic)..., mwc_tags = copy(am.mwc_tags),
-     catalytic_multiplicity = am.catalytic_multiplicity,
+    (; _testhelper_written(am.catalytic)..., allosteric_states = copy(am.allosteric_states),
+     oligomeric_state = am.oligomeric_state,
      regulatory_sites = copy(am.regulatory_sites))
 
 """The graph that `raw`, a value of the DSL walker (`raw_mechanism`) or of
@@ -194,10 +194,10 @@ and `names` and `inactive_names`, the package names of its constants in the acti
 only) and the inactive conformation (empty for a step the inactive law does not keep);
 `tags`; `inactive` and `active`, which steps the inactive and the active law keep (every
 step of a plain mechanism is active);
-`catalytic_multiplicity`; `sites`, each `(; multiplicity, ligands, mwc_tags)`;
+`oligomeric_state`; `sites`, each `(; multiplicity, ligands, allosteric_states)`;
 `substrates`, `products` and `modifiers`. A plain mechanism has no tags, no inactive
 conformation (`inactive` and every `inactive_names` empty), no sites and
-`catalytic_multiplicity` `nothing`. Forms come in the canonical form order: free E first,
+`oligomeric_state` `nothing`. Forms come in the canonical form order: free E first,
 then by content.
 """
 function _testhelper_graph(m)
@@ -205,7 +205,7 @@ function _testhelper_graph(m)
     allo = mech isa EnzymeRates.AllostericMechanism
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     kept = EnzymeRates.Derivation._kept_members(mech)
-    tags = allo ? copy(mech.mwc_tags) : Symbol[]
+    tags = allo ? copy(mech.allosteric_states) : Symbol[]
     # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates.Derivation._flat_edges(cm)
     _testhelper_names(k, inactive) =
@@ -229,15 +229,15 @@ function _testhelper_graph(m)
     end
     sites = [(multiplicity = site.multiplicity,
               ligands = copy(site.ligands),
-              mwc_tags = copy(site.mwc_tags))
+              allosteric_states = copy(site.allosteric_states))
              for site in (allo ? mech.regulatory_sites :
                                  EnzymeRates.Mechanisms.RegulatorySite[])]
     (forms = String[EnzymeRates.Mechanisms._form_name(cm, f) for f in eachindex(cm.nodes)],
      free = Bool[EnzymeRates.Mechanisms._is_free(f) for f in cm.nodes], steps, tags,
      inactive = Int[j for (j, k) in enumerate(edges) if in_law[k]],
      active = Int[j for (j, k) in enumerate(edges) if in_active[k]],
-     catalytic_multiplicity = allo ?
-     mech.catalytic_multiplicity : nothing,
+     oligomeric_state = allo ?
+     mech.oligomeric_state : nothing,
      sites, substrates = cm.substrates,
      products = cm.products,
      modifiers = cm.modifiers)
@@ -342,7 +342,7 @@ end
 
 """
 `m`, compiled or concrete, with one catalytic subunit: an allosteric mechanism rebuilt
-with catalytic multiplicity 1, whose MWC law is the exact steady state of one protomer; a
+with oligomeric state 1, whose MWC law is the exact steady state of one protomer; a
 plain mechanism unchanged.
 """
 _testhelper_single_subunit(m::EnzymeRates.EnzymeMechanism) = m
@@ -351,7 +351,7 @@ _testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism) =
         _testhelper_single_subunit(EnzymeRates.AllostericMechanism(m)))
 _testhelper_single_subunit(m::EnzymeRates.Mechanism) = m
 _testhelper_single_subunit(am::EnzymeRates.AllostericMechanism) =
-    EnzymeRates.AllostericMechanism(am.catalytic, copy(am.mwc_tags), 1,
+    EnzymeRates.AllostericMechanism(am.catalytic, copy(am.allosteric_states), 1,
                                     am.regulatory_sites)
 
 """Whether `s`, a step of `_testhelper_graph`, is a binding: it takes up one metabolite and
@@ -473,7 +473,7 @@ mechanism repeats column 1 in column 2. The law's constants are among them.
 function _testhelper_consistent_point(m, rng)
     mech = _testhelper_lift(m)
     g = _testhelper_graph(mech)
-    allo = g.catalytic_multiplicity !== nothing
+    allo = g.oligomeric_state !== nothing
     mets = unique!([g.substrates; g.products; g.modifiers])
     nf, nconf = length(g.forms), allo ? 2 : 1
     mi = Dict(x => nconf * nf + i for (i, x) in enumerate(mets))
@@ -604,7 +604,7 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
             ω = count(==(x1), s.consumed) - count(==(x1), s.released)
             push!(edges, (id(c, s.from), id(c, s.to), rf, rr, ω))
         end
-        if g.catalytic_multiplicity !== nothing
+        if g.oligomeric_state !== nothing
             push!(edges, (id(:A, flip), id(:I, flip),
                           _testhelper_flip_ratio(mech, point, concs), big(1), 0))
         end
@@ -818,7 +818,7 @@ on forms a conformation prunes), which absorb what they can: the law keeps
 """
 function _testhelper_declared_dimension(m)
     g = _testhelper_graph(m)
-    allo = g.catalytic_multiplicity !== nothing
+    allo = g.oligomeric_state !== nothing
     tag(k) = allo ? g.tags[k] : :None
     index = Dict{Any, Int}()
     in_law = Bool[]
@@ -860,7 +860,7 @@ function _testhelper_declared_dimension(m)
     A = isempty(rows) ? zeros(Int, 0, length(in_law)) : permutedims(reduce(hcat, rows))
     n_law = count(in_law) - (_testhelper_rank(A) - _testhelper_rank(A[:, .!in_law]))
     allo || return n_law
-    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in g.sites for t in site.mwc_tags);
+    n_reg = sum((t === :NonequalAI ? 2 : 1 for site in g.sites for t in site.allosteric_states);
                 init = 0)
     n_law + n_reg + 1
 end
@@ -1021,7 +1021,7 @@ function _testhelper_regulator_constants(am, state::Symbol)
     D = EnzymeRates.Derivation
     inactive = state === :I
     Symbol[K for site in am.regulatory_sites
-           for (lig, tag) in zip(site.ligands, site.mwc_tags)
+           for (lig, tag) in zip(site.ligands, site.allosteric_states)
            if !(inactive && tag === :EqualAI)
            for K in (D.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
 end
@@ -1031,7 +1031,7 @@ catalytic graph: an `:OnlyA` group's edge in the inactive conformation, an `:Onl
 group's in the active one. A plain mechanism excludes nothing."""
 function _testhelper_excludes(m, k::Int, c::Int)
     m isa EnzymeRates.AllostericMechanism || return false
-    tag = m.mwc_tags[m.catalytic.steps[k].group]
+    tag = m.allosteric_states[m.catalytic.steps[k].group]
     (c == 2 && tag === :OnlyA) || (c == 1 && tag === :OnlyI)
 end
 
@@ -1189,8 +1189,8 @@ end
 catalytic graph, multiplicity and sites, with every `:OnlyA` and `:OnlyI` group state
 swapped."""
 function _testhelper_mirror(am)
-    swapped = [t === :OnlyA ? :OnlyI : t === :OnlyI ? :OnlyA : t for t in am.mwc_tags]
-    EnzymeRates.AllostericMechanism(am.catalytic, swapped, am.catalytic_multiplicity,
+    swapped = [t === :OnlyA ? :OnlyI : t === :OnlyI ? :OnlyA : t for t in am.allosteric_states]
+    EnzymeRates.AllostericMechanism(am.catalytic, swapped, am.oligomeric_state,
                                     am.regulatory_sites)
 end
 
@@ -1220,7 +1220,7 @@ its catalytic form, so summed over regulator occupancy the flip takes this ratio
 function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
     function _testhelper_site_factor(inactive)
         prod((1 + sum((concs[lig] / point.vals[K]
-                       for (lig, tag) in zip(site.ligands, site.mwc_tags)
+                       for (lig, tag) in zip(site.ligands, site.allosteric_states)
                        for K in (EnzymeRates.Derivation.regulator_constant(mech, lig, tag,
                                                                           inactive),)
                        if K !== nothing); init = big(0)))^site.multiplicity
@@ -3985,7 +3985,7 @@ let
     m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)    :: NonequalAI
             E + P ⇌ E(P)    :: NonequalAI
@@ -4035,7 +4035,7 @@ let
         substrates: S
         products: P
         allosteric_regulators: I
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)    :: NonequalAI
             E + P ⇌ E(P)    :: NonequalAI
@@ -4410,7 +4410,7 @@ let
         substrates: S1, S2
         products: P1, P2
         allosteric_regulators: R1, R2, R3
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             # S1 binding (shared K)
             (E + S1 ⇌ E(S1),
@@ -4510,7 +4510,7 @@ let
         products:   F16BP, ADP
         allosteric_regulators: Pi, ATP, ADP, Citrate, F26BP
 
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + F6P ⇌ E(F6P), E(ATP) + F6P ⇌ E(F6P, ATP))           :: OnlyA
             (E + ATP ⇌ E(ATP), E(F6P) + ATP ⇌ E(F6P, ATP))           :: EqualAI
@@ -4599,7 +4599,7 @@ let
         allosteric_regulators: G6P, Pi
         modifiers:  G6P
 
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             # Group 1 (Glucose binding at catalytic site, EqualAI)
             (E + Glucose ⇌ E(Glucose),
@@ -4710,7 +4710,7 @@ let
         products:   Pyruvate, ATP
         allosteric_regulators: ATP, F16BP
 
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + PEP ⇌ E(PEP),
              E(ADP) + PEP ⇌ E(PEP, ADP))                          :: OnlyA
@@ -4797,7 +4797,7 @@ let
         products:   P1, P2
         allosteric_regulators: R1, R2
 
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             (E + S1 ⇌ E(S1),
              E(S2) + S1 ⇌ E(S1, S2))    :: NonequalAI
@@ -4872,7 +4872,7 @@ let
         substrates: S
         products:   P
 
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)    :: EqualAI      # group 1, K1
             E(S) <--> E(P)  :: OnlyA        # group 2, k2f catalysis :OnlyA
@@ -4926,7 +4926,7 @@ let
     m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + Lactate <--> E(Lactate),
              E(NADH) + Lactate <--> E(Lactate, NADH)) :: NonequalAI
@@ -4958,7 +4958,7 @@ let
     m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             (E + Lactate ⇌ E(Lactate),
              E(NAD) + Lactate ⇌ E(Lactate, NAD),
@@ -4986,7 +4986,7 @@ let
     m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
-        catalytic_multiplicity: 4
+        oligomeric_state: 4
         steps: begin
             E + NAD ⇌ E(NAD) :: EqualAI
             (E + NADH ⇌ E(NADH),

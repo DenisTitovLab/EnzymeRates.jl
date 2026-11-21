@@ -42,7 +42,7 @@ _testhelper_uniuni_of(steps) = ER.Mechanism([:S], [:P], _testhelper_UNIUNI_NODES
                                             _testhelper_uniuni_labelled(steps))
 
 # The allosteric mechanism over those uni-uni `steps`, group `j` tagged `tags[j]`, with
-# catalytic multiplicity `n` and the regulatory sites `sites`.
+# oligomeric state `n` and the regulatory sites `sites`.
 _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     [:S], [:P], _testhelper_UNIUNI_NODES, _testhelper_uniuni_labelled(steps), tags, n,
     sites)
@@ -153,7 +153,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             products: P
             modifiers: I
             allosteric_regulators: Y, X, I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)     :: EqualAI
                 E(S) <--> E(P)   :: OnlyA
@@ -176,7 +176,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products:   P
             allosteric_regulators: I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -195,7 +195,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test_throws pinned("E + S ⇌ E(S)") @allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: OnlyI
                 E(S) <--> E(P)    :: NonequalAI
@@ -238,7 +238,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 E + I ⇌ E(I)      :: OnlyI
             end
         end
-        @test :OnlyI in ER.AllostericMechanism(onlyi).mwc_tags
+        @test :OnlyI in ER.AllostericMechanism(onlyi).allosteric_states
 
         # Build via DSL
         m = @allosteric_mechanism begin
@@ -246,7 +246,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             products:   P
             allosteric_regulators: I
 
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)     :: EqualAI
                 E(S) <--> E(P)   :: OnlyA
@@ -254,18 +254,18 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             end
             regulatory_site(2): I::OnlyI
         end
-        @test ER.AllostericMechanism(m).catalytic_multiplicity == 2
+        @test ER.AllostericMechanism(m).oligomeric_state == 2
         # Catalysis (iso step) is :OnlyA, both bindings :EqualAI. Group order is
         # canonical, so identify the tagged group by its step, not its position.
         am_c = ER.AllostericMechanism(m)
         members = am_c.catalytic.groups
         onlyA_g = only(g for g in eachindex(members)
-                       if am_c.mwc_tags[g] === :OnlyA)
+                       if am_c.allosteric_states[g] === :OnlyA)
         @test !ER.Mechanisms._is_binding(am_c.catalytic.steps[first(members[onlyA_g])])
-        @test all(am_c.mwc_tags[g] === :EqualAI
+        @test all(am_c.allosteric_states[g] === :EqualAI
                   for g in eachindex(members) if g != onlyA_g)
         @test ER.Mechanisms.allosteric_regulators(am_c) == [:I]
-        @test only(am_c.regulatory_sites).mwc_tags ==
+        @test only(am_c.regulatory_sites).allosteric_states ==
               [:OnlyI]
     end
 
@@ -515,13 +515,13 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 shared_catalytic_site: (A, P)
             end"""
 
-        # An allosteric mechanism adds its regulators, its catalytic multiplicity, a tag
+        # An allosteric mechanism adds its regulators, its oligomeric state, a tag
         # after each kinetic group and a line per regulatory site.
         m_allo = @allosteric_mechanism begin
             substrates: F6P
             products:   F16BP
             allosteric_regulators: I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + F6P ⇌ E(F6P)         :: EqualAI
                 E(F6P) <--> E(F16BP)     :: EqualAI
@@ -534,7 +534,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 substrates: F6P
                 products: F16BP
                 allosteric_regulators: I
-                catalytic_multiplicity: 2
+                oligomeric_state: 2
                 steps: begin
                     E + F16BP ⇌ E(F16BP) :: EqualAI
                     E + F6P ⇌ E(F6P) :: EqualAI
@@ -549,7 +549,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products:   P
             allosteric_regulators: I, J
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)     :: EqualAI
                 E(S) <--> E(P)   :: OnlyA
@@ -562,7 +562,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 substrates: S
                 products: P
                 allosteric_regulators: I, J
-                catalytic_multiplicity: 2
+                oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P) :: EqualAI
                     E + S ⇌ E(S) :: EqualAI
@@ -860,7 +860,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         r1 = @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -871,7 +871,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         r1_d = @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -889,7 +889,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         r2 = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: OnlyA
                 E(S) <--> E(P)    :: EqualAI
@@ -904,7 +904,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test @allosteric_mechanism(begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: OnlyA
                 E(S) <--> E(P)    :: EqualAI
@@ -915,7 +915,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         ad2d = @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
@@ -929,7 +929,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products: P
             modifiers: I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
@@ -941,7 +941,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         r4 = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -967,7 +967,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products: P
             modifiers: I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
@@ -979,7 +979,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test @allosteric_mechanism(begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -991,7 +991,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products: P
             modifiers: I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: OnlyA
@@ -1003,7 +1003,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         r4_base = @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: OnlyA
@@ -1020,7 +1020,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test @allosteric_mechanism(begin
             substrates: S
             products: P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -1074,7 +1074,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     end
 
     @testset "AllostericEnzymeMechanism lift validators" begin
-        # Wrong-length mwc_tags (4 entries for 3 kinetic groups) → error
+        # Wrong-length allosteric_states (4 entries for 3 kinetic groups) → error
         cm = ER.Mechanism(_testhelper_re_mm)
         @test_throws ErrorException ER.AllostericMechanism(
             cm, [:NonequalAI, :NonequalAI, :NonequalAI, :OnlyA], 2,
@@ -1090,11 +1090,11 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 cm, [:EqualAI, :EqualAI, :EqualAI], 2,
                 [ER.Mechanisms.RegulatorySite([:A], n, [:OnlyA]) for n in (2, 4)]))
 
-        # Invalid MWC tag value → error
+        # Invalid allosteric state value → error
         @test_throws ErrorException @allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -1107,7 +1107,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products:   P
             allosteric_regulators: I, J
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -1116,12 +1116,12 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             regulatory_site(2): I::EqualAI, J::EqualAI
         end) isa ER.AllostericEnzymeMechanism
 
-        # Invalid reg-site ligand MWC tag → error
+        # Invalid reg-site ligand allosteric state → error
         @test_throws ErrorException @allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: I
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -1136,7 +1136,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products:   P
             allosteric_regulators: I, J
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)     :: NonequalAI
                 E(S) <--> E(P)   :: OnlyA
@@ -1151,7 +1151,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 substrates: S
                 products: P
                 allosteric_regulators: I, J
-                catalytic_multiplicity: 2
+                oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P) :: EqualAI
                     E + S ⇌ E(S) :: NonequalAI
@@ -1161,25 +1161,25 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                 regulatory_site(2): J::OnlyI
             end"""
         am = ER.AllostericMechanism(m)
-        # Every catalytic state appears in mwc_tags line
-        for g in eachindex(am.mwc_tags)
-            @test occursin(string(am.mwc_tags[g]), s)
+        # Every catalytic state appears in allosteric_states line
+        for g in eachindex(am.allosteric_states)
+            @test occursin(string(am.allosteric_states[g]), s)
         end
         # No :NonequalAI ligand silently hidden from reg-site display
         for site in am.regulatory_sites,
             (lig, state) in zip(site.ligands,
-                                site.mwc_tags)
+                                site.allosteric_states)
             @test occursin("$lig::$state", s)
         end
     end
 
     @testset "an allosteric kinetic group prints as one tagged tuple" begin
         # A mechanism with no regulatory site prints no allosteric_regulators: line, but
-        # its catalytic multiplicity always.
+        # its oligomeric state always.
         am = @allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))  :: EqualAI
                 E(S) <--> E(P)                      :: EqualAI
@@ -1190,7 +1190,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             @allosteric_mechanism begin
                 substrates: S
                 products: P
-                catalytic_multiplicity: 2
+                oligomeric_state: 2
                 steps: begin
                     E + P ⇌ E(P) :: EqualAI
                     (E + S ⇌ E(S), E(P) + S ⇌ E(P, S)) :: EqualAI
@@ -1217,7 +1217,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                                  ER.Mechanisms.Regulator(:X, :allosteric, :activator),
                                  ER.Mechanisms.Regulator(:Y, :allosteric, :inhibitor),
                                  ER.Mechanisms.Regulator(:Z, :allosteric, :unspecified)]
-        @test rxn.allowed_catalytic_multiplicities == [1, 2]
+        @test rxn.allowed_oligomeric_states == [1, 2]
         @test rxn.shared_catalytic_site == [(:A, :P)]
         @test sprint(show, rxn) ==
               "@enzyme_reaction begin\n    substrates: A[C2H], B[N]\n" *
@@ -1246,9 +1246,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         )
         @test site.ligands == [:A, :B]
         @test site.multiplicity == 4
-        @test site.mwc_tags == [:OnlyA, :NonequalAI]
+        @test site.allosteric_states == [:OnlyA, :NonequalAI]
 
-        # Mismatched ligand / mwc_tags length → error
+        # Mismatched ligand / allosteric_states length → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(
             [lig_a, lig_b], 4, [:OnlyA])
 
@@ -1259,7 +1259,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         # No ligands → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(Symbol[], 2, Symbol[])
 
-        # Invalid MWC tag → error
+        # Invalid allosteric state → error
         @test_throws ErrorException ER.Mechanisms.RegulatorySite(
             [lig_a], 1, [:NotAState])
 
@@ -1282,14 +1282,14 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         site_reordered = ER.Mechanisms.RegulatorySite(
             [lig_b, lig_a], 4, [:NonequalAI, :OnlyA])
         @test site_reordered.ligands == [lig_a, lig_b]
-        @test site_reordered.mwc_tags == [:OnlyA, :NonequalAI]
+        @test site_reordered.allosteric_states == [:OnlyA, :NonequalAI]
         @test site == site_reordered
         @test hash(site) == hash(site_reordered)
         # ...but the pairing of ligand and state does: B::OnlyA, A::NonequalAI is
         # a different site.
         site_swapped = ER.Mechanisms.RegulatorySite(
             [lig_b, lig_a], 4, [:OnlyA, :NonequalAI])
-        @test site_swapped.mwc_tags == [:NonequalAI, :OnlyA]
+        @test site_swapped.allosteric_states == [:NonequalAI, :OnlyA]
         @test site != site_swapped
     end
 
@@ -1550,22 +1550,22 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test hash(r1) == hash(r2)
     end
 
-    @testset "EnzymeReaction takes one or more catalytic multiplicities, each ≥ 1" begin
+    @testset "EnzymeReaction takes one or more oligomeric states, each ≥ 1" begin
         _testhelper_reaction(mults) =
             EnzymeReaction([ER.Mechanisms.Reactant(:S, [:C => 1])],
                            [ER.Mechanisms.Reactant(:P, [:C => 1])],
                            ER.Mechanisms.Regulator[], mults)
-        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+        @test_throws(ErrorException("EnzymeReaction: allowed_oligomeric_states " *
                                     "must be a nonempty list of distinct Ints ≥ 1, got " *
                                     "[0, 1]"),
                      _testhelper_reaction([0, 1]))
         # An empty list would leave the search no multiplicity to assign.
-        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+        @test_throws(ErrorException("EnzymeReaction: allowed_oligomeric_states " *
                                     "must be a nonempty list of distinct Ints ≥ 1, got " *
                                     "Int64[]"),
                      _testhelper_reaction(Int[]))
         # A multiplicity listed twice is no list a DSL text writes.
-        @test_throws(ErrorException("EnzymeReaction: allowed_catalytic_multiplicities " *
+        @test_throws(ErrorException("EnzymeReaction: allowed_oligomeric_states " *
                                     "must be a nonempty list of distinct Ints ≥ 1, got " *
                                     "[2, 2]"),
                      _testhelper_reaction([2, 2]))
@@ -1645,11 +1645,11 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test Set(_testhelper_edge_text(m, k) for k in eachindex(m.catalytic.steps)) ==
               Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
         _testhelper_state_of(text) =
-            m.mwc_tags[m.catalytic.steps[_testhelper_edge(m, text)].group]
+            m.allosteric_states[m.catalytic.steps[_testhelper_edge(m, text)].group]
         @test _testhelper_state_of("E + S ⇌ ES") == :EqualAI
         @test _testhelper_state_of("ES <--> EP")  == :OnlyA
         @test _testhelper_state_of("E + P ⇌ EP")  == :NonequalAI
-        @test m.catalytic_multiplicity == 2
+        @test m.oligomeric_state == 2
         @test m.regulatory_sites ==
               [ER.Mechanisms.RegulatorySite([:I], 1, [:OnlyI])]
         @test length(m.catalytic.groups) == 3
@@ -1665,7 +1665,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
     @testset "AllostericMechanism validation errors" begin
         steps = collect(_testhelper_uniuni_steps())
         _testhelper_invalid_tag(tag) = ErrorException(
-            "AllostericMechanism: catalytic group 1 has invalid MWC tag $tag (must be " *
+            "AllostericMechanism: catalytic group 1 has invalid allosteric state $tag (must be " *
             "one of (:OnlyA, :OnlyI, :EqualAI, :NonequalAI))")
 
         # The constructor takes :OnlyI on any group and leaves the verdict to the guard:
@@ -1693,18 +1693,18 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test all(t -> ER.Derivation._retag_passes(onlyi, [k], t), (:EqualAI, :NonequalAI))
 
         # Length mismatch
-        @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
+        @test_throws(ErrorException("AllostericMechanism: allosteric_states length 2 must " *
                                     "match the number of kinetic groups 3"),
                      _testhelper_tagged_uniuni(steps, [:EqualAI, :NonequalAI], 1,
                                                ER.Mechanisms.RegulatorySite[]))
 
-        # catalytic_multiplicity < 1
-        @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be " *
+        # oligomeric_state < 1
+        @test_throws(ErrorException("AllostericMechanism: oligomeric_state must be " *
                                     "≥ 1, got 0"),
                      _testhelper_tagged_uniuni(steps, [:EqualAI, :EqualAI, :EqualAI], 0,
                                                ER.Mechanisms.RegulatorySite[]))
 
-        # Unknown MWC tag symbol
+        # Unknown allosteric state symbol
         @test_throws(_testhelper_invalid_tag(:Bogus),
                      _testhelper_tagged_uniuni(steps, [:Bogus, :EqualAI, :EqualAI], 1,
                                                ER.Mechanisms.RegulatorySite[]))
@@ -1716,7 +1716,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
             substrates: S
             products:   P
             allosteric_regulators: A, B
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: OnlyA
@@ -1735,18 +1735,18 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
                am.catalytic.modifiers) ==
               (lifted.substrates, lifted.products, lifted.modifiers)
 
-        # mwc_tags and multiplicity extracted from CS
-        @test am.mwc_tags[1] === :EqualAI
-        @test am.mwc_tags[2] === :NonequalAI
-        @test am.mwc_tags[3] === :OnlyA
-        @test am.catalytic_multiplicity == 2
+        # allosteric_states and multiplicity extracted from CS
+        @test am.allosteric_states[1] === :EqualAI
+        @test am.allosteric_states[2] === :NonequalAI
+        @test am.allosteric_states[3] === :OnlyA
+        @test am.oligomeric_state == 2
 
         # Regulatory sites: ligand names
         sites = am.regulatory_sites
         @test length(sites) == 1
         @test sites[1].ligands == [:A, :B]
         @test sites[1].multiplicity == 1
-        @test sites[1].mwc_tags == [:OnlyA, :NonequalAI]
+        @test sites[1].allosteric_states == [:OnlyA, :NonequalAI]
 
         # Idempotent: two calls give equal results
         @test ER.AllostericMechanism(aem) == am
@@ -2024,7 +2024,7 @@ end
     am = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: NonequalAI
             E(S) <--> E(P)   :: EqualAI
@@ -2512,7 +2512,7 @@ end
         substrates: Ac, CoA
         products: AcCoA
         allosteric_regulators: X
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + Ac ⇌ E(Ac)            :: EqualAI
             E(Ac) + CoA ⇌ E(Ac, CoA)  :: EqualAI
@@ -2580,7 +2580,7 @@ end
         m = @allosteric_mechanism begin
             substrates: S
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: EqualAI
                 E(S) <--> E(P)    :: EqualAI
@@ -2618,7 +2618,7 @@ end
     mixed_uni_re_ss = @allosteric_mechanism begin
         substrates: S
         products:   P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: EqualAI
             E(S) <--> E(P)    :: EqualAI
@@ -2628,7 +2628,7 @@ end
     mixed_uni_ss_re = @allosteric_mechanism begin
         substrates: S
         products:   P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S <--> E(S)   :: EqualAI
             E(S) <--> E(P)    :: EqualAI
@@ -2652,7 +2652,7 @@ end
         biuni = @allosteric_mechanism begin
             substrates: A, B
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(A)          :: EqualAI
                 E + B ⇌ E(B)          :: EqualAI
@@ -2685,7 +2685,7 @@ end
         lone = @_testhelper_unguarded @allosteric_mechanism begin
             substrates: A, B
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(A)          :: OnlyA
                 E + B ⇌ E(B)          :: EqualAI
@@ -2702,7 +2702,7 @@ end
             ER.Derivation._guard_message(lone)) @allosteric_mechanism begin
             substrates: A, B
             products:   P
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A ⇌ E(A)          :: OnlyA
                 E + B ⇌ E(B)          :: EqualAI
@@ -2735,7 +2735,7 @@ end
     cube = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)             :: OnlyA
             E + B ⇌ E(B)             :: OnlyA
@@ -2759,7 +2759,7 @@ end
         ER.Derivation._guard_message(cube)) @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)             :: OnlyA
             E + B ⇌ E(B)             :: OnlyA
@@ -2791,7 +2791,7 @@ end
     cube = @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)             :: OnlyA
             E + B ⇌ E(B)             :: OnlyA
@@ -2816,7 +2816,7 @@ end
     ordered = @allosteric_mechanism begin
         substrates: A, B, C
         products:   P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A ⇌ E(A)             :: EqualAI
             E(A) + B ⇌ E(A, B)       :: OnlyA
@@ -2841,7 +2841,7 @@ end
     # half loses its rate into the covalent forms instead, both oracles agreeing on every
     # face. Either half alone :OnlyA is admitted too.
     both = @_testhelper_unguarded @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: OnlyA
@@ -2859,7 +2859,7 @@ end
                                               corners = true))
     _testhelper_check_law_against_limit(ER.compile_mechanism(both))
     @test @allosteric_mechanism(begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: OnlyA
@@ -2868,7 +2868,7 @@ end
         end
     end) == ER.compile_mechanism(both)
     half1 = @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: OnlyA
@@ -2877,7 +2877,7 @@ end
         end
     end
     half2 = @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                       :: EqualAI
             E(A) <--> E(; residual = A - P) + P                   :: EqualAI
@@ -2904,7 +2904,7 @@ end
     # E(B), which empties only through the slow E + B <--> E(B): E(B) fills faster than it
     # empties (`_FILLED`), as the ε-path oracle finds under that reading.
     am = @_testhelper_unguarded @allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + B <--> E(B)                                              :: OnlyA
             (E(B) + A ⇌ E(P, Q), E(P) + A ⇌ E(A, P), E(Q) + A ⇌ E(A, Q)) :: OnlyA
@@ -2938,7 +2938,7 @@ end
     # so they lose their affinity, the inactive conformation holds no enzyme there, and
     # every face passes. Both oracles agree on every face.
     fused_ss = ER.AllostericMechanism(@allosteric_mechanism begin
-        substrates: A, B ; products: P, Q ; catalytic_multiplicity: 1
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + B <--> E(B)                                              :: OnlyA
             E(B) + A <--> E(P, Q)                                        :: OnlyA
@@ -3007,7 +3007,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: I
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
@@ -3057,7 +3057,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: I
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
@@ -3066,8 +3066,8 @@ end
         regulatory_site(2): I::OnlyI
     end)
     am_on_rxn = EnzymeRates.AllostericMechanism(
-        m_on_rxn, am.mwc_tags,
-        am.catalytic_multiplicity,
+        m_on_rxn, am.allosteric_states,
+        am.oligomeric_state,
         am.regulatory_sites)
     @test am_on_rxn == am && hash(am_on_rxn) == hash(am)
 end
@@ -3163,8 +3163,8 @@ end
     @test site != R.Mechanisms.RegulatorySite([:X], 2, [:OnlyA])
     @test allo != R.AllostericMechanism(mech, [:EqualAI, :NonequalAI, :EqualAI, :OnlyA], 2,
                                         [site])
-    @test allo != R.AllostericMechanism(mech, allo.mwc_tags, 1, [site])
-    @test allo != R.AllostericMechanism(mech, allo.mwc_tags, 2,
+    @test allo != R.AllostericMechanism(mech, allo.allosteric_states, 1, [site])
+    @test allo != R.AllostericMechanism(mech, allo.allosteric_states, 2,
                                         R.Mechanisms.RegulatorySite[])
 end
 
@@ -3272,7 +3272,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
             E(S) <--> E(P)    :: OnlyA
@@ -3282,14 +3282,14 @@ end
     end)
     # Canonical form numbers the groups E + P → E(P), E + S → E(S), E(S) → E(P).
     _testhelper_retagged(tags) = EnzymeRates.AllostericMechanism(am.catalytic, tags,
-                                                                 am.catalytic_multiplicity,
+                                                                 am.oligomeric_state,
                                                                  am.regulatory_sites)
     @test _testhelper_retagged([:EqualAI, :NonequalAI, :NonequalAI]) ==
           EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
               substrates: S
               products: P
               allosteric_regulators: R
-              catalytic_multiplicity: 2
+              oligomeric_state: 2
               steps: begin
                   E + S ⇌ E(S)      :: NonequalAI
                   E(S) <--> E(P)    :: NonequalAI

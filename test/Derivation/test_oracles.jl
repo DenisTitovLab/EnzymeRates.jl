@@ -13,21 +13,21 @@ end
 """
 `m` as text that reads its content alone: each kinetic group as the sorted texts of its
 steps (`_testhelper_step_text`), with its tag when `m` is allosteric, the groups sorted,
-then an allosteric mechanism's catalytic multiplicity and its regulatory sites, sorted.
+then an allosteric mechanism's oligomeric state and its regulatory sites, sorted.
 """
 function _testhelper_content_text(m)
     g = _testhelper_graph(m)
-    allo = g.catalytic_multiplicity !== nothing
+    allo = g.oligomeric_state !== nothing
     groups = sort([join(sort([_testhelper_step_text(g, s)
                               for s in g.steps if s.group == k]), ", ") *
                    (allo ? " :: $(g.tags[k])" : "")
                    for k in unique(s.group for s in g.steps)])
     allo || return join(groups, " / ")
     sites = sort([string(site.multiplicity, ": ",
-                         join(("$l::$t" for (l, t) in zip(site.ligands, site.mwc_tags)),
+                         join(("$l::$t" for (l, t) in zip(site.ligands, site.allosteric_states)),
                               ", "))
                   for site in g.sites])
-    join(groups, " / ") * " | n = $(g.catalytic_multiplicity) | " * join(sites, " / ")
+    join(groups, " / ") * " | n = $(g.oligomeric_state) | " * join(sites, " / ")
 end
 
 # The seeds and one expansion round of the reaction above, and 120 of them spaced evenly
@@ -59,7 +59,7 @@ end
     end
     g = _testhelper_graph(plain)
     @test keys(g) == (:forms, :free, :steps, :tags, :inactive, :active,
-                      :catalytic_multiplicity, :sites, :substrates, :products, :modifiers)
+                      :oligomeric_state, :sites, :substrates, :products, :modifiers)
     @test keys(first(g.steps)) == (:from, :to, :consumed, :released, :consumed_modifier,
                                    :released_modifier, :rapid_equilibrium, :group, :names,
                                    :inactive_names)
@@ -84,7 +84,7 @@ end
         (from = 6, to = 5, consumed = [:P], released = Symbol[], consumed_modifier = [true],
          released_modifier = Bool[], rapid_equilibrium = true, group = 5,
          names = [:K_EPmodS_to_ES_Pmod], inactive_names = Symbol[])]
-    @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
+    @test (g.tags, g.inactive, g.oligomeric_state, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test g.active == 1:6
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I, :P])
@@ -136,7 +136,7 @@ end
          consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
          group = 6, names = [:k_EB_res_plusA_minusP_to_EQ, :k_EQ_to_EB_res_plusA_minusP],
          inactive_names = Symbol[])]
-    @test (g.tags, g.inactive, g.catalytic_multiplicity, g.sites) ==
+    @test (g.tags, g.inactive, g.oligomeric_state, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test (g.substrates, g.products, g.modifiers) == ([:A, :B], [:P, :Q], Symbol[])
     @test _testhelper_graph(EnzymeRates.Mechanism(pingpong)) == g
@@ -190,7 +190,7 @@ end
         products: P
         modifiers: I
         allosteric_regulators: R1, R2, R3
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)                          :: EqualAI
             E(S) <--> E(P)                        :: OnlyA
@@ -222,10 +222,10 @@ end
     @test g.tags == [:NonequalAI, :OnlyA, :EqualAI, :OnlyA]
     @test g.inactive == [1, 4]
     @test g.active == 1:5
-    @test g.catalytic_multiplicity == 2
+    @test g.oligomeric_state == 2
     @test g.sites ==
-          [(multiplicity = 2, ligands = [:R1, :R2], mwc_tags = [:OnlyI, :EqualAI]),
-           (multiplicity = 1, ligands = [:R3], mwc_tags = [:NonequalAI])]
+          [(multiplicity = 2, ligands = [:R1, :R2], allosteric_states = [:OnlyI, :EqualAI]),
+           (multiplicity = 1, ligands = [:R3], allosteric_states = [:NonequalAI])]
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I])
     @test _testhelper_graph(EnzymeRates.AllostericMechanism(allo)) == g
 end
@@ -323,7 +323,7 @@ end
         m = @allosteric_mechanism begin
             substrates: S
             products: P
-            catalytic_multiplicity: 1
+            oligomeric_state: 1
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: NonequalAI
@@ -509,7 +509,7 @@ const _testhelper_sample_regroupings =
             substrates: S
             products: P
             modifiers: I
-            catalytic_multiplicity: 1
+            oligomeric_state: 1
             steps: begin
                 E + S <--> E(S)          :: OnlyA
                 E(S) <--> E(P)           :: OnlyA
@@ -532,7 +532,7 @@ const _testhelper_sample_regroupings =
             substrates: S
             products: P
             allosteric_regulators: R
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + S ⇌ E(S)      :: NonequalAI
                 E(S) <--> E(P)    :: EqualAI
@@ -774,7 +774,7 @@ end
         substrates: S
         products: P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: NonequalAI
             E(S) <--> E(P)    :: OnlyA
@@ -1013,7 +1013,7 @@ function _testhelper_iso_text(family::Symbol, tags; n::Int = 1, extra::String = 
     reactants = family === :bibi ? "substrates: A, B\nproducts: P, Q" :
                                    "substrates: S\nproducts: P"
     lines = join(["$s :: $t" for (s, t) in zip(steps, tags)], "\n")
-    "@allosteric_mechanism begin\n$reactants\ncatalytic_multiplicity: $n\n" *
+    "@allosteric_mechanism begin\n$reactants\noligomeric_state: $n\n" *
         "steps: begin\n$lines\n$extra\nend\nend"
 end
 
@@ -1213,7 +1213,7 @@ end
                                    _testhelper_face_faults(c)), moved)
         @test allunique(kids)
         for c in kids
-            @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.mwc_tags)
+            @test EnzymeRates.Enumeration._valid_tagging(c.catalytic, c.allosteric_states)
             faults = _testhelper_face_faults(c)
             admitted = all(==(EnzymeRates.Derivation._NO_FAULT), faults)
             verdicts = _testhelper_respeed_verdicts(c; rng,
@@ -1258,7 +1258,7 @@ function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
     step(e) = EnzymeRates.Mechanisms.Step(e.from, e.to, met(e.taken_up), met(e.given_off),
                                           e.rapid_equilibrium, e.group)
     site(s) = EnzymeRates.Mechanisms.RegulatorySite(r(s.ligands), s.multiplicity,
-                                                    s.mwc_tags)
+                                                    s.allosteric_states)
     sites(w) = hasproperty(w, :regulatory_sites) ?
         (; regulatory_sites = site.(w.regulatory_sites)) : (;)
     _testhelper_rebuilt(m, w -> (; w..., substrates = r(w.substrates),
@@ -1359,7 +1359,7 @@ let children = [c
                    EnzymeRates.Derivation._FILLED, rejected)
     allo = [c for c in children if c isa EnzymeRates.AllostericMechanism]
     @test !isempty(allo)
-    @test all(c -> :OnlyI ∉ c.mwc_tags, allo)
+    @test all(c -> :OnlyI ∉ c.allosteric_states, allo)
 end
 
 @testset "the guard equals the RE-speed oracle on inhibitor children's modifier faces" begin

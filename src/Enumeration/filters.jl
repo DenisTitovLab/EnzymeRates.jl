@@ -120,7 +120,7 @@ only reweights each enzyme form and adds no power of its own.
 """
 _requires_hyperbolic_catalysis(::Mechanisms.Mechanism) = false
 _requires_hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
-    am.catalytic_multiplicity > 1
+    am.oligomeric_state > 1
 
 """Whether `m` passes `_hyperbolic_catalysis` where it `_requires_hyperbolic_catalysis`;
 true where it does not."""
@@ -429,7 +429,7 @@ function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
                 if _gauge_rescaling(cm, members, g, twin, _one_state_class) !== nothing]
     end
     am = m::Mechanisms.AllostericMechanism
-    equal(h) = am.mwc_tags[h] === :EqualAI
+    equal(h) = am.allosteric_states[h] === :EqualAI
     masks = (am.active_steps, am.inactive_steps)
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
     twins = [_productive_twin(cm, mask) for mask in masks]
@@ -562,7 +562,7 @@ function _respects_reg_type(am::Mechanisms.AllostericMechanism,
                     for reg in rxn.regulators if reg.kind === :allosteric)
     all(am.regulatory_sites) do site
         types = [get(declared, l, :unspecified) for l in site.ligands]
-        all(zip(types, site.mwc_tags)) do (t, state)
+        all(zip(types, site.allosteric_states)) do (t, state)
             t === :unspecified ||
                 !(t === :activator && state === :OnlyI ||
                   t === :inhibitor && state === :OnlyA ||

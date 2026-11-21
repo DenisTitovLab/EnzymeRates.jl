@@ -126,7 +126,7 @@ end
     @test fieldnames(ER.Mechanisms.Step) ==
           (:from, :to, :taken_up, :given_off, :rapid_equilibrium, :group)
     @test fieldnames(ER.AllostericMechanism) ==
-          (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites, :active_steps,
+          (:catalytic, :allosteric_states, :oligomeric_state, :regulatory_sites, :active_steps,
            :inactive_steps, :excluded_active, :excluded_inactive)
 end
 
@@ -194,14 +194,14 @@ end
              EnzymeRates.Mechanisms.RegulatorySite([:B, :A], 2, [:OnlyA, :EqualAI])]
     am = ER.AllostericMechanism(m, tags, 2, sites)
     @test [s.ligands for s in am.regulatory_sites] == [[:A, :B], [:X]]
-    @test am.regulatory_sites[1].mwc_tags == [:EqualAI, :OnlyA]
+    @test am.regulatory_sites[1].allosteric_states == [:EqualAI, :OnlyA]
     tags[1] = :OnlyA
-    @test am.mwc_tags == [:EqualAI, :EqualAI, :OnlyA]
-    @test [am.mwc_tags[g] for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
-    @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
+    @test am.allosteric_states == [:EqualAI, :EqualAI, :OnlyA]
+    @test [am.allosteric_states[g] for g in 1:3] == [:EqualAI, :EqualAI, :OnlyA]
+    @test_throws(ErrorException("AllostericMechanism: allosteric_states length 2 must " *
                                 "match the number of kinetic groups 3"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI], 2, sites))
-    @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
+    @test_throws(ErrorException("AllostericMechanism: oligomeric_state must be ≥ " *
                                 "1, got 0"),
                  ER.AllostericMechanism(m, [:EqualAI, :EqualAI, :OnlyA], 0, sites))
     # Any group may be :OnlyI, and the guard judges the mechanism: the active
@@ -236,7 +236,7 @@ sites and each site's ligands come in reverse order."""
 function _testhelper_rewrite(raw::NamedTuple; order = true, direction = true,
                              labels = true)
     M = EnzymeRates.Mechanisms
-    nodes, steps, tags = raw.nodes, raw.steps, get(raw, :mwc_tags, Symbol[])
+    nodes, steps, tags = raw.nodes, raw.steps, get(raw, :allosteric_states, Symbol[])
     G, n = maximum(e -> e.group, steps; init = 0), length(nodes)
     direction && (steps = [M.Step(e.to, e.from, e.given_off, e.taken_up,
                                   e.rapid_equilibrium, e.group) for e in steps])
@@ -249,10 +249,10 @@ function _testhelper_rewrite(raw::NamedTuple; order = true, direction = true,
                                          for e in steps])))
     plain = (; substrates = reverse(raw.substrates), products = reverse(raw.products),
              modifiers = reverse(raw.modifiers), nodes, steps)
-    haskey(raw, :mwc_tags) || return plain
-    (; plain..., mwc_tags = tags, catalytic_multiplicity = raw.catalytic_multiplicity,
+    haskey(raw, :allosteric_states) || return plain
+    (; plain..., allosteric_states = tags, oligomeric_state = raw.oligomeric_state,
      regulatory_sites = [(; ligands = reverse(s.ligands), s.multiplicity,
-                          mwc_tags = reverse(s.mwc_tags))
+                          allosteric_states = reverse(s.allosteric_states))
                          for s in reverse(raw.regulatory_sites)])
 end
 
@@ -400,14 +400,14 @@ _testhelper_walk(block; allosteric = false) =
     am = _testhelper_build(_testhelper_walk(:(begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S) :: EqualAI
             E(S) <--> E(P) :: OnlyA
             E(P) ⇌ E + P :: NonequalAI
         end
     end); allosteric = true))
-    @test am.mwc_tags == [:NonequalAI, :EqualAI, :OnlyA]
+    @test am.allosteric_states == [:NonequalAI, :EqualAI, :OnlyA]
 end
 
 """Whether `v` takes the memory of its copy, which `copy` stores at its length."""
@@ -426,9 +426,9 @@ _testhelper_stored_at_length(m::ER.Mechanism) = Base.summarysize(m) == Base.summ
                                 m.step_sides)) && all(_testhelper_at_length, m.groups)
 _testhelper_stored_at_length(am::ER.AllostericMechanism) =
     _testhelper_stored_at_length(am.catalytic) && Base.summarysize(am) ==
-    Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.mwc_tags),
-        am.catalytic_multiplicity,
-        [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.mwc_tags))
+    Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.allosteric_states),
+        am.oligomeric_state,
+        [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.allosteric_states))
          for s in am.regulatory_sites])) &&
     all(_testhelper_at_length, (am.active_steps, am.inactive_steps, am.excluded_active,
                                 am.excluded_inactive))
@@ -479,11 +479,11 @@ end
     @test_throws(ErrorException("RegulatorySite: needs at least one ligand"),
                  _testhelper_allosteric(tags, 2, [site(Symbol[], 2, Symbol[])]))
     @test_throws(ErrorException("RegulatorySite: length(ligands)=1 must equal " *
-                                "length(mwc_tags)=0"),
+                                "length(allosteric_states)=0"),
                  _testhelper_allosteric(tags, 2, [site([:R], 2, Symbol[])]))
     @test_throws(ErrorException("RegulatorySite: multiplicity must be ≥ 1, got 0"),
                  _testhelper_allosteric(tags, 2, [site([:R], 0, [:OnlyA])]))
-    @test_throws(ErrorException("RegulatorySite: MWC tag Bogus must be one of " *
+    @test_throws(ErrorException("RegulatorySite: allosteric state Bogus must be one of " *
                                 "(:OnlyA, :OnlyI, :EqualAI, :NonequalAI)"),
                  _testhelper_allosteric(tags, 2, [site([:R], 2, [:Bogus])]))
     @test_throws(ErrorException("RegulatorySite: ligand R appears twice in one " *
@@ -503,10 +503,10 @@ end
                                 "labels the free enzyme form"),
                  _testhelper_allosteric(tags, 2, [site([:E], 2, [:OnlyA])]))
     # Tags, by written group label: label 2 is canonical group 3.
-    @test_throws(ErrorException("AllostericMechanism: mwc_tags length 2 must " *
+    @test_throws(ErrorException("AllostericMechanism: allosteric_states length 2 must " *
                                 "match the number of kinetic groups 3"),
                  _testhelper_allosteric(tags[1:2], 2, M.RegulatorySite[]))
-    @test_throws(ErrorException("AllostericMechanism: catalytic_multiplicity must be ≥ " *
+    @test_throws(ErrorException("AllostericMechanism: oligomeric_state must be ≥ " *
                                 "1, got 0"),
                  _testhelper_allosteric(tags, 0, M.RegulatorySite[]))
     # A Bool is no multiplicity: each constructor takes an Int and converts no Bool.
@@ -1053,7 +1053,7 @@ end
 
 """Graph `x`'s canonical form as text lines: its names, its forms in order, each edge in
 its stored direction (`_testhelper_edge_text`) with its group (and the group's tag), then
-any catalytic multiplicity and sites."""
+any oligomeric state and sites."""
 function _testhelper_canonical_text(x)
     m, allo = ER.Mechanisms.catalytic(x), x isa ER.AllostericMechanism
     mods = m.modifiers
@@ -1065,12 +1065,12 @@ function _testhelper_canonical_text(x)
     for k in eachindex(m.steps)
         g = m.steps[k].group
         push!(lines, "$k: $(_testhelper_edge_text(m, k)) | group $g" *
-                     (allo ? " :: $(x.mwc_tags[g])" : ""))
+                     (allo ? " :: $(x.allosteric_states[g])" : ""))
     end
-    allo && push!(lines, "catalytic_multiplicity: $(x.catalytic_multiplicity)")
+    allo && push!(lines, "oligomeric_state: $(x.oligomeric_state)")
     for s in (allo ? x.regulatory_sites : EnzymeRates.Mechanisms.RegulatorySite[])
         push!(lines, "regulatory_site($(s.multiplicity)): " *
-                     join(["$l::$t" for (l, t) in zip(s.ligands, s.mwc_tags)], ", "))
+                     join(["$l::$t" for (l, t) in zip(s.ligands, s.allosteric_states)], ", "))
     end
     lines
 end
@@ -1225,7 +1225,7 @@ end
                        "6: F + P <--> EP | group 6 :: EqualAI",
                        "7: F + I ⇌ FI | group 2 :: EqualAI",
                        "8: FI + J <--> FJ + I | group 4 :: NonequalAI",
-                       "catalytic_multiplicity: 1"]
+                       "oligomeric_state: 1"]
     _testhelper_tied_steps(iso, exchange) = :(begin
         E + A <--> E(A)
         E(A) <--> E(P)
@@ -1465,8 +1465,8 @@ function _testhelper_construction_bytes(x)
     cm = ER.Mechanisms.catalytic(x)
     _testhelper_construct() = x isa ER.Mechanism ?
         ER.Mechanism(cm.substrates, cm.products, cm.nodes, cm.steps) :
-        ER.AllostericMechanism(cm.substrates, cm.products, cm.nodes, cm.steps, x.mwc_tags,
-                               x.catalytic_multiplicity, x.regulatory_sites)
+        ER.AllostericMechanism(cm.substrates, cm.products, cm.nodes, cm.steps, x.allosteric_states,
+                               x.oligomeric_state, x.regulatory_sites)
     _testhelper_construct()
     @allocated _testhelper_construct()
 end

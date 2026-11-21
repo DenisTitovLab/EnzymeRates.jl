@@ -28,7 +28,7 @@ function _testhelper_solve_point(m, rng)
                sum((M[r, f] * x[f] for f in free); init = big(0))
     end
     value = Dict(c => exp(x[i]) for (i, c) in enumerate(sys.columns))
-    allo = g.catalytic_multiplicity !== nothing
+    allo = g.oligomeric_state !== nothing
     function _testhelper_conformation(inactive)
         out = []
         for (j, s) in enumerate(g.steps)
@@ -314,7 +314,7 @@ end
             substrates: A
             products: P
             modifiers: I
-            catalytic_multiplicity: 1
+            oligomeric_state: 1
             steps: begin
                 E + A <--> E(A)                                   :: OnlyA
                 E(A) <--> E(P)                                    :: OnlyA
@@ -347,7 +347,7 @@ end
             substrates: A
             products: P
             modifiers: I
-            catalytic_multiplicity: 1
+            oligomeric_state: 1
             steps: begin
                 E + A <--> E(A)                                   :: OnlyA
                 E(A) <--> E(P)                                    :: OnlyA
@@ -382,7 +382,7 @@ end
                 n_reg = mech isa EnzymeRates.AllostericMechanism ?
                     sum((t === :NonequalAI ? 2 : 1
                          for site in mech.regulatory_sites
-                         for t in site.mwc_tags);
+                         for t in site.allosteric_states);
                         init = 0) + 1 : 0
                 @test n_law + n_reg == _testhelper_declared_dimension(spec.mechanism)
             end

@@ -291,7 +291,7 @@ end
         substrates: A
         products: P
         modifiers: I
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + A <--> E(A)                                   :: OnlyA
             E(A) <--> E(P)                                    :: OnlyA

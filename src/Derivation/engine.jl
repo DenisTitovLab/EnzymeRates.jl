@@ -252,7 +252,7 @@ independents of both conformations and `:Keq`), then the regulator constants (in
                   (fI^n·DA^n·WA + L·fA^n·DI^n·WI)
 
 `fA` and `fI` are free E's weights in the two laws over their common factor
-(`_cross_weights`); `n` is the catalytic multiplicity.
+(`_cross_weights`); `n` is the oligomeric state.
 
 The law is per active site: `E_total` is the active-site concentration, so `n` enters
 only as an exponent (of `DA`, `DI` and the free-E weights), never as a leading factor, and
@@ -310,7 +310,7 @@ conformation and an `:OnlyA` one out of the inactive.
 function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
                       site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
-    for (lig, tag) in zip(site.ligands, site.mwc_tags)
+    for (lig, tag) in zip(site.ligands, site.allosteric_states)
         K = regulator_constant(am, lig, tag, inactive)
         K === nothing && continue
         W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))
@@ -349,7 +349,7 @@ function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
                                       _site_weight(am, vars, site, true),
                                       site.multiplicity)
                                      for site in am.regulatory_sites]
-    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, am.catalytic_multiplicity)
+    _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, am.oligomeric_state)
 end
 _law(m::_AnyMech) = _law(m, _solve(m))
 

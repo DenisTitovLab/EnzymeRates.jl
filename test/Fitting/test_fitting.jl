@@ -70,7 +70,7 @@ end
         substrates: S
         products:   P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)     :: EqualAI
             E(S) <--> E(P)   :: OnlyA
@@ -316,7 +316,7 @@ end
             substrates: A, B
             products: P
             allosteric_regulators: R, Q
-            catalytic_multiplicity: 4
+            oligomeric_state: 4
             steps: begin
                 E + A ⇌ E(A) :: EqualAI
                 E(A) + B <--> E(A, B) :: OnlyA
@@ -329,7 +329,7 @@ end
         no_regulators = @allosteric_mechanism begin
             substrates: A
             products: P
-            catalytic_multiplicity: 1
+            oligomeric_state: 1
             steps: begin
                 E + A ⇌ E(A) :: EqualAI
                 E(A) <--> E(P) :: OnlyA
@@ -502,7 +502,7 @@ end
             substrates: A, B
             products: P, Q
             allosteric_regulators: R
-            catalytic_multiplicity: 2
+            oligomeric_state: 2
             steps: begin
                 E + A <--> E(A)            :: EqualAI
                 E(A) + B <--> E(A, B)      :: EqualAI

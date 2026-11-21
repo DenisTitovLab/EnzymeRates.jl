@@ -280,7 +280,7 @@ end
     pp2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: A, B
         products: P, Q
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A <--> E(A)       :: EqualAI
             E(A) <--> F + P       :: NonequalAI
@@ -379,7 +379,7 @@ end
         substrates: A, B
         products: P, Q
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A <--> E(A)       :: EqualAI
             E(A) <--> F + P       :: NonequalAI
@@ -588,7 +588,7 @@ end
         substrates: A, B
         products: P, Q
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + A <--> E(; residual = A - P) + P :: EqualAI
             E + Q <--> E(Q) :: EqualAI
@@ -672,7 +672,7 @@ end
         cm = EnzymeRates.Mechanisms.catalytic(am)
         onlyi =
             [String(x) for (k, ns) in enumerate(_testhelper_edge_names(am, :I))
-             if am.mwc_tags[cm.steps[k].group] === :OnlyI
+             if am.allosteric_states[cm.steps[k].group] === :OnlyI
              for x in ns]
         d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))
         @test !isempty(onlyi)
@@ -702,7 +702,7 @@ end
         substrates: S
         products:   P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)     :: NonequalAI
             E + S ⇌ E(S)     :: NonequalAI
@@ -718,7 +718,7 @@ end
     bridged = @_testhelper_unguarded @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
@@ -732,7 +732,7 @@ end
     half2 = @allosteric_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
-        catalytic_multiplicity: 1
+        oligomeric_state: 1
         steps: begin
             E + ATP ⇌ E(ATP)                                                      :: EqualAI
             E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
@@ -747,7 +747,7 @@ end
     inert = @allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: OnlyA
             E(S) <--> E(P)    :: EqualAI
@@ -831,7 +831,7 @@ end
     inert = @allosteric_mechanism begin
         substrates: S
         products: P
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + S ⇌ E(S)      :: OnlyA
             E(S) <--> E(P)    :: EqualAI
@@ -849,7 +849,7 @@ end
         substrates: S
         products:   P
         allosteric_regulators: R
-        catalytic_multiplicity: 2
+        oligomeric_state: 2
         steps: begin
             E + P ⇌ E(P)     :: NonequalAI
             E + S ⇌ E(S)     :: NonequalAI

@@ -148,7 +148,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `Regulator` | A declared regulator with its kind and effect | DSL | |
 | `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | |
 | | | Fitting, Plotting, top level | |
-| `AllostericMechanism` | A `Mechanism` with MWC tags and sites | DSL, Derivation, | |
+| `AllostericMechanism` | A `Mechanism` with allosteric states and sites | DSL, Derivation, | |
 | | | Enumeration, Fitting, Plotting, top level | |
 | `EnzymeForm` | An enzyme form | DSL, Enumeration | |
 | `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
@@ -236,7 +236,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 Stored data is read with dots; derived data is a function. A mechanism is a list of nodes
 (enzyme forms) and a list of steps. A node or a step is an integer index into `m.nodes`
 or `m.steps`, and a set of steps is a `BitVector` over `m.steps`. Code reads
-`m.nodes[x].bound`, `m.steps[k].from` or `am.mwc_tags[g]` directly, and calls a function
+`m.nodes[x].bound`, `m.steps[k].from` or `am.allosteric_states[g]` directly, and calls a function
 only for a fact the fields do not store, such as `form_text(m, f)`.
 
 | Type | Field | Holds |
@@ -262,9 +262,9 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 | | `toward_products::BitVector` | stored: whether each step runs toward products |
 | | `step_sides::Vector{Tuple{String,String}}` | stored: each step's two side names |
 | `AllostericMechanism` | `catalytic::Mechanism` | the catalytic graph |
-| | `mwc_tags::Vector{Symbol}` | one tag per kinetic group: `:OnlyA`, `:OnlyI`, |
+| | `allosteric_states::Vector{Symbol}` | one tag per kinetic group: `:OnlyA`, `:OnlyI`, |
 | | | `:EqualAI` or `:NonequalAI` |
-| | `catalytic_multiplicity::Int` | the number of catalytic subunits |
+| | `oligomeric_state::Int` | the number of catalytic subunits |
 | | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
 | | `active_steps::BitVector` | stored: the active conformation's steps |
 | | `inactive_steps::BitVector` | stored: the inactive conformation's steps |
@@ -272,7 +272,7 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 | | `excluded_inactive::BitVector` | stored: the steps the inactive one excludes |
 | `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
 | | `multiplicity::Int` | the number of such sites |
-| | `mwc_tags::Vector{Symbol}` | one tag per ligand |
+| | `allosteric_states::Vector{Symbol}` | one tag per ligand |
 | `Reactant` | `name::Symbol` | the substrate's or product's name |
 | | `atoms::Vector{Pair{Symbol,Int}}` | its atoms, `element => count` |
 | `Regulator` | `name::Symbol` | the regulator's name |
@@ -281,7 +281,7 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 | `EnzymeReaction` | `substrates::Vector{Reactant}` | the substrates |
 | | `products::Vector{Reactant}` | the products |
 | | `regulators::Vector{Regulator}` | the declared regulators |
-| | `allowed_catalytic_multiplicities::Vector{Int}` | the subunit counts to enumerate |
+| | `allowed_oligomeric_states::Vector{Int}` | the subunit counts to enumerate |
 | | `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` | pairs that share one site |
 
 Each list of a node or a step is sorted. Every construction path computes the facts marked
@@ -289,9 +289,9 @@ stored once from the other fields; `==` and `hash` leave them out. The construct
 `Mechanism(substrates, products, nodes, steps)` takes nodes in any order, a node any number
 of times, and steps in either direction with kinetic group labels 1, 2, …; it puts them in
 canonical form and checks them.
-`AllostericMechanism(substrates, products, nodes, steps, mwc_tags, multiplicity, sites)`
+`AllostericMechanism(substrates, products, nodes, steps, allosteric_states, multiplicity, sites)`
 takes one tag per written group label, and
-`AllostericMechanism(catalytic, mwc_tags, multiplicity, sites)` composes a canonical
+`AllostericMechanism(catalytic, allosteric_states, multiplicity, sites)` composes a canonical
 catalytic mechanism with tags and sites. To change a mechanism, copy `m.nodes` and `m.steps`
 with new fields and call the constructor. Never mutate a built mechanism's vectors in
 place: its canonical form, stored facts, hash, compiled Sig and memo entries depend on them.
@@ -683,13 +683,13 @@ group). Each list of metabolites (`Metabolite`: a name, and whether it binds as 
 so a reactant and its modifier copy are two metabolites) and of names is sorted. It holds
 no reaction, and `==` and `hash` read these fields alone, not the facts a mechanism
 stores, alike in every process. An `AllostericMechanism` holds a catalytic `Mechanism`, one
-allosteric tag per kinetic group, the catalytic multiplicity and the regulatory sites.
+allosteric tag per kinetic group, the oligomeric state and the regulatory sites.
 Every module reads these fields with dots (see [The mechanism data model](@ref)).
 
 The macros, the parser and the enumeration build a mechanism from nodes and steps.
 `Mechanism(substrates, products, nodes, steps)` takes the nodes in any order, a node any
 number of times, and each step in either direction with its kinetic group label (1, 2, …,
-each used); `AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
+each used); `AllostericMechanism(substrates, products, nodes, steps, allosteric_states,
 multiplicity, sites)` takes the tag of each written group label. Both build the canonical
 graph (`_canonicalize`) and check it; the macros check the names under `modifiers:`
 themselves. The seeds write their topologies, dead ends and bases as nodes and steps; the
@@ -843,7 +843,7 @@ active-state graph, marks the starting mechanisms that `starting_mechanisms`
 degenerate.
 
 Conformational mechanism types declare `_requires_hyperbolic_catalysis` (true for
-an `AllostericMechanism` whose catalytic multiplicity is above 1), and the moves
+an `AllostericMechanism` whose oligomeric state is above 1), and the moves
 that can give such a mechanism a non-hyperbolic catalytic scheme consult
 `_hyperbolic_catalysis`: `_expand_to_allosteric` promotes a non-hyperbolic
 parent at multiplicity 1 only, and above one subunit the tagging and change-tag

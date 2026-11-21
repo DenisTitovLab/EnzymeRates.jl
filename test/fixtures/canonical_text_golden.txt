@@ -243,7 +243,7 @@ forms: E, EP, ES
 1: E + P ⇌ EP | group 1 :: NonequalAI
 2: E + S ⇌ ES | group 2 :: NonequalAI
 3: ES <--> EP | group 3 :: NonequalAI
-catalytic_multiplicity: 2
+oligomeric_state: 2
 
 # Homodimer + Non-competitive Inhibitor [AllostericEnzymeMechanism]
 substrates: S | products: P
@@ -251,7 +251,7 @@ forms: E, EP, ES
 1: E + P ⇌ EP | group 1 :: NonequalAI
 2: E + S ⇌ ES | group 2 :: NonequalAI
 3: ES <--> EP | group 3 :: NonequalAI
-catalytic_multiplicity: 2
+oligomeric_state: 2
 regulatory_site(1): I::NonequalAI
 
 # Two Competitive Inhibitors
@@ -343,7 +343,7 @@ forms: E, EP1, EP1P2, EP1S2, EP2, EP2S1, ES1, ES1S2, ES2
 11: ES1S2 <--> EP1P2 | group 5 :: NonequalAI
 12: ES2 + P1 ⇌ EP1S2 | group 1 :: NonequalAI
 13: ES2 + S1 ⇌ ES1S2 | group 3 :: NonequalAI
-catalytic_multiplicity: 4
+oligomeric_state: 4
 regulatory_site(4): R1::NonequalAI, R2::NonequalAI
 regulatory_site(4): R3::NonequalAI
 
@@ -359,7 +359,7 @@ forms: E, EADP, EADPF16BP, EATP, EATPF6P, EF16BP, EF6P
 7: EATPF6P <--> EADPF16BP | group 5 :: OnlyA
 8: EF16BP + ADP ⇌ EADPF16BP | group 1 :: EqualAI
 9: EF6P + ATP ⇌ EATPF6P | group 2 :: EqualAI
-catalytic_multiplicity: 4
+oligomeric_state: 4
 regulatory_site(4): ADP::OnlyA
 regulatory_site(4): ATP::OnlyI, Pi::EqualAI
 regulatory_site(4): Citrate::OnlyI
@@ -382,7 +382,7 @@ forms: E, EADP, EADPG6P, EATP, EATPGlucose, EG6P, EG6PG6Pmod, EG6Pmod, EG6PmodGl
 12: EG6Pmod + Glucose ⇌ EG6PmodGlucose | group 5 :: EqualAI
 13: EGlucose + ATP ⇌ EATPGlucose | group 2 :: OnlyA
 14: EGlucose + G6Pmod ⇌ EG6PmodGlucose | group 4 :: EqualAI
-catalytic_multiplicity: 2
+oligomeric_state: 2
 regulatory_site(2): G6P::OnlyI, Pi::EqualAI
 
 # PK
@@ -397,7 +397,7 @@ forms: E, EADP, EADPPEP, EATP, EATPPyruvate, EPEP, EPyruvate
 7: EATP + Pyruvate ⇌ EATPPyruvate | group 4 :: EqualAI
 8: EPEP + ADP ⇌ EADPPEP | group 1 :: EqualAI
 9: EPyruvate + ATP ⇌ EATPPyruvate | group 2 :: EqualAI
-catalytic_multiplicity: 4
+oligomeric_state: 4
 regulatory_site(2): ATP::OnlyI
 regulatory_site(4): F16BP::OnlyA
 
@@ -413,7 +413,7 @@ forms: E, EP1, EP1P2, EP2, ES1, ES1S2, ES2
 7: ES1 + S2 ⇌ ES1S2 | group 4 :: EqualAI
 8: ES1S2 <--> EP1P2 | group 5 :: NonequalAI
 9: ES2 + S1 ⇌ ES1S2 | group 3 :: NonequalAI
-catalytic_multiplicity: 2
+oligomeric_state: 2
 regulatory_site(2): R1::NonequalAI, R2::EqualAI
 
 # m_OnlyA_prod
@@ -422,7 +422,7 @@ forms: E, EP, ES
 1: E + P ⇌ EP | group 1 :: OnlyA
 2: E + S ⇌ ES | group 2 :: EqualAI
 3: ES <--> EP | group 3 :: OnlyA
-catalytic_multiplicity: 2
+oligomeric_state: 2
 
 # LDH i-state NonequalAI 6-group, steady-state NAD group
 substrates: NADH, Pyruvate | products: Lactate, NAD
@@ -440,7 +440,7 @@ forms: E, ELactate, ELactateNAD, ELactateNADH, ENAD, ENADPyruvate, ENADH, ENADHP
 11: ENADHPyruvate <--> ELactateNAD | group 6 :: OnlyA
 12: EPyruvate + NAD <--> ENADPyruvate | group 2 :: EqualAI
 13: EPyruvate + NADH <--> ENADHPyruvate | group 3 :: OnlyA
-catalytic_multiplicity: 4
+oligomeric_state: 4
 
 # LDH i-state NonequalAI 5-group
 substrates: NADH, Pyruvate | products: Lactate, NAD
@@ -454,7 +454,7 @@ forms: E, ELactate, ELactateNAD, ELactateNADH, ENAD, ENADH, ENADHPyruvate
 7: ENADH + Lactate ⇌ ELactateNADH | group 1 :: NonequalAI
 8: ENADH + Pyruvate ⇌ ENADHPyruvate | group 4 :: EqualAI
 9: ENADHPyruvate <--> ELactateNAD | group 5 :: OnlyA
-catalytic_multiplicity: 4
+oligomeric_state: 4
 
 # LDH i-state EqualAI-NonequalAI 6-group
 substrates: NADH, Pyruvate | products: Lactate, NAD
@@ -469,4 +469,4 @@ forms: E, ELactateNAD, ELactateNADH, ENAD, ENADPyruvate, ENADH, ENADHPyruvate, E
 8: ENADHPyruvate <--> ELactateNAD | group 5 :: EqualAI
 9: EPyruvate + NAD <--> ENADPyruvate | group 6 :: NonequalAI
 10: EPyruvate + NADH ⇌ ENADHPyruvate | group 2 :: EqualAI
-catalytic_multiplicity: 4
+oligomeric_state: 4

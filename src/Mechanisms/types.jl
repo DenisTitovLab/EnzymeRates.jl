@@ -5,32 +5,32 @@
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
-more allosteric ligands, each given by its name, once. `ligands[i]` and `mwc_tags[i]`
-are parallel. The constructor sorts the ligands by name and carries each ligand's state
-along, so the order the ligands are given in never changes `==`, `hash` or
-the compiled type.
+more allosteric ligands, each given by its name, once. `ligands[i]` and
+`allosteric_states[i]` are parallel. The constructor sorts the ligands by name and
+carries each ligand's state along, so the order the ligands are given in never changes
+`==`, `hash` or the compiled type.
 """
 struct RegulatorySite
     ligands::Vector{Symbol}
     multiplicity::Int
-    mwc_tags::Vector{Symbol}
+    allosteric_states::Vector{Symbol}
     function RegulatorySite(ligands::Vector{Symbol},
-                            multiplicity::Int, mwc_tags::Vector{Symbol})
+                            multiplicity::Int, allosteric_states::Vector{Symbol})
         isempty(ligands) && error("RegulatorySite: needs at least one ligand")
-        length(ligands) == length(mwc_tags) ||
+        length(ligands) == length(allosteric_states) ||
             error("RegulatorySite: length(ligands)=$(length(ligands)) " *
-                  "must equal length(mwc_tags)=$(length(mwc_tags))")
+                  "must equal length(allosteric_states)=$(length(allosteric_states))")
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
-        bad = findfirst(∉(_TAG_CODES), mwc_tags)
+        bad = findfirst(∉(_TAG_CODES), allosteric_states)
         bad === nothing ||
-            error("RegulatorySite: MWC tag $(mwc_tags[bad]) must be one of " *
-                  "$_TAG_CODES")
+            error("RegulatorySite: allosteric state $(allosteric_states[bad]) " *
+                  "must be one of $_TAG_CODES")
         dup = findfirst(i -> ligands[i] in view(ligands, 1:(i - 1)), eachindex(ligands))
         dup === nothing || error("RegulatorySite: ligand $(ligands[dup]) appears twice " *
                                  "in one regulatory site")
         p = sortperm(ligands)
-        new(ligands[p], multiplicity, mwc_tags[p])
+        new(ligands[p], multiplicity, allosteric_states[p])
     end
 end
 
@@ -226,7 +226,7 @@ end
     EnzymeReaction
 
 The public concrete reaction descriptor: substrates, products, optional
-regulators, and the set of catalytic multiplicities the mechanism
+regulators, and the set of oligomeric states the mechanism
 enumerator is allowed to consider. It is the entry point to the package —
 pair it with rate data in an
 [`IdentifyRateEquationProblem`](@ref EnzymeRates.IdentifyRateEquationProblem), or pass
@@ -238,7 +238,7 @@ it to `EnzymeRates.Enumeration.init_mechanisms` to enumerate candidate mechanism
   and atom conservation across steps).
 - `regulators::Vector{Regulator}` — competitive inhibitors and
   allosteric regulators, each with its `kind` and `effect`.
-- `allowed_catalytic_multiplicities::Vector{Int}` — the oligomeric states, one
+- `allowed_oligomeric_states::Vector{Int}` — the oligomeric states, one
   or more, that the allosteric enumerator may assign to the catalytic core.
 - `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` — `(substrate,
   product)` pairs that bind the same catalytic site, and so are never both
@@ -285,22 +285,22 @@ struct EnzymeReaction
     substrates::Vector{Reactant}
     products::Vector{Reactant}
     regulators::Vector{Regulator}
-    allowed_catalytic_multiplicities::Vector{Int}
+    allowed_oligomeric_states::Vector{Int}
     shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}
 
     function EnzymeReaction(substrates::Vector{Reactant}, products::Vector{Reactant},
                             regulators::Vector{Regulator},
-                            allowed_catalytic_multiplicities::Vector{Int};
+                            allowed_oligomeric_states::Vector{Int};
                             shared_catalytic_site = Tuple{Symbol,Symbol}[])
         sorted_substrates = sort(substrates; by = r -> r.name)
         sorted_products = sort(products; by = r -> r.name)
         sorted_regulators = sort(regulators; by = r -> (r.name, r.kind === :allosteric))
         # A nonempty list of distinct Ints ≥ 1, as a DSL text writes one.
-        ms = allowed_catalytic_multiplicities
+        ms = allowed_oligomeric_states
         !isempty(ms) && all(≥(1), ms) && allunique(ms) ||
-            error("EnzymeReaction: allowed_catalytic_multiplicities must be a nonempty " *
+            error("EnzymeReaction: allowed_oligomeric_states must be a nonempty " *
                   "list of distinct Ints ≥ 1, got $ms")
-        sorted_mults = sort(allowed_catalytic_multiplicities)
+        sorted_mults = sort(allowed_oligomeric_states)
 
         sub_names  = Symbol[r.name for r in sorted_substrates]
         prod_names = Symbol[r.name for r in sorted_products]
@@ -376,7 +376,7 @@ one formula, the competitive inhibitors and allosteric regulators, the catalytic
 multiplicities unless they are the default 1, and the shared catalytic sites.
 """
 function Base.show(io::IO, r::EnzymeReaction)
-    mults = r.allowed_catalytic_multiplicities
+    mults = r.allowed_oligomeric_states
     formula(re) = join("$e" * (c == 1 ? "" : "$c") for (e, c) in re.atoms)
     tag(reg) = reg.effect === :activator ? "::Activator" :
                reg.effect === :inhibitor ? "::Inhibitor" : ""
@@ -490,7 +490,7 @@ end
     AllostericMechanism
 
 An MWC enzyme: its catalytic `Mechanism`, one allosteric tag per kinetic group of it
-(`mwc_tags[g]`), the catalytic multiplicity and the regulatory sites, sorted. Its
+(`allosteric_states[g]`), the oligomeric state and the regulatory sites, sorted. Its
 catalytic graph is a plain `Mechanism`, so a model with another derivation can wrap the
 same graph in a type of its own.
 
@@ -498,26 +498,26 @@ It also stores, one flag per catalytic step, the steps each conformation exclude
 (`excluded_active`, the steps of `:OnlyI` groups; `excluded_inactive`, those of `:OnlyA`
 groups) and the steps of each conformation (`active_steps`, `inactive_steps`:
 `_steps_joined_to_free_E`). They take no part in `==` and `hash`. Do not mutate the
-vectors of a built mechanism in place: the masks depend on `mwc_tags`.
+vectors of a built mechanism in place: the masks depend on `allosteric_states`.
 """
 struct AllostericMechanism
     catalytic::Mechanism
-    mwc_tags::Vector{Symbol}
-    catalytic_multiplicity::Int
+    allosteric_states::Vector{Symbol}
+    oligomeric_state::Int
     regulatory_sites::Vector{RegulatorySite}
     active_steps::BitVector
     inactive_steps::BitVector
     excluded_active::BitVector
     excluded_inactive::BitVector
-    function AllostericMechanism(catalytic::Mechanism, mwc_tags::Vector{Symbol},
-                                 catalytic_multiplicity::Int,
+    function AllostericMechanism(catalytic::Mechanism, allosteric_states::Vector{Symbol},
+                                 oligomeric_state::Int,
                                  regulatory_sites::Vector{RegulatorySite})
-        _check_tags(mwc_tags, length(catalytic.groups), catalytic_multiplicity)
+        _check_tags(allosteric_states, length(catalytic.groups), oligomeric_state)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
-        excluded_active = (e -> mwc_tags[e.group] === :OnlyI).(catalytic.steps)
-        excluded_inactive = (e -> mwc_tags[e.group] === :OnlyA).(catalytic.steps)
-        new(catalytic, copy(mwc_tags), catalytic_multiplicity, sites,
+        excluded_active = (e -> allosteric_states[e.group] === :OnlyI).(catalytic.steps)
+        excluded_inactive = (e -> allosteric_states[e.group] === :OnlyA).(catalytic.steps)
+        new(catalytic, copy(allosteric_states), oligomeric_state, sites,
             _steps_joined_to_free_E(catalytic, excluded_active),
             _steps_joined_to_free_E(catalytic, excluded_inactive), excluded_active,
             excluded_inactive)
@@ -526,7 +526,7 @@ end
 
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
-_site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.mwc_tags)
+_site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.allosteric_states)
 
 """The supertype of the singleton mechanism types `EnzymeMechanism` and
 `AllostericEnzymeMechanism`."""
@@ -747,22 +747,22 @@ Mechanism(substrates::Vector{Symbol}, products::Vector{Symbol}, nodes::Vector{En
           steps::Vector{Step}) = _checked(substrates, products, nodes, steps).mechanism
 
 """
-    AllostericMechanism(substrates, products, nodes, steps, mwc_tags,
-                        catalytic_multiplicity, regulatory_sites)
+    AllostericMechanism(substrates, products, nodes, steps, allosteric_states,
+                        oligomeric_state, regulatory_sites)
 
 The allosteric mechanism whose catalytic part `nodes` and `steps` write, as
 `Mechanism(substrates, products, nodes, steps)` builds and checks it, with
-`mwc_tags[l]` the tag of written group label `l`: it checks the tags, then the catalytic
-part, then moves each tag to the canonical group its label became and composes.
+`allosteric_states[l]` the tag of written group label `l`: it checks the tags, then the
+catalytic part, then moves each tag to the canonical group its label became and composes.
 """
 function AllostericMechanism(substrates::Vector{Symbol}, products::Vector{Symbol},
                              nodes::Vector{EnzymeForm}, steps::Vector{Step},
-                             mwc_tags::Vector{Symbol}, catalytic_multiplicity::Int,
+                             allosteric_states::Vector{Symbol}, oligomeric_state::Int,
                              regulatory_sites::Vector{RegulatorySite})
-    _check_tags(mwc_tags, maximum(e -> e.group, steps; init = 0), catalytic_multiplicity)
+    _check_tags(allosteric_states, maximum(e -> e.group, steps; init = 0), oligomeric_state)
     c = _checked(substrates, products, nodes, steps)
-    AllostericMechanism(c.mechanism, _tags_by_group(c.group_of, mwc_tags),
-                        catalytic_multiplicity, regulatory_sites)
+    AllostericMechanism(c.mechanism, _tags_by_group(c.group_of, allosteric_states),
+                        oligomeric_state, regulatory_sites)
 end
 
 """The canonical form (`_canonicalize`) of the mechanism that `nodes` and `steps` write,
@@ -787,31 +787,31 @@ function _checked(substrates::Vector{Symbol}, products::Vector{Symbol},
     c
 end
 
-"""The tags by canonical group: `mwc_tags[l]`, the tag of written label `l`, moved to
-group `group_of[l]`."""
-function _tags_by_group(group_of::Vector{Int}, mwc_tags::Vector{Symbol})
-    tags = similar(mwc_tags)
+"""The tags by canonical group: `allosteric_states[l]`, the tag of written label `l`,
+moved to group `group_of[l]`."""
+function _tags_by_group(group_of::Vector{Int}, allosteric_states::Vector{Symbol})
+    tags = similar(allosteric_states)
     for (l, g) in enumerate(group_of)
-        tags[g] = mwc_tags[l]
+        tags[g] = allosteric_states[l]
     end
     tags
 end
 
 # ─── Checks ─────────────────────────────────────────────────────────────
 
-"""Error unless `mwc_tags` holds one valid tag (`_TAG_CODES`) for each of `G`
-kinetic groups and the catalytic multiplicity is at least 1."""
-function _check_tags(mwc_tags::Vector{Symbol}, G::Int, catalytic_multiplicity::Int)
-    length(mwc_tags) == G ||
-        error("AllostericMechanism: mwc_tags length $(length(mwc_tags)) " *
-              "must match the number of kinetic groups $G")
-    catalytic_multiplicity ≥ 1 ||
-        error("AllostericMechanism: catalytic_multiplicity must be ≥ 1, " *
-              "got $catalytic_multiplicity")
-    bad = findfirst(∉(_TAG_CODES), mwc_tags)
+"""Error unless `allosteric_states` holds one valid tag (`_TAG_CODES`) for each of `G`
+kinetic groups and the oligomeric state is at least 1."""
+function _check_tags(allosteric_states::Vector{Symbol}, G::Int, oligomeric_state::Int)
+    length(allosteric_states) == G ||
+        error("AllostericMechanism: allosteric_states length " *
+              "$(length(allosteric_states)) must match the number of kinetic groups $G")
+    oligomeric_state ≥ 1 ||
+        error("AllostericMechanism: oligomeric_state must be ≥ 1, " *
+              "got $oligomeric_state")
+    bad = findfirst(∉(_TAG_CODES), allosteric_states)
     bad === nothing ||
         error("AllostericMechanism: catalytic group $bad has invalid " *
-              "MWC tag $(mwc_tags[bad]) (must be one of $_TAG_CODES)")
+              "allosteric state $(allosteric_states[bad]) (must be one of $_TAG_CODES)")
     nothing
 end
 
@@ -1035,7 +1035,8 @@ for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, EnzymeForm, Step,
           AllostericMechanism)
     fs = T === Mechanism ? (:substrates, :products, :nodes, :steps) :
          T === AllostericMechanism ?
-         (:catalytic, :mwc_tags, :catalytic_multiplicity, :regulatory_sites) : fieldnames(T)
+         (:catalytic, :allosteric_states, :oligomeric_state, :regulatory_sites) :
+         fieldnames(T)
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
     @eval Base.hash(x::$T, h::UInt) =
@@ -1055,7 +1056,7 @@ end
 #               followed by its modifier flag.
 #   name        its number of characters, then each character's code point.
 #   allosteric  the plain Sig of its catalytic mechanism; one tag code per group; the
-#               catalytic multiplicity; the number of sites, then per site its
+#               oligomeric state; the number of sites, then per site its
 #               multiplicity, its number of ligands and per ligand its name and tag code.
 
 """The allosteric tags, coded by position: catalytic groups and site ligands share them,
@@ -1114,11 +1115,11 @@ end
 _sig_of(m::Mechanism) = Tuple(_sig_mechanism!(Int[], m))
 function _sig_of(am::AllostericMechanism)
     out = _sig_mechanism!(Int[], am.catalytic)
-    foreach(t -> push!(out, _tag_code(t)), am.mwc_tags)
-    push!(out, am.catalytic_multiplicity, length(am.regulatory_sites))
+    foreach(t -> push!(out, _tag_code(t)), am.allosteric_states)
+    push!(out, am.oligomeric_state, length(am.regulatory_sites))
     for s in am.regulatory_sites
         push!(out, s.multiplicity, length(s.ligands))
-        for (l, t) in zip(s.ligands, s.mwc_tags)
+        for (l, t) in zip(s.ligands, s.allosteric_states)
             _sig_name!(out, l)
             push!(out, _tag_code(t))
         end

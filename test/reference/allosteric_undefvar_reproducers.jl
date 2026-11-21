@@ -8,7 +8,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
-            catalytic_multiplicity: 4
+            oligomeric_state: 4
             steps: begin
                 (E + NAD ⇌ E(NAD),
                  E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
@@ -26,7 +26,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
-            catalytic_multiplicity: 4
+            oligomeric_state: 4
             steps: begin
                 (E + Lactate ⇌ E(Lactate),
                  E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
@@ -50,7 +50,7 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate
             products: Lactate, NAD
-            catalytic_multiplicity: 4
+            oligomeric_state: 4
             steps: begin
                 E + Lactate ⇌ E(Lactate) :: EqualAI
                 E + NAD <--> E(NAD) :: NonequalAI

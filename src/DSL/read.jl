@@ -9,7 +9,7 @@ Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
 - `regs  ::Vector{Tuple{Symbol, Symbol, Symbol}}` —
   `(kind, name, effect)` where `kind ∈ (:competitive, :allosteric)` and
   `effect ∈ (:activator, :inhibitor, :unspecified)`.
-- `mults ::Vector{Int}` — allowed catalytic multiplicities (default `[1]`).
+- `mults ::Vector{Int}` — allowed oligomeric states (default `[1]`).
 - `shared ::Vector{Tuple{Symbol,Symbol}}` — `shared_catalytic_site:` pairs.
 """
 function _parse_reaction_block(block)
@@ -231,12 +231,12 @@ syntax errors; the constructors (`_construct`) and the boundary check
 `substrates`, `products` and `modifiers`, and the steps as `nodes` and `steps`
 (`_raw_steps`): step `j` joins nodes `2j - 1` and `2j`, its written ends, in its written
 direction, and its `group` is the label of its statement. An allosteric block adds the
-tag of each group label (`mwc_tags`), the `catalytic_multiplicity` and the
+tag of each group label (`allosteric_states`), the `oligomeric_state` and the
 `regulatory_sites`, each as written (`_raw_site`).
 
 `substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
 holds one `begin ... end` block (`_raw_steps`). `@allosteric_mechanism` adds
-`allosteric_regulators:` (bare names), `catalytic_multiplicity:` (one positive Int, 1
+`allosteric_regulators:` (bare names), `oligomeric_state:` (one positive Int, 1
 when omitted) and `regulatory_site(n):` lines, each listing its ligands as `X::Tag`
 (`_raw_site`); every allosteric regulator sits on exactly one of them.
 """
@@ -275,23 +275,23 @@ function raw_mechanism(block, allosteric::Bool)
                       ", as in `regulatory_site(2): $name::OnlyA`."))
             end
             append!(regulators, _bare_symbols_from_values(values, label))
-        elseif allosteric && label === :catalytic_multiplicity
+        elseif allosteric && label === :oligomeric_state
             multiplicity === nothing ||
-                error("$macro_name: `catalytic_multiplicity:` given more than once.")
+                error("$macro_name: `oligomeric_state:` given more than once.")
             length(values) == 1 ||
-                error("$macro_name: `catalytic_multiplicity:` takes one positive Int; " *
+                error("$macro_name: `oligomeric_state:` takes one positive Int; " *
                       "got $(join(values, ", ")).")
             multiplicity = _positive_int(only(values),
-                                         "$macro_name: `catalytic_multiplicity:`")
+                                         "$macro_name: `oligomeric_state:`")
         elseif allosteric && label isa Expr && label.head === :call &&
                label.args[1] === :regulatory_site
             push!(sites, _raw_site(label, values))
         else
             error("$macro_name: unknown label `$label:`. Valid labels: " * (allosteric ?
                   "substrates, products, modifiers, allosteric_regulators, " *
-                  "catalytic_multiplicity, steps, regulatory_site(n)." :
+                  "oligomeric_state, steps, regulatory_site(n)." :
                   "substrates, products, modifiers, steps. Allosteric declarations " *
-                  "(`allosteric_regulators:`, `catalytic_multiplicity:`, " *
+                  "(`allosteric_regulators:`, `oligomeric_state:`, " *
                   "`regulatory_site(n):`) belong in @allosteric_mechanism."))
         end
     end
@@ -302,13 +302,13 @@ function raw_mechanism(block, allosteric::Bool)
     nodes, steps, tags = _raw_steps(steps_block, names, macro_name, allosteric)
     allosteric || return (; substrates, products, modifiers, nodes, steps)
     _check_site_ligands(regulators, sites)
-    (; substrates, products, modifiers, nodes, steps, mwc_tags = tags,
-     catalytic_multiplicity = something(multiplicity, 1), regulatory_sites = sites)
+    (; substrates, products, modifiers, nodes, steps, allosteric_states = tags,
+     oligomeric_state = something(multiplicity, 1), regulatory_sites = sites)
 end
 
 """A regulatory site as written: its ligands in written order, its multiplicity and each
 ligand's tag."""
-const _WrittenSite = NamedTuple{(:ligands, :multiplicity, :mwc_tags),
+const _WrittenSite = NamedTuple{(:ligands, :multiplicity, :allosteric_states),
                                 Tuple{Vector{Symbol}, Int, Vector{Symbol}}}
 
 """
@@ -630,11 +630,11 @@ and some step binds each as a modifier.
 """
 function _construct(raw::NamedTuple)
     allunique(raw.modifiers) || error("Mechanism: duplicate modifier names")
-    m = !hasproperty(raw, :mwc_tags) ?
+    m = !hasproperty(raw, :allosteric_states) ?
         Mechanisms.Mechanism(raw.substrates, raw.products, raw.nodes, raw.steps) :
         Mechanisms.AllostericMechanism(raw.substrates, raw.products, raw.nodes, raw.steps,
-            raw.mwc_tags, raw.catalytic_multiplicity,
-            [Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.mwc_tags)
+            raw.allosteric_states, raw.oligomeric_state,
+            [Mechanisms.RegulatorySite(s.ligands, s.multiplicity, s.allosteric_states)
              for s in raw.regulatory_sites])
     bound = (m isa Mechanisms.AllostericMechanism ? m.catalytic : m).modifiers
     unused = findfirst(∉(bound), raw.modifiers)
