@@ -1,30 +1,25 @@
 # ABOUTME: The allosteric conformations of a mechanism: the forms the steps a conformation
 # ABOUTME: keeps join, and the readings of how each switches off the steps it excludes.
 
-"""The steps of conformation `c` of `m` (1 active, 2 inactive), one flag per catalytic step:
-an allosteric mechanism's `active_steps` or `inactive_steps`; a plain mechanism has only the
-active conformation, every step."""
-_conformation_steps(am::Mechanisms.AllostericMechanism, c::Int) =
-    (am.active_steps, am.inactive_steps)[c]
-_conformation_steps(m::Mechanisms.Mechanism, c::Int) =
-    (c == 1 ? trues : falses)(length(m.steps))
-
-"""The steps conformation `c` of `m` (1 active, 2 inactive) excludes, one flag per
-catalytic step: an allosteric mechanism's `excluded_active` or `excluded_inactive`; a plain
-mechanism excludes none."""
-_excluded_steps(am::Mechanisms.AllostericMechanism, c::Int) =
-    (am.excluded_active, am.excluded_inactive)[c]
+"""The steps conformation `c` of `m` (1 active, 2 inactive) excludes by their kinetic
+group's allosteric state, one flag per catalytic step: the active conformation those of
+`:OnlyI` groups, the inactive one those of `:OnlyA` groups. A plain mechanism excludes
+none."""
+function _excluded_steps(am::Mechanisms.AllostericMechanism, c::Int)
+    state = c == 1 ? :OnlyI : :OnlyA
+    (e -> am.allosteric_states[e.group] === state).(am.catalytic.steps)
+end
 _excluded_steps(m::Mechanisms.Mechanism, ::Int) = falses(length(m.steps))
 
 """
     exclusion_components(am, c::Symbol) -> Vector{Int}
 
 Each form's component under the edges of `am`'s catalytic graph that conformation `c`
-(`:active` or `:inactive`) keeps (all but `am.excluded_active`, the edges of `:OnlyI`
-groups, or `am.excluded_inactive`, those of `:OnlyA` groups), every form included,
-labelled by its smallest form index, so free E's label is 1. A form outside free E's
-component is cut off in `c`; the guard's built readings of how `c` switches off each step
-it excludes (`_built_reading`) read these components.
+(`:active` or `:inactive`) keeps (all but `_excluded_steps`, the edges of `:OnlyI`
+groups in the active conformation, those of `:OnlyA` groups in the inactive), every form
+included, labelled by its smallest form index, so free E's label is 1. A form outside free
+E's component is cut off in `c`; the guard's built readings of how `c` switches off each
+step it excludes (`_built_reading`) read these components.
 """
 function exclusion_components(am::Mechanisms.AllostericMechanism, c::Symbol)
     excluded = _excluded_steps(am, c === :active ? 1 : c === :inactive ? 2 :

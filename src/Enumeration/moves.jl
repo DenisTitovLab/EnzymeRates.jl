@@ -744,12 +744,12 @@ _valid_tagging(m::Mechanisms.Mechanism, tags::Vector{Symbol}) =
     _stops_inactive_turnover(m::Mechanism, tags::Vector{Symbol}) -> Bool
 
 Whether the tags `tags` leave the inactive conformation of `m` no catalytic cycle: no
-cycle of the edges its law keeps (`inactive_steps`) turns the reaction over
+cycle of the steps it runs (`steps_in_inactive_conformation`) turns the reaction over
 (`has_turnover_cycle`).
 """
 function _stops_inactive_turnover(m::Mechanisms.Mechanism, tags::Vector{Symbol})
     am = Mechanisms.AllostericMechanism(m, tags, 1, Mechanisms.RegulatorySite[])
-    !Mechanisms.has_turnover_cycle(m, am.inactive_steps)
+    !Mechanisms.has_turnover_cycle(m, Mechanisms.steps_in_inactive_conformation(am))
 end
 
 """

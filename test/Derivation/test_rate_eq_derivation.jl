@@ -2204,9 +2204,9 @@ end
     end
     am = EnzymeRates.AllostericMechanism(allo)
     @test _testhelper_laplacian_tree_count(
-        am.catalytic, am.active_steps) == 9
+        am.catalytic, EnzymeRates.Mechanisms.steps_in_active_conformation(am)) == 9
     @test _testhelper_laplacian_tree_count(
-        am.catalytic, am.inactive_steps) == 9
+        am.catalytic, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)) == 9
     @test EnzymeRates.Derivation.rate_equation_term_count(am) == 18
 end
 

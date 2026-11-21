@@ -117,8 +117,8 @@ end
 
 @testset "a mechanism's fields are its graph and the facts it gives" begin
     # No reaction and no cache: the names, the nodes and the steps with their groups, then
-    # the facts computed from them once; for an allosteric mechanism its tags,
-    # multiplicity and sites, then each conformation's steps and the steps it excludes.
+    # the facts computed from them once; for an allosteric mechanism its catalytic graph,
+    # tags, multiplicity and sites.
     @test fieldnames(ER.Mechanism) ==
           (:substrates, :products, :nodes, :steps, :enzyme_forms, :modifiers, :groups,
            :step_kinds, :toward_products, :step_sides)
@@ -127,8 +127,7 @@ end
     @test fieldnames(ER.Mechanisms.Step) ==
           (:from, :to, :taken_up, :given_off, :rapid_equilibrium, :group)
     @test fieldnames(ER.AllostericMechanism) ==
-          (:catalytic, :allosteric_states, :oligomeric_state, :regulatory_sites, :active_steps,
-           :inactive_steps, :excluded_active, :excluded_inactive)
+          (:catalytic, :allosteric_states, :oligomeric_state, :regulatory_sites)
 end
 
 @testset "construction is canonical" begin
@@ -430,9 +429,7 @@ _testhelper_stored_at_length(am::ER.AllostericMechanism) =
     Base.summarysize(ER.AllostericMechanism(am.catalytic, copy(am.allosteric_states),
         am.oligomeric_state,
         [ER.Mechanisms.RegulatorySite(copy(s.ligands), s.multiplicity, copy(s.allosteric_states))
-         for s in am.regulatory_sites])) &&
-    all(_testhelper_at_length, (am.active_steps, am.inactive_steps, am.excluded_active,
-                                am.excluded_inactive))
+         for s in am.regulatory_sites]))
 
 @testset "a mechanism stores each vector at its length" begin
     # A search keeps every mechanism it emits, so memory a vector holds past its length
@@ -1119,7 +1116,7 @@ function _testhelper_subgraphs_agree(x)
     end
     _testhelper_segments_agree(trues(length(m.steps)), trues(length(flat))) || return false
     x isa ER.AllostericMechanism || return true
-    inactive = x.inactive_steps
+    inactive = ER.Mechanisms.steps_in_inactive_conformation(x)
     kept = _testhelper_inactive_reach(g)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end
@@ -1336,23 +1333,21 @@ function _testhelper_facts_hold(m::ER.Mechanism)
         m.step_sides == [M._sides(m, e) for e in m.steps]
 end
 
-"""Whether the facts `am` stores are those its fields give: its catalytic graph's
-(`_testhelper_facts_hold`), and per conformation the steps its tags exclude
-(`_testhelper_excludes`) and the steps it keeps on the forms they join to free E
-(`_testhelper_exclusion`), which `steps_in_active_conformation` and
-`steps_in_inactive_conformation` compute too."""
+"""Whether the facts of `am` are those its fields give: its catalytic graph's
+(`_testhelper_facts_hold`), and per conformation the steps it runs
+(`steps_in_active_conformation`, `steps_in_inactive_conformation`): those its tags do not
+exclude (`_testhelper_excludes`), on the forms they join to free E
+(`_testhelper_exclusion`)."""
 function _testhelper_facts_hold(am::ER.AllostericMechanism)
     cm = am.catalytic
     _testhelper_facts_hold(cm) || return false
     M = ER.Mechanisms
-    all(((1, am.excluded_active, am.active_steps, M.steps_in_active_conformation(am)),
-         (2, am.excluded_inactive, am.inactive_steps,
-          M.steps_in_inactive_conformation(am)))) do (c, out, kept, runs)
+    all(((1, M.steps_in_active_conformation(am)),
+         (2, M.steps_in_inactive_conformation(am)))) do (c, runs)
         excluded = BitVector([_testhelper_excludes(am, k, c) for k in eachindex(cm.steps)])
         component = _testhelper_exclusion(am, c).component
-        steps = BitVector([!excluded[k] && component[e.from] == 1
+        runs == BitVector([!excluded[k] && component[e.from] == 1
                            for (k, e) in enumerate(cm.steps)])
-        (out, kept, runs) == (excluded, steps, steps)
     end
 end
 
@@ -1412,13 +1407,12 @@ end
     x.step_sides[1] = ("E", "E")
     @test x == m && hash(x) == hash(m)
     @test length(unique!([m, x])) == 1
+    # An allosteric mechanism stores no fact of its own: one around the overwritten copy
+    # equals one around the original.
     am = ER.AllostericMechanism(m, [:EqualAI, :OnlyA, :NonequalAI], 2,
                                 ER.Mechanisms.RegulatorySite[])
-    y = ER.AllostericMechanism(m, [:EqualAI, :OnlyA, :NonequalAI], 2,
+    y = ER.AllostericMechanism(x, [:EqualAI, :OnlyA, :NonequalAI], 2,
                                ER.Mechanisms.RegulatorySite[])
-    for mask in (y.active_steps, y.inactive_steps, y.excluded_active, y.excluded_inactive)
-        mask .= .!mask
-    end
     @test y == am && hash(y) == hash(am)
     @test length(unique!([am, y])) == 1
 end

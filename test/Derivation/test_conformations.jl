@@ -1,9 +1,9 @@
 # ABOUTME: Tests of the allosteric conformation semantics: the steps a conformation
-# ABOUTME: excludes and keeps (`exclusion_components`, the stored step masks).
+# ABOUTME: excludes and runs (`_excluded_steps`, `exclusion_components`).
 
 const ER = EnzymeRates
 
-@testset "active_steps and inactive_steps" begin
+@testset "steps_in_active_conformation and steps_in_inactive_conformation" begin
     M = ER.Mechanisms
     am = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
@@ -23,12 +23,12 @@ const ER = EnzymeRates
     @test [(e.from, e.to) for e in m.steps] == [(1, 2), (1, 4), (1, 5), (2, 3), (5, 4)]
     # The active conformation drops the :OnlyI binding of I, which strands E(I) and so
     # also the binding of P to it.
-    @test am.active_steps == BitVector([0, 1, 1, 0, 1])
+    @test M.steps_in_active_conformation(am) == BitVector([0, 1, 1, 0, 1])
     # The inactive conformation drops the :OnlyA chemistry and keeps every form.
-    @test am.inactive_steps == BitVector([1, 1, 1, 1, 0])
+    @test M.steps_in_inactive_conformation(am) == BitVector([1, 1, 1, 1, 0])
 end
 
-@testset "conformation masks of a plain and an allosteric mechanism" begin
+@testset "excluded steps of a plain and an allosteric mechanism" begin
     D = ER.Derivation
     am = ER.AllostericMechanism(@allosteric_mechanism begin
         substrates: S
@@ -43,16 +43,13 @@ end
         end
     end)
     m = am.catalytic
-    # A plain mechanism has only the active conformation and excludes no step.
-    @test D._conformation_steps(m, 1) == trues(5)
-    @test D._conformation_steps(m, 2) == falses(5)
+    # A plain mechanism excludes no step. The steps are stored as in the testset above:
+    # the active conformation excludes the :OnlyI binding of I, the inactive one the
+    # :OnlyA chemistry.
     @test D._excluded_steps(m, 1) == falses(5)
     @test D._excluded_steps(m, 2) == falses(5)
-    @test D._conformation_steps(am, 1) == am.active_steps
-    @test D._conformation_steps(am, 2) == am.inactive_steps
-    @test D._excluded_steps(am, 1) == am.excluded_active
-    @test D._excluded_steps(am, 2) == am.excluded_inactive
-    @test_throws BoundsError D._conformation_steps(am, 3)
+    @test D._excluded_steps(am, 1) == BitVector([1, 0, 0, 0, 0])
+    @test D._excluded_steps(am, 2) == BitVector([0, 0, 0, 0, 1])
 end
 
 @testset "the excluded steps and exclusion_components: an :OnlyA dead-end binding" begin
@@ -75,8 +72,8 @@ end
     # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod). The inactive
     # conformation excludes the :OnlyA binding, which leaves E(S, S::Mod) alone.
     @test M.step_text(m, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
-    @test am.excluded_active == [false, false, false, false]
-    @test am.excluded_inactive == [false, false, false, true]
+    @test D._excluded_steps(am, 1) == [false, false, false, false]
+    @test D._excluded_steps(am, 2) == [false, false, false, true]
     @test D.exclusion_components(am, :active) == [1, 1, 1, 1]
     @test D.exclusion_components(am, :inactive) == [1, 1, 1, 4]
     # The rule by tag, one tag per group: an :OnlyA step leaves the inactive conformation,
@@ -84,7 +81,7 @@ end
     tags = [:OnlyA, :OnlyI, :EqualAI, :NonequalAI]
     every_tag = ER.AllostericMechanism(m, tags, 2, M.RegulatorySite[])
     step_tags = [tags[e.group] for e in m.steps]
-    @test step_tags[every_tag.excluded_active] == [:OnlyI]
-    @test step_tags[every_tag.excluded_inactive] == [:OnlyA]
+    @test step_tags[D._excluded_steps(every_tag, 1)] == [:OnlyI]
+    @test step_tags[D._excluded_steps(every_tag, 2)] == [:OnlyA]
     @test_throws ArgumentError D.exclusion_components(am, :both)
 end

@@ -496,35 +496,21 @@ end
 An MWC enzyme: its catalytic `Mechanism`, one allosteric tag per kinetic group of it
 (`allosteric_states[g]`), the oligomeric state and the regulatory sites, sorted. Its
 catalytic graph is a plain `Mechanism`, so a model with another derivation can wrap the
-same graph in a type of its own.
-
-It also stores, one flag per catalytic step, the steps each conformation excludes
-(`excluded_active`, the steps of `:OnlyI` groups; `excluded_inactive`, those of `:OnlyA`
-groups) and the steps of each conformation (`active_steps`, `inactive_steps`:
-`_steps_joined_to_free_E`). They take no part in `==` and `hash`. Do not mutate the
-vectors of a built mechanism in place: the masks depend on `allosteric_states`.
+same graph in a type of its own. The steps each conformation runs are computed from them
+(`steps_in_active_conformation`, `steps_in_inactive_conformation`).
 """
 struct AllostericMechanism
     catalytic::Mechanism
     allosteric_states::Vector{Symbol}
     oligomeric_state::Int
     regulatory_sites::Vector{RegulatorySite}
-    active_steps::BitVector
-    inactive_steps::BitVector
-    excluded_active::BitVector
-    excluded_inactive::BitVector
     function AllostericMechanism(catalytic::Mechanism, allosteric_states::Vector{Symbol},
                                  oligomeric_state::Int,
                                  regulatory_sites::Vector{RegulatorySite})
         _check_tags(allosteric_states, length(catalytic.groups), oligomeric_state)
         sites = sort(regulatory_sites; by = _site_key)
         _check_ligands(sites, catalytic)
-        excluded_active = (e -> allosteric_states[e.group] === :OnlyI).(catalytic.steps)
-        excluded_inactive = (e -> allosteric_states[e.group] === :OnlyA).(catalytic.steps)
-        new(catalytic, copy(allosteric_states), oligomeric_state, sites,
-            _steps_joined_to_free_E(catalytic, excluded_active),
-            _steps_joined_to_free_E(catalytic, excluded_inactive), excluded_active,
-            excluded_inactive)
+        new(catalytic, copy(allosteric_states), oligomeric_state, sites)
     end
 end
 
@@ -1037,10 +1023,7 @@ end
 # which compares its two fields, and has its own `hash`.
 for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, EnzymeForm, Step, Mechanism,
           AllostericMechanism)
-    fs = T === Mechanism ? (:substrates, :products, :nodes, :steps) :
-         T === AllostericMechanism ?
-         (:catalytic, :allosteric_states, :oligomeric_state, :regulatory_sites) :
-         fieldnames(T)
+    fs = T === Mechanism ? (:substrates, :products, :nodes, :steps) : fieldnames(T)
     @eval Base.:(==)(a::$T, b::$T) =
         $(reduce((l, r) -> :($l && $r), [:(a.$f == b.$f) for f in fs]))
     @eval Base.hash(x::$T, h::UInt) =

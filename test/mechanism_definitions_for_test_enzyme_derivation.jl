@@ -116,16 +116,17 @@ _testhelper_steady_state_names(m) =
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
 rapid equilibrium, `[kf, kr]` at steady state — as the joint solve names its columns
-(`_constant_columns`): `names[k]` for edge `k` of the state's law (`active_steps`,
-`inactive_steps`; every edge for `:None`), empty for every other edge. `state` is
-`:None` for a plain mechanism and `:A` or `:I` for an allosteric one; an inactive
-constant reads its own column when its group has one, so an `:EqualAI` group's
-constants take their one shared name in both.
+(`_constant_columns`): `names[k]` for edge `k` of the state's law
+(`steps_in_active_conformation`, `steps_in_inactive_conformation`; every edge for
+`:None`), empty for every other edge. `state` is `:None` for a plain mechanism and `:A`
+or `:I` for an allosteric one; an inactive constant reads its own column when its group
+has one, so an `:EqualAI` group's constants take their one shared name in both.
 """
 function _testhelper_edge_names(m, state::Symbol,
                                 cols = EnzymeRates.Derivation._constant_columns(m))
     cm = EnzymeRates.Mechanisms.catalytic(m)
-    mask = EnzymeRates.Derivation._conformation_steps(m, state === :I ? 2 : 1)
+    mask = state === :I ? EnzymeRates.Mechanisms.steps_in_inactive_conformation(m) :
+           EnzymeRates.Mechanisms.steps_in_active_conformation(m)
     index = Dict(c => i for (i, c) in enumerate(cols.columns))
     P = EnzymeRates.Derivation._StepParameter
     column(k, slot) = get(() -> index[P(k, slot, false)], index, P(k, slot, state === :I))
@@ -207,7 +208,8 @@ function _testhelper_graph(m)
         Symbol[EnzymeRates.Derivation._name(p, mech, kept)
                for p in _testhelper_step_parameters(cm, k, inactive)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
-    in_law, in_active = allo ? (mech.inactive_steps, mech.active_steps) :
+    in_law, in_active = allo ? (EnzymeRates.Mechanisms.steps_in_inactive_conformation(mech),
+                                EnzymeRates.Mechanisms.steps_in_active_conformation(mech)) :
                         (falses(length(cm.steps)), trues(length(cm.steps)))
     steps = map(edges) do k
         e = cm.steps[k]
@@ -919,7 +921,7 @@ function _testhelper_phantom_map_holds(am; rng)
         A = EnzymeRates.Derivation._law(am, s)
         w = EnzymeRates.Derivation._phantom_weights(A)
         isempty(w) && return false
-        all(am.active_steps) || error(
+        all(EnzymeRates.Mechanisms.steps_in_active_conformation(am)) || error(
             "_testhelper_phantom_map_holds: " *
             "the active conformation drops an edge, so the law at L = 0 is not the law " *
             "of catalytic(am)")

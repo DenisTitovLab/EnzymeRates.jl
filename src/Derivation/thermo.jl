@@ -6,8 +6,8 @@
 """
 The kinetic class of column `c` of `m`: its edge's group's constant in the column's slot
 and conformation, except that the copy of an edge in the conformation that excludes it
-(`excluded_active`, `excluded_inactive`: an `:OnlyA` edge's inactive copy, an `:OnlyI`
-edge's active one) is a class of its own.
+(`_excluded_steps`: an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active one) is
+a class of its own.
 """
 _class(m::_AnyMech, c::_StepParameter) =
     _excluded_steps(m, c.inactive ? 2 : 1)[c.step] ?

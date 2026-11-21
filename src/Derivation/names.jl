@@ -200,16 +200,18 @@ allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA
 `:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
 holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
 `law[k]` whether edge `k` lies in the inactive conformation's law and `alaw[k]` whether it
-lies in the active conformation's law (`active_steps`; `_in_active_law` adds the
-`:EqualAI` constants the inactive law reads).
+lies in the active conformation's law (`steps_in_active_conformation`; `_in_active_law`
+adds the `:EqualAI` constants the inactive law reads). A plain mechanism has no inactive
+law.
 """
 function _ordered_columns(m::_AnyMech)
     cm = Mechanisms.catalytic(m)
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
     allosteric = m isa Mechanisms.AllostericMechanism
-    law = _conformation_steps(m, 2)
-    alaw = _conformation_steps(m, 1)
+    law = allosteric ? Mechanisms.steps_in_inactive_conformation(m) :
+          falses(length(cm.steps))
+    alaw = Mechanisms.steps_in_active_conformation(m)
     columns = _StepParameter[]
     for k in flat, inactive in (false, true)
         inactive && !(allosteric && _has_inactive_columns(tags[cm.steps[k].group])) &&
@@ -264,7 +266,7 @@ inactive one's, whose one constant the inactive law reads; `kept_in_law[i]` whet
 enters the law as its class's kept member, the last of its class (`_class`) in
 elimination order, so that it stands for the class. `flat` holds the steps group by
 group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of the
-inactive conformation (`inactive_steps`).
+inactive conformation (`steps_in_inactive_conformation`; none for a plain mechanism).
 """
 function _constant_columns(m::_AnyMech)
     cols = _ordered_columns(m)

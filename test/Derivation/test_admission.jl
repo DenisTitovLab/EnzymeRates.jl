@@ -120,11 +120,11 @@ end
         end
     end
     bind, iso = _testhelper_edge(r2, "E + S ⇌ ES"), _testhelper_edge(r2, "F <--> E")
-    @test r2.excluded_inactive[bind] &&
-          !r2.excluded_active[bind]
-    @test r2.active_steps == trues(4)
+    @test EnzymeRates.Derivation._excluded_steps(r2, 2)[bind] &&
+          !EnzymeRates.Derivation._excluded_steps(r2, 1)[bind]
+    @test EnzymeRates.Mechanisms.steps_in_active_conformation(r2) == trues(4)
     # The inactive law deletes both tagged steps, which strands every form but E.
-    @test r2.inactive_steps == falses(4)
+    @test EnzymeRates.Mechanisms.steps_in_inactive_conformation(r2) == falses(4)
     law = EnzymeRates.Derivation._law_network(r2)
     @test (law.nforms, law.ncopies, length(law.from)) == (4, 2, 10)
     @test law.present == [true, true, true, true, true, false, false, false]
@@ -3513,7 +3513,8 @@ end
                        am, _testhelper_reading(am, r)), keys(_testhelper_guard_readings))
     end
     for am in (too_many_pairs, too_many_active)
-        @test !EnzymeRates.Mechanisms.has_turnover_cycle(am.catalytic, am.active_steps)
+        @test !EnzymeRates.Mechanisms.has_turnover_cycle(
+            am.catalytic, EnzymeRates.Mechanisms.steps_in_active_conformation(am))
         @test D._guard(am) == D._Verdict(D._NO_ACTIVE_TURNOVER, D._LIMIT_UNTESTED, 0, 1, 1)
     end
     @test D._guard_message(too_many_pairs) ==
@@ -3605,7 +3606,8 @@ end
                    D._MAX_CHOICES_PER_CONFORMATION, 1:2)
     @test prod(cap_columns) > D._MAX_READING_PAIRS
     for am in (cap_active, cap_pairs)
-        @test EnzymeRates.Mechanisms.has_turnover_cycle(am.catalytic, am.active_steps)
+        @test EnzymeRates.Mechanisms.has_turnover_cycle(
+            am.catalytic, EnzymeRates.Mechanisms.steps_in_active_conformation(am))
         @test !any(r -> _testhelper_reading_is_consistent(
                        am, _testhelper_reading(am, r)), keys(_testhelper_guard_readings))
     end
@@ -5517,11 +5519,11 @@ end
         end
     end
     onlyi = fx.competitive_RE
-    @test onlyi.active_steps ==
-          onlya.inactive_steps
-    @test onlyi.inactive_steps ==
-          onlya.active_steps
-    @test !all(onlyi.active_steps)
+    @test EnzymeRates.Mechanisms.steps_in_active_conformation(onlyi) ==
+          EnzymeRates.Mechanisms.steps_in_inactive_conformation(onlya)
+    @test EnzymeRates.Mechanisms.steps_in_inactive_conformation(onlyi) ==
+          EnzymeRates.Mechanisms.steps_in_active_conformation(onlya)
+    @test !all(EnzymeRates.Mechanisms.steps_in_active_conformation(onlyi))
 end
 
 @testset "an RE binding whose affinity vanishes still closes a fast cycle" begin
@@ -5939,8 +5941,7 @@ end
     v = EnzymeRates.Derivation._guard(am)
     @test (v.fault, v.face, v.conformation) ==
           (EnzymeRates.Derivation._NO_ACTIVE_TURNOVER, 0, 1)
-    ks = [k for k in eachindex(am.catalytic.steps)
-          if am.excluded_active[k]]
+    ks = findall(EnzymeRates.Derivation._excluded_steps(am, 1))
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :EqualAI)
     @test !EnzymeRates.Derivation._retag_passes(am, ks, :NonequalAI)
     @test EnzymeRates.Derivation._guard_message(am) ==

@@ -150,10 +150,10 @@ end
     s = EnzymeRates.Derivation._solve(am)
     cm, mets = EnzymeRates.Mechanisms.catalytic(am), EnzymeRates.metabolites(am)
     active = EnzymeRates.Derivation._law(
-        cm, s, am.active_steps;
+        cm, s, EnzymeRates.Mechanisms.steps_in_active_conformation(am);
         concentrations = mets)
     inactive = EnzymeRates.Derivation._law(
-        cm, s, am.inactive_steps;
+        cm, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am);
         inactive = true, concentrations = mets)
     @test active.vars == inactive.vars
     @test active.vars.names == [mets; s.names[s.independents]; :Keq]
@@ -461,8 +461,8 @@ end
     # The thirteen mechanisms whose :OnlyI groups bind modifiers alone, read without the
     # guard: each law equals the rapid-equilibrium limit of the oracle's own deletion
     # network (`_testhelper_limit_law`) at 3 points, and the active conformation's
-    # denominator holds no constant of an :OnlyI group, since the conformation's step mask
-    # (`active_steps`) drops them.
+    # denominator holds no constant of an :OnlyI group, since the conformation's steps
+    # (`steps_in_active_conformation`) drop them.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         @testset "$label" begin
             sub = _testhelper_single_subunit(am)
@@ -503,7 +503,7 @@ end
         end
     end
     am = _testhelper_lift(inert)
-    @test !any(am.inactive_steps)
+    @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(am))
     s = EnzymeRates.Derivation._solve(am)
     A = EnzymeRates.Derivation._law(am, s)
     @test EnzymeRates.Derivation._flip_only(A.inactive) &&
@@ -569,8 +569,8 @@ end
     end
     am = _testhelper_lift(em)
     cm = am.catalytic
-    amask, imask = am.active_steps,
-        am.inactive_steps
+    amask, imask = EnzymeRates.Mechanisms.steps_in_active_conformation(am),
+        EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)
     @test _testhelper_laplacian_tree_count(cm, amask) == 4320
     @test _testhelper_laplacian_tree_count(cm, imask) == 4320
     @test EnzymeRates.Derivation.rate_equation_term_count(cm, amask) <=

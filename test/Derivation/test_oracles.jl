@@ -1653,7 +1653,8 @@ end
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 247
-    @test count(am -> !any(am.inactive_steps), kids) == 93
+    @test count(am -> !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)),
+                kids) == 93
     flagged = [am for am in kids
                if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))]
     @test length(flagged) == 111

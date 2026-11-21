@@ -198,7 +198,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
     nf, names = length(m.enzyme_forms), _guard_names(m)
     nnames = length(names)
     nv = ncopies * nf + nnames
-    excluded(k, c) = _excluded_steps(mech, c)[k]
+    excluded = [_excluded_steps(mech, c) for c in 1:ncopies]
     equal_ai(g) = mech isa Mechanisms.AllostericMechanism &&
                   mech.allosteric_states[g] === :EqualAI
     function drop!(row, k, c, dir)
@@ -216,7 +216,7 @@ function _model_point(mech::_AnyMech, ncopies::Int, face::UInt64, rng::_ResidueS
     groups = _kinetic_groups(m)
     for (g, members) in enumerate(groups), c in 1:ncopies
         lead = first(members)
-        excluded(lead, c) && continue
+        excluded[c][lead] && continue
         for k in members[2:end]
             push!(ties, drop!(drop!(zeros(Int, nv), k, c, 1), lead, c, -1))
         end

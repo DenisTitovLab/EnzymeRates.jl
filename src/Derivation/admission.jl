@@ -141,7 +141,8 @@ over (`_NO_ACTIVE_TURNOVER`, led by the first edge it excludes); `_WELL_POSED` o
 function _active_turnover_verdict(am::Mechanisms.AllostericMechanism)
     k = _first_excluded(am, 1)
     k != 0 &&
-        !Mechanisms.has_turnover_cycle(Mechanisms.catalytic(am), am.active_steps) &&
+        !Mechanisms.has_turnover_cycle(Mechanisms.catalytic(am),
+                                       Mechanisms.steps_in_active_conformation(am)) &&
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end
@@ -388,7 +389,7 @@ function _admission_message(am::Mechanisms.AllostericMechanism, v::_Verdict,
         return _steady_state_passes(am, k) ?
                msg * " Make the kinetic group of $(line(k)) steady-state." : msg
     elseif v.fault === _NO_ACTIVE_TURNOVER
-        ks = [j for j in eachindex(m.steps) if am.excluded_active[j]]
+        ks = findall(_excluded_steps(am, 1))
         msg = "AllostericMechanism: without its :OnlyI steps $(lines(ks)) the active " *
               "conformation turns no substrate into product, but it must catalyze the " *
               "reaction."

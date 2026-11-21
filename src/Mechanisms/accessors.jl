@@ -22,35 +22,6 @@ function _groups(steps::Vector{Step})
     members
 end
 
-"""Which nodes of `m` the steps not in `excluded` join to free E, node 1."""
-function _joined_to_free_E(m::Mechanism, excluded::BitVector)
-    reached = falses(length(m.nodes))
-    reached[1] = true
-    grew = true
-    while grew
-        grew = false
-        for (k, e) in enumerate(m.steps)
-            (excluded[k] || reached[e.from] == reached[e.to]) && continue
-            reached[e.from] = reached[e.to] = true
-            grew = true
-        end
-    end
-    reached
-end
-
-"""
-The steps of the conformation of `m` that excludes the steps `excluded`, one flag per step
-in `m`'s stored direction: the other steps, between forms they join to free E, form 1. The
-conformations interconvert at free E alone, so a form those steps do not join to it holds
-no enzyme of that conformation, a second free form included. The law deletes the excluded
-steps and prunes the forms this strands; admission decides when that is the limit of the
-vanishing constants (spec section 7).
-"""
-function _steps_joined_to_free_E(m::Mechanism, excluded::BitVector)
-    joined = _joined_to_free_E(m, excluded)
-    (k -> !excluded[k] && joined[m.steps[k].from]).(eachindex(m.steps))
-end
-
 """
     steps_in_active_conformation(m) -> BitVector
 
@@ -82,24 +53,27 @@ steps_in_inactive_conformation(@nospecialize(aem::AllostericEnzymeMechanism)) =
     steps_in_inactive_conformation(AllostericMechanism(aem))
 
 """The steps of the catalytic graph of `am` that run in the conformation that excludes the
-kinetic groups in allosteric state `excluded`: the other steps, between forms they join
-to free E, form 1."""
-function _steps_in_conformation(am::AllostericMechanism, excluded::Symbol)
+kinetic groups in allosteric state `state`: the other steps, between forms they join to
+free E, form 1."""
+function _steps_in_conformation(am::AllostericMechanism, state::Symbol)
     m = am.catalytic
-    runs = BitVector([am.allosteric_states[e.group] !== excluded for e in m.steps])
-    joined = falses(length(m.enzyme_forms))
-    joined[1] = true
+    excluded = (e -> am.allosteric_states[e.group] === state).(m.steps)
+    joined = _joined_to_free_E(m, excluded)
+    (k -> !excluded[k] && joined[m.steps[k].from]).(eachindex(m.steps))
+end
+
+"""Which nodes of `m` the steps not in `excluded` join to free E, node 1."""
+function _joined_to_free_E(m::Mechanism, excluded::BitVector)
+    reached = falses(length(m.nodes))
+    reached[1] = true
     grew = true
     while grew
         grew = false
         for (k, e) in enumerate(m.steps)
-            runs[k] && joined[e.from] != joined[e.to] || continue
-            joined[e.from] = joined[e.to] = true
+            (excluded[k] || reached[e.from] == reached[e.to]) && continue
+            reached[e.from] = reached[e.to] = true
             grew = true
         end
     end
-    for (k, e) in enumerate(m.steps)
-        joined[e.from] || (runs[k] = false)
-    end
-    runs
+    reached
 end

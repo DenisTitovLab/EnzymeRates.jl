@@ -3372,21 +3372,4 @@ end
           union(Set(["E + A ⇌ EA", "E + Q ⇌ EQ"]), chemistry, island)
     @test texts(pingpong, M.steps_in_inactive_conformation(pingpong)) ==
           Set(["E + A ⇌ EA", "E + Q ⇌ EQ", "E + I ⇌ EI"])
-
-    # The masks each mechanism stores agree: each conformation's steps, and the steps
-    # each excludes.
-    @test (example.active_steps, example.inactive_steps) ==
-          (M.steps_in_active_conformation(example), M.steps_in_inactive_conformation(example))
-    @test isempty(texts(example, example.excluded_active))
-    @test texts(example, example.excluded_inactive) == Set(["E + S ⇌ ES", "ES <--> EP"])
-    @test (dead_end.active_steps, dead_end.inactive_steps) ==
-          (M.steps_in_active_conformation(dead_end),
-           M.steps_in_inactive_conformation(dead_end))
-    @test isempty(texts(dead_end, dead_end.excluded_active))
-    @test texts(dead_end, dead_end.excluded_inactive) == Set(["E + I ⇌ EI"])
-    @test (pingpong.active_steps, pingpong.inactive_steps) ==
-          (M.steps_in_active_conformation(pingpong),
-           M.steps_in_inactive_conformation(pingpong))
-    @test texts(pingpong, pingpong.excluded_active) == Set(["E + I ⇌ EI"])
-    @test texts(pingpong, pingpong.excluded_inactive) == chemistry
 end

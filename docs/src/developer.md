@@ -51,11 +51,11 @@ flowchart TB
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b>"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
-  enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
+  enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
   fit -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b>"| mech
-  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
 ```
@@ -164,8 +164,8 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
-| `steps_in_active_conformation` | The steps the active conformation runs | | |
-| `steps_in_inactive_conformation` | The steps the inactive conformation runs | | |
+| `steps_in_active_conformation` | The steps the active conformation runs | Derivation, Enumeration | |
+| `steps_in_inactive_conformation` | The steps the inactive conformation runs | Derivation, Enumeration | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
 | | steady-state steps between them | | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
@@ -261,10 +261,6 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 | | | `:EqualAI` or `:NonequalAI` |
 | | `oligomeric_state::Int` | the number of catalytic subunits |
 | | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
-| | `active_steps::BitVector` | stored: the active conformation's steps |
-| | `inactive_steps::BitVector` | stored: the inactive conformation's steps |
-| | `excluded_active::BitVector` | stored: the steps the active one excludes |
-| | `excluded_inactive::BitVector` | stored: the steps the inactive one excludes |
 | `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
 | | `multiplicity::Int` | the number of such sites |
 | | `allosteric_states::Vector{Symbol}` | one tag per ligand |
@@ -459,9 +455,9 @@ in `test/Derivation/test_names.jl` walks `src/` and fails on a `Symbol("K…")`,
 and on a renderer outside that file. The
 engine (`_law`,
 `src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
-keeps (`am.active_steps`, `am.inactive_steps`; every edge
-of a plain mechanism). Every edge keeps its stored direction, so both conformations share
-the mechanism's orientation and names. The canonical form
+keeps (`steps_in_active_conformation(am)`, `steps_in_inactive_conformation(am)`; every
+edge of a plain mechanism). Every edge keeps its stored direction, so both conformations
+share the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 in content order (conformation label, bound metabolites, residual); an edge that neither
 chemistry nor graph context orients runs from the earlier form; and a tied group's lead
@@ -551,7 +547,8 @@ without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)`
 
 The guard builds two networks of one catalytic subunit whose conformations flip at free E
 (`_Network`): the **law network**, each conformation's kept steps on the forms free E
-reaches through them (`active_steps`, `inactive_steps`), and the **ε-network**, every step
+reaches through them (`steps_in_active_conformation`, `steps_in_inactive_conformation`),
+and the **ε-network**, every step
 of both conformations, each excluded step switched off as a **reading** says (`_Reading`,
 `_eps_network`). The faces (`_faces`) are bit masks over the metabolite names. Class 1, a
 cycle that turns the reaction over (`has_turnover_cycle`), reads no reading. Under a
@@ -863,10 +860,10 @@ parent at multiplicity 1 only, and above one subunit the tagging and change-tag
 moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
 (`_expand_re_to_ss`), drop a child that fails the predicate. On an
 `AllostericMechanism` the predicate reads each conformation's law
-(`active_steps`, `inactive_steps`), since a conformation that runs part of the catalytic graph can
-carry a power the whole graph lacks. The predicate scores
-the rapid-equilibrium segment graph of the catalytic scheme, leaving out every
-edge that touches a form holding a modifier, a reactant's modifier copy included: for
+(`steps_in_active_conformation`, `steps_in_inactive_conformation`), since a conformation
+that runs part of the catalytic graph can carry a power the whole graph lacks. The
+predicate scores the rapid-equilibrium segment graph of the catalytic scheme, leaving out
+every edge that touches a form holding a modifier, a reactant's modifier copy included: for
 each substrate and product, a directed steady-state edge scores one if it binds the
 metabolite in that direction plus the count the edge's source form carries beyond its
 segment's bottom form (the offsets of `rapid_equilibrium_segments`, whose `bottom` also

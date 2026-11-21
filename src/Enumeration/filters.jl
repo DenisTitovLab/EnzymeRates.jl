@@ -69,13 +69,13 @@ end
 """Whether `m` is degenerate by the structural conditions V and C: no maximal rate in one
 direction (`_has_vmax`), or chemistry in rapid equilibrium with both sides
 (`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own flags,
-over the active conformation's law (`active_steps`): every edge of a plain
-mechanism, and the edges its tags keep of an allosteric one. The beam expands a degenerate
-seed without fitting it (`_base_tier`)."""
+over the steps the active conformation runs (`steps_in_active_conformation`): every edge
+of a plain mechanism, and the edges its tags keep of an allosteric one. The beam expands a
+degenerate seed without fitting it (`_base_tier`)."""
 function _degenerate(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism})
     cm = Mechanisms.catalytic(m)
     re = _rapid_equilibrium_flags(cm)
-    on = m isa Mechanisms.AllostericMechanism ? m.active_steps : trues(length(cm.steps))
+    on = Mechanisms.steps_in_active_conformation(m)
     !(_has_vmax(cm, re, cm.substrates, on) &&
       _has_vmax(cm, re, cm.products, on)) ||
         _chemistry_equilibrates_both_sides(cm, re, on)
@@ -85,24 +85,25 @@ end
     _kept_forms_keep_a_binding(m) -> Bool
 
 Whether, in each conformation of `m`, every form but free E that the conformation's law
-keeps (a form of a step in `active_steps` or `inactive_steps`) and that some binding enters
-(a step that takes up one metabolite and gives off none) is entered by a binding the
-conformation does not exclude (`excluded_active`, `excluded_inactive`). True for a plain
-mechanism. The guard admits a mechanism that fails this when its law is the limit, so a
-user may write one; the enumerator does not build it.
+keeps (a form of a step it runs, `steps_in_active_conformation` or
+`steps_in_inactive_conformation`) and that some binding enters (a step that takes up one
+metabolite and gives off none) is entered by a binding the conformation does not exclude:
+one outside the `:OnlyI` groups in the active conformation, outside the `:OnlyA` groups in
+the inactive one. True for a plain mechanism. The guard admits a mechanism that fails this
+when its law is the limit, so a user may write one; the enumerator does not build it.
 """
 _kept_forms_keep_a_binding(::Mechanisms.Mechanism) = true
 function _kept_forms_keep_a_binding(am::Mechanisms.AllostericMechanism)
     steps, n = am.catalytic.steps, length(am.catalytic.nodes)
-    for (law, excluded) in ((am.active_steps, am.excluded_active),
-                            (am.inactive_steps, am.excluded_inactive))
+    for (law, excluded) in ((Mechanisms.steps_in_active_conformation(am), :OnlyI),
+                            (Mechanisms.steps_in_inactive_conformation(am), :OnlyA))
         # Per form: some binding enters it; some binding the conformation runs does. A
         # step with one metabolite is stored as its uptake, so it enters its `to` form.
         entered, made = falses(n), falses(n)
         for (k, e) in enumerate(steps)
             length(e.taken_up) == 1 && isempty(e.given_off) || continue
             entered[e.to] = true
-            excluded[k] || (made[e.to] = true)
+            am.allosteric_states[e.group] === excluded || (made[e.to] = true)
         end
         for (k, e) in enumerate(steps), f in (e.from, e.to)
             law[k] && f != 1 && entered[f] && !made[f] && return false
@@ -195,15 +196,16 @@ end
 """
     _hyperbolic_catalysis(am::AllostericMechanism) -> Bool
 
-Whether each conformation's law of `am` (`active_steps`, `inactive_steps`) passes
-`_hyperbolic_catalysis`. A conformation that runs part
-of the catalytic graph can carry a power the whole graph lacks: a ping-pong's abortive
-complexes can put A² into the inactive law once that conformation stops one
+Whether each conformation's law of `am` (`steps_in_active_conformation`,
+`steps_in_inactive_conformation`) passes `_hyperbolic_catalysis`. A conformation that runs
+part of the catalytic graph can carry a power the whole graph lacks: a ping-pong's
+abortive complexes can put A² into the inactive law once that conformation stops one
 half-reaction.
 """
 _hyperbolic_catalysis(am::Mechanisms.AllostericMechanism) =
     all(mask -> _hyperbolic_catalysis(Mechanisms.catalytic(am), mask),
-        (am.active_steps, am.inactive_steps))
+        (Mechanisms.steps_in_active_conformation(am),
+         Mechanisms.steps_in_inactive_conformation(am)))
 
 """
 Whether every segment of the segment graph reaches `root` when each edge in
@@ -407,11 +409,12 @@ identifiable. Two copies that are twins only of each other, neither pinned, pass
 and carry a phantom: the rule admits them.
 
 An allosteric copy binds the active state unless its tag is `:OnlyI` and the inactive
-state unless it is `:OnlyA`. Each state's graph is its law's (`active_steps`,
-`inactive_steps`): the edges its tags keep between forms they join to free E. The copy
-binds in a state only at the sites that graph keeps; in a state where it binds nothing,
-every factor of that state is 1. A copy that binds in neither state is not redundant: its
-constant enters neither law and is not fitted. The two states form one system.
+state unless it is `:OnlyA`. Each state's graph is its law's
+(`steps_in_active_conformation`, `steps_in_inactive_conformation`): the edges its tags
+keep between forms they join to free E. The copy binds in a state only at the sites that
+graph keeps; in a state where it binds nothing, every factor of that state is 1. A copy
+that binds in neither state is not redundant: its constant enters neither law and is not
+fitted. The two states form one system.
 A group tagged `:EqualAI` has one set of constants in both, so it must take the same
 rescaling in each. A shared class is one number in both states only when its binding
 group and the copy are both `:EqualAI` (one K_h, one K*). The copy's complexes share one
@@ -430,7 +433,8 @@ function _redundant_copy_groups(m::Union{Mechanisms.Mechanism,
     end
     am = m::Mechanisms.AllostericMechanism
     equal(h) = am.allosteric_states[h] === :EqualAI
-    masks = (am.active_steps, am.inactive_steps)
+    masks = (Mechanisms.steps_in_active_conformation(am),
+             Mechanisms.steps_in_inactive_conformation(am))
     kept = [[filter(k -> mask[k], ks) for ks in members] for mask in masks]
     twins = [_productive_twin(cm, mask) for mask in masks]
     unscaled(c) = Dict(h => (_NO_RESCALING, _NO_RESCALING)

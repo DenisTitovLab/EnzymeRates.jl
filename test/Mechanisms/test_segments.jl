@@ -120,8 +120,8 @@ end
         subsets = [[Int[]]; [[i] for i in 1:n]; [[i, j] for i in 1:n for j in (i + 1):n]]
         masks = [BitVector(k in s for k in 1:n) for s in subsets]
         mech isa ER.AllostericMechanism &&
-            push!(masks, mech.active_steps,
-                  mech.inactive_steps)
+            push!(masks, M.steps_in_active_conformation(mech),
+                  M.steps_in_inactive_conformation(mech))
         for on in masks
             @test (spec.name, findall(on), M.has_turnover_cycle(m, on)) ==
                   (spec.name, findall(on), _testhelper_net_uptake_cycle(m, on))
@@ -299,7 +299,7 @@ end
             (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
         end
     end
-    inactive = am.inactive_steps
+    inactive = ER.Mechanisms.steps_in_inactive_conformation(am)
     @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
           ["E + P ⇌ EP", "EP + I ⇌ EIP"]
     @test [ER.Mechanisms._form_name(am.catalytic, f)

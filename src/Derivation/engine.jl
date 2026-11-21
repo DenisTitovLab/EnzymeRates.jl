@@ -239,7 +239,7 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
 end
 
 """The law of the edges of `m` over the independents of `s`, every edge kept."""
-_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, _conformation_steps(m, 1))
+_law(m::Mechanisms.Mechanism, s::_Solve) = _law(m, s, trues(length(m.steps)))
 
 # ─── The MWC law ─────────────────────────────────────────────────────────
 
@@ -324,18 +324,18 @@ end
     _law(am, s = _solve(am)) -> _AlloLaw
 
 The MWC law of `am` over the independents of `s`: each conformation's law on its steps
-(`active_steps`, `inactive_steps`), `_flip_only_law` for a conformation whose mask is
-empty, both over the concentrations of `metabolites(am)`, so their polynomials multiply
-directly; free E's weight in each over their common factor; and each regulatory site's
-binding polynomials. Free E roots segment 1, so its weight is that segment's tree sum
-times the law's shift. A law over the summed cap is refused before any polynomial
-product (`_assert_derivable`). The guard rejects an empty active mask
-(`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
+(`steps_in_active_conformation`, `steps_in_inactive_conformation`), `_flip_only_law` for a
+conformation that runs none, both over the concentrations of `metabolites(am)`, so their
+polynomials multiply directly; free E's weight in each over their common factor; and each
+regulatory site's binding polynomials. Free E roots segment 1, so its weight is that
+segment's tree sum times the law's shift. A law over the summed cap is refused before any
+polynomial product (`_assert_derivable`). The guard rejects an active conformation that
+runs no step (`_NO_ACTIVE_TURNOVER`), but the oracles read its law.
 """
 function _law(am::Mechanisms.AllostericMechanism, s::_Solve)
     _assert_derivable(am)
-    m, amask, imask = Mechanisms.catalytic(am), am.active_steps,
-                      am.inactive_steps
+    m, amask, imask = Mechanisms.catalytic(am), Mechanisms.steps_in_active_conformation(am),
+                      Mechanisms.steps_in_inactive_conformation(am)
     concentrations = Mechanisms.metabolites(am)
     LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
          _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
@@ -428,10 +428,10 @@ free E alone counting 0, saturated at `typemax(Int)`. The cap (`_assert_derivabl
 identify's `eq_complexity_filter` read it.
 """
 rate_equation_term_count(m::Mechanisms.Mechanism) =
-    rate_equation_term_count(m, _conformation_steps(m, 1))
+    rate_equation_term_count(m, trues(length(m.steps)))
 function rate_equation_term_count(am::Mechanisms.AllostericMechanism)
-    m, imask = Mechanisms.catalytic(am), am.inactive_steps
-    a = rate_equation_term_count(m, am.active_steps)
+    m, imask = Mechanisms.catalytic(am), Mechanisms.steps_in_inactive_conformation(am)
+    a = rate_equation_term_count(m, Mechanisms.steps_in_active_conformation(am))
     i = any(imask) ? rate_equation_term_count(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end

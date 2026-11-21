@@ -1538,9 +1538,9 @@ end
     end)
     cm = ktype.catalytic
     @test _testhelper_laplacian_tree_count(
-        cm, ktype.active_steps) == 336
+        cm, EnzymeRates.Mechanisms.steps_in_active_conformation(ktype)) == 336
     @test _testhelper_laplacian_tree_count(
-        cm, ktype.inactive_steps) == 16
+        cm, EnzymeRates.Mechanisms.steps_in_inactive_conformation(ktype)) == 16
     @test EnzymeRates.Derivation.rate_equation_term_count(ktype) == 352
     @test EnzymeRates.Derivation.fitted_parameter_count(ktype) == 16
     batch = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[ktype]
@@ -2833,7 +2833,7 @@ end
         end
     end
     cm, on = tc_route.catalytic,
-             tc_route.active_steps
+             EnzymeRates.Mechanisms.steps_in_active_conformation(tc_route)
     re = _testhelper_flags(cm)
     @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
@@ -2858,7 +2858,7 @@ end
         end
     end
     cm, on = merged_route.catalytic,
-             merged_route.active_steps
+             EnzymeRates.Mechanisms.steps_in_active_conformation(merged_route)
     re = _testhelper_flags(cm)
     subs = cm.substrates
     @test EnzymeRates.Mechanisms.form_text.(
@@ -2887,7 +2887,7 @@ end
         end
     end
     cm, on = re_tc_route.catalytic,
-             re_tc_route.active_steps
+             EnzymeRates.Mechanisms.steps_in_active_conformation(re_tc_route)
     re = _testhelper_flags(cm)
     @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re)
     @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(cm, re, on)
