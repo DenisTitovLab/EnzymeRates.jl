@@ -416,10 +416,10 @@ A value holds no other fact and means nothing without its mechanism. At slot 1 a
 `_StepParameter` is a rapid-equilibrium step's equilibrium constant or a steady-state step's
 rate constant in its stored direction; at slot 2, a steady-state step's rate constant in the
 reverse direction. The step's flag says which. A K on a steady-state step or a k on a
-rapid-equilibrium one constructs but has no name: `_name` errors on it. `_name(p, m)` renders
-the name from the step's sides and the kept member of its kinetic class, and derives the
-conformation tag from `inactive` and the group's or ligand's allosteric tag. `parameters`
-returns these names as Symbols, and the rate law takes them at compile time.
+rapid-equilibrium one constructs but has no name: `_name` errors on it. `_name(p, m)`
+renders the name from the step's sides and the kept member of its kinetic class, and
+derives the conformation tag from `inactive` and the group's or ligand's allosteric tag.
+`parameters` returns these names as Symbols, and the rate law takes them at compile time.
 
 `parameter_units(m)` gives each one's units from its step or ligand, as integer powers of
 the rate and of each concentration: a steady-state step's rate constant is the rate over
@@ -435,8 +435,11 @@ constants whose units hold the rate, so it reads no step itself.
 column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`,
 `:OnlyA` or `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying
 each further member of a kinetic class to its first. The columns come ordered by
-`_priority_key`
-(`_ordered_columns`), and the solve reduces the system
+`_priority_key` (`_ordered_columns`), which reads the graph alone: the conformation
+block, the step's shape (an isomerization, a step with more than one metabolite, a
+binding), whether neither of its forms is free E, steady state before rapid equilibrium,
+the constant that runs against the reaction, then the step's place in the stored order.
+The solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
 returns them with the independents and the fitted names as a `_Solve`, which the engine,
@@ -458,9 +461,10 @@ decides the order and the direction it reads: free E is form 1 and the other for
 in content order (conformation label, bound metabolites, residual); an edge that neither
 chemistry nor graph context orients runs from the earlier form; and a tied group's lead
 turns the group's other tied edges to match it (`_align_tied_groups!`). The order's last
-tie-break reads each edge's content as stored: its forms' places in content order, then
-the metabolites it takes up and gives off (`_edge_base_rank`). The canonical form thus
-decides the dependents and so the fitted names: a change to it changes fitted names.
+tie-break is each step's place in the stored order. The canonical form thus decides the
+dependents and so the fitted names: a change to it changes fitted names. Constants are
+named from the forms' names (`enzyme_forms`) and the bare names of the metabolites a step
+takes up or gives off, so a reactant's modifier copy reads as the reactant there.
 
 ### The law, its code, its text and its key
 
@@ -659,8 +663,8 @@ energy-level rule agrees with the oracles").
 
 **Faults.** A verdict's fault is one of: two constants of the law share a name, which the
 guard checks first (`_SHARED_NAME`, `_shared_constant_names`); no cycle turns the
-reaction over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`,
-`_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded rapid-equilibrium step inside one group
+reaction over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's
+`_NONUNIQUE`, `_BOTTOMLESS`, `_TRAP`, `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded rapid-equilibrium step inside one group
 (`_FAST_STEP_PINNED`); an active conformation that turns nothing over
 (`_NO_ACTIVE_TURNOVER`); on a face, admission's `_EPS_NONUNIQUE`, `_FILLED`, `_PUMPED` or
 `_BRIDGE`; or too many readings to search with no consistent built reading
@@ -712,9 +716,9 @@ The constructor rejects a binding whose forms match a plain binding by name but 
 such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
 Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
 Every edge but a plain binding (a `step_kinds` entry other than `:binding`) is chemistry;
-the allosteric moves (`_chemistry_groups`, in `Enumeration`), the joint solve's priority
-(`_priority_key`) and `_merged_complexes` read `step_kinds` to tell catalysis from binding;
-the guard's verdicts read none. The derivation reads every binding alike, so a fused
+the allosteric moves (`_chemistry_groups`, in `Enumeration`) and `_merged_complexes` read
+`step_kinds` to tell catalysis from binding; the derivation and the guard read none, and
+tell a step's shape from its lists. The derivation reads every binding alike, so a fused
 binding's rapid-equilibrium constant is a dissociation constant and its steady-state pair a
 binding and a release rate constant. Every step's constants are named by the two sides of
 its kinetic class's kept member — each side's enzyme form followed by its free metabolites

@@ -128,7 +128,8 @@ end
     @test D.parameter_units(ER.Mechanism(uni_uni)) == D.parameter_units(uni_uni)
 
     # Steady-state bindings: a rate constant is the rate over what it takes up in its own
-    # direction, so the binding of S has [S]⁻¹ and each release none.
+    # direction, so the binding of S has [S]⁻¹, the uptake of P into E(S) [P]⁻¹ and the
+    # release of P none.
     ss_bindings = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
@@ -137,9 +138,9 @@ end
             E(S) <--> E + P
         end
     end)
-    @test parameters(ss_bindings) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
+    @test parameters(ss_bindings) == (:k_ES_to_E_P, :k_E_P_to_ES, :k_E_S_to_ES)
     @test D.parameter_units(ss_bindings) ==
-          (rate = [1, 1, 1], concentrations = [0 0; 0 0; -1 0])
+          (rate = [1, 1, 1], concentrations = [0 0; 0 -1; -1 0])
     # A release's reverse rate constant binds the product: [P]⁻¹.
     ss_uni_uni = @enzyme_mechanism begin
         substrates: S
@@ -290,12 +291,12 @@ end
     end
 end
 
-@testset "fitted names before the graph-only rule" begin
+@testset "the fitted names of every spec" begin
     # parameters(m) of every MECHANISM_TEST_SPECS entry, written out: the names a fit
     # estimates, in parameters order.
     pinned = Dict(
         "Uni-Uni" =>
-            (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
+            (:k_ES_to_E_P, :k_E_P_to_ES, :k_E_S_to_ES),
         "Segel Uni Uni" =>
             (:k_EA_to_EP, :k_EA_to_E_A, :k_EP_to_E_P, :k_E_A_to_EA, :k_E_P_to_EP),
         "Segel Iso Uni Uni" =>
@@ -310,17 +311,17 @@ end
             (:k_EA_B_to_EQ_P, :k_EA_to_E_A, :k_EQ_to_E_Q, :k_E_A_to_EA, :k_E_Q_to_EQ),
         "Segel Ping Pong Bi Bi" =>
             (:k_EA_to_E_A, :k_EA_to_F_P, :k_E_A_to_EA, :k_E_Q_to_FB, :k_FB_to_E_Q,
-             :k_FB_to_F_B, :k_F_B_to_FB),
+             :k_F_B_to_FB, :k_F_P_to_EA),
         "Segel Ordered Ter Bi" =>
             (:k_EABC_to_EAB_C, :k_EABC_to_EQ_P, :k_EAB_C_to_EABC, :k_EAB_to_EA_B,
              :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EQ_to_E_Q, :k_E_A_to_EA, :k_E_Q_to_EQ),
         "Segel Ordered Ter Ter" =>
             (:k_EABC_to_EAB_C, :k_EABC_to_EQR_P, :k_EAB_C_to_EABC, :k_EAB_to_EA_B,
-             :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EQR_to_ER_Q, :k_ER_Q_to_EQR, :k_ER_to_E_R,
+             :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EQR_P_to_EABC, :k_EQR_to_ER_Q, :k_ER_to_E_R,
              :k_E_A_to_EA, :k_E_R_to_ER),
         "Segel Bi Uni Uni Uni PP Ter Bi" =>
             (:k_EAB_to_EA_B, :k_EAB_to_F_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_E_A_to_EA,
-             :k_E_Q_to_FC, :k_FC_to_E_Q, :k_FC_to_F_C, :k_F_C_to_FC),
+             :k_E_Q_to_FC, :k_FC_to_E_Q, :k_F_C_to_FC, :k_F_P_to_EAB),
         "Random-order Bi-Bi" =>
             (:k_EAB_to_EA_B, :k_EAB_to_EPQ, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_EB_A_to_EAB,
              :k_EB_to_E_B, :k_EPQ_to_EQ_P, :k_EQ_P_to_EPQ, :k_EQ_to_E_Q, :k_E_A_to_EA,
@@ -336,8 +337,8 @@ end
             (:K_EP_to_E_P, :K_ES1S2_to_ES1_S2, :K_ES1_to_E_S1, :K_ES2_to_E_S2,
              :k_ES1S2_to_EP, :k_ES2_S1_to_ES1S2),
         "Segel Bi Uni Uni Bi PP Ter Ter" =>
-            (:k_EAB_to_EA_B, :k_EAB_to_F_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_ER_to_E_R,
-             :k_E_A_to_EA, :k_E_R_to_ER, :k_FC_to_ER_Q, :k_FC_to_F_C, :k_F_C_to_FC,
+            (:k_EAB_to_EA_B, :k_EAB_to_F_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_ER_Q_to_FC,
+             :k_ER_to_E_R, :k_E_A_to_EA, :k_E_R_to_ER, :k_FC_to_ER_Q, :k_F_C_to_FC,
              :k_F_P_to_EAB),
         "Segel Bi Bi Uni Uni PP Ter Ter" =>
             (:k_EAB_to_EA_B, :k_EAB_to_FQ_P, :k_EA_B_to_EAB, :k_EA_to_E_A, :k_E_A_to_EA,
@@ -345,8 +346,8 @@ end
              :k_F_Q_to_FQ),
         "Segel Hexa Uni Ping Pong" =>
             (:k_EA_to_E_A, :k_EA_to_F_P, :k_E_A_to_EA, :k_E_R_to_GC, :k_FB_to_F_B,
-             :k_FB_to_G_Q, :k_F_B_to_FB, :k_F_P_to_EA, :k_GC_to_E_R, :k_GC_to_G_C,
-             :k_G_C_to_GC),
+             :k_FB_to_G_Q, :k_F_B_to_FB, :k_F_P_to_EA, :k_GC_to_E_R, :k_G_C_to_GC,
+             :k_G_Q_to_FB),
         "RE Uni-Uni" =>
             (:K_EA_to_E_A, :k_EA_to_E_P),
         "RE Ordered Bi-Bi" =>
@@ -393,9 +394,9 @@ end
              :k_A_EATPF6P_to_EADPF16BP, :K_A_ADPreg, :K_Pireg, :K_A_F26BPreg, :K_I_ATPreg,
              :K_I_Citratereg, :K_I_F26BPreg, :L),
         "HK" =>
-            (:K_A_EATP_to_E_ATP, :K_EADP_to_E_ADP, :K_EG6P_to_E_G6P,
-             :K_EG6Pmod_to_E_G6P, :K_EGlucose_to_E_Glucose,
-             :k_A_EATPGlucose_to_EADPG6P, :K_Pireg, :K_I_G6Preg, :L),
+            (:K_A_EATP_to_E_ATP, :K_EADP_to_E_ADP, :K_EG6P_to_E_G6P, :K_EG6Pmod_to_E_G6P,
+             :K_EGlucose_to_E_Glucose, :k_A_EATPGlucose_to_EADPG6P, :K_Pireg, :K_I_G6Preg,
+             :L),
         "PK" =>
             (:K_A_EPEP_to_E_PEP, :K_EADP_to_E_ADP, :K_EATP_to_E_ATP,
              :K_EPyruvate_to_E_Pyruvate, :k_A_EADPPEP_to_EATPPyruvate, :K_A_F16BPreg,
@@ -943,30 +944,4 @@ _testhelper_count_chokepoint_defs(expr) =
         # The renderers are in src/Derivation/names.jl and nowhere else.
         @test (_testhelper_count_chokepoint_defs(expr) > 0) == (f == names_file)
     end
-end
-
-@testset "base ranks order forms and edges by content, free E among the forms" begin
-    # Free E is form 1, but by content it sorts after the free form D.
-    m = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(P)
-            E(P) <--> D + P
-            D <--> E
-        end
-    end
-    @test [ER.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)] ==
-          ["E", "D", "EA", "EP"]
-    @test ER.Derivation._base_rank(m) == [2, 1, 3, 4]
-    # P enters at D and A at E, so the isomerization runs from D (orientation tier 2).
-    texts = [_testhelper_edge_text(m, k) for k in eachindex(m.steps)]
-    @test texts == ["E + A <--> EA", "D <--> E", "D + P <--> EP", "EA <--> EP"]
-    # By base rank the edges from D come first.
-    @test ER.Derivation._edge_base_rank(m) == [3, 1, 2, 4]
-    @test [m.step_kinds[k] === :isomerization for k in eachindex(m.steps)] ==
-          [false, true, false, true]
-    @test [ER.Derivation._binds_product(m, k) for k in eachindex(m.steps)] ==
-          [false, false, true, false]
 end

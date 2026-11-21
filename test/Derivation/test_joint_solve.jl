@@ -89,26 +89,24 @@ end
         @test M[1, end] == -1
     end
 
-    @testset "kind, occupancy, flag and direction rank in that order" begin
-        # Every step at steady state: a plain binding at free E, a binding between two
-        # occupied forms, an isomerization, a binding fused with chemistry, a binding of A
-        # at E(B) and an isomerization of free E.
+    @testset "shape, free E, flag, direction and place rank in that order" begin
+        # Every step at steady state: a binding at free E, a binding off free E, an
+        # isomerization, a Theorell–Chance exchange, the releases of P and Q, each stored as
+        # its uptake, and an isomerization of free E.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
                 E + A <--> E(A)
                 E(A) + B <--> E(A, B)
-                E(A) <--> E(P)
-                E(A) + B <--> E(P, Q)
-                E + B <--> E(B)
-                E(B) + A <--> E(A, B)
+                E(A, B) <--> E(P, Q)
+                E(A) + B <--> E(Q) + P
+                E(P, Q) <--> E(Q) + P
+                E(Q) <--> E + Q
                 E <--> F
-                E(P) <--> E + P
-                E(P, Q) <--> E(P) + Q
             end
         end)
-        # The binding between occupied forms at rapid equilibrium.
+        # The binding off free E at rapid equilibrium.
         m_re = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: A, B
             products: P
@@ -120,25 +118,31 @@ end
             end
         end)
         _testhelper_key(x, text, slot, block) =
-            EnzymeRates.Derivation._priority_key(x, _testhelper_edge(x, text), slot, block,
-                                                 EnzymeRates.Derivation._edge_base_rank(x))
+            EnzymeRates.Derivation._priority_key(x, _testhelper_edge(x, text), slot, block)
         key(text, slot, block) = _testhelper_key(m, text, slot, block)
-        plain, occupied = "E + A <--> EA", "EA + B <--> EAB"
+        at_free_E, off_free_E = "E + A <--> EA", "EA + B <--> EAB"
         # block first: an inactive copy outside the law before any other column
-        @test key(plain, 1, 2) > key(occupied, 2, 1) > key(occupied, 2, 0)
-        # kind next, ahead of every later column: an isomerization, then other chemistry (a
-        # binding fused with chemistry), then a plain binding. In the first chain the later
-        # columns tie or sort the other way, so kind alone orders it.
-        iso, fused, binding = "EA <--> EP", "EA + B <--> EPQ", "EB + A <--> EAB"
-        @test key(iso, 2, 0) > key(fused, 2, 0) > key(binding, 2, 0)
-        # kind before the constant against the reaction, and before occupancy
-        @test key(iso, 1, 0) > key(fused, 2, 0)
-        @test key("E <--> F", 1, 0) > key(occupied, 1, 0)
-        # a binding between two occupied forms before one that touches free E
-        @test key(occupied, 1, 0) > key(plain, 2, 0)
-        # steady state before rapid equilibrium, then the constant against the reaction
-        @test key(occupied, 1, 0) > _testhelper_key(m_re, "EA + B ⇌ EAB", 1, 0)
-        @test key(occupied, 2, 0) > key(occupied, 1, 0)
+        @test key(at_free_E, 1, 2) > key(off_free_E, 2, 1) > key(off_free_E, 2, 0)
+        # shape next: an isomerization, then a step with more than one metabolite, then a
+        # binding. The three tie on every later field but their place, so shape alone
+        # orders them.
+        iso, exchange = "EAB <--> EPQ", "EA + B <--> EQ + P"
+        @test key(iso, 2, 0) > key(exchange, 2, 0) > key(off_free_E, 2, 0)
+        @test key(iso, 2, 0)[3:5] == key(exchange, 2, 0)[3:5] == key(off_free_E, 2, 0)[3:5]
+        # shape before the constant against the reaction and before free E
+        @test key(iso, 1, 0) > key(exchange, 2, 0)
+        @test key("E <--> F", 1, 0) > key(off_free_E, 1, 0)
+        # a step neither of whose forms is free E before one that touches it
+        @test key(off_free_E, 1, 0) > key(at_free_E, 2, 0)
+        # steady state before rapid equilibrium, then the constant against the reaction: a
+        # binding's release, or the uptake of a product
+        @test key(off_free_E, 1, 0) > _testhelper_key(m_re, "EA + B ⇌ EAB", 1, 0)
+        @test key(off_free_E, 2, 0) > key(off_free_E, 1, 0)
+        @test key("E + Q <--> EQ", 1, 0) > key("E + Q <--> EQ", 2, 0)
+        # then the place in the stored order, the later step first
+        q, a = _testhelper_edge(m, "E + Q <--> EQ"), _testhelper_edge(m, at_free_E)
+        @test key("E + Q <--> EQ", 1, 0)[1:5] == key(at_free_E, 2, 0)[1:5]
+        @test (key("E + Q <--> EQ", 1, 0) > key(at_free_E, 2, 0)) == (q > a)
     end
 
     @testset "a modifier copy keys after the reactant of its name" begin
@@ -466,22 +470,8 @@ end
         eac, eab = findfirst(==("EAC"), names), findfirst(==("EAB"), names)
         @test isless(m.nodes[eac], m.nodes[eab]) && eac < eab
         @test names[eac] > names[eab]
-        # The solve's content tie ranks the graph's forms the same way (`_base_rank`).
-        rank = EnzymeRates.Derivation._base_rank(m)
-        @test rank[eac] < rank[eab]
     end
 
-    @testset "the content order's ranks have one concrete type whatever a graph holds" begin
-        # A rank type that follows a graph's content makes the sorts and comparisons that
-        # read it compile again for every new shape a search meets: the solve breaks its
-        # ties by integer ranks of forms and edges, which compare by content.
-        @test isconcretetype(only(Base.return_types(EnzymeRates.Derivation._base_rank,
-                                                    (EnzymeRates.Mechanism,))))
-        @test isconcretetype(only(Base.return_types(EnzymeRates.Derivation._edge_base_rank,
-                                                    (EnzymeRates.Mechanism,))))
-        @test all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.EnzymeForm)) &&
-              all(isconcretetype, fieldtypes(EnzymeRates.Mechanisms.Step))
-    end
 end
 
 @testset "_solve's half-integer dependent has keq -1//2 and exact exponents" begin

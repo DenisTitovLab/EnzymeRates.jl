@@ -133,25 +133,28 @@ _name(::_AllostericParameter, ::Mechanisms.AllostericMechanism) = :L
 # ─── Kept members of kinetic classes ─────────────────────────────────
 
 """
-The priority key of constant `slot` of edge `k` of `m` in conformation block `block` (2:
+The priority key of constant `slot` of step `k` of `m` in conformation block `block` (2:
 a copy outside its conformation's law, 1: an inactive copy in the law, 0: an active copy
-in the law). The solve eliminates the larger key first, so a column with a larger key
-becomes dependent sooner. In turn: the block; the edge's kind (3 an isomerization, 2
-other chemistry, 1 a plain binding); whether both of its forms hold a metabolite; steady
-state before rapid equilibrium; a steady-state constant that runs against the reaction
-(for a product binding its uptake, for every other edge its reverse rate: the constructor
-stores each edge in its physical-forward direction); then the edge's content as stored,
-its rank `edge_rank[k]` (`_edge_base_rank`), the smaller rank kept.
+in the law), read from the graph alone. The solve eliminates the larger key first, so a
+column with a larger key becomes dependent sooner. In turn: the block; the step's shape
+(3 an isomerization, which takes up and gives off nothing; 2 a step that takes up or
+gives off more than one metabolite; 1 a binding); whether neither of its forms is free E;
+steady state before rapid equilibrium; a steady-state constant that runs against the
+reaction (for a binding of a product, stored as its uptake, the uptake; for every other
+step its reverse rate, since the constructor stores it the way the reaction runs); then
+the step's place in the stored order, the earlier kept. The key decides which constants
+are fitted, never the law.
 """
-function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int,
-                       edge_rank::Vector{Int})
+function _priority_key(m::Mechanisms.Mechanism, k::Int, slot::Int, block::Int)
     e = m.steps[k]
-    sk = m.step_kinds[k]
-    kind = sk === :isomerization ? 3 : sk === :binding ? 1 : 2
-    occupied = !isempty(m.nodes[e.from].bound) && !isempty(m.nodes[e.to].bound)
+    held = length(e.taken_up) + length(e.given_off)
+    shape = held == 0 ? 3 : held == 1 ? 1 : 2
+    off_free_E = e.from != 1 && e.to != 1
     ss = !e.rapid_equilibrium
-    against = ss && (slot == 2) != _binds_product(m, k)
-    (block, kind, occupied, ss, against, edge_rank[k])
+    binds_product = held == 1 && !isempty(e.taken_up) &&
+                    insorted(only(e.taken_up).name, m.products)
+    against = ss && (slot == 2) != binds_product
+    (block, shape, off_free_E, ss, against, k)
 end
 
 """Each kinetic group's allosteric tag, `:None` for a plain mechanism."""
@@ -198,10 +201,9 @@ function _ordered_columns(m::_AnyMech)
             push!(columns, _StepParameter(k, slot, inactive))
         end
     end
-    rank = _edge_base_rank(cm)
     block(c) = c.inactive ? (law[c.step] ? 1 : 2) :
                _in_active_law(cm, c.step, tags, law, alaw) ? 0 : 2
-    priorities = [_priority_key(cm, c.step, c.slot, block(c), rank) for c in columns]
+    priorities = [_priority_key(cm, c.step, c.slot, block(c)) for c in columns]
     (; columns = columns[sortperm(priorities; rev = true)], flat, tags, law, alaw)
 end
 
@@ -302,19 +304,3 @@ end
 """The steps group by group, each group in step order: the order the joint solve and the
 derivation read them in."""
 _flat_edges(m::Mechanisms.Mechanism) = reduce(vcat, _kinetic_groups(m); init = Int[])
-"""Whether step `k` of `m` binds a product: it takes up one product, not as a modifier."""
-_binds_product(m::Mechanisms.Mechanism, k::Int) =
-    m.step_kinds[k] in (:binding, :fused_binding) &&
-    (x = only(m.steps[k].taken_up); !x.modifier && insorted(x.name, m.products))
-"""Each node's position in content order (`isless(::EnzymeForm)`: label, bound, added,
-subtracted): its index, except that free E moves behind the nodes whose label sorts before
-`E` (a free node labelled D)."""
-_base_rank(m::Mechanisms.Mechanism) = invperm(sortperm(m.nodes))
-"""Each step's position by the base ranks (`_base_rank`) of its two nodes, then its
-taken-up and given-off metabolites as lists: the content order of the joint solve's ties
-(`_priority_key`)."""
-function _edge_base_rank(m::Mechanisms.Mechanism)
-    rank = _base_rank(m)
-    invperm(sortperm([Mechanisms.Step(rank[e.from], rank[e.to], e.taken_up, e.given_off,
-                           e.rapid_equilibrium, e.group) for e in m.steps]))
-end

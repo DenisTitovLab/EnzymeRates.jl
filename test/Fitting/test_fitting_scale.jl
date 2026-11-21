@@ -7,7 +7,8 @@ using OptimizationCMAEvolutionStrategy
 @testset "Reference turnover scale" begin
 
     # Uni-uni with a steady-state binding; at Keq = 2 these constants give kcat = 5 and
-    # the Michaelis constant Km. Fitted: k_ES_to_E_P, k_ES_to_E_S, k_E_S_to_ES.
+    # the Michaelis constant Km. Fitted: k_ES_to_E_P, k_E_P_to_ES, k_E_S_to_ES; the
+    # Haldane relation gives the release rate of S, k_ES_to_E_S = 5.
     mm = @enzyme_mechanism begin
         substrates: S
         products:   P
@@ -16,7 +17,7 @@ using OptimizationCMAEvolutionStrategy
             E(S) <--> E + P
         end
     end
-    _testhelper_mm_params(Km) = (k_ES_to_E_P = 5.0, k_ES_to_E_S = 5.0,
+    _testhelper_mm_params(Km) = (k_ES_to_E_P = 5.0, k_E_P_to_ES = 5.0 / Km,
                                  k_E_S_to_ES = 10.0 / Km)
     mm_concs = [(S = 0.5, P = 0.1), (S = 1.0, P = 0.1), (S = 2.0, P = 0.1),
                 (S = 5.0, P = 0.1), (S = 10.0, P = 0.1), (S = 1.0, P = 0.5)]
@@ -193,8 +194,8 @@ using OptimizationCMAEvolutionStrategy
         @test exact ≈ 0 atol = 1e-20
         fast = NamedTuple{keys(truth)}(10 .* values(truth))
         @test test_rate_equation(mm, fast, mm_data, 2.0; absolute = true) > 1
-        without = Base.structdiff(fit.params, (k_ES_to_E_S = 0.0,))
-        @test_throws ErrorException("params is missing k_ES_to_E_S") test_rate_equation(
+        without = Base.structdiff(fit.params, (k_E_P_to_ES = 0.0,))
+        @test_throws ErrorException("params is missing k_E_P_to_ES") test_rate_equation(
             mm, without, mm_data, 2.0)
     end
 

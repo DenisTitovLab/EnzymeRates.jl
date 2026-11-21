@@ -85,8 +85,8 @@ end
     @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
                         m(:A => 1, :B => 1) => -1 // 1]
     @test _testhelper_n_text(pp) ==
-          "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_E_Q + k_FB_to_F_B) / " *
-          "(k_EA_to_F_P + k_FB_to_E_Q)"
+          "(k_EA_to_E_A + k_EA_to_F_P) * (k_EA_to_E_A * k_E_Q_to_FB * k_F_P_to_EA * Keq " *
+          "+ k_EA_to_F_P * k_E_A_to_EA * k_F_B_to_FB) / (k_EA_to_F_P + k_FB_to_E_Q)"
     _testhelper_check_units(mech, L)
 end
 
@@ -509,29 +509,30 @@ end
         end
     end
     @test _testhelper_n_text(terbi) ==
-          "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_E_Q + k_FC_to_F_C) / " *
-          "(k_EAB_to_F_P + k_FC_to_E_Q)^2"
+          "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_EAB_to_EA_B * k_EA_to_E_A * k_E_Q_to_FC * " *
+          "k_F_P_to_EAB * Keq + k_EAB_to_F_P * k_EA_B_to_EAB * k_E_A_to_EA * " *
+          "k_F_C_to_FC) / (k_EAB_to_F_P + k_FC_to_E_Q)^2"
     @test _testhelper_n_text(power) ==
-          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * " *
-          "k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B * " *
-          "k_EP_res_plusA_minusP_B_to_EBP_res_plusA_minusP * k_EQ_A_to_EAQ + " *
-          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * " *
-          "k_EP_res_plusA_minusP_B_to_EBP_res_plusA_minusP * k_EQ_A_to_EAQ * " *
-          "k_EQ_to_E_Q + k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B * k_EQ_to_E_Q * " *
-          "k_E_Q_to_EQ * Keq + k_EBP_res_plusA_minusP_to_EP_res_plusA_minusP_B^2 * " *
-          "k_E_Q_to_EQ * Keq"
+          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * k_EP_res_plusA_minusP_to_E_A " *
+          "* k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + " *
+          "K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P * k_EQ_to_E_Q * " *
+          "k_E_A_to_EP_res_plusA_minusP * k_E_res_plusA_minusP_B_to_EQ + " *
+          "k_EP_res_plusA_minusP_to_E_A * k_EQ_to_E_Q * k_E_Q_to_EQ * Keq + " *
+          "k_EP_res_plusA_minusP_to_E_A^2 * k_E_Q_to_EQ * Keq"
     @test _testhelper_n_text(bi_uni_uni_bi) ==
-          "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_FC_to_ER_Q + k_FC_to_F_C) / " *
-          "(k_EAB_to_F_P * k_ER_to_E_R + k_EAB_to_F_P * k_FC_to_ER_Q + " *
-          "k_ER_to_E_R * k_FC_to_ER_Q)^2"
+          "(k_EAB_to_EA_B + k_EAB_to_F_P) * (k_EAB_to_EA_B * k_EA_to_E_A * k_ER_Q_to_FC " *
+          "* k_E_R_to_ER * k_F_P_to_EAB * Keq + k_EAB_to_F_P * k_EA_B_to_EAB * " *
+          "k_ER_to_E_R * k_E_A_to_EA * k_F_C_to_FC) / (k_EAB_to_F_P * k_ER_to_E_R + " *
+          "k_EAB_to_F_P * k_FC_to_ER_Q + k_ER_to_E_R * k_FC_to_ER_Q)^2"
     @test _testhelper_n_text(bi_bi_uni_uni) ==
           "(k_EAB_to_EA_B + k_EAB_to_FQ_P) * (k_FC_to_E_R + k_FC_to_F_C) / " *
           "(k_EAB_to_FQ_P * k_FC_to_E_R + k_EAB_to_FQ_P * k_FQ_to_F_Q + " *
           "k_FC_to_E_R * k_FQ_to_F_Q)^2"
     @test _testhelper_n_text(hexa_uni) ==
-          "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_F_B + k_FB_to_G_Q) * " *
-          "(k_GC_to_E_R + k_GC_to_G_C) / (k_EA_to_F_P * k_FB_to_G_Q + " *
-          "k_EA_to_F_P * k_GC_to_E_R + k_FB_to_G_Q * k_GC_to_E_R)^2"
+          "(k_EA_to_E_A + k_EA_to_F_P) * (k_FB_to_F_B + k_FB_to_G_Q) * (k_EA_to_E_A * " *
+          "k_E_R_to_GC * k_FB_to_F_B * k_F_P_to_EA * k_G_Q_to_FB * Keq + k_EA_to_F_P * " *
+          "k_E_A_to_EA * k_FB_to_G_Q * k_F_B_to_FB * k_G_C_to_GC) / (k_EA_to_F_P * " *
+          "k_FB_to_G_Q + k_EA_to_F_P * k_GC_to_E_R + k_FB_to_G_Q * k_GC_to_E_R)^2"
     rng = Random.MersenneTwister(51)
     for m in (f1, f2, f2g, f3, f4, terbi, power, bi_uni_uni_bi, bi_bi_uni_uni, hexa_uni)
         @test _testhelper_printed_law_error(m) <= big(10)^-20
@@ -611,13 +612,23 @@ end
     @test heads(full) == ["N_A", "Q_A", "D_A", "D_I", "F_A", "F_I", "W_A", "W_I"]
     @test heads(coef) == heads(full)
     @test "D_I = A * k_EQ_to_E_Q * k_E_A_to_E_res_plusA_minusP_P + " *
-          "P * k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A + " *
-          "P * Q * k_E_Q_to_EQ * k_E_res_plusA_minusP_P_to_E_A" in full
-    @test "F_I = P * k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A" in full
+          "P * k_A_E_res_plusA_minusP_B_to_EQ * k_EQ_to_E_Q^2 * " *
+          "k_E_A_to_E_res_plusA_minusP_P / " *
+          "(k_A_EQ_to_E_res_plusA_minusP_B * k_E_Q_to_EQ * Keq) + " *
+          "P * Q * k_A_E_res_plusA_minusP_B_to_EQ * k_EQ_to_E_Q * " *
+          "k_E_A_to_E_res_plusA_minusP_P / (k_A_EQ_to_E_res_plusA_minusP_B * Keq)" in full
+    @test "F_I = P * k_A_E_res_plusA_minusP_B_to_EQ * k_EQ_to_E_Q^2 * " *
+          "k_E_A_to_E_res_plusA_minusP_P / " *
+          "(k_A_EQ_to_E_res_plusA_minusP_B * k_E_Q_to_EQ * Keq)" in full
     @test ["dI_A = k_EQ_to_E_Q * k_E_A_to_E_res_plusA_minusP_P",
-           "dI_P = k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A",
-           "dI_P_Q = k_E_Q_to_EQ * k_E_res_plusA_minusP_P_to_E_A",
-           "fI_P = k_EQ_to_E_Q * k_E_res_plusA_minusP_P_to_E_A"] ⊆ coef
+           "dI_P = k_A_E_res_plusA_minusP_B_to_EQ * k_EQ_to_E_Q^2 * " *
+           "k_E_A_to_E_res_plusA_minusP_P / " *
+           "(k_A_EQ_to_E_res_plusA_minusP_B * k_E_Q_to_EQ * Keq)",
+           "dI_P_Q = k_A_E_res_plusA_minusP_B_to_EQ * k_EQ_to_E_Q * " *
+           "k_E_A_to_E_res_plusA_minusP_P / (k_A_EQ_to_E_res_plusA_minusP_B * Keq)",
+           "fI_P = k_A_E_res_plusA_minusP_B_to_EQ * k_EQ_to_E_Q^2 * " *
+           "k_E_A_to_E_res_plusA_minusP_P / " *
+           "(k_A_EQ_to_E_res_plusA_minusP_B * k_E_Q_to_EQ * Keq)"] ⊆ coef
     tc_full = split(rate_equation_string(tc), '\n')
     tc_coef = split(rate_equation_string(tc; coefficients = true), '\n')
     @test heads(tc_full) == ["Q_A", "D_A", "D_I", "F_A"]

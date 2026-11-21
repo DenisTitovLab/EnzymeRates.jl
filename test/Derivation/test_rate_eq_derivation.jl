@@ -1097,8 +1097,9 @@ end
 @testset "a fused release keeps its catalytic rate constant fitted" begin
     # E(S) <--> E + P gives off P while turning S into P. It is stored as the binding it
     # reverses, E + P → E(S), whose forward constant k_E_P_to_ES runs against the
-    # reaction. The Haldane relation makes that constant dependent, as k₋₂ of the
-    # textbook mechanism, and the catalytic constant k_ES_to_E_P stays fitted.
+    # reaction, as the release of S, k_ES_to_E_S, does. The two bindings tie on every
+    # fact of the graph but their place, and the Haldane relation makes the later one's,
+    # k_ES_to_E_S, dependent; the catalytic constant k_ES_to_E_P stays fitted.
     ss = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
@@ -1107,7 +1108,7 @@ end
         end
     end
     @test Set(parameters(ss)) ==
-          Set([:k_E_S_to_ES, :k_ES_to_E_S, :k_ES_to_E_P])
+          Set([:k_E_S_to_ES, :k_E_P_to_ES, :k_ES_to_E_P])
     re = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
@@ -1908,7 +1909,7 @@ end
     # conformation's law (the inactive one's `I_` names included for MWC Dimer), and
     # rapid-equilibrium constants are absent (RE Uni-Uni).
     expected = Dict(
-        "Uni-Uni" => (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
+        "Uni-Uni" => (:k_ES_to_E_P, :k_E_P_to_ES, :k_E_S_to_ES),
         "RE Uni-Uni" => (:k_EA_to_E_P,),
         "MWC Dimer [AllostericEnzymeMechanism]" => (:k_A_ES_to_EP, :k_I_ES_to_EP),
         "m_OnlyA_prod" => (:k_A_ES_to_EP,),

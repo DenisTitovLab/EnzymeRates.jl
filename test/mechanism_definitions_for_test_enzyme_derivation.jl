@@ -127,9 +127,8 @@ function _testhelper_edge_names(m, state::Symbol,
     cm = EnzymeRates.Mechanisms.catalytic(m)
     mask = EnzymeRates.Derivation._conformation_steps(m, state === :I ? 2 : 1)
     index = Dict(c => i for (i, c) in enumerate(cols.columns))
-    column(k, slot) = get(() -> index[EnzymeRates.Derivation._StepParameter(k, slot, false)],
-                          index,
-                          EnzymeRates.Derivation._StepParameter(k, slot, state === :I))
+    P = EnzymeRates.Derivation._StepParameter
+    column(k, slot) = get(() -> index[P(k, slot, false)], index, P(k, slot, state === :I))
     [mask[k] ? Symbol[cols.names[column(k, slot)]
                       for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)] :
                Symbol[]
@@ -5189,11 +5188,13 @@ _testhelper_typical_table(m) =
 
 # The log centre of each fitted constant of each `MECHANISM_TEST_SPECS` entry, in
 # `parameters` order, from the table `_testhelper_typical_table`: the starting values
-# Fitting gave on 2026-11-20 (commit 2f93b1e7), from the steps it read then.
+# Fitting gave on 2026-11-20 (commit 2f93b1e7), from the steps it read then. A
+# steady-state rate constant's centre is log(3) + j·log(10) for each metabolite j it takes
+# up, which gives the value of each constant the solve fits in place of another.
 const _testhelper_typical_log_centres = Dict(
     "Uni-Uni" => [
         :k_ES_to_E_P => 1.0986122886681098,
-        :k_ES_to_E_S => 1.0986122886681098,
+        :k_E_P_to_ES => 5.703782474656201,
         :k_E_S_to_ES => 3.401197381662155,
     ],
     "Segel Uni Uni" => [
@@ -5241,8 +5242,8 @@ const _testhelper_typical_log_centres = Dict(
         :k_E_A_to_EA => 3.401197381662155,
         :k_E_Q_to_FB => 10.308952660644291,
         :k_FB_to_E_Q => 1.0986122886681098,
-        :k_FB_to_F_B => 1.0986122886681098,
         :k_F_B_to_FB => 5.703782474656201,
+        :k_F_P_to_EA => 8.006367567650246,
     ],
     "Segel Ordered Ter Bi" => [
         :k_EABC_to_EAB_C => 1.0986122886681098,
@@ -5262,8 +5263,8 @@ const _testhelper_typical_log_centres = Dict(
         :k_EAB_to_EA_B => 1.0986122886681098,
         :k_EA_B_to_EAB => 5.703782474656201,
         :k_EA_to_E_A => 1.0986122886681098,
+        :k_EQR_P_to_EABC => 10.308952660644291,
         :k_EQR_to_ER_Q => 1.0986122886681098,
-        :k_ER_Q_to_EQR => 12.611537753638338,
         :k_ER_to_E_R => 1.0986122886681098,
         :k_E_A_to_EA => 3.401197381662155,
         :k_E_R_to_ER => 14.914122846632383,
@@ -5276,8 +5277,8 @@ const _testhelper_typical_log_centres = Dict(
         :k_E_A_to_EA => 3.401197381662155,
         :k_E_Q_to_FC => 12.611537753638338,
         :k_FC_to_E_Q => 1.0986122886681098,
-        :k_FC_to_F_C => 1.0986122886681098,
         :k_F_C_to_FC => 8.006367567650246,
+        :k_F_P_to_EAB => 10.308952660644291,
     ],
     "Random-order Bi-Bi" => [
         :k_EAB_to_EA_B => 1.0986122886681098,
@@ -5327,11 +5328,11 @@ const _testhelper_typical_log_centres = Dict(
         :k_EAB_to_F_P => 1.0986122886681098,
         :k_EA_B_to_EAB => 5.703782474656201,
         :k_EA_to_E_A => 1.0986122886681098,
+        :k_ER_Q_to_FC => 12.611537753638338,
         :k_ER_to_E_R => 1.0986122886681098,
         :k_E_A_to_EA => 3.401197381662155,
         :k_E_R_to_ER => 14.914122846632383,
         :k_FC_to_ER_Q => 1.0986122886681098,
-        :k_FC_to_F_C => 1.0986122886681098,
         :k_F_C_to_FC => 8.006367567650246,
         :k_F_P_to_EAB => 10.308952660644291,
     ],
@@ -5358,8 +5359,8 @@ const _testhelper_typical_log_centres = Dict(
         :k_F_B_to_FB => 5.703782474656201,
         :k_F_P_to_EA => 10.308952660644291,
         :k_GC_to_E_R => 1.0986122886681098,
-        :k_GC_to_G_C => 1.0986122886681098,
         :k_G_C_to_GC => 8.006367567650246,
+        :k_G_Q_to_FB => 12.611537753638338,
     ],
     "RE Uni-Uni" => [
         :K_EA_to_E_A => -2.3025850929940455,

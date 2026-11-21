@@ -565,8 +565,8 @@ end
     fp = parameters(allo)
     allo_rate = ER.compile_rate_equation(allo)
     @test fp == (:k_A_EA_to_E_res_plusA_minusP_P, :k_A_EB_res_plusA_minusP_to_E_Q,
-                 :k_A_E_Q_to_EB_res_plusA_minusP, :k_EA_to_E_A,
-                 :k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B, :k_E_A_to_EA,
+                 :k_A_E_Q_to_EB_res_plusA_minusP, :k_A_E_res_plusA_minusP_P_to_EA,
+                 :k_EA_to_E_A, :k_E_A_to_EA,
                  :k_E_res_plusA_minusP_B_to_EB_res_plusA_minusP,
                  :k_I_EA_to_E_res_plusA_minusP_P, :k_I_EB_res_plusA_minusP_to_E_Q,
                  :k_I_E_Q_to_EB_res_plusA_minusP, :L)
@@ -596,11 +596,13 @@ end
         #   k_A_E_Q_to_EB_res_plusA_minusP=k4r_A             (FB ⇌ E + Q, active)
         #   k_I_EB_res_plusA_minusP_to_E_Q=k4f_I,
         #   k_I_E_Q_to_EB_res_plusA_minusP=k4r_I             (FB ⇌ E + Q, inactive)
-        # `k_A_E_res_plusA_minusP_P_to_EA` and `k_I_E_res_plusA_minusP_P_to_EA`, the P
-        # rebinding rates, are absent from parameters(m): each conformation's Haldane
-        # makes the constant that runs against the reaction dependent. The oracle takes
-        # k2r_A and k4r_I and derives k1r and k2r_I by the Haldane relations, so both are
-        # computed here the same way, and the derivation rederives k2r_A and k2r_I.
+        # The release of B, `k_EB_res_plusA_minusP_to_E_res_plusA_minusP_B`, and the
+        # inactive P rebinding rate, `k_I_E_res_plusA_minusP_P_to_EA`, are absent from
+        # parameters(m): each conformation's Haldane relation makes one constant that
+        # runs against the reaction dependent. The oracle takes k2r_A and k4r_I and
+        # derives k1r and k2r_I by the Haldane relations, so both are computed here the
+        # same way; every constant below satisfies both relations, and the derivation
+        # rederives k3r and k2r_I from the fitted ones.
         k1r = k1f * k2f_A * k3f * k4f_A / (Keq * k2r_A * k3r * k4r_A)
         k2r_I = k1f * k2f_I * k3f * k4f_I / (Keq * k1r * k3r * k4r_I)
         d = Dict(:k_E_A_to_EA => k1f,
