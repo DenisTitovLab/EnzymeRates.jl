@@ -222,7 +222,7 @@ function _law(m::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Boo
         value = _column_values(vars, s)
         nc = length(concentrations)
         sub(p) = _subst(v -> v <= nc ? nothing :
-                             value[s.column[StepParameter(b.cols[v - nc]..., inactive)]],
+                             value[s.column[_StepParameter(b.cols[v - nc]..., inactive)]],
                       p)
         side(xs) = _monomial((vars.index[x] => 1 for x in xs)...)
         H = _term(side(m.substrates)) -
@@ -305,14 +305,14 @@ end
 """
 The binding polynomial of regulatory site `site` of `am` in the active (`inactive =
 false`) or inactive conformation, over `vars`: 1 plus each ligand's concentration over its
-dissociation constant (`regulator_constant`), an `:OnlyI` ligand left out of the active
+dissociation constant (`_regulator_constant`), an `:OnlyI` ligand left out of the active
 conformation and an `:OnlyA` one out of the inactive.
 """
 function _site_weight(am::Mechanisms.AllostericMechanism, vars::_Vars,
                       site::Mechanisms.RegulatorySite, inactive::Bool)
     W = one(_Poly)
     for (lig, tag) in zip(site.ligands, site.allosteric_states)
-        K = regulator_constant(am, lig, tag, inactive)
+        K = _regulator_constant(am, lig, tag, inactive)
         K === nothing && continue
         W = W + _term(_monomial(vars.index[lig] => 1, vars.index[K] => -1))
     end

@@ -36,7 +36,7 @@ function _testhelper_solve_point(m, rng)
             inactive && !sys.law[k] && continue
             own = inactive &&
                 _testhelper_JS.Derivation._has_inactive_columns(sys.tags[s.group])
-            col(slot) = value[_testhelper_JS.Derivation.StepParameter(k, slot, own)]
+            col(slot) = value[_testhelper_JS.Derivation._StepParameter(k, slot, own)]
             if s.rapid_equilibrium
                 K = col(1)
                 push!(out, (s, _testhelper_is_binding(s) ? 1 / K : K, nothing))
@@ -180,8 +180,8 @@ end
                    if occursin("D", _testhelper_edge_text(m, k)))
         @test _testhelper_edge_text(m, iso) == "E <--> D"
         kf, kr = _testhelper_step_parameters(m, iso)
-        @test EnzymeRates.Derivation.name(kf, m) === :k_E_to_D
-        @test EnzymeRates.Derivation.name(kr, m) === :k_D_to_E
+        @test EnzymeRates.Derivation._name(kf, m) === :k_E_to_D
+        @test EnzymeRates.Derivation._name(kr, m) === :k_D_to_E
         # Written E <--> D, the step is stored the same way.
         @test EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
@@ -556,7 +556,7 @@ end
         end
     end)
     s = EnzymeRates.Derivation._solve(am)
-    C = EnzymeRates.Derivation.StepParameter
+    C = EnzymeRates.Derivation._StepParameter
     binding = _testhelper_edge(am, "E + S ⇌ ES")
     release = _testhelper_edge(am, "E + P <--> ES")
     @test length(s.columns) == 5

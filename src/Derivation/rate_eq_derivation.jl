@@ -57,7 +57,7 @@ function parameter_units(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism))
 end
 
 """`parameter_units` of the checked mechanism `m`, whose fitted constants are `info`."""
-function _parameter_units(m::_AnyMech, info::Vector{Parameter})
+function _parameter_units(m::_AnyMech, info::Vector{_Parameter})
     column = Dict(x => j for (j, x) in enumerate(Mechanisms.metabolites(m)))
     units = (; rate = zeros(Int, length(info)),
              concentrations = zeros(Int, length(info), length(column)))
@@ -70,7 +70,7 @@ end
 """Writes the units of `p`, the `i`-th fitted constant of `m`, into row `i` of `units`
 (`parameter_units`), whose rows start at zero; `column` maps each metabolite of `m` to its
 column."""
-function _write_units!(units, i::Int, p::StepParameter, m::_AnyMech,
+function _write_units!(units, i::Int, p::_StepParameter, m::_AnyMech,
                        column::Dict{Symbol, Int})
     cm = Mechanisms.catalytic(m)
     e = cm.steps[p.step]
@@ -86,10 +86,10 @@ function _write_units!(units, i::Int, p::StepParameter, m::_AnyMech,
     end
     nothing
 end
-_write_units!(units, i::Int, p::RegulatorParameter, m::_AnyMech,
+_write_units!(units, i::Int, p::_RegulatorParameter, m::_AnyMech,
               column::Dict{Symbol, Int}) =
     (units.concentrations[i, column[p.ligand]] += 1; nothing)
-_write_units!(units, i::Int, ::AllostericParameter, m::_AnyMech,
+_write_units!(units, i::Int, ::_AllostericParameter, m::_AnyMech,
               column::Dict{Symbol, Int}) = nothing
 
 """The dependent constants of the joint solve `s` in name order, less the kinetic-group

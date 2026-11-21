@@ -2408,7 +2408,7 @@ end
     # names differ in the bound form (k_E_A_to_EA, k_E_A_to_EstarA).
     m = _testhelper_written(:(E + A <--> E(A)), :(E + A <--> Estar(A)),
                             :(E(A) <--> E(P)), :(E + P <--> E(P)))
-    names = [ER.Derivation.name(p, m) for members in m.groups
+    names = [ER.Derivation._name(p, m) for members in m.groups
              for p in _testhelper_step_parameters(m, first(members))]
     @test allunique(names)
     @test issubset([:k_E_A_to_EA, :k_E_A_to_EstarA], names)

@@ -99,11 +99,11 @@ _testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
     EnzymeRates.AllostericMechanism(m)
 _testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
-"""One `StepParameter` per slot of step `k` of `m`'s catalytic graph, in the inactive
+"""One `_StepParameter` per slot of step `k` of `m`'s catalytic graph, in the inactive
 conformation when `inactive`."""
 function _testhelper_step_parameters(m, k, inactive = false)
     re = EnzymeRates.Mechanisms.catalytic(m).steps[k].rapid_equilibrium
-    [EnzymeRates.Derivation.StepParameter(k, slot, inactive) for slot in 1:(re ? 1 : 2)]
+    [EnzymeRates.Derivation._StepParameter(k, slot, inactive) for slot in 1:(re ? 1 : 2)]
 end
 
 """The fitted rate constants of `m`, the constants of steady-state steps, which a common
@@ -116,20 +116,20 @@ _testhelper_steady_state_names(m) =
 """
 The parameter Symbols of each edge's constants in conformation `state` of `m` — `[K]` at
 rapid equilibrium, `[kf, kr]` at steady state — as the joint solve names its columns
-(`constant_columns`): `names[k]` for edge `k` of the state's law (`active_steps`,
+(`_constant_columns`): `names[k]` for edge `k` of the state's law (`active_steps`,
 `inactive_steps`; every edge for `:None`), empty for every other edge. `state` is
 `:None` for a plain mechanism and `:A` or `:I` for an allosteric one; an inactive
 constant reads its own column when its group has one, so an `:EqualAI` group's
 constants take their one shared name in both.
 """
 function _testhelper_edge_names(m, state::Symbol,
-                                cols = EnzymeRates.Derivation.constant_columns(m))
+                                cols = EnzymeRates.Derivation._constant_columns(m))
     cm = EnzymeRates.Mechanisms.catalytic(m)
     mask = EnzymeRates.Derivation._conformation_steps(m, state === :I ? 2 : 1)
     index = Dict(c => i for (i, c) in enumerate(cols.columns))
-    column(k, slot) = get(() -> index[EnzymeRates.Derivation.StepParameter(k, slot, false)],
+    column(k, slot) = get(() -> index[EnzymeRates.Derivation._StepParameter(k, slot, false)],
                           index,
-                          EnzymeRates.Derivation.StepParameter(k, slot, state === :I))
+                          EnzymeRates.Derivation._StepParameter(k, slot, state === :I))
     [mask[k] ? Symbol[cols.names[column(k, slot)]
                       for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)] :
                Symbol[]
@@ -205,7 +205,7 @@ function _testhelper_graph(m)
     # The edges group by group, each group's in edge order, as the derivation reads them.
     edges = EnzymeRates.Derivation._flat_edges(cm)
     _testhelper_names(k, inactive) =
-        Symbol[EnzymeRates.Derivation.name(p, mech, kept)
+        Symbol[EnzymeRates.Derivation._name(p, mech, kept)
                for p in _testhelper_step_parameters(cm, k, inactive)]
     # The active law keeps the steps outside :OnlyI groups on forms they join to free E.
     in_law, in_active = allo ? (mech.inactive_steps, mech.active_steps) :
@@ -1006,7 +1006,7 @@ function _testhelper_faces(m)
 end
 
 """The regulator constants of `am` listed with conformation `state` (`:A` or `:I`), site
-by site (`regulator_constant`): for `:A` those of every ligand the active conformation
+by site (`_regulator_constant`): for `:A` those of every ligand the active conformation
 binds; for `:I` those of every `:OnlyI` or `:NonequalAI` ligand, an `:EqualAI` ligand's
 one name being listed with the active ones."""
 function _testhelper_regulator_constants(am, state::Symbol)
@@ -1015,7 +1015,7 @@ function _testhelper_regulator_constants(am, state::Symbol)
     Symbol[K for site in am.regulatory_sites
            for (lig, tag) in zip(site.ligands, site.allosteric_states)
            if !(inactive && tag === :EqualAI)
-           for K in (D.regulator_constant(am, lig, tag, inactive),) if K !== nothing]
+           for K in (D._regulator_constant(am, lig, tag, inactive),) if K !== nothing]
 end
 
 """Whether conformation `c` (1 active, 2 inactive) of `m` excludes edge `k` of its
@@ -1213,7 +1213,7 @@ function _testhelper_flip_ratio(mech, point, concs::AbstractDict)
     function _testhelper_site_factor(inactive)
         prod((1 + sum((concs[lig] / point.vals[K]
                        for (lig, tag) in zip(site.ligands, site.allosteric_states)
-                       for K in (EnzymeRates.Derivation.regulator_constant(mech, lig, tag,
+                       for K in (EnzymeRates.Derivation._regulator_constant(mech, lig, tag,
                                                                           inactive),)
                        if K !== nothing); init = big(0)))^site.multiplicity
              for site in mech.regulatory_sites; init = big(1))

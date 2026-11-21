@@ -182,7 +182,7 @@ function _testhelper_written_params(m, all_params::NamedTuple; raw)
                                   site.allosteric_states)
                 for (inactive, suffix) in ((false, ""), (true, "_T"))
                     tag === :EqualAI && inactive && continue
-                    K = EnzymeRates.Derivation.regulator_constant(mech, lig, tag, inactive)
+                    K = EnzymeRates.Derivation._regulator_constant(mech, lig, tag, inactive)
                     K === nothing ||
                         push!(out, Symbol("K_", lig, suffix, "_reg", j) => all_params[K])
                 end
@@ -1877,7 +1877,7 @@ end
 end
 
 function _testhelper_regulator_names(am)
-    Symbol[EnzymeRates.Derivation.name(p, am)
+    Symbol[EnzymeRates.Derivation._name(p, am)
            for p in EnzymeRates.Derivation._regulator_parameters(am)]
 end
 

@@ -401,21 +401,21 @@ mechanism.
 
 ### Parameters
 
-One type family in `src/Derivation/names.jl`, the union `Parameter`, describes every
+One type family in `src/Derivation/names.jl`, the union `_Parameter`, describes every
 constant a fit estimates, and the joint solve lists them in `parameters(m)` order
 (`_Solve.info`):
 
 | Type | What it points at |
 |:-----|:------------------|
-| `StepParameter(step, slot, inactive)` | Slot `slot` of step `step` of the catalytic graph, in the inactive conformation when `inactive` |
-| `RegulatorParameter(ligand, inactive)` | The constant of a regulator ligand, in the active or inactive conformation |
-| `AllostericParameter()` | The allosteric constant `L` |
+| `_StepParameter(step, slot, inactive)` | Slot `slot` of step `step` of the catalytic graph, in the inactive conformation when `inactive` |
+| `_RegulatorParameter(ligand, inactive)` | The constant of a regulator ligand, in the active or inactive conformation |
+| `_AllostericParameter()` | The allosteric constant `L` |
 
 A value holds no other fact and means nothing without its mechanism. At slot 1 a
-`StepParameter` is a rapid-equilibrium step's equilibrium constant or a steady-state step's
+`_StepParameter` is a rapid-equilibrium step's equilibrium constant or a steady-state step's
 rate constant in its stored direction; at slot 2, a steady-state step's rate constant in the
 reverse direction. The step's flag says which. A K on a steady-state step or a k on a
-rapid-equilibrium one constructs but has no name: `name` errors on it. `name(p, m)` renders
+rapid-equilibrium one constructs but has no name: `_name` errors on it. `_name(p, m)` renders
 the name from the step's sides and the kept member of its kinetic class, and derives the
 conformation tag from `inactive` and the group's or ligand's allosteric tag. `parameters`
 returns these names as Symbols, and the rate law takes them at compile time.
@@ -430,7 +430,7 @@ constants whose units hold the rate, so it reads no step itself.
 ### The joint thermodynamic solve
 
 `_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`) over the columns `constant_columns(m)` lists, each a `StepParameter`: a
+(`_joint_system`) over the columns `_constant_columns(m)` lists, each a `_StepParameter`: a
 column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`,
 `:OnlyA` or `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying
 each further member of a kinetic class to its first. The columns come ordered by
@@ -443,7 +443,7 @@ returns them with the independents and the fitted names as a `_Solve`, which the
 Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member that comes last in that order
-(`_kept_members`), through the `name(p, m)` chokepoint; `constant_columns` returns each
+(`_kept_members`), through the `_name(p, m)` chokepoint; `_constant_columns` returns each
 column's name with it, so the naming rule lives in `src/Derivation/names.jl`. A testset
 in `test/Derivation/test_names.jl` walks `src/` and fails on a `Symbol("K…")`,
 `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal outside a parameter-name renderer,

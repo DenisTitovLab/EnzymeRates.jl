@@ -1,14 +1,14 @@
-# ABOUTME: The parameter types, the naming chokepoint name(p, m), the rules it names by
+# ABOUTME: The parameter types, the naming chokepoint _name(p, m), the rules it names by
 # ABOUTME: (kept class members, regulator constants) and its renderers.
 
 """
-A constant of a step, and a column of the joint solve (`constant_columns`): slot `slot` of
+A constant of a step, and a column of the joint solve (`_constant_columns`): slot `slot` of
 step `step` of a mechanism's catalytic graph, in the inactive conformation when `inactive`.
 Slot 1 is a rapid-equilibrium step's equilibrium constant or a steady-state step's rate
 constant in its stored direction; slot 2 is a steady-state step's rate constant in the
 reverse direction.
 """
-struct StepParameter
+struct _StepParameter
     step::Int
     slot::Int
     inactive::Bool
@@ -19,20 +19,20 @@ Regulator-site parameter: the constant of the ligand named `ligand` in the activ
 inactive conformation. A ligand sits at one site, so its name and conformation determine
 the constant.
 """
-struct RegulatorParameter
+struct _RegulatorParameter
     ligand::Symbol
     inactive::Bool
 end
 
 """The allosteric constant `L` of an allosteric mechanism."""
-struct AllostericParameter end
+struct _AllostericParameter end
 
 """A constant of a rate law. A value means nothing without its mechanism, which holds every
-other fact about it (`name(p, m)`). A union rather than an abstract type, so that a loop
+other fact about it (`_name(p, m)`). A union rather than an abstract type, so that a loop
 over a list of them dispatches without a run-time lookup."""
-const Parameter = Union{StepParameter, RegulatorParameter, AllostericParameter}
+const _Parameter = Union{_StepParameter, _RegulatorParameter, _AllostericParameter}
 
-# ─── name(p::Parameter, m) chokepoint ─────────────────────────────────
+# ─── _name(p::_Parameter, m) chokepoint ─────────────────────────────────
 #
 # Single chokepoint for parameter Symbol production. Renders structural
 # names (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) by dispatch on
@@ -78,7 +78,7 @@ end
 """The conformation tag of `p` in `m`, the one its name takes: `:None` in a plain
 mechanism; `:I` for an inactive copy; `:EqualAI` or `:A` for an active constant of an
 allosteric mechanism."""
-_conformation_tag(m::_AnyMech, p::StepParameter) =
+_conformation_tag(m::_AnyMech, p::_StepParameter) =
     m isa Mechanisms.Mechanism ? :None : p.inactive ? :I :
     m.allosteric_states[m.catalytic.steps[p.step].group] === :EqualAI ? :EqualAI : :A
 
@@ -90,7 +90,7 @@ _conformation_tag(m::_AnyMech, p::StepParameter) =
 # metabolites on one side, in the stored direction (`K_ES_to_EP`). `kept` is
 # `_kept_members(m)`, which a caller that names many constants of one mechanism computes
 # once and passes.
-function name(p::StepParameter, m::_AnyMech, kept = _kept_members(m))
+function _name(p::_StepParameter, m::_AnyMech, kept = _kept_members(m))
     cm = Mechanisms.catalytic(m)
     state = _conformation_tag(m, p)
     s = _constant_sides(m, p.step, p.slot, state, kept)
@@ -108,7 +108,7 @@ the AllostericMechanism constructor enforces that each ligand appears at most
 once across all sites. An `:EqualAI` ligand has one bare name in both conformations
 (`K_<ligand>reg`); any other ligand takes its conformation's `K_A_` or `K_I_` name.
 """
-function name(p::RegulatorParameter, am::Mechanisms.AllostericMechanism)
+function _name(p::_RegulatorParameter, am::Mechanisms.AllostericMechanism)
     tag = only(t for site in am.regulatory_sites
                for (lig, t) in zip(site.ligands, site.allosteric_states)
                if lig === p.ligand)
@@ -116,7 +116,7 @@ function name(p::RegulatorParameter, am::Mechanisms.AllostericMechanism)
     Symbol("K_", _state_tag(state), String(p.ligand), "reg")
 end
 
-name(::AllostericParameter, ::Mechanisms.AllostericMechanism) = :L
+_name(::_AllostericParameter, ::Mechanisms.AllostericMechanism) = :L
 
 # ─── Kept members of kinetic classes ─────────────────────────────────
 
@@ -163,7 +163,7 @@ _has_inactive_columns(tag::Symbol) = tag in (:NonequalAI, :OnlyA, :OnlyI)
     _ordered_columns(m) -> (; columns, flat, tags, law, alaw)
 
 The joint solve's columns of `m` in elimination order, which `_joint_system` and
-`_kept_members` share: one column (`StepParameter`) per slot of every edge, and for an
+`_kept_members` share: one column (`_StepParameter`) per slot of every edge, and for an
 allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA` or
 `:OnlyI` group, for its inactive copy, ordered by `_priority_key`, larger first. `flat`
 holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
@@ -178,12 +178,12 @@ function _ordered_columns(m::_AnyMech)
     allosteric = m isa Mechanisms.AllostericMechanism
     law = _conformation_steps(m, 2)
     alaw = _conformation_steps(m, 1)
-    columns = StepParameter[]
+    columns = _StepParameter[]
     for k in flat, inactive in (false, true)
         inactive && !(allosteric && _has_inactive_columns(tags[cm.steps[k].group])) &&
             continue
         for slot in 1:(cm.steps[k].rapid_equilibrium ? 1 : 2)
-            push!(columns, StepParameter(k, slot, inactive))
+            push!(columns, _StepParameter(k, slot, inactive))
         end
     end
     rank = _edge_base_rank(cm)
@@ -215,28 +215,28 @@ function _kept_members(m::_AnyMech, cols = _ordered_columns(m))
 end
 
 """
-    constant_columns(m) -> (; columns, names, in_law, flat, tags, law)
+    _constant_columns(m) -> (; columns, names, in_law, flat, tags, law)
 
 The constants of the steps of `m` as the joint solve's columns, in elimination order
-(`_ordered_columns`), with the name each column takes. `columns[i]` is a `StepParameter`:
+(`_ordered_columns`), with the name each column takes. `columns[i]` is a `_StepParameter`:
 slot `slot` of step `step` of the catalytic graph, in the inactive conformation when
 `inactive`. A plain mechanism has one column per slot of every step; an allosteric
 mechanism also has one per slot of every step of a `:NonequalAI`, `:OnlyA` or `:OnlyI`
 group, for its inactive copy.
 
 `names[i]` is the name of the column's kinetic class, that of its kept member
-(`_kept_members`, through the `name(p, m)` chokepoint); `in_law[i]` whether the column
+(`_kept_members`, through the `_name(p, m)` chokepoint); `in_law[i]` whether the column
 enters the law: an inactive copy when its step lies in the inactive conformation's law,
 an active column when its step lies in the active one's or is an `:EqualAI` step of the
 inactive one's, whose one constant the inactive law reads. `flat` holds the steps group
 by group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of
 the inactive conformation (`inactive_steps`).
 """
-function constant_columns(m::_AnyMech)
+function _constant_columns(m::_AnyMech)
     cols = _ordered_columns(m)
     kept = _kept_members(m, cols)
     cm = Mechanisms.catalytic(m)
-    names = [name(c, m, kept) for c in cols.columns]
+    names = [_name(c, m, kept) for c in cols.columns]
     in_law = BitVector([c.inactive ? cols.law[c.step] :
                         _in_active_law(cm, c.step, cols.tags, cols.law, cols.alaw)
                         for c in cols.columns])
@@ -246,20 +246,20 @@ end
 # ─── Regulator constants ────────────────────────────────────
 
 """
-    regulator_constant(am, lig, tag, inactive) -> Union{Symbol, Nothing}
+    _regulator_constant(am, lig, tag, inactive) -> Union{Symbol, Nothing}
 
 The dissociation-constant name of the ligand named `lig` (allosteric tag `tag`) of `am`
 in the active (`inactive = false`) or inactive conformation, or `nothing` when the
 ligand is absent from that conformation (`:OnlyI` in the active state, `:OnlyA` in the
 inactive one). An `:EqualAI` ligand has one bare name in both conformations
 (`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its conformation's
-`K_A_` or `K_I_` name. Renders the name via the `name(::RegulatorParameter, am)`
+`K_A_` or `K_I_` name. Renders the name via the `_name(::_RegulatorParameter, am)`
 chokepoint.
 """
-function regulator_constant(am::Mechanisms.AllostericMechanism, lig::Symbol, tag::Symbol,
+function _regulator_constant(am::Mechanisms.AllostericMechanism, lig::Symbol, tag::Symbol,
                             inactive::Bool)
     tag === (inactive ? :OnlyA : :OnlyI) && return nothing
-    name(RegulatorParameter(lig, inactive), am)
+    _name(_RegulatorParameter(lig, inactive), am)
 end
 
 """The steps group by group, each group in step order: the order the joint solve and the

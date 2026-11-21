@@ -9056,7 +9056,7 @@ _testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].grou
 # tagged :NonequalAI those names do appear, so the first assertion can fail.
 function _testhelper_test_no_inactive_constants(am, g)
     cm = EnzymeRates.Mechanisms.catalytic(am)
-    i_names = EnzymeRates.Derivation.name.(
+    i_names = EnzymeRates.Derivation._name.(
         _testhelper_step_parameters(cm, first(cm.groups[g]), true), Ref(am))
     @test isempty(intersect(i_names, parameters(EnzymeRates.compile_mechanism(am))))
     nonequal = EnzymeRates.AllostericMechanism(
