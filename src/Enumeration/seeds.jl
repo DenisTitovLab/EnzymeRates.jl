@@ -772,7 +772,8 @@ end
 writes them, spell one string."""
 function _spelled_twice_error(a::Vector{String}, b::Vector{String})
     spelled = join(replace.(a, "::Mod" => "mod"))
-    error("$(join(a, " + ")) and $(join(b, " + ")) both spell $spelled: enzyme forms and " *
-          "their constants join the names of the metabolites they bind without a " *
-          "separator, so two forms would share a name; rename a metabolite")
+    error("candidate_mechanisms: $(join(a, " + ")) and $(join(b, " + ")) both spell " *
+          "$spelled: enzyme forms and their constants join the names of the metabolites " *
+          "they bind without a separator, so two forms would share a name; rename a " *
+          "metabolite")
 end

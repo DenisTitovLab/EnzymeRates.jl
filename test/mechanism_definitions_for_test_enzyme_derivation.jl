@@ -2652,6 +2652,27 @@ function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVec
     V * det(lap[2:end, 2:end])
 end
 
+# A random-order ter-ter (all binding/release orders, all SS): V×τ ≈ 5.9M, far
+# above any complexity threshold. Shared by the enumerator's term-limit test and
+# identify's derivation-guard test.
+_testhelper_random_terter() = @enzyme_mechanism begin
+    substrates: S1, S2, S3
+    products:   P1, P2, P3
+    steps: begin
+        E + S1 <--> E(S1); E + S2 <--> E(S2); E + S3 <--> E(S3)
+        E(S1) + S2 <--> E(S1, S2); E(S1) + S3 <--> E(S1, S3); E(S2) + S1 <--> E(S1, S2)
+        E(S2) + S3 <--> E(S2, S3); E(S3) + S1 <--> E(S1, S3); E(S3) + S2 <--> E(S2, S3)
+        E(S1, S2) + S3 <--> E(S1, S2, S3); E(S1, S3) + S2 <--> E(S1, S2, S3)
+        E(S2, S3) + S1 <--> E(S1, S2, S3); E(S1, S2, S3) <--> E(P1, P2, P3)
+        E(P1, P2, P3) <--> E(P1, P2) + P3; E(P1, P2, P3) <--> E(P1, P3) + P2
+        E(P1, P2, P3) <--> E(P2, P3) + P1; E(P1, P2) <--> E(P1) + P2
+        E(P1, P2) <--> E(P2) + P1; E(P1, P3) <--> E(P1) + P3
+        E(P1, P3) <--> E(P3) + P1; E(P2, P3) <--> E(P2) + P3
+        E(P2, P3) <--> E(P3) + P2; E(P1) <--> E + P1
+        E(P2) <--> E + P2; E(P3) <--> E + P3
+    end
+end
+
 """The rate-law key and canonical order PASS1 (`_pass1_record`) gives the concrete
 mechanism `m`."""
 _testhelper_pass1_canonical(m) = EnzymeRates._pass1_record(_testhelper_candidate(m)).canon

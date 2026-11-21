@@ -55,11 +55,14 @@ enumerator fails, such as atom conservation.
 function candidate_mechanisms end
 
 """The candidates of `mechs` whose law has at most `eq_complexity_filter` terms and at
-most `max_param_count` fitted constants, in order."""
+most `max_param_count` fitted constants, in order. A limit of `typemax(Int)` limits
+nothing, so its count is not computed: the fitted count solves the mechanism."""
 _candidates(mechs, max_param_count::Int, eq_complexity_filter::Int) =
     CandidateMechanism[CandidateMechanism(m) for m in mechs
-                       if Derivation.rate_equation_term_count(m) <= eq_complexity_filter &&
-                          Derivation.fitted_parameter_count(m) <= max_param_count]
+                       if (eq_complexity_filter == typemax(Int) ||
+                           Derivation.rate_equation_term_count(m) <= eq_complexity_filter) &&
+                          (max_param_count == typemax(Int) ||
+                           Derivation.fitted_parameter_count(m) <= max_param_count)]
 
 """Whether the enumerator keeps `m`: the guard (`Derivation.check_valid_rate_equation`)
 accepts it, and no conformation keeps a form that only bindings it excludes enter

@@ -8598,6 +8598,74 @@ end
     @test 0 < length(few_terms) < length(every)
 end
 
+@testset "eq_complexity_filter: random bi-bi passes, ter-ter dropped (default 337)" begin
+    random_bibi = @enzyme_mechanism begin        # V×τ = 336 — the ceiling; must pass
+        substrates: S1, S2
+        products:   P1, P2
+        steps: begin
+            E + S1 <--> E(S1)
+            E + S2 <--> E(S2)
+            E(S1) + S2 <--> E(S1, S2)
+            E(S2) + S1 <--> E(S1, S2)
+            E(S1, S2) <--> E(P1, P2)
+            E(P1, P2) <--> E(P1) + P2
+            E(P1, P2) <--> E(P2) + P1
+            E(P1) <--> E + P1
+            E(P2) <--> E + P2
+        end
+    end
+    # The enumerator returns a mechanism only within identify's limits
+    # (`Enumeration._candidates`). At the default 337 a random-order bi-bi (V×τ = 336)
+    # passes, while a random-order ter-ter (V×τ ≈ 5.9M) is dropped by its term count,
+    # before any derivation. A tighter limit drops the bi-bi too.
+    batch = [EnzymeRates.Mechanism(random_bibi),
+             EnzymeRates.Mechanism(_testhelper_random_terter())]
+    within(limit) = [c.mechanism
+                     for c in EnzymeRates.Enumeration._candidates(
+                         batch, typemax(Int), limit)]
+    @test within(337) == [EnzymeRates.Mechanism(random_bibi)]
+    @test isempty(within(100))
+end
+
+@testset "eq_complexity_filter counts both conformations" begin
+    # The 336-term random-order bi-bi at one catalytic subunit with its chemistry and its
+    # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
+    # conformation keeps the substrate square E, E(S1), E(S1, S2), E(S2), four segments and
+    # four spanning trees, so the law counts 336 + 16 = 352. The default filter drops it
+    # (`Enumeration._candidates`, the enumerator's limits), where the active count alone
+    # would let it through; the parameter limit reads its 16 fitted constants.
+    ktype = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S1, S2
+        products: P1, P2
+        oligomeric_state: 1
+        steps: begin
+            E + P1 <--> E(P1) :: OnlyA
+            E + P2 <--> E(P2) :: OnlyA
+            E + S1 <--> E(S1) :: EqualAI
+            E + S2 <--> E(S2) :: EqualAI
+            E(P1) + P2 <--> E(P1, P2) :: EqualAI
+            E(P2) + P1 <--> E(P1, P2) :: EqualAI
+            E(S1) + S2 <--> E(S1, S2) :: EqualAI
+            E(S1, S2) <--> E(P1, P2) :: OnlyA
+            E(S2) + S1 <--> E(S1, S2) :: EqualAI
+        end
+    end)
+    cm = ktype.catalytic
+    @test _testhelper_laplacian_tree_count(
+        cm, EnzymeRates.Mechanisms.steps_in_active_conformation(ktype)) == 336
+    @test _testhelper_laplacian_tree_count(
+        cm, EnzymeRates.Mechanisms.steps_in_inactive_conformation(ktype)) == 16
+    @test EnzymeRates.Derivation.rate_equation_term_count(ktype) == 352
+    @test EnzymeRates.Derivation.fitted_parameter_count(ktype) == 16
+    within(max_param_count, eq_complexity_filter) =
+        [c.mechanism for c in EnzymeRates.Enumeration._candidates(
+             [ktype], max_param_count, eq_complexity_filter)]
+    @test isempty(within(typemax(Int), 337))
+    @test within(typemax(Int), 352) == [ktype]
+    @test isempty(within(15, typemax(Int)))
+    @test within(16, typemax(Int)) == [ktype]
+end
+
 @testset "candidate_mechanisms: a parent's children" begin
     # E + S → E(P) fused (SS), E + P ⇌ E(P) (RE). Flip: the P group cuts E from E(P),
     # carries flux, no bottomless segment: one child, both steps SS. Split: single-step
@@ -8652,9 +8720,9 @@ end
     end
     @test rxn isa EnzymeReaction
     @test_throws(ErrorException(
-        "Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their constants join the " *
-        "names of the metabolites they bind without a separator, so two forms would " *
-        "share a name; rename a metabolite"),
+        "candidate_mechanisms: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and " *
+        "their constants join the names of the metabolites they bind without a " *
+        "separator, so two forms would share a name; rename a metabolite"),
         EnzymeRates.Enumeration.candidate_mechanisms(rxn))
 end
 
@@ -8704,9 +8772,9 @@ end
     # reactant also declared a competitive inhibitor binds as its copy, spelled X::Mod,
     # named Xmod.
     _testhelper_two_ways(a, b, x) = ErrorException(
-        "$a and $b both spell $x: enzyme forms and their constants join " *
-        "the names of the metabolites they bind without a separator, so two forms would " *
-        "share a name; rename a metabolite")
+        "candidate_mechanisms: $a and $b both spell $x: enzyme forms and their " *
+        "constants join the names of the metabolites they bind without a separator, so " *
+        "two forms would share a name; rename a metabolite")
     check(rxn) = EnzymeRates.Enumeration._check_decodable_names(rxn)
     @test_throws _testhelper_two_ways("Ac + CoA", "AcCoA", "AcCoA") check(
         @enzyme_reaction begin
