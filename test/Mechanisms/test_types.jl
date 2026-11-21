@@ -3297,3 +3297,96 @@ end
     @test_throws("must match the number of kinetic groups 3",
                  _testhelper_retagged([:EqualAI, :NonequalAI]))
 end
+
+@testset "a conformation's steps" begin
+    M = ER.Mechanisms
+    texts(am, mask) = Set(_testhelper_edge_text(am, k) for k in findall(mask))
+    # The spec's example. The inactive conformation excludes the :OnlyA binding of S and
+    # the :OnlyA chemistry, which cuts E(S) off; the binding of P still runs there.
+    example = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ E(S)      :: OnlyA
+            E(S) <--> E(P)    :: OnlyA
+            E + P ⇌ E(P)      :: EqualAI
+        end
+    end)
+    @test texts(example, M.steps_in_active_conformation(example)) ==
+          Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
+    @test texts(example, M.steps_in_inactive_conformation(example)) == Set(["E + P ⇌ EP"])
+    # Every form: the compiled mechanism gives what it encodes.
+    compiled = ER.compile_mechanism(example)
+    @test M.steps_in_active_conformation(compiled) ==
+          M.steps_in_active_conformation(example)
+    @test M.steps_in_inactive_conformation(compiled) ==
+          M.steps_in_inactive_conformation(example)
+    # A plain mechanism runs every step in both conformations, compiled or not.
+    for plain in (example.catalytic, ER.compile_mechanism(example.catalytic))
+        @test M.steps_in_active_conformation(plain) == trues(3)
+        @test M.steps_in_inactive_conformation(plain) == trues(3)
+    end
+
+    # An :EqualAI step between two cut-off forms does not run: the inactive conformation
+    # excludes the :OnlyA binding of I, which cuts E(I) and E(I, P) off, and with them the
+    # binding of P that joins them.
+    dead_end = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ E(S)          :: EqualAI
+            E(S) <--> E(P)        :: EqualAI
+            E(P) ⇌ E + P          :: EqualAI
+            E + I ⇌ E(I)          :: OnlyA
+            E(I) + P ⇌ E(I, P)    :: EqualAI
+        end
+    end)
+    @test texts(dead_end, M.steps_in_active_conformation(dead_end)) ==
+          Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP", "E + I ⇌ EI", "EI + P ⇌ EIP"])
+    @test texts(dead_end, M.steps_in_inactive_conformation(dead_end)) ==
+          Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
+
+    # The spec's ping-pong, F the modified enzyme E(; residual = A - P). The inactive
+    # conformation excludes both :OnlyA chemistries, which cuts F, F(P) and F(B) off as one
+    # island; the bindings of P and B inside it do not run either. The active
+    # conformation excludes the :OnlyI binding of I, which cuts E(I) off.
+    pingpong = ER.AllostericMechanism(@allosteric_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + A ⇌ E(A)                                          :: EqualAI
+            E(A) <--> E(P; residual = A - P)                      :: OnlyA
+            E(P; residual = A - P) ⇌ E(; residual = A - P) + P    :: EqualAI
+            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
+            E(B; residual = A - P) <--> E(Q)                      :: OnlyA
+            E(Q) ⇌ E + Q                                          :: EqualAI
+            E + I ⇌ E(I)                                          :: OnlyI
+        end
+    end)
+    chemistry = Set(["EA <--> EP_res_plusA_minusP", "EB_res_plusA_minusP <--> EQ"])
+    island = Set(["E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP",
+                  "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP"])
+    @test texts(pingpong, M.steps_in_active_conformation(pingpong)) ==
+          union(Set(["E + A ⇌ EA", "E + Q ⇌ EQ"]), chemistry, island)
+    @test texts(pingpong, M.steps_in_inactive_conformation(pingpong)) ==
+          Set(["E + A ⇌ EA", "E + Q ⇌ EQ", "E + I ⇌ EI"])
+
+    # The masks each mechanism stores agree: each conformation's steps, and the steps
+    # each excludes.
+    @test (example.active_steps, example.inactive_steps) ==
+          (M.steps_in_active_conformation(example), M.steps_in_inactive_conformation(example))
+    @test isempty(texts(example, example.excluded_active))
+    @test texts(example, example.excluded_inactive) == Set(["E + S ⇌ ES", "ES <--> EP"])
+    @test (dead_end.active_steps, dead_end.inactive_steps) ==
+          (M.steps_in_active_conformation(dead_end),
+           M.steps_in_inactive_conformation(dead_end))
+    @test isempty(texts(dead_end, dead_end.excluded_active))
+    @test texts(dead_end, dead_end.excluded_inactive) == Set(["E + I ⇌ EI"])
+    @test (pingpong.active_steps, pingpong.inactive_steps) ==
+          (M.steps_in_active_conformation(pingpong),
+           M.steps_in_inactive_conformation(pingpong))
+    @test texts(pingpong, pingpong.excluded_active) == Set(["E + I ⇌ EI"])
+    @test texts(pingpong, pingpong.excluded_inactive) == chemistry
+end

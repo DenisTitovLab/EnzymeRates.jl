@@ -164,6 +164,8 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
 | `form_text` | A node as the macros write it: `E(A, B)` | Enumeration | |
 | `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
+| `steps_in_active_conformation` | The steps the active conformation runs | | |
+| `steps_in_inactive_conformation` | The steps the inactive conformation runs | | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
 | | steady-state steps between them | | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |

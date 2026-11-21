@@ -36,7 +36,7 @@ the part for a module before changing its internals.
 | Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
 | Derivation | Derives a mechanism's rate equation and compiles it. | ★ `compile_rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, `check_valid_rate_equation`, `fitted_parameter_count`, `parameter_units`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
 | Data | Checks and holds a table of measured rates. | `RateData` | none |
-| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `EnzymeMechanism`, ★ `AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `AllostericMechanism`, `EnzymeForm`, `Mechanism`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `check_decodable_names`, `compile_mechanism`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `rapid_equilibrium_segments`, `step_text` | none |
+| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `EnzymeMechanism`, ★ `AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `AllostericMechanism`, `EnzymeForm`, `Mechanism`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `check_decodable_names`, `compile_mechanism`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `rapid_equilibrium_segments`, `step_text`, `steps_in_active_conformation`, `steps_in_inactive_conformation` | none |
 <!-- end of module table -->
 
 - A module lives in `src/<Module>/`, declares its interface in the `public` statement of

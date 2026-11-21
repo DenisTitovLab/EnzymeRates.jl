@@ -369,15 +369,17 @@ end
 end
 
 @testset "Mechanisms API is the data model" begin
-    # The types of a mechanism and a reaction, the functions that compute on them (the
-    # rapid-equilibrium segments and turnover cycles of a step mask among them), and the
-    # two name checks the DSL runs while it reads a block, so that their errors name the
-    # macro: a conformation label's shape and the decodability of the declared names.
+    # The types of a mechanism and a reaction, the functions that compute on them (each
+    # conformation's steps, and the rapid-equilibrium segments and turnover cycles of a
+    # step mask, among them), and the two name checks the DSL runs while it reads a block,
+    # so that their errors name the macro: a conformation label's shape and the
+    # decodability of the declared names.
     @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Metabolite, :EnzymeForm,
         :Step, :Mechanism, :RegulatorySite, :AllostericMechanism, :Reactant, :Regulator,
         :EnzymeReaction, :EnzymeMechanism, :AllostericEnzymeMechanism,
         :AbstractEnzymeMechanism, :metabolites, :catalytic, :compile_mechanism,
         :form_text, :step_text, :check_conformation_label, :check_decodable_names,
+        :steps_in_active_conformation, :steps_in_inactive_conformation,
         :rapid_equilibrium_segments, :has_turnover_cycle, :has_unbalanced_cycle])
 end
 

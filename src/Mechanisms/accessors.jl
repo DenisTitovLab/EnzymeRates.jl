@@ -1,5 +1,5 @@
-# ABOUTME: The facts a mechanism's graph gives (what a step does, which forms the steps of a
-# ABOUTME: conformation join to free E), computed once at construction.
+# ABOUTME: The facts a mechanism's graph gives: what a step does and its kinetic groups,
+# ABOUTME: computed once at construction, and the steps each conformation runs.
 
 """
 What step `e` of `m` does: `:isomerization` when it takes up and gives off nothing,
@@ -49,4 +49,57 @@ vanishing constants (spec section 7).
 function _steps_joined_to_free_E(m::Mechanism, excluded::BitVector)
     joined = _joined_to_free_E(m, excluded)
     (k -> !excluded[k] && joined[m.steps[k].from]).(eachindex(m.steps))
+end
+
+"""
+    steps_in_active_conformation(m) -> BitVector
+
+The steps of `m` that run in its active conformation, one flag per catalytic step. A step
+runs unless its kinetic group's allosteric state is `:OnlyI` or the step is cut off: the
+conformations interconvert at free E alone, so a form that the running steps do not join
+to free E holds no enzyme of that conformation, and a step between two such forms does
+not run, whatever its state. Every step of a plain mechanism runs.
+"""
+steps_in_active_conformation(m::Mechanism) = trues(length(m.steps))
+steps_in_active_conformation(am::AllostericMechanism) = _steps_in_conformation(am, :OnlyI)
+steps_in_active_conformation(@nospecialize(em::EnzymeMechanism)) =
+    steps_in_active_conformation(Mechanism(em))
+steps_in_active_conformation(@nospecialize(aem::AllostericEnzymeMechanism)) =
+    steps_in_active_conformation(AllostericMechanism(aem))
+
+"""
+    steps_in_inactive_conformation(m) -> BitVector
+
+The steps of `m` that run in its inactive conformation, one flag per catalytic step: as in
+`steps_in_active_conformation`, with the steps of `:OnlyA` kinetic groups excluded in
+place of those of `:OnlyI` groups. Every step of a plain mechanism runs.
+"""
+steps_in_inactive_conformation(m::Mechanism) = trues(length(m.steps))
+steps_in_inactive_conformation(am::AllostericMechanism) = _steps_in_conformation(am, :OnlyA)
+steps_in_inactive_conformation(@nospecialize(em::EnzymeMechanism)) =
+    steps_in_inactive_conformation(Mechanism(em))
+steps_in_inactive_conformation(@nospecialize(aem::AllostericEnzymeMechanism)) =
+    steps_in_inactive_conformation(AllostericMechanism(aem))
+
+"""The steps of the catalytic graph of `am` that run in the conformation that excludes the
+kinetic groups in allosteric state `excluded`: the other steps, between forms they join
+to free E, form 1."""
+function _steps_in_conformation(am::AllostericMechanism, excluded::Symbol)
+    m = am.catalytic
+    runs = BitVector([am.allosteric_states[e.group] !== excluded for e in m.steps])
+    joined = falses(length(m.enzyme_forms))
+    joined[1] = true
+    grew = true
+    while grew
+        grew = false
+        for (k, e) in enumerate(m.steps)
+            runs[k] && joined[e.from] != joined[e.to] || continue
+            joined[e.from] = joined[e.to] = true
+            grew = true
+        end
+    end
+    for (k, e) in enumerate(m.steps)
+        joined[e.from] || (runs[k] = false)
+    end
+    runs
 end

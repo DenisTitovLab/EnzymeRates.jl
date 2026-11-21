@@ -1339,17 +1339,20 @@ end
 """Whether the facts `am` stores are those its fields give: its catalytic graph's
 (`_testhelper_facts_hold`), and per conformation the steps its tags exclude
 (`_testhelper_excludes`) and the steps it keeps on the forms they join to free E
-(`_testhelper_exclusion`)."""
+(`_testhelper_exclusion`), which `steps_in_active_conformation` and
+`steps_in_inactive_conformation` compute too."""
 function _testhelper_facts_hold(am::ER.AllostericMechanism)
     cm = am.catalytic
     _testhelper_facts_hold(cm) || return false
-    all(((1, am.excluded_active, am.active_steps),
-         (2, am.excluded_inactive, am.inactive_steps))) do (c, out, kept)
+    M = ER.Mechanisms
+    all(((1, am.excluded_active, am.active_steps, M.steps_in_active_conformation(am)),
+         (2, am.excluded_inactive, am.inactive_steps,
+          M.steps_in_inactive_conformation(am)))) do (c, out, kept, runs)
         excluded = BitVector([_testhelper_excludes(am, k, c) for k in eachindex(cm.steps)])
         component = _testhelper_exclusion(am, c).component
         steps = BitVector([!excluded[k] && component[e.from] == 1
                            for (k, e) in enumerate(cm.steps)])
-        (out, kept) == (excluded, steps)
+        (out, kept, runs) == (excluded, steps, steps)
     end
 end
 
