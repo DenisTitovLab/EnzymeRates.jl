@@ -778,7 +778,7 @@ end
     _expand_to_allosteric(c::CandidateMechanism, rxn::EnzymeReaction)
         → Vector{CandidateMechanism}
 
-Convert the plain `Mechanism` `m` of candidate `c` into allosteric variants, each built on a
+Convert the plain mechanism `m` of candidate `c` into allosteric variants, each built on a
 base of `_tagging_bases`: the tag set with every chemistry group `:OnlyA` and every binding
 group `:EqualAI` when it passes `_valid_tagging`, else each smallest set of chemistry groups
 that stops the inactive conformation's catalysis and passes. A chemistry group is one
@@ -837,6 +837,10 @@ either conformation's law fails the test: on a base that stops one half-reaction
 ping-pong's abortive complexes can give the inactive law a power the parent lacks.
 """
 function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
+    # The variants carry states and sites of their own; an allosteric parent's would be lost.
+    _is_allosteric(c.mechanism) && throw(ArgumentError(
+        "_expand_to_allosteric: the mechanism is allosteric; the move makes a plain one " *
+        "allosteric"))
     hyperbolic = _hyperbolic_catalysis(c)
     cns = [cn for cn in rxn.allowed_oligomeric_states
            if cn == 1 || hyperbolic]

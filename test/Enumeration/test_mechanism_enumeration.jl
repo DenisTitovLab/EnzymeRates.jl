@@ -5092,7 +5092,7 @@ end
 # ═══════════════════════════════════════════════════════════════════════
 
 # The allosteric-only moves read the parent's regulatory sites or allosteric states, which a
-# plain mechanism lacks.
+# plain mechanism lacks; the tagging move would drop an allosteric parent's states.
 @testset "a move for one kind of mechanism refuses the other kind" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -5121,6 +5121,22 @@ end
         "_expand_merge_regulatory_sites: the mechanism is plain; the move merges the " *
         "regulatory sites of an allosteric one"),
         EnzymeRates.Enumeration._expand_merge_regulatory_sites(c))
+    allosteric = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        oligomeric_state: 2
+        steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E + P ⇌ E(P)     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyI
+    end
+    @test_throws(ArgumentError(
+        "_expand_to_allosteric: the mechanism is allosteric; the move makes a plain " *
+        "one allosteric"),
+        EnzymeRates.Enumeration._expand_to_allosteric(_testhelper_candidate(allosteric),
+                                                      rxn))
 end
 
 # ─── _expand_to_allosteric ─────────────────────────────────────────────
