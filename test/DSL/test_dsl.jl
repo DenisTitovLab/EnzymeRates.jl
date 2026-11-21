@@ -204,7 +204,7 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
         @test length(_testhelper_group_members(m.catalytic)) == 4
 
-        # Residual notation: Estar(; residual = A - P).
+        # A covalent form, named for its residual: Estar_res_plusA_minusP.
         m_res = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q

@@ -576,9 +576,9 @@ end
     ER = EnzymeRates
     form(xs...) =
         ER.Enumeration._FormRecord(:E, Symbol[xs...], Symbol[], Symbol[], Symbol[])
-    # Uni-uni: the route binds S at E, isomerizes E(S) to E(P) and gives P off from E(P).
+    # Uni-uni: the route binds S at E, isomerizes ES to EP and gives P off from EP.
     # The topology holds the forms in the order the route meets them and writes that
-    # release as the binding E + P → E(P), which takes P up; it lists its bindings first,
+    # release as the binding E + P → EP, which takes P up; it lists its bindings first,
     # by their forms in content order, then its steady-state isomerization.
     # The steps index the reactants S and P, 1 and 2.
     none, S, P = Int[], [1], [2]
@@ -669,7 +669,7 @@ end
     # residual on :E, then Pyr+CO2 → OAA. The carboxylation iso converts
     # the {ATP,HCO3}-bound form into a residual-bearing form; the
     # carboxyl-transfer iso converts a residual-bearing Pyr form into the
-    # bare E(OAA).
+    # bare EOAA.
     @test any(topos) do spec
         _testhelper_iso_between(spec, _testhelper_form([:ATP, :HCO3], false),
                                 _testhelper_has_residual) &&
@@ -696,7 +696,7 @@ end
     # Known mechanism, with covalent residuals on :E:
     # Pyr→CO2 (leaves an acetyl residual),
     # CoA+acetyl→AcCoA (leaves a hydride residual),
-    # NAD+hydride→NADH (residual cancels → bare E(NADH)).
+    # NAD+hydride→NADH (residual cancels → bare ENADH).
     @test any(topos) do spec
         _testhelper_iso_between(spec, _testhelper_form([:Pyr], false),
                                 _testhelper_form([:CO2], true)) &&
@@ -815,8 +815,8 @@ end
 
 @testset "_is_plain_binding and _copy_change read a step's two form records" begin
     # Ordered bi-bi whose last substrate binds straight into the product-bound form, with
-    # A's modifier copy at E and E(Q), and Q binding at the copy's form too: the mirror of
-    # E + Q ⇌ E(Q), in its group.
+    # A's modifier copy at E and EQ, and Q binding at the copy's form too: the mirror of
+    # E + Q ⇌ EQ, in its group.
     fused = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -857,7 +857,7 @@ end
     # A plain binding of a reactant.
     c, k = at(fused, "E + A ⇌ EA")
     @test (plain(c, k), copies(c, k, :A)) == (true, 0)
-    # The fused binding: B binds into E(P, Q), not into E(A, B).
+    # The fused binding: B binds into EPQ, not into EAB.
     c, k = at(fused, "EA + B <--> EPQ")
     @test (plain(c, k), copies(c, k, :B)) == (false, 0)
     # A binding of the modifier copy: one more copy of A, the productive A unchanged.
@@ -915,8 +915,8 @@ mech_bb = m_bb
 end
 
 @testset "a copy binds at its own sites, apart from its reactant's" begin
-    # Ordered bi-bi with A as its own inhibitor at {E, E(Q)}: A binds productively
-    # at E, its copy at E and E(Q); Q binds at E and at the copy's form E(A*).
+    # Ordered bi-bi with A as its own inhibitor at {E, EQ}: A binds productively
+    # at E, its copy at E and EQ; Q binds at E and at the copy's form E(A*).
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -936,7 +936,7 @@ end
 end
 
 @testset "a Theorell–Chance step frees B at EA and P at EQ" begin
-    # E(A) + B → E(Q) + P takes B up at E(A) and gives P off at E(Q); A and Q
+    # EA + B → EQ + P takes B up at EA and gives P off at EQ; A and Q
     # bind at E.
     m = @enzyme_mechanism begin
         substrates: A, B
@@ -1249,7 +1249,7 @@ end
 
 @testset "_seed_groups labels one metabolite's bindings at one flag as one group" begin
     ER = EnzymeRates
-    # A step from form `f` to form `t` of E, E(A), E(B), E(A, B), E(P, Q), E(P) and E(Q),
+    # A step from form `f` to form `t` of E, EA, EB, EAB, EPQ, EP and EQ,
     # numbered 1 to 7, taking up `xs`.
     # The metabolites A and B are 1 and 2.
     index = Dict(:A => 1, :B => 2)
@@ -1325,14 +1325,14 @@ end
 @testset "init_mechanisms on uni-bi: one merged variant per ordered seed" begin
     ER = EnzymeRates.Enumeration
     # Aggregate pin over the uni-bi seed set: the two ordered seeds (P or Q released first)
-    # and the random-release seed. An ordered seed's merged base holds S (E + S → E(P, Q)),
-    # the inner product's group (into E(P, Q)) and the outer product's group. Singletons
+    # and the random-release seed. An ordered seed's merged base holds S (E + S → EPQ),
+    # the inner product's group (into EPQ) and the outer product's group. Singletons
     # fail V; {S, inner} is the lumping twin; {inner, outer} has no reverse maximal rate;
     # {S, outer} is the one variant (n + m − 2 = 1). Its Theorell–Chance base gives none:
     # each single group leaves the TC step RE or closes the cycle, and {TC, outer} turned
     # RE for products closes it as well. The random-release base holds S, Pˣ and Qˣ, each
-    # product group with a step into E(P, Q); {S, Pˣ} and {S, Qˣ} pass and are no twins
-    # (E(P, Q) has three steps), {Pˣ, Qˣ} has no reverse maximal rate, and ELIM refuses the
+    # product group with a step into EPQ; {S, Pˣ} and {S, Qˣ} pass and are no twins
+    # (EPQ has three steps), {Pˣ, Qˣ} has no reverse maximal rate, and ELIM refuses the
     # three-step complex. Each variant fits 2 + 1 + 2 − 1 = 4 (2 + 2 + 1 − 1 = 4 for the
     # random seed's), the seeds' count.
     ordered_p = @enzyme_mechanism begin
@@ -1444,13 +1444,13 @@ end
 
 @testset "Mechanism — flip past a bottomless RE segment" begin
     # PARENT: uni-bi with random product release, all binding RE. The product
-    # ring E–E(P)–E(P, Q)–E(Q)–E needs two cuts to raise the segment count, so
+    # ring E–EP–EPQ–EQ–E needs two cuts to raise the segment count, so
     # every pair of ring edges gains. Cutting the two edges at E ({P@E, Q@E})
-    # would leave {E(P), E(Q), E(P, Q)} with no bottom form, which class 3 rejects at
+    # would leave {EP, EQ, EPQ} with no bottom form, which class 3 rejects at
     # zero products: the flip move's guard (`check_valid_rate_equation`) fails that pair,
     # so it counts as failed and is not emitted.
     # Its supersets are reached by one more flip from the other pairs' children.
-    # The two pairs at E(P) and at E(Q) isolate one form joined to the rest by two
+    # The two pairs at EP and at EQ isolate one form joined to the rest by two
     # edges of stored weights −1 and +1, whose 2-cycle sums to 0 (a balanced block):
     # neither flipped group carries flux, so they fail the same way and keep their
     # parent's rank. Children: the S flip plus the three other pairs.
@@ -1468,7 +1468,7 @@ end
     end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, parent)
     expected = [
-        (@enzyme_mechanism begin      # S alone: E(S) becomes its own segment
+        (@enzyme_mechanism begin      # S alone: ES becomes its own segment
             substrates: S
             products: P, Q
             steps: begin
@@ -1480,7 +1480,7 @@ end
                 ES <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # the two edges at E(P, Q)
+        (@enzyme_mechanism begin      # the two edges at EPQ
             substrates: S
             products: P, Q
             steps: begin
@@ -1492,7 +1492,7 @@ end
                 ES <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # P@E and P@E(Q)
+        (@enzyme_mechanism begin      # P@E and P@EQ
             substrates: S
             products: P, Q
             steps: begin
@@ -1504,7 +1504,7 @@ end
                 ES <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # Q@E and Q@E(P)
+        (@enzyme_mechanism begin      # Q@E and Q@EP
             substrates: S
             products: P, Q
             steps: begin
@@ -1533,7 +1533,7 @@ end
     # The two zero-flux pairs are absent, and each has exactly its parent's rank.
     r0 = _testhelper_identifiable_rank(parent)
     for absent in ([
-        (@enzyme_mechanism begin      # P@E and Q@E(P)
+        (@enzyme_mechanism begin      # P@E and Q@EP
             substrates: S
             products: P, Q
             steps: begin
@@ -1545,7 +1545,7 @@ end
                 ES <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # Q@E and P@E(Q)
+        (@enzyme_mechanism begin      # Q@E and P@EQ
             substrates: S
             products: P, Q
             steps: begin
@@ -1565,8 +1565,8 @@ end
 end
 
 @testset "Mechanism — the flip skips the flanks of a qualifying chain" begin
-    # Ordered RE seed: E + A ⇌ E(A), E(A) + B ⇌ E(A, B), E(A, B) → E(P, Q) (SS),
-    # E(Q) + P ⇌ E(P, Q), E + Q ⇌ E(Q). E(A, B) and E(P, Q) each have one other step, a
+    # Ordered RE seed: E + A ⇌ EA, EA + B ⇌ EAB, EAB → EPQ (SS),
+    # EQ + P ⇌ EPQ, E + Q ⇌ EQ. EAB and EPQ each have one other step, a
     # binding into them, and every group holds one step: a qualifying chain (RSR). Its
     # flanks, the B and P groups, never flip: a flipped flank gives its parent's family
     # plus a phantom (chain lemma). The A and Q flips each cut a segment and carry flux.
@@ -1638,16 +1638,16 @@ end
 end
 
 @testset "Mechanism — a flank whose group is shared still flips" begin
-    # The ordered seed with B's abortive binding at E(Q) in B's group. One RE segment
-    # holds every form; the iso is steady state. E(A, B)'s binding shares its group
-    # with E(Q) + B ⇌ E(B, Q), so the chain E(A, B) → E(P, Q) does not qualify and
+    # The ordered seed with B's abortive binding at EQ in B's group. One RE segment
+    # holds every form; the iso is steady state. EAB's binding shares its group
+    # with EQ + B ⇌ EBQ, so the chain EAB → EPQ does not qualify and
     # no group is a flank. Each flip cuts the segment alone:
-    #   A: {E(A), E(A, B)} | {E, E(Q), E(B, Q), E(P, Q)}             → 2 segments
-    #   B: {E(A, B)} | {E(B, Q)} | {E, E(A), E(Q), E(P, Q)}           → 3 segments
-    #   P: {E(P, Q)} | {E, E(A), E(A, B), E(Q), E(B, Q)}              → 2 segments
-    #   Q: {E, E(A), E(A, B)} | {E(Q), E(B, Q), E(P, Q)}              → 2 segments
+    #   A: {EA, EAB} | {E, EQ, EBQ, EPQ}             → 2 segments
+    #   B: {EAB} | {EBQ} | {E, EA, EQ, EPQ}           → 3 segments
+    #   P: {EPQ} | {E, EA, EAB, EQ, EBQ}              → 2 segments
+    #   Q: {E, EA, EAB} | {EQ, EBQ, EPQ}              → 2 segments
     # Every segment keeps a bottom form, and each flipped group holds a step of the
-    # cycle E → E(A) → E(A, B) → E(P, Q) → E(Q) → E, so it carries flux: four children,
+    # cycle E → EA → EAB → EPQ → EQ → E, so it carries flux: four children,
     # each one constant and one rank above the seed's 5.
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
@@ -1719,13 +1719,13 @@ end
     # one edge, which leaves the other segment, so the scheme fails only when a
     # metabolite scores 2 on one edge or one segment, or scores in one segment and on
     # an edge leaving the other. Each flip passes:
-    #   A: {E, E(Q), E(P, Q)} | {E(A), E(A, B)}. A scores on E → E(A) only; B in the
-    #      second segment and on E(A, B) → E(P, Q), which leaves it; P and Q in the
-    #      first and on E(P, Q) → E(A, B), which leaves it.
+    #   A: {E, EQ, EPQ} | {EA, EAB}. A scores on E → EA only; B in the
+    #      second segment and on EAB → EPQ, which leaves it; P and Q in the
+    #      first and on EPQ → EAB, which leaves it.
     #   Q: the mirror of A.
-    #   B: {E, E(A), E(Q), E(P, Q)} | {E(A, B)}. A, P and Q score in the first segment
-    #      and on edges leaving it (E(A) → E(A, B), E(P, Q) → E(A, B)); B scores 1 on
-    #      E(A) → E(A, B) and in no segment.
+    #   B: {E, EA, EQ, EPQ} | {EAB}. A, P and Q score in the first segment
+    #      and on edges leaving it (EA → EAB, EPQ → EAB); B scores 1 on
+    #      EA → EAB and in no segment.
     #   P: the mirror of B.
     # Four children, tags kept. The parent is identifiable at 6; every child adds one
     # constant and gains one, the B and P flank flips included, where the plain
@@ -1808,9 +1808,9 @@ end
 end
 
 @testset "_chain_flank_groups: the flanks of steady-state chains only" begin
-    # Ping-pong seed. E(A) → Estar(P) is steady state, alone in its group, and its two
+    # Ping-pong seed. EA → EstarP is steady state, alone in its group, and its two
     # ends each have one other step, a binding into that end, alone in its group: the
-    # A and P groups are its flanks. Estar(B) ⇌ E(Q) is a chain of the same shape
+    # A and P groups are its flanks. EstarB ⇌ EQ is a chain of the same shape
     # whose isomerization is at rapid equilibrium, so the B and Q groups are no
     # flanks.
     m = @enzyme_mechanism begin
@@ -1836,12 +1836,12 @@ end
 end
 
 @testset "_chain_flank_groups: a flank binds into its end of the chain" begin
-    # Iso uni-uni with P also binding E(S) abortively. Both isomerizations are steady
+    # Iso uni-uni with P also binding ES abortively. Both isomerizations are steady
     # state and alone in their groups, and no chain qualifies:
-    #   E(S) → Estar(P): E(S) has two other steps, the S binding into it and the P
-    #     binding out of it (E(S) + P ⇌ E(P, S)), so it is no chain end.
+    #   ES → EstarP: ES has two other steps, the S binding into it and the P
+    #     binding out of it (ES + P ⇌ EPS), so it is no chain end.
     #   Estar → E: each end has exactly one other step, a binding alone in its group,
-    #     but out of the end, not into it (Estar + P ⇌ Estar(P), E + S ⇌ E(S)), so
+    #     but out of the end, not into it (Estar + P ⇌ EstarP, E + S ⇌ ES), so
     #     neither is a flank.
     # Without the orientation condition the second isomerization would name the S and P
     # groups, the flanks the first would name without the abortive step.
@@ -1861,10 +1861,10 @@ end
 
 @testset "Mechanism — bi-bi ping-pong: 5 RE groups → 3 variants" begin
     # SEED: bi-bi ping-pong with Estar (residual) form. 5 singleton RE
-    # groups + 1 SS iso group. E(A) → Estar(P) is a qualifying chain with a
-    # steady-state isomerization: E(A) and Estar(P) each have one other step,
+    # groups + 1 SS iso group. EA → EstarP is a qualifying chain with a
+    # steady-state isomerization: EA and EstarP each have one other step,
     # a binding into that form alone in its group, so its flanks, the A and P
-    # groups, never flip (`_chain_flank_groups`). Estar(B) ⇌ E(Q) has the same
+    # groups, never flip (`_chain_flank_groups`). EstarB ⇌ EQ has the same
     # shape at rapid equilibrium, so the B and Q groups stay units. The B, Q
     # and RE iso groups each flip alone → 3.
     m = @enzyme_mechanism begin
@@ -1942,7 +1942,7 @@ end
 @testset "Mechanism — ter-ter sequential" begin
     # SEED: ter-ter sequential ordered. 6 singleton RE binding groups
     # + 1 SS iso. The D and P groups are the flanks of the qualifying chain
-    # E(A, B, D) → E(P, Q, R) (`_chain_flank_groups`) and never flip; the other
+    # EABD → EPQR (`_chain_flank_groups`) and never flip; the other
     # four each cut the one segment alone → 4 variants.
     m = @enzyme_mechanism begin
         substrates: A, B, D
@@ -2045,7 +2045,7 @@ end
         # NOT change R/T-state semantics, so the converted group stays :OnlyA.
         # Connected-component pruning populates the inactive state from free E over ALL
         # surviving steps, so because catalysis is :EqualAI the base mechanism's Q_I
-        # ALREADY carries E(S) and E(P) through the inactive catalytic step — even
+        # ALREADY carries ES and EP through the inactive catalytic step — even
         # though both bindings are :OnlyA and cannot bind directly in the T-state.
         # Those forms are therefore present in the inactive state of the base AND of
         # every variant, so flipping a binding group RE→SS adds only that group's own SS
@@ -2172,12 +2172,12 @@ end
 
 @testset "Mechanism — a substrate's modifier copy never flips; catalytic groups do" begin
     # Ordered bi-bi with A also bound as a competitive-inhibitor copy at E and
-    # E(Q), the Q binding mirrored onto the copy forms in the Q group, as the
+    # EQ, the Q binding mirrored onto the copy forms in the Q group, as the
     # dead-end move builds it. The copy group binds a regulator and is never a
     # unit. A, B, P and Q each divide the one segment alone (the Q flip takes its
-    # mirror with it and isolates {E(Q), E(P, Q), E(A::Mod, Q)}), and each flipped
+    # mirror with it and isolates {EQ, EPQ, EAmodQ}), and each flipped
     # group shares a block with the chemistry edge, so all four carry flux. The copy
-    # binds at E and E(Q), so E(A, B) and E(P, Q) keep one step each beside the
+    # binds at E and EQ, so EAB and EPQ keep one step each beside the
     # isomerization, a binding into that form alone in its group: B and P are the
     # flanks of a qualifying chain and never flip (`_chain_flank_groups`). Their
     # flips, absent, keep the parent's rank. Children: the A and Q flips.
@@ -2358,7 +2358,7 @@ end
     # A catalytic binding and its inhibitor-bound mirror (the same binding
     # with every inhibitor stripped) sit in separate all-RE kinetic groups
     # on a closed inhibitor square: A binding to E, and A binding to the
-    # inhibitor-bound form E(I), with I binding both E and E(A). Neither
+    # inhibitor-bound form EI, with I binding both E and EA. Neither
     # cuts a rapid-equilibrium segment alone, because the other supplies an
     # RE route around the square, so the minimal-set search emits them only
     # together: they flip to SS as a pair, never one without the other.
@@ -2428,7 +2428,7 @@ end
         end)]
     @test length(kids) == 3
     @test Set(kids) == Set(expected)
-    # Mirror-lock: in every child the A binding at E and its mirror at E(I) carry one
+    # Mirror-lock: in every child the A binding at E and its mirror at EI carry one
     # flag.
     _testhelper_flag(c, from, to) = only(e.rapid_equilibrium for e in c.catalytic.steps
         if (String(c.catalytic.enzyme_forms[e.from]),
@@ -2645,12 +2645,12 @@ end
 
 @testset "Mechanism — a split part without flux is emitted at rapid equilibrium" begin
     # Ordered bi-bi whose steady-state B group holds the catalytic binding
-    # E(A) + B and the abortive binding E(Q) + B. Splitting by context leaves
-    # E(Q) + B → E(B, Q) alone: E(B, Q) is a dead end, so the step is a pendant
+    # EA + B and the abortive binding EQ + B. Splitting by context leaves
+    # EQ + B → EBQ alone: EBQ is a dead end, so the step is a pendant
     # bridge of the segment graph and carries no flux. Its two constants would
     # enter the rate only as their ratio, so the part is emitted at rapid
     # equilibrium, one constant fewer than the raw split and the same family.
-    # E(B, Q) lies on no cycle, so the new constant raises the independent count: one
+    # EBQ lies on no cycle, so the new constant raises the independent count: one
     # child.
     m = @enzyme_mechanism begin
         substrates: A, B
@@ -2698,18 +2698,18 @@ end
     @test r_rev == r_raw                                          # the same family
     @test _testhelper_fitted(reverted) == _testhelper_fitted(raw) - 1  # one constant fewer
     # Both children keep one phantom of another class: once the abortive step no
-    # longer pins kf_B/kr_B, E(A) + B → E(A, B) is a steady-state binding into a
+    # longer pins kf_B/kr_B, EA + B → EAB is a steady-state binding into a
     # form with one exit, and its three constants enter the law through two
     # combinations. The revert removes exactly the zero-flux phantom.
     @test _testhelper_fitted(raw) - r_raw == _testhelper_fitted(reverted) - r_rev + 1
 end
 
 @testset "Mechanism — a split leaving a redundant copy part is not emitted" begin
-    # Ordered bi-bi with B also bound as a competitive-inhibitor copy at E(A) and
-    # E(Q). E(A, B::Mod) has the composition of E(A, B); E(Q, B::Mod) is new, so
+    # Ordered bi-bi with B also bound as a competitive-inhibitor copy at EA and
+    # EQ. EABmod has the composition of EAB; EBmodQ is new, so
     # the placement stands. Splitting the copy group by context would leave
-    # E(A) + B::Mod alone, a group that binds only where it duplicates E(A, B), and
-    # E(A, B) is formed by the B group alone and left by the chemistry alone, so the
+    # EA + B alone, a group that binds only where it duplicates EAB, and
+    # EAB is formed by the B group alone and left by the chemistry alone, so the
     # gauge exists: the child would be its parent plus a phantom. Every other group
     # holds one step, so the move emits nothing.
     m = @enzyme_mechanism begin
@@ -2744,12 +2744,12 @@ end
 end
 
 @testset "Mechanism — a split that makes a copy group redundant is not emitted" begin
-    # The shared A group with abortive E(A, Q) and A as its own inhibitor at E: the
-    # copy duplicates E(A), but the A group also binds at E(Q), so the gauge fails and
+    # The shared A group with abortive EAQ and A as its own inhibitor at E: the
+    # copy duplicates EA, but the A group also binds at EQ, so the gauge fails and
     # the mechanism is valid. Splitting the A group alone or the Q group alone gains
-    # nothing (the cycle E, E(A), E(A, Q), E(Q) ties the new constant back); splitting
+    # nothing (the cycle E, EA, EAQ, EQ ties the new constant back); splitting
     # both frees one. In that child the A binding at E sits alone in its group and the
-    # Q binding at E(A) in its own: every group holds one ratio, the gauge exists, and
+    # Q binding at EA in its own: every group holds one ratio, the gauge exists, and
     # the copy is redundant (7 fitted, rank 6). Its family is that of the split parent
     # without the copy, so the move emits nothing.
     m = @enzyme_mechanism begin
@@ -2789,12 +2789,12 @@ end
 end
 
 @testset "Mechanism — two copies split down to complexes of one composition" begin
-    # Ordered bi-bi with Q bound as a competitive-inhibitor copy at E(A) and at E(Q) in two
-    # groups, and A as a copy at E(A) and E(Q) in one group. E(Q, A::Mod) has the
-    # composition {A, Q} of E(A, Q::Mod), a copy's complex, and no productive form has
+    # Ordered bi-bi with Q bound as a competitive-inhibitor copy at EA and at EQ in two
+    # groups, and A as a copy at EA and EQ in one group. EAmodQ has the
+    # composition {A, Q} of EAQmod, a copy's complex, and no productive form has
     # it, so neither part of the A copy's context bipartition is twin-only; every other
     # group holds one step, and the move emits the pair. The child carries one phantom:
-    # with E(Q) + A::Mod alone in its group, its complex and E(A, Q::Mod) enter the law
+    # with EQ + A alone in its group, its complex and EAQmod enter the law
     # through one coefficient, K_A·K_Q* + K_Q·K_A*, so 9 fitted constants have rank 8.
     # The rule tolerates it: rejecting it would also reject identifiable splits whose
     # other copy is pinned.
@@ -2835,11 +2835,11 @@ end
 end
 
 @testset "Allosteric mechanism — the split count of a law over the term cap" begin
-    # Merged random-order ter-bi with the abortive complexes E(B, P) and E(A, B, P). Every
-    # steady-state binding sits alone in its group except the A bindings at E(B) and
-    # E(B, P), and the active state has more denominator terms than
-    # MAX_RATE_EQUATION_TERMS. Splitting the P group by A leaves E(A, B) + P alone, and the
-    # square E(B), E(A, B), E(A, B, P), E(B, P), closed by the shared A group, ties its K
+    # Merged random-order ter-bi with the abortive complexes EBP and EABP. Every
+    # steady-state binding sits alone in its group except the A bindings at EB and
+    # EBP, and the active state has more denominator terms than
+    # MAX_RATE_EQUATION_TERMS. Splitting the P group by A leaves EAB + P alone, and the
+    # square EB, EAB, EABP, EBP, closed by the shared A group, ties its K
     # to the other part's: the joint solve counts that child, which derives no rate
     # polynomial, at the parent's count, so the split gains nothing and is not emitted.
     # The move emits the two splits that gain, the P group by B and the A group by P, and
@@ -2931,7 +2931,7 @@ end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(am) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
-    # Both conformations count: each inactive conformation keeps only E + Q <--> E(Q), two
+    # Both conformations count: each inactive conformation keeps only E + Q <--> EQ, two
     # segments joined by one tree, so the sum is the active law's count plus 2.
     for x in (am, p_by_a, p_by_b, a_by_p)
         @test _testhelper_laplacian_tree_count(
@@ -2957,8 +2957,8 @@ end
 
 @testset "Allosteric mechanism — a parent over the term cap splits by its count" begin
     # Merged random-order ter-bi over MAX_RATE_EQUATION_TERMS whose P group is split by A:
-    # E(A, B) + P sits alone, its K tied to the other part's by the square E(B), E(A, B),
-    # E(A, B, P), E(B, P) that the shared A group closes. The joint solve counts the parent
+    # EAB + P sits alone, its K tied to the other part's by the square EB, EAB,
+    # EABP, EBP that the shared A group closes. The joint solve counts the parent
     # without deriving its law, so the move weighs every split against that count: the A
     # group split by P and the remaining P group split by B gain, and candidate_mechanisms
     # keeps them beside the other moves' children.
@@ -3029,7 +3029,7 @@ end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(am) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
-    # Both conformations count: the inactive conformation keeps only E + Q <--> E(Q).
+    # Both conformations count: the inactive conformation keeps only E + Q <--> EQ.
     for x in (am, a_by_p, p_by_b)
         @test _testhelper_laplacian_tree_count(
             x.catalytic, EnzymeRates.Mechanisms.steps_in_inactive_conformation(x)) == 2
@@ -3055,18 +3055,18 @@ end
 end
 
 @testset "Allosteric mechanism — a stopped :OnlyA binding strands EA; no child" begin
-    # Merged random-order bi-bi with the abortive complex E(A, Q). The steady-state A group
-    # binds A at E and, fused, at E(B) into E(P, Q), all :OnlyA. In the inactive
-    # conformation the :EqualAI steps E + Q <--> E(Q), E(Q) + A <--> E(A, Q) and
-    # E(A) + Q <--> E(A, Q) still join E to E(A), the two sides of the :OnlyA binding
-    # E + A <--> E(A), so that conformation stops it. At zero P and Q, E(A) then leaves
+    # Merged random-order bi-bi with the abortive complex EAQ. The steady-state A group
+    # binds A at E and, fused, at EB into EPQ, all :OnlyA. In the inactive
+    # conformation the :EqualAI steps E + Q <--> EQ, EQ + A <--> EAQ and
+    # EA + Q <--> EAQ still join E to EA, the two sides of the :OnlyA binding
+    # E + A <--> EA, so that conformation stops it. At zero P and Q, EA then leaves
     # only by taking up Q: it holds enzyme apart from free E, so the steady state there is
     # not unique (`_NONUNIQUE`), as both oracles find. Every move keeps that binding :OnlyA
     # and those steps untagged: a split's parts inherit their group's tag, and the
     # change-tag move relaxes binding groups only, while the A group holds chemistry. So no
     # child has a limit either. Of change-tag's three relaxations, Q's group and Q's
-    # abortive binding of A keep E(A) stranded; P's group joins the two sides of the
-    # rapid-equilibrium binding E(A) + B ⇌ E(P, Q), which then cannot be switched off
+    # abortive binding of A keep EA stranded; P's group joins the two sides of the
+    # rapid-equilibrium binding EA + B ⇌ EPQ, which then cannot be switched off
     # (`_FAST_STEP_PINNED`). The flip move emits nothing, and the exit drops the three
     # relaxations. Four split sets raise the count, but the split search asks the guard on
     # each child, so they count as failed, and no superset passes: the move emits no
@@ -3147,15 +3147,15 @@ end
 
 @testset "Allosteric mechanism — beside an inhibitor, stopped :OnlyA A strands EA" begin
     # Merged random-order bi-bi with the competitive inhibitor I and the abortive
-    # complexes E(A, P) and E(B, Q); the A, B, I and Q groups :OnlyA. In the inactive
-    # conformation the :EqualAI steps E + P <--> E(P), E(P) + A <--> E(A, P) and
-    # E(A) + P <--> E(A, P) join E to E(A), the two sides of the :OnlyA binding
-    # E + A <--> E(A), so that conformation stops it. At zero P and Q, E(A) then leaves
+    # complexes EAP and EBQ; the A, B, I and Q groups :OnlyA. In the inactive
+    # conformation the :EqualAI steps E + P <--> EP, EP + A <--> EAP and
+    # EA + P <--> EAP join E to EA, the two sides of the :OnlyA binding
+    # E + A <--> EA, so that conformation stops it. At zero P and Q, EA then leaves
     # only by taking up P: it holds enzyme apart from free E, so the steady state there is
     # not unique (`_NONUNIQUE`), as both oracles find. No child has a limit either. Of
     # change-tag's four relaxations, I's group, P's group and P's abortive binding of A
-    # keep E(A) stranded; Q's group joins the two sides of the rapid-equilibrium binding
-    # E(A) + B ⇌ E(P, Q), which then cannot be switched off (`_FAST_STEP_PINNED`). The flip
+    # keep EA stranded; Q's group joins the two sides of the rapid-equilibrium binding
+    # EA + B ⇌ EPQ, which then cannot be switched off (`_FAST_STEP_PINNED`). The flip
     # move emits nothing, and the exit drops the four relaxations. Six split sets raise the
     # count, but the split search asks the guard on each child, so they count as failed,
     # and no superset passes: the move emits no split.
@@ -3312,12 +3312,12 @@ end
 
 @testset "Allosteric mechanism — an :EqualAI group counts once across conformations" begin
     # Bi-bi with A bound before B, P and Q released in either order, and the abortive
-    # complexes E(A, P) and E(B, Q); the A group and the chemistry are :OnlyA. The
+    # complexes EAP and EBQ; the A group and the chemistry are :OnlyA. The
     # inactive conformation binds no A, so of the :EqualAI B group it reaches only
-    # E(Q) + B, yet the B constant is one class in both conformations: the parent fits six
-    # constants, its dimension. Splitting the B group gains one, since E(B, Q) lies on no
-    # cycle. The square E, E(A), E(A, P), E(P), closed by the shared A and P groups, ties
-    # back the split of either group by the other, and the square E, E(P), E(P, Q), E(Q)
+    # EQ + B, yet the B constant is one class in both conformations: the parent fits six
+    # constants, its dimension. Splitting the B group gains one, since EBQ lies on no
+    # cycle. The square E, EA, EAP, EP, closed by the shared A and P groups, ties
+    # back the split of either group by the other, and the square E, EP, EPQ, EQ
     # does the same for the P and Q groups, so splitting the P group by A or by Q gains
     # nothing alone; with the A or the Q group split too, it gains one. The move emits
     # those three children, each fitting as many constants as its dimension.
@@ -3425,7 +3425,7 @@ end
     # is kept.
     for (m, rxn, n_variants, multi_form, expected) in [
         # SEED: bi-bi sequential. The expansion should produce 4 form sets after dedup:
-        # {E, E(Q)}, {E}, {E(A), E(Q)} and {E, E(A)}.
+        # {E, EQ}, {E}, {EA, EQ} and {E, EA}.
         (@enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
@@ -3487,8 +3487,8 @@ end
             end)]),
         # SEED: bi-bi random. It has 5 eligible forms (E, E_A, E_B, E_P, E_Q);
         # competition patterns × dedup → 9 variants. Some variants bind I at several
-        # forms: {E, E(B), E(Q)}, {E, E(B), E(P)}, {E, E(B)}, {E, E(A), E(Q)},
-        # {E, E(A), E(P)}, {E, E(A)}, {E, E(Q)}, {E, E(P)} and {E}.
+        # forms: {E, EB, EQ}, {E, EB, EP}, {E, EB}, {E, EA, EQ},
+        # {E, EA, EP}, {E, EA}, {E, EQ}, {E, EP} and {E}.
         (@enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
@@ -3693,15 +3693,15 @@ end
 end
 
 @testset "Mechanism — dead-end sites on a Theorell–Chance step" begin
-    # Ordered Theorell–Chance, all SS: E + A → E(A), E(A) + B → E(Q) + P, E + Q → E(Q).
-    # Sites: A is free at E, B at E(A) (taken up by the TC step), P at E(Q) (given off
+    # Ordered Theorell–Chance, all SS: E + A → EA, EA + B → EQ + P, E + Q → EQ.
+    # Sites: A is free at E, B at EA (taken up by the TC step), P at EQ (given off
     # there), Q at E. A foreign inhibitor I competes with one or both substrates and one
     # or both products; a site is skipped when it already holds a competing reactant.
-    # {A}×{P}: E, E(Q). {A}×{Q}: E. {A}×{P,Q}: E (E(Q) holds Q). {B}×{P}: E(A), E(Q).
-    # {B}×{Q}: E, E(A). {B}×{P,Q}: E, E(A) (E(Q) holds Q). {A,B}×{P}: E, E(Q) (E(A)
-    # holds A). {A,B}×{Q}: E. {A,B}×{P,Q}: E. Distinct placements: {E}, {E, E(Q)},
-    # {E(A), E(Q)}, {E, E(A)}. Mirrors join two sites: E–E(Q) by Q's binding, E–E(A) by
-    # A's, E(A)–E(Q) by the TC step, each in its parent's group, at its parent's flag.
+    # {A}×{P}: E, EQ. {A}×{Q}: E. {A}×{P,Q}: E (EQ holds Q). {B}×{P}: EA, EQ.
+    # {B}×{Q}: E, EA. {B}×{P,Q}: E, EA (EQ holds Q). {A,B}×{P}: E, EQ (EA
+    # holds A). {A,B}×{Q}: E. {A,B}×{P,Q}: E. Distinct placements: {E}, {E, EQ},
+    # {EA, EQ}, {E, EA}. Mirrors join two sites: E–EQ by Q's binding, E–EA by
+    # A's, EA–EQ by the TC step, each in its parent's group, at its parent's flag.
     # A foreign inhibitor has no twins, so the copy rule keeps every placement.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
@@ -3768,12 +3768,12 @@ end
     end
 end
 
-@testset "Mechanism — a copy that sorts before the other reactants" begin
-    # A as its own competitive inhibitor: the copy A::Mod sorts right after A, before B,
-    # P and Q, and its complexes sort in among the parent's forms, so every later form of
-    # the parent moves in the child. The copy rule reads each
-    # candidate's own twins: A::Mod at E alone duplicates E(A) and is dropped; at E(Q),
-    # with E + Q mirrored onto E(A::Mod), and at E(A) and E(Q) it is new.
+@testset "Mechanism — a copy whose complexes sort among the parent's forms" begin
+    # A as its own competitive inhibitor: the complexes where A binds as a copy, named
+    # with Amod, sort in among the parent's forms by name, so later forms of the parent
+    # move in the child. The copy rule reads each candidate's own twins: A at E alone
+    # duplicates EA and is dropped; at EQ, with E + Q mirrored onto EAmod, and at EA and
+    # EQ it is new.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -3831,7 +3831,7 @@ end
         end)]
     @test length(kids) == 3
     @test Set(kids) == Set(expected)
-    # The dropped copy: E(A::Mod) at E alone, whose twin E(A) the A binding forms.
+    # The dropped copy: EAmod at E alone, whose twin EA the A binding forms.
     dropped = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3955,7 +3955,7 @@ end
 
 @testset "Mechanism — uni-uni: a reactant as its own inhibitor has no placement" begin
     # The only site that carries neither S nor P is free E, and E·S* has the
-    # composition of E(S) (E·P* that of E(P)), formed by the S group alone: the
+    # composition of ES (E·P* that of EP), formed by the S group alone: the
     # gauge exists, and the copy's constant would enter the rate only as
     # K_S + K_S,inh with kcat rescaled. No child is emitted.
     rxn_S = @enzyme_reaction begin
@@ -3984,13 +3984,13 @@ end
 end
 
 @testset "Mechanism — ordered bi-bi with A as its own inhibitor: three placements" begin
-    # A binds productively at E only, so A* competing with P puts it at {E, E(Q)},
-    # with Q puts it at {E} alone, and competing with B puts it at {E(A), E(Q)} or
-    # {E, E(A)}. E·A* has the composition of E(A); E(Q)·A* and E(A)·A* are new. The
-    # placement at E alone is all-twin, and its gauge exists: E(A) is formed by the
+    # A binds productively at E only, so A* competing with P puts it at {E, EQ},
+    # with Q puts it at {E} alone, and competing with B puts it at {EA, EQ} or
+    # {E, EA}. E·A* has the composition of EA; EQ·A* and EA·A* are new. The
+    # placement at E alone is all-twin, and its gauge exists: EA is formed by the
     # A group alone, so the A group's ratio is 1/ρ and the B group's ρ, each over
-    # one step. It is redundant and is not emitted. Mirrors: E + Q ⇌ E(Q) onto
-    # {E, E(Q)} in the Q group; E + A ⇌ E(A) onto {E, E(A)} in the A group.
+    # one step. It is redundant and is not emitted. Mirrors: E + Q ⇌ EQ onto
+    # {E, EQ} in the Q group; E + A ⇌ EA onto {E, EA} in the A group.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -4060,7 +4060,7 @@ end
     @test Set(kids) == Set([at_E_EQ, at_EA_EQ, at_E_EA])
     # The absent placement adds a constant the data cannot see.
     @test !(at_E in kids)
-    # Each child binds the copy A::Mod, in one new kinetic group, and adds exactly one
+    # Each child binds A as a copy, in one new kinetic group, and adds exactly one
     # fitted constant; every child has full rank.
     base_fitted = _testhelper_fitted(m)
     for r in kids
@@ -4077,17 +4077,17 @@ end
 end
 
 @testset "Mechanism — shared A group with abortive EAQ: the gauge decides" begin
-    # A binds at E and, in the same kinetic group, at E(Q) to form the abortive
-    # complex E(A, Q). A copy of A at E duplicates E(A) and at E(Q) duplicates
-    # E(A, Q), so the placements {E} and {E, E(Q)} are all-twin, and the dwell gauge
-    # decides. At {E, E(Q)}, with E + Q ⇌ E(Q) mirrored onto the copy forms in the Q
+    # A binds at E and, in the same kinetic group, at EQ to form the abortive
+    # complex EAQ. A copy of A at E duplicates EA and at EQ duplicates
+    # EAQ, so the placements {E} and {E, EQ} are all-twin, and the dwell gauge
+    # decides. At {E, EQ}, with E + Q ⇌ EQ mirrored onto the copy forms in the Q
     # group, both twins come from the one A group and share ρ: every step of the A
     # group has ratio 1/ρ and every step of the Q group ratio 1, so the gauge exists
     # and the copy is redundant (not emitted; 6 fitted, rank 5). At {E} the A group
-    # holds E + A ⇌ E(A), ratio 1/ρ, beside E(Q) + A ⇌ E(A, Q), ratio 1: no gauge,
-    # since the shared group pins K_A at E(Q), where no copy binds. The child is
-    # emitted and has full rank (6 fitted, rank 6). {E(A), E(Q)} and {E, E(A)} create
-    # E(A, A*) and are emitted; the second mirrors E + A ⇌ E(A) in the A group.
+    # holds E + A ⇌ EA, ratio 1/ρ, beside EQ + A ⇌ EAQ, ratio 1: no gauge,
+    # since the shared group pins K_A at EQ, where no copy binds. The child is
+    # emitted and has full rank (6 fitted, rank 6). {EA, EQ} and {E, EA} create
+    # E(A, A*) and are emitted; the second mirrors E + A ⇌ EA in the A group.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -4160,25 +4160,25 @@ end
 end
 
 @testset "Mechanism — a second copy may share an older copy's composition" begin
-    # Ordered bi-bi with Q as its own inhibitor at {E, E(A)}, the A binding
+    # Ordered bi-bi with Q as its own inhibitor at {E, EA}, the A binding
     # mirrored onto the copy forms. Competition is decided per site: Q* binds a
     # dead-end site of its own, so E(Q*) carries no productive Q. A binds
-    # productively at E and E(Q*), B at E(A), P at E(Q), Q at E; Q* binds at E and
-    # E(A). A copy of A goes to {E(A), E(Q)} competing with B and P, to {E, E(A)}
-    # competing with B and Q, to {E, E(Q), E(Q*)} competing with A and P, to
-    # {E, E(Q*)} competing with A and Q, to {E, E(Q)} competing with A, P and Q*, to
-    # {E, E(A), E(Q)} competing with B, P and Q*, and to {E} competing with A, Q and
-    # Q*. E·A* duplicates E(A), so {E} is all-twin; but the A group that forms E(A)
+    # productively at E and E(Q*), B at EA, P at EQ, Q at E; Q* binds at E and
+    # EA. A copy of A goes to {EA, EQ} competing with B and P, to {E, EA}
+    # competing with B and Q, to {E, EQ, E(Q*)} competing with A and P, to
+    # {E, E(Q*)} competing with A and Q, to {E, EQ} competing with A, P and Q*, to
+    # {E, EA, EQ} competing with B, P and Q*, and to {E} competing with A, Q and
+    # Q*. E·A* duplicates EA, so {E} is all-twin; but the A group that forms EA
     # also binds at E(Q*), where no A* binds, so it holds a step of ratio 1/ρ beside
-    # one of ratio 1, the gauge fails, and {E} is emitted. E(A)·A* is new, and
-    # E(Q)·A* and E(Q*)·A* have the composition of E(A, Q*), a copy's complex, which
-    # is no twin source. Where A* binds at E(A), E(A, A*) pins K_A* and the child has
-    # full rank. In the child at {E(A), E(Q)} the older Q* group binds at E, a twin of
-    # E(Q), and at E(A), whose complex E(A, Q*) has the composition of E(A*, Q); its
+    # one of ratio 1, the gauge fails, and {E} is emitted. EA·A* is new, and
+    # EQ·A* and E(Q*)·A* have the composition of E(A, Q*), a copy's complex, which
+    # is no twin source. Where A* binds at EA, E(A, A*) pins K_A* and the child has
+    # full rank. In the child at {EA, EQ} the older Q* group binds at E, a twin of
+    # EQ, and at EA, whose complex E(A, Q*) has the composition of E(A*, Q); its
     # constant still shows, since the A·Q term is A·Q/(K_A·K_Q*) + A·Q/(K_Q·K_A*).
     # Where A* binds at E and otherwise, if anywhere, only where its complex has the
-    # composition of E(A, Q*), in the children at {E, E(Q), E(Q*)}, {E, E(Q*)},
-    # {E, E(Q)} and {E}, no site pins either copy: K_A, K_A*, K_Q and K_Q* enter the
+    # composition of E(A, Q*), in the children at {E, EQ, E(Q*)}, {E, E(Q*)},
+    # {E, EQ} and {E}, no site pins either copy: K_A, K_A*, K_Q and K_Q* enter the
     # law only through the A, Q and A·Q coefficients, so the child carries one
     # phantom. The rule tolerates it: it rejects a copy only on a proof.
     rxn = @enzyme_reaction begin
@@ -4312,24 +4312,24 @@ end
 end
 
 @testset "Mechanism — a copy's form hosts a copy that competes with its reactant" begin
-    # Ordered bi-bi with A as its own inhibitor at {E, E(Q)}, placing a copy of Q.
+    # Ordered bi-bi with A as its own inhibitor at {E, EQ}, placing a copy of Q.
     # Competition is decided per site: A* binds a dead-end site of its own, so
     # E(A*) carries no productive A and is a site for a Q* that competes with A. A
-    # binds productively at E, B at E(A), P at E(Q), Q at E and E(A*); A* binds at E
-    # and E(Q). E(A, B) and E(P, Q) hold every substrate or every product and are no
-    # site. Q* goes to {E, E(Q)} competing with A and P, to {E, E(A*)} competing
-    # with A and Q, to {E(A), E(Q)} competing with B and P, to {E, E(A), E(A*)}
-    # competing with B and Q, to {E, E(A), E(Q)} competing with B, P and A*, to
-    # {E, E(A)} competing with B, Q and A*, and to {E} competing with A, Q and A*.
-    # E·Q* duplicates E(Q), so {E} is all-twin; but the Q group that forms E(Q) also
+    # binds productively at E, B at EA, P at EQ, Q at E and E(A*); A* binds at E
+    # and EQ. EAB and EPQ hold every substrate or every product and are no
+    # site. Q* goes to {E, EQ} competing with A and P, to {E, E(A*)} competing
+    # with A and Q, to {EA, EQ} competing with B and P, to {E, EA, E(A*)}
+    # competing with B and Q, to {E, EA, EQ} competing with B, P and A*, to
+    # {E, EA} competing with B, Q and A*, and to {E} competing with A, Q and A*.
+    # E·Q* duplicates EQ, so {E} is all-twin; but the Q group that forms EQ also
     # binds at E(A*), where no Q* binds, so it holds a step of ratio 1/ρ beside one of
-    # ratio 1, the gauge fails, and {E} is emitted. E(Q)·Q* is new, and so are
-    # E(A)·Q* and E(A*)·Q*: E(A, Q*) and E(A*, Q*) have the composition of E(A*, Q),
-    # a copy's complex, which is no twin source. Mirrors: E + A ⇌ E(A) onto E(Q*) in
-    # A's group wherever E(A) is a site, E + Q ⇌ E(Q) in Q's group wherever E(Q) is,
-    # and E + A* ⇌ E(A*) in A*'s group wherever E(A*) is. Where Q* binds at E(Q),
-    # E(Q, Q*) pins K_Q*, and {E(A), E(Q)} has no twin site; those children have full
-    # rank. Where Q* binds at E and otherwise, if anywhere, only at E(A) or E(A*), no
+    # ratio 1, the gauge fails, and {E} is emitted. EQ·Q* is new, and so are
+    # EA·Q* and E(A*)·Q*: E(A, Q*) and E(A*, Q*) have the composition of E(A*, Q),
+    # a copy's complex, which is no twin source. Mirrors: E + A ⇌ EA onto E(Q*) in
+    # A's group wherever EA is a site, E + Q ⇌ EQ in Q's group wherever EQ is,
+    # and E + A* ⇌ E(A*) in A*'s group wherever E(A*) is. Where Q* binds at EQ,
+    # E(Q, Q*) pins K_Q*, and {EA, EQ} has no twin site; those children have full
+    # rank. Where Q* binds at E and otherwise, if anywhere, only at EA or E(A*), no
     # site pins K_Q* apart from K_Q, so the child carries one phantom, which the rule
     # tolerates: it rejects a copy only on a proof.
     rxn = @enzyme_reaction begin
@@ -4462,17 +4462,17 @@ end
 end
 
 @testset "Mechanism — an inhibitor that competes with A binds the copy's form E(A*)" begin
-    # Ordered bi-bi with A as its own inhibitor at {E, E(Q)}, placing a foreign
+    # Ordered bi-bi with A as its own inhibitor at {E, EQ}, placing a foreign
     # inhibitor I. A* binds a dead-end site of its own, so E(A*) carries no
     # productive A and is a site for an I that competes with A. A binds productively
-    # at E, B at E(A), P at E(Q), Q at E and E(A*); A* binds at E and E(Q). I goes
-    # to {E, E(Q)} competing with A and P, to {E, E(A*)} competing with A and Q, to
-    # {E(A), E(Q)} competing with B and P, to {E, E(A), E(A*)} competing with B and
-    # Q, to {E, E(A), E(Q)} competing with B, P and A*, to {E, E(A)} competing with
+    # at E, B at EA, P at EQ, Q at E and E(A*); A* binds at E and EQ. I goes
+    # to {E, EQ} competing with A and P, to {E, E(A*)} competing with A and Q, to
+    # {EA, EQ} competing with B and P, to {E, EA, E(A*)} competing with B and
+    # Q, to {E, EA, EQ} competing with B, P and A*, to {E, EA} competing with
     # B, Q and A*, and to {E} competing with A, Q and A*. I copies no reactant, so
     # every complex it forms is new: all seven children are emitted, each with full
-    # rank. Mirrors: E + A ⇌ E(A) onto E(I) in A's group wherever E(A) is a site,
-    # E + Q ⇌ E(Q) in Q's group wherever E(Q) is, and E + A* ⇌ E(A*) in A*'s group
+    # rank. Mirrors: E + A ⇌ EA onto EI in A's group wherever EA is a site,
+    # E + Q ⇌ EQ in Q's group wherever EQ is, and E + A* ⇌ E(A*) in A*'s group
     # wherever E(A*) is.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
@@ -4604,14 +4604,14 @@ end
 end
 
 @testset "Mechanism — a form that holds only a copy has room for an inhibitor" begin
-    # Uni-bi with S as its own inhibitor at {E, E(Q)}. The capacity test counts
+    # Uni-bi with S as its own inhibitor at {E, EQ}. The capacity test counts
     # productive bindings only: E(S*) holds S's copy at a dead-end site of its own
     # and no substrate, so it is a site although S is the only substrate. S binds
-    # productively at E, P at E(Q), Q at E and E(S*); S* binds at E and E(Q). A
-    # foreign inhibitor I goes to {E, E(Q)} competing with S and P, to {E, E(S*)}
+    # productively at E, P at EQ, Q at E and E(S*); S* binds at E and EQ. A
+    # foreign inhibitor I goes to {E, EQ} competing with S and P, to {E, E(S*)}
     # competing with S and Q, and to {E} competing with S, Q and S*. The child at
-    # {E, E(Q)} mirrors E + Q ⇌ E(Q) onto E(I) in Q's group, the one at {E, E(S*)}
-    # mirrors E + S* ⇌ E(S*) onto E(I) in S*'s group. Each child has full rank.
+    # {E, EQ} mirrors E + Q ⇌ EQ onto EI in Q's group, the one at {E, E(S*)}
+    # mirrors E + S* ⇌ E(S*) onto EI in S*'s group. Each child has full rank.
     rxn = @enzyme_reaction begin
         substrates: S[CN]
         products: P[C], Q[N]
@@ -4681,17 +4681,17 @@ end
 @testset "Mechanism — competing with B targets where B binds, not where B* binds" begin
     # Ordered bi-bi with B as its own inhibitor at E (placed competing with A and Q),
     # placing a foreign inhibitor I. Competition with a reactant targets the forms
-    # where it binds productively: A at E, B at E(A), P at E(Q), Q at E; the copy B*
+    # where it binds productively: A at E, B at EA, P at EQ, Q at E; the copy B*
     # binds at E, a target only for competition with B* itself. Capacity leaves out
-    # E(A, B) and E(P, Q); E(B*) is never a target, since nothing binds there. I goes
-    # to {E, E(Q)} competing with A and P, to {E} competing with A and Q, to
-    # {E(A), E(Q)} competing with B and P, to {E, E(A)} competing with B and Q, and to
-    # {E, E(A), E(Q)} competing with B, P and B*. In the pattern B and P, free E is a
+    # EAB and EPQ; E(B*) is never a target, since nothing binds there. I goes
+    # to {E, EQ} competing with A and P, to {E} competing with A and Q, to
+    # {EA, EQ} competing with B and P, to {E, EA} competing with B and Q, and to
+    # {E, EA, EQ} competing with B, P and B*. In the pattern B and P, free E is a
     # site of B's copy, holds nothing that competes and is not a site of P: targeting
     # by name, B and its copy counting as one competitor, would add it and turn
-    # {E(A), E(Q)} into {E, E(A), E(Q)}, so {E(A), E(Q)} comes only from per-site
-    # targeting. Mirrors: E + Q ⇌ E(Q) onto E(I) in Q's group wherever E and E(Q) are
-    # sites, E + A ⇌ E(A) in A's group wherever E and E(A) are. I is foreign, so each
+    # {EA, EQ} into {E, EA, EQ}, so {EA, EQ} comes only from per-site
+    # targeting. Mirrors: E + Q ⇌ EQ onto EI in Q's group wherever E and EQ are
+    # sites, E + A ⇌ EA in A's group wherever E and EA are. I is foreign, so each
     # child adds one constant and has full rank (7 fitted, rank 7).
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
@@ -4793,11 +4793,11 @@ end
 
 @testset "Allosteric mechanism — a copy new only in the inactive state is kept" begin
     # Uni-uni whose S binding and chemistry are `:OnlyA`: the inactive conformation
-    # binds P but not S. An `:EqualAI` copy of S at E duplicates E(S) in the active
+    # binds P but not S. An `:EqualAI` copy of S at E duplicates ES in the active
     # state and is the only S-bound form in the inactive one, where its constant is
     # visible; the placement stands and adds an identifiable constant. With S
-    # binding `:NonequalAI` the copy duplicates E(S) in both states, the S group
-    # alone forms E(S) in each, so the gauge exists in each, and it is skipped.
+    # binding `:NonequalAI` the copy duplicates ES in both states, the S group
+    # alone forms ES in each, so the gauge exists in each, and it is skipped.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -4848,7 +4848,7 @@ end
 
 @testset "Allosteric mechanism — free enzyme binds a copy in every conformation" begin
     # Uni-uni whose every catalytic group is `:OnlyA`: the inactive conformation has no
-    # step, yet it holds its free enzyme. An `:EqualAI` copy of S at E duplicates E(S) in
+    # step, yet it holds its free enzyme. An `:EqualAI` copy of S at E duplicates ES in
     # the active state and is the only S-bound form in the inactive one, where its
     # constant is visible; the placement stands and adds an identifiable constant.
     rxn = @enzyme_reaction begin
@@ -4890,15 +4890,15 @@ end
 
 @testset "Allosteric mechanism — no relaxation makes a kept copy redundant" begin
     # The copy of S at E is new only in the inactive state, where S does not bind.
-    # Relaxing the S binding to `:NonequalAI` brings E(S) into the inactive state:
-    # the copy then duplicates E(S) in both states, formed in each by the S group
+    # Relaxing the S binding to `:NonequalAI` brings ES into the inactive state:
+    # the copy then duplicates ES in both states, formed in each by the S group
     # alone, so the gauge exists in each, its constant shows only beside K_S, and
     # the child is not emitted (one fitted constant above its rank).
     # The move never relaxes the chemistry while S binds the active state only, and
-    # admission would refuse it: the chemistry and the P binding would join E to E(S)
+    # admission would refuse it: the chemistry and the P binding would join E to ES
     # in the inactive state, leaving S's affinity no path to zero. The P binding and
     # the copy relax. The relaxed copy, with one
-    # constant per state, duplicates E(S) in the active state and is new in the
+    # constant per state, duplicates ES in the active state and is new in the
     # inactive one, so it keeps one phantom, its active-state constant; the copy rule
     # keeps such a `:NonequalAI` copy.
     kept = @enzyme_mechanism begin
@@ -5161,7 +5161,7 @@ end
 
 @testset "Mechanism — Bi-bi sequential: binding-group :OnlyA variants only" begin
     # 5 kinetic groups: 4 bindings (A, B substrate-side; P, Q
-    # product-side) + 1 chemical step (E(A,B) <--> E(P,Q)). The
+    # product-side) + 1 chemical step (EAB <--> EPQ). The
     # catalytic group is never a bare primary :OnlyA (that V-type needs
     # a regulator, none declared). Instead each nonempty set of binding
     # groups is tagged :OnlyA on top of the base whose chemistry is :OnlyA,
@@ -5213,8 +5213,8 @@ end
 
 @testset "Mechanism — Bi-bi ping-pong: binding-group :OnlyA variants only" begin
     # SEED: bi-bi ping-pong, 6 kinetic groups: 4 bindings (A and Q at free E, B and P at
-    # the covalent form E(; residual = A - P)) and the two half-reactions E(A) <-->
-    # E(P; residual = A - P) and E(B; residual = A - P) ⇌ E(Q). Tagging both halves
+    # the covalent form E_res_plusA_minusP) and the two half-reactions EA <-->
+    # EP_res_plusA_minusP and EB_res_plusA_minusP ⇌ EQ. Tagging both halves
     # :OnlyA cuts the covalent forms off in the inactive conformation, and the guard
     # admits it, so that set is the one base. No regulator is declared, so no V-type: the
     # children are K-types, each nonempty set of the four bindings :OnlyA on the base, all
@@ -5465,8 +5465,8 @@ end
 end
 
 @testset "Mechanism — merged abortive ping-pong: hyperbolic laws above one subunit" begin
-    # SEED: the bi-bi ping-pong above with A's abortive binding at E(P; residual = A - P)
-    # merged into A's group and P's at E(A) into P's group. At two subunits the move keeps
+    # SEED: the bi-bi ping-pong above with A's abortive binding at EP_res_plusA_minusP
+    # merged into A's group and P's at EA into P's group. At two subunits the move keeps
     # a child only when both conformations' laws are hyperbolic (`_hyperbolic_catalysis`).
     # Both half-reactions :OnlyA is the one base: the inactive conformation runs no
     # chemistry, so its abortive complexes put no power into its law, and the move emits
@@ -5743,14 +5743,14 @@ end
 end
 
 @testset "Mechanism — the tagging move drops a K-type whose law is not hyperbolic" begin
-    # A uni-bi parent: S binds fused into E(P, Q) at steady state, and the products leave
-    # in either order, each at steady state from E(P, Q) and at rapid equilibrium from
-    # E(P) or E(Q). Its scheme is hyperbolic, so two subunits stay open, and at two
+    # A uni-bi parent: S binds fused into EPQ at steady state, and the products leave
+    # in either order, each at steady state from EPQ and at rapid equilibrium from
+    # EP or EQ. Its scheme is hyperbolic, so two subunits stay open, and at two
     # subunits the move keeps a child only when both conformations' schemes are hyperbolic
     # (`_hyperbolic_where_required`). The one base tags the fused S binding :OnlyA, and the
     # move builds a K-type for each nonempty set of the four binding groups :OnlyA on it.
     # It drops two: with P's binding at E alone :OnlyA too, the inactive conformation
-    # reaches E(P) only through steady-state steps and its scheme fails
+    # reaches EP only through steady-state steps and its scheme fails
     # `_hyperbolic_catalysis`; likewise Q's binding at E alone. The guard rejects both as
     # well (the inactive conformation still joins the two sides of the excluded binding),
     # so the exits would drop them anyway; this testset pins the move's own drop.
@@ -6497,8 +6497,8 @@ end
 end
 
 @testset "Mechanism — catalytic-site abortive complex: no children" begin
-    # Ordered SS bi-bi with A binding E(Q) as an abortive complex at its
-    # catalytic site: the term rooted at {E(Q), E(A, Q)} holds E → E(A), so the
+    # Ordered SS bi-bi with A binding EQ as an abortive complex at its
+    # catalytic site: the term rooted at {EQ, EAQ} holds E → EA, so the
     # scheme carries A², and a conformational equilibrium on top would stack a
     # second source of concentration powers. The promotion emits nothing.
     m = @enzyme_mechanism begin
@@ -6522,13 +6522,10 @@ end
 end
 
 @testset "Mechanism — substrate declared as an inhibitor: promotion proceeds" begin
-    # Ordered SS bi-bi with A also declared a modifier, written
-    # with the ::Mod role tag (src/Mechanisms/dsl.jl): a plain `A` occurrence keeps A's
-    # declared substrate role, while `A::Mod` binds A's modifier copy, a table
-    # entry of its own, so E(A::Mod) is a form apart from the catalytic A-bound
-    # forms. The inhibitor's
-    # own group binds E and E(Q); Q's catalytic binding is mirrored onto the
-    # inhibitor-bound form E(A::Mod), sharing its kinetic group, exactly as
+    # Ordered SS bi-bi with A also declared a competitive inhibitor: EAmod, where A binds
+    # without reacting, is a form apart from the catalytic A-bound forms. The inhibitor's
+    # own group binds E and EQ; Q's catalytic binding is mirrored onto the
+    # inhibitor-bound form EAmod, sharing its kinetic group, exactly as
     # `_expand_add_dead_end_regulator` builds it.
     parent = @enzyme_mechanism begin
         substrates: A, B
@@ -7784,14 +7781,14 @@ end
 
 @testset "Allosteric mechanism — drops a relaxation whose inactive law has a power" begin
     # The split abortive ping-pong at two subunits (testset "_hyperbolic_catalysis"): the
-    # second half-reaction and both abortive bindings, A's at E(P; residual = A - P) and
-    # P's at E(A), :OnlyA. Each other binding relaxes to :NonequalAI and keeps both laws
+    # second half-reaction and both abortive bindings, A's at EP_res_plusA_minusP and
+    # P's at EA, :OnlyA. Each other binding relaxes to :NonequalAI and keeps both laws
     # hyperbolic. Relaxing an abortive binding brings its complex into the inactive
     # conformation, whose law then reaches A² or P² (`_hyperbolic_catalysis`), so the move
     # drops both relaxations. The chemistry does not relax while a binding is :OnlyA. Four
     # children. The predicate reads the graph alone: the guard rejects this parent and each
     # relaxation, since the inactive conformation keeps the two sides of the
-    # rapid-equilibrium step E(B; residual = A - P) ⇌ E(Q) joined (`_FAST_STEP_PINNED`).
+    # rapid-equilibrium step EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`).
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
@@ -8662,7 +8659,7 @@ end
 @testset "eq_complexity_filter counts both conformations" begin
     # The 336-term random-order bi-bi at one catalytic subunit with its chemistry and its
     # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
-    # conformation keeps the substrate square E, E(S1), E(S1, S2), E(S2), four segments and
+    # conformation keeps the substrate square E, ES1, ES1S2, ES2, four segments and
     # four spanning trees, so the law counts 336 + 16 = 352. The default filter drops it
     # (`Enumeration._candidates`, the enumerator's limits), where the active count alone
     # would let it through; the parameter limit reads its 16 fitted constants.
@@ -8699,7 +8696,7 @@ end
 end
 
 @testset "candidate_mechanisms: a parent's children" begin
-    # E + S → E(P) fused (SS), E + P ⇌ E(P) (RE). Flip: the P group cuts E from E(P),
+    # E + S → EP fused (SS), E + P ⇌ EP (RE). Flip: the P group cuts E from EP,
     # carries flux, no bottomless segment: one child, both steps SS. Split: single-step
     # groups, nothing. Dead end: no regulator. To-allosteric at multiplicity 1: the
     # chemistry group (the fused step) is :OnlyA, the binding subsets range over {P}:
@@ -9447,7 +9444,7 @@ end
     end
     fc = EnzymeRates.Enumeration._flux_carrying_groups(leaf.catalytic,
                                                        _testhelper_all_ss(leaf))
-    # The leaf group is the one whose step forms the doubly-bound E(P, S).
+    # The leaf group is the one whose step forms the doubly-bound EPS.
     @test !fc[leaf.catalytic.steps[_testhelper_edge(leaf, "EP + S ⇌ EPS")].kinetic_group]
     @test count(!, fc) == 1
 
@@ -9468,9 +9465,9 @@ end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(pingpong.catalytic,
                                                             _testhelper_all_ss(pingpong)))
 
-    # An inhibitor bound to both E and E(S), with the mirror E(I)+S ⇌ E(I,S): the
-    # inhibitor square shares the edge E→E(S) with the catalytic cycle, so the
-    # cycle E→E(I)→E(I,S)→E(S)→E(P)→E passes through chemistry and every step,
+    # An inhibitor bound to both E and ES, with the mirror EI+S ⇌ EIS: the
+    # inhibitor square shares the edge E→ES with the catalytic cycle, so the
+    # cycle E→EI→EIS→ES→EP→E passes through chemistry and every step,
     # inhibitor binding included, carries net flux. Contrast the pendant square
     # below, whose inhibitors bind only free E.
     mirror = EnzymeRates.@enzyme_mechanism begin
@@ -9533,7 +9530,7 @@ end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(pp.catalytic,
                                                             _testhelper_all_ss(pp)))
     # A Theorell–Chance step consumes B and releases P in one edge, so the
-    # mechanism has no isomerization step. The cycle E → E(A) → E(Q) → E has
+    # mechanism has no isomerization step. The cycle E → EA → EQ → E has
     # weight 1 + 2 + 1 = 4 = one turnover times the four reactants, so it is
     # unbalanced and every step carries flux.
     tc = @enzyme_mechanism begin
@@ -9552,8 +9549,8 @@ end
           [!first(fs) for fs in _testhelper_group_flags(tc)]
 
     # A merged central complex X with two fused steps into it and no
-    # isomerization: E + A ⇌ E(A), E(A) + B → X, E(Q) + P → X, E + Q ⇌ E(Q).
-    # Every step lies on the unbalanced cycle E → E(A) → X → E(Q) → E.
+    # isomerization: E + A ⇌ EA, EA + B → X, EQ + P → X, E + Q ⇌ EQ.
+    # Every step lies on the unbalanced cycle E → EA → X → EQ → E.
     merged = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -9569,12 +9566,12 @@ end
                                                       _testhelper_all_ss(merged)))
 
     # An RE shunt. E + A and E + Q are steady-state while the abortive route
-    # E(Q) + A ⇌ E(A, Q) ⇌ E(A) + Q stays at rapid equilibrium. The segment
+    # EQ + A ⇌ EAQ ⇌ EA + Q stays at rapid equilibrium. The segment
     # {E} joins the rest by two parallel edges of weight 0 (A uptake +1 against
-    # E(A)'s offset +1; Q uptake −1 against E(Q)'s offset −1): a balanced block,
+    # EA's offset +1; Q uptake −1 against EQ's offset −1): a balanced block,
     # so neither steady-state binding carries flux. The turnover runs inside the
     # big segment, where the chemistry step is an unbalanced self-loop of
-    # weight 4 (E(A, B) sits at A + B, E(P, Q) at −P − Q). On the all-steady-state
+    # weight 4 (EAB sits at A + B, EPQ at −P − Q). On the all-steady-state
     # graph every group carries flux.
     shunt = @enzyme_mechanism begin
         substrates: A, B
@@ -9610,8 +9607,8 @@ end
         EnzymeRates.Enumeration._flux_carrying_groups(shunt.catalytic,
                                                       _testhelper_all_ss(shunt)))
 
-    # A balanced self-loop: E + A is steady-state, but E and E(A) already share
-    # a segment through E ⇌ E(Q) ⇌ E(A, Q) ⇌ E(A), so the step is a self-loop
+    # A balanced self-loop: E + A is steady-state, but E and EA already share
+    # a segment through E ⇌ EQ ⇌ EAQ ⇌ EA, so the step is a self-loop
     # of weight 1 + 0 − 1 = 0 and carries no flux. The chemistry self-loop in
     # the same segment has weight 4 and does.
     loop = @_testhelper_unguarded @enzyme_mechanism begin
@@ -9664,7 +9661,7 @@ end
     @test ER.Enumeration._name_signs(seed.catalytic) == [1, 1, -1, -1]
     iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.catalytic.steps))
     merged = ER.Enumeration._merge_isomerization(seed.catalytic.steps, iso)
-    # The isomerization's product side E(P, Q) takes over E(A, B)'s steps.
+    # The isomerization's product side EPQ takes over EAB's steps.
     base = _testhelper_base(seed, merged)
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
     # rejects; the constructor builds them unchecked.
@@ -9677,7 +9674,7 @@ end
             E + Q ⇌ EQ
         end
     end)
-    # The merged cycle E → E(A) → E(P, Q) → E(Q) → E takes up A and B and gives off P and
+    # The merged cycle E → EA → EPQ → EQ → E takes up A and B and gives off P and
     # Q, weight 1 + 1 + 1 + 1 = 4, all at rapid equilibrium. The seed's cycle runs
     # through its steady-state isomerization, and its RE steps form a tree.
     # every step RE: infinite rate
@@ -9693,12 +9690,12 @@ end
         !ER.Enumeration._chemistry_equilibrates_both_sides(_testhelper_candidate(m), re)
     # Track 4 table 4.3: {A, Pˣ}, {Bˣ, Q}, {Bˣ, Pˣ} clean; {A, Q} fails C (B is not
     # needed); {A, Bˣ} has no forward Vmax; {Pˣ, Q} no reverse Vmax; singletons none.
-    # The merged groups are A (E + A ⇌ E(A)), Bˣ (E(A) + B → E(P, Q)), Pˣ
-    # (E(Q) + P → E(P, Q)) and Q (E + Q ⇌ E(Q)); ˣ marks a step at the merged complex
-    # E(P, Q), the one chemistry node. V for substrates turns A and Bˣ RE and fails
+    # The merged groups are A (E + A ⇌ EA), Bˣ (EA + B → EPQ), Pˣ
+    # (EQ + P → EPQ) and Q (E + Q ⇌ EQ); ˣ marks a step at the merged complex
+    # EPQ, the one chemistry node. V for substrates turns A and Bˣ RE and fails
     # exactly when Pˣ and Q are RE too, closing the cycle: the steady-state set lies in
     # {A, Bˣ}. V for products fails exactly when it lies in {Pˣ, Q}. Every singleton
-    # lies in one of the two. C fails exactly when Bˣ (giving B off from E(P, Q)) and Pˣ
+    # lies in one of the two. C fails exactly when Bˣ (giving B off from EPQ) and Pˣ
     # (giving P off) both stay RE: among the pairs, {A, Q} only.
     @test _testhelper_clean(base, _testhelper_variant([:A, :P])) &&
           _testhelper_clean(base, _testhelper_variant([:B, :Q])) &&
@@ -9710,7 +9707,7 @@ end
     @test !ER.Enumeration._has_vmax(base.catalytic, _testhelper_variant([:P, :Q]),
                                     base.catalytic.products)
     @test all(x -> !_testhelper_clean(base, _testhelper_variant([x])), (:A, :B, :P, :Q))
-    # ELIM of the merged complex: one step E(A) + B → E(Q) + P, written from the binding
+    # ELIM of the merged complex: one step EA + B → EQ + P, written from the binding
     # of a substrate, in a group of its own after the others; all three SS is clean.
     # The seed's form holding `xs`, by its record; the metabolite named `x`.
     at(xs...) = only(findall(f -> _testhelper_bound(f) == [xs...],
@@ -9735,7 +9732,7 @@ end
         tc.catalytic.steps[only(findall(pred, tc.catalytic.steps))].kinetic_group
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
-    # E → E(A) → E(Q) → E, all RE
+    # E → EA → EQ → E, all RE
     @test ER.Mechanisms.has_turnover_cycle(tc.catalytic, _testhelper_flags(tc))
     _testhelper_ss(which) =
         BitVector([!(e.kinetic_group in which) for e in tc.catalytic.steps])
@@ -9754,7 +9751,7 @@ end
                                     tc.catalytic.substrates)
     @test !ER.Enumeration._has_vmax(tc.catalytic, _testhelper_ss([gQ, gTC]),
                                     tc.catalytic.products)
-    # ELIM needs two bindings into the form: E(A)'s second step binds B out of it.
+    # ELIM needs two bindings into the form: EA's second step binds B out of it.
     @test ER.Enumeration._eliminate_form(merged, at(:A),
                                          seed.catalytic.substrates) === nothing
     # The seed itself is not degenerate; the probe agrees on every verdict above.
@@ -9812,7 +9809,7 @@ end
     end
     iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.catalytic.steps))
     merged = ER.Enumeration._merge_isomerization(seed.catalytic.steps, iso)
-    # S binds E into the merged complex E(P), and P binds E into it as well.
+    # S binds E into the merged complex EP, and P binds E into it as well.
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
     # rejects; the constructor builds them unchecked.
     @test _testhelper_base(seed, merged) == @_testhelper_unguarded(@enzyme_mechanism begin
@@ -9822,7 +9819,7 @@ end
             E + P ⇌ EP
         end
     end)
-    # Both of E(P)'s steps start at E, so a Theorell–Chance step E + S → E + P would join
+    # Both of EP's steps start at E, so a Theorell–Chance step E + S → E + P would join
     # E to itself.
     @test ER.Enumeration._eliminate_form(merged, iso.to,
                                          seed.catalytic.substrates) === nothing
@@ -9831,8 +9828,8 @@ end
 @testset "has_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
     ER = EnzymeRates
     # Random-order binding of A and B at rapid equilibrium closes the cycle
-    # E → E(A) → E(A, B) ← E(B) ← E of weight 1 + 1 − 1 − 1 = 0: it runs no net reaction.
-    # With the isomerization RE as well, E → E(A) → E(A, B) → E(P, Q) → E(Q) → E has
+    # E → EA → EAB ← EB ← E of weight 1 + 1 − 1 − 1 = 0: it runs no net reaction.
+    # With the isomerization RE as well, E → EA → EAB → EPQ → EQ → E has
     # weight 4, one turnover, in the same block.
     m = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
@@ -9863,12 +9860,12 @@ end
             E + Q ⇌ EQ
         end
     end
-    # The steady-state isomerization E(A) → E(P; res) cuts the one catalytic cycle, and
+    # The steady-state isomerization EA → E(P; res) cuts the one catalytic cycle, and
     # no step it would turn RE touches a substrate or a product, so both maximal rates
-    # exist. The RE isomerization E(B; res) ⇌ E(Q) makes {E(B; res), E(Q)} a chemistry
+    # exist. The RE isomerization E(B; res) ⇌ EQ makes {E(B; res), EQ} a chemistry
     # node, left by the RE B binding (traversed away from E(B; res) it gives B off) and
-    # by the RE Q binding (away from E(Q) it gives Q off): C fails. At zero products the
-    # forms past the steady-state step drain to E and E(A), so B is not needed.
+    # by the RE Q binding (away from EQ it gives Q off): C fails. At zero products the
+    # forms past the steady-state step drain to E and EA, so B is not needed.
     re = _testhelper_flags(seed)
     @test ER.Enumeration._has_vmax(seed.catalytic, re, seed.catalytic.substrates) &&
           ER.Enumeration._has_vmax(seed.catalytic, re, seed.catalytic.products)
@@ -9928,11 +9925,11 @@ end
             E + P ⇌ EP
         end
     end
-    # The merged base holds S (E + S → E(P), fused) and P (E + P ⇌ E(P)), both units.
+    # The merged base holds S (E + S → EP, fused) and P (E + P ⇌ EP), both units.
     # Either group alone at steady state has no maximal rate one way: V turns it rapid
-    # equilibrium and closes the turnover cycle E → E(P) → E with the other. {S, P} passes
-    # every test but is the lumping twin of the seed (both steps at E(P) steady state, each
-    # alone in its group), so it is skipped. Both steps at E(P) start at E, so ELIM gives no
+    # equilibrium and closes the turnover cycle E → EP → E with the other. {S, P} passes
+    # every test but is the lumping twin of the seed (both steps at EP steady state, each
+    # alone in its group), so it is skipped. Both steps at EP start at E, so ELIM gives no
     # Theorell–Chance base.
     @test isempty(_testhelper_move(ER.Enumeration._seed_variants, seed, uni_uni_rxn))
     only_s = @enzyme_mechanism begin
@@ -9978,13 +9975,13 @@ end
             E + Q ⇌ EQ
         end
     end
-    # The merged base holds A (E + A ⇌ E(A)), Bˣ (E(A) + B → E(P, Q)), Pˣ
-    # (E(Q) + P → E(P, Q)) and Q (E + Q ⇌ E(Q)), every group a unit. Every singleton has no
+    # The merged base holds A (E + A ⇌ EA), Bˣ (EA + B → EPQ), Pˣ
+    # (EQ + P → EPQ) and Q (E + Q ⇌ EQ), every group a unit. Every singleton has no
     # maximal rate one way; among the pairs {A, Q} fails C, {A, Bˣ} has no forward and
     # {Pˣ, Q} no reverse maximal rate (verdicts and probes pinned in "MERGE, ELIM and the
     # seed tests on the ordered bi-bi seed"). {A, Pˣ} and {Bˣ, Q} are variants; {Bˣ, Pˣ} is
     # the seed's lumping twin and is skipped; every triple holds a passing pair. The
-    # Theorell–Chance base (A, Q, TC = E(A) + B → E(Q) + P) fails every set of one or two
+    # Theorell–Chance base (A, Q, TC = EA + B → EQ + P) fails every set of one or two
     # groups and gives {A, Q, TC}. Each variant fits two SS groups and two RE groups
     # (2 + 2 + 1 + 1) or three SS groups (2 + 2 + 2), less the Haldane relation: 5.
     a_p = @enzyme_mechanism begin
@@ -10035,14 +10032,14 @@ end
             E + Q ⇌ EQ
         end
     end
-    # The merged base holds A, Bˣ (E(A) + B → E(P, Q) with the abortive E(Q) + B ⇌ E(B, Q)),
+    # The merged base holds A, Bˣ (EA + B → EPQ with the abortive EQ + B ⇌ EBQ),
     # Pˣ and Q; the abortive step is a dead end, and its group carries flux through the
     # fused step, so every group is a unit. The verdicts are the undecorated seed's: the
     # abortive step lies on no cycle, so it changes no turnover test, and it leaves no node
-    # (E(P, Q) is the one node, with exits Bˣ and Pˣ). Singletons fail V; {A, Q} fails C;
+    # (EPQ is the one node, with exits Bˣ and Pˣ). Singletons fail V; {A, Q} fails C;
     # {A, Bˣ} and {Pˣ, Q} fail V. {A, Pˣ}, {Bˣ, Q} and {Bˣ, Pˣ} are variants: {Bˣ, Pˣ} is no
     # lumping twin, because the Bˣ group holds two steps. Each fits 2 + 2 + 1 + 1 − 1 = 5.
-    # ELIM of E(P, Q) leaves the abortive step alone in its group, which carries no flux
+    # ELIM of EPQ leaves the abortive step alone in its group, which carries no flux
     # in the all-steady-state base, so it is no unit and stays RE. As in the undecorated
     # base, every set of one or two of A, Q and TC fails, and {A, Q, TC} fits
     # 2 + 2 + 2 + 1 − 1 = 6.
@@ -10120,14 +10117,14 @@ end
         end
     end
     # Merging both isomerizations gives A (E + A → E(P; res), fused), P, B
-    # (E(; res) + B → E(Q), fused) and Q, all units, with the merged complexes E(P; res) and
-    # E(Q) as C's nodes. Every singleton fails V. {A, Q} (PP-AQ) and {B, P} (PP-BP) pass:
-    # each node keeps one RE exit (P from E(P; res) and B from E(Q), or A and Q), and each
+    # (E(; res) + B → EQ, fused) and Q, all units, with the merged complexes E(P; res) and
+    # EQ as C's nodes. Every singleton fails V. {A, Q} (PP-AQ) and {B, P} (PP-BP) pass:
+    # each node keeps one RE exit (P from E(P; res) and B from EQ, or A and Q), and each
     # side's steps turned RE leave the other side's steady-state group on the cycle.
-    # {A, P} fails C at E(Q) (RE exits B and Q), {B, Q} at E(P; res) (A and P); {A, B} has
+    # {A, P} fails C at EQ (RE exits B and Q), {B, Q} at E(P; res) (A and P); {A, B} has
     # no forward and {P, Q} no reverse maximal rate. Every triple holds PP-AQ or PP-BP. No
     # merged complex has both its steps steady state in a variant, so neither is a twin.
-    # ELIM of E(P; res) gives TC1 = E + A → E(; res) + P beside B and Q; of E(Q),
+    # ELIM of E(P; res) gives TC1 = E + A → E(; res) + P beside B and Q; of EQ,
     # TC2 = E(; res) + B → E + Q beside A and P. In each Theorell–Chance base a set of one
     # or two groups leaves the TC step RE (C fails) or turns both of one side's groups RE
     # (V fails); all three steady state pass. Each variant fits 2 + 2 + 1 + 1 − 1 or
@@ -10210,15 +10207,15 @@ end
             (EP + Q ⇌ EPQ, E + Q ⇌ EQ)
         end
     end
-    # The merged base holds A, Bˣ (E(A) + B → E(P, Q)), Pˣ (E(Q) + P → E(P, Q),
-    # E + P ⇌ E(P)) and Qˣ (E(P) + Q → E(P, Q), E + Q ⇌ E(Q)), all units. The node E(P, Q)
+    # The merged base holds A, Bˣ (EA + B → EPQ), Pˣ (EQ + P → EPQ,
+    # E + P ⇌ EP) and Qˣ (EP + Q → EPQ, E + Q ⇌ EQ), all units. The node EPQ
     # has three exits: Bˣ gives B off, Pˣ's step gives P off and Qˣ's gives Q off. Every
     # singleton fails V.
     # {A, Pˣ} keeps the RE exits Bˣ and Qˣ, {A, Qˣ} keeps Bˣ and Pˣ: both fail C. {A, Bˣ}
     # turned RE with Pˣ and Qˣ closes a turnover cycle (no forward maximal rate), and
     # {Pˣ, Qˣ} likewise backward. {Bˣ, Pˣ} passes: V for products turns Pˣ and Qˣ RE, which
-    # closes only the balanced square E → E(P) → E(P, Q) ← E(Q) ← E, and the node keeps one
-    # RE exit, Q; {Bˣ, Qˣ} is its mirror. E(P, Q) has three steps, so neither is a twin.
+    # closes only the balanced square E → EP → EPQ ← EQ ← E, and the node keeps one
+    # RE exit, Q; {Bˣ, Qˣ} is its mirror. EPQ has three steps, so neither is a twin.
     # Among the triples only {A, Pˣ, Qˣ} has three failing pairs, and it passes: the node
     # keeps the one RE exit Bˣ. Fitted: 1 + 2 + 2 + 1 − 1 = 5 for the pairs, and
     # 2 + 1 + 2 + 2 − 1 = 6 for the triple; the shared P and Q groups satisfy the square's
@@ -10264,7 +10261,7 @@ end
     @test count(s -> s.to == iso.to, merged) == 3
     @test ER.Enumeration._eliminate_form(merged, iso.to,
                                          seed.catalytic.substrates) === nothing
-    # The merged base, the only one: the isomerization merged onto E(P, Q), every step RE.
+    # The merged base, the only one: the isomerization merged onto EPQ, every step RE.
     base = only(_testhelper_bases(seed))
     # The expected groups turn the reaction over at rapid equilibrium, which the guard
     # rejects; the constructor builds them unchecked.
@@ -10288,13 +10285,13 @@ end
 
 @testset "_seed_variants: the variants follow each base's canonical group order" begin
     ER = EnzymeRates.Enumeration
-    # A ter-ter seed whose merged base moves the D binding into E(P, Q, R). That
-    # binding's group then sorts after the P group, which binds P at E(A, B) first, so in
+    # A ter-ter seed whose merged base moves the D binding into EPQR. That
+    # binding's group then sorts after the P group, which binds P at EAB first, so in
     # the canonical group order of the base the P group comes before the D group. The
     # minimal flip sets, by level and then by their groups' canonical places, give the
     # variants in this order: the merged base flipped at {B, P}, {R, D}, {P, D}, {P, A},
-    # {D, Q}, then the Theorell–Chance base (TC = E(A, B) + D → E(Q, R) + P, which
-    # replaces E(P, Q, R)) flipped at {B, R, TC}, {B, TC, Q}, {R, TC, A}, {TC, A, Q}.
+    # {D, Q}, then the Theorell–Chance base (TC = EAB + D → EQR + P, which
+    # replaces EPQR) flipped at {B, R, TC}, {B, TC, Q}, {R, TC, A}, {TC, A, Q}.
     seed = @enzyme_mechanism begin
         substrates: A, B, D; products: P, Q, R
         steps: begin
@@ -10550,7 +10547,7 @@ end
              if String(m.catalytic.enzyme_forms[f]) == "$nm")
     # A twin is asked for a modifier copy by its name, and 0 means none.
 
-    # Ordered bi-bi. A copy of A at E has the composition of E(A), its twin; at E(Q)
+    # Ordered bi-bi. A copy of A at E has the composition of EA, its twin; at EQ
     # it is new; a copy of B at E is new; a foreign inhibitor is never a twin.
     ordered = @enzyme_mechanism begin
         substrates: A, B
@@ -10571,7 +10568,7 @@ end
     @test twin(_testhelper_form_called(ordered, :E), :I) == 0 &&
           twin(_testhelper_form_called(ordered, :EQ), :I) == 0
 
-    # With the abortive complex E(A, Q) present, the copy at E(Q) is a twin too.
+    # With the abortive complex EAQ present, the copy at EQ is a twin too.
     abortive = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -10659,7 +10656,7 @@ end
           _testhelper_form_called(tied, :F2S)
 
     # A form of the complex's composition outside the site's segment is no twin. With
-    # A bound at steady state, E(A) has the composition of E·A* but sits in another
+    # A bound at steady state, EA has the composition of E·A* but sits in another
     # segment, its weight set by the steady state rather than by K·A·[E]: the two
     # weights are not proportional.
     ss_bound = @enzyme_mechanism begin
@@ -10676,9 +10673,9 @@ end
     @test _testhelper_twin(ss_bound)(_testhelper_form_called(ss_bound, :E), :A) == 0
 
     # Ping-pong with the second chemistry step at rapid equilibrium, an abortive
-    # E(B, P; residual) and a copy of P at E. A copy of Q at E(P::Mod) has the new
-    # composition {P, Q}, but E(B; residual) ⇌ E(Q) puts E(B, P; residual) at the
-    # offsets P + Q of E's segment, the same as E(P::Mod)·Q: a twin. At
+    # E(B, P; residual) and a copy of P at E. A copy of Q at EPmod has the new
+    # composition {P, Q}, but E(B; residual) ⇌ EQ puts E(B, P; residual) at the
+    # offsets P + Q of E's segment, the same as EPmod·Q: a twin. At
     # E(; residual) the copy is not.
     pp = @enzyme_mechanism begin
         substrates: A, B
@@ -10704,7 +10701,7 @@ end
 
     # Two copies. E(A, Q*) has the composition of E(A*, Q), but a form bound to a
     # competitive inhibitor is no twin source: only productive forms are. So the Q*
-    # site at E(A) is not a twin, the Q* site at E duplicates E(Q), and both copy
+    # site at EA is not a twin, the Q* site at E duplicates EQ, and both copy
     # groups hold a site with no twin.
     two_copies = @enzyme_mechanism begin
         substrates: A, B
@@ -10731,12 +10728,12 @@ end
     # where it binds and the gauge holds over the states together. In each fixture below,
     # the copy E + S* ⇌ E(S*) and every other kinetic group are single steps, and a single
     # step has one rescaling, so the gauge holds in each state where E(S*) has a twin. The
-    # states agree too. The only `:EqualAI` groups are E + P ⇌ E(P), which touches neither
-    # E(S) nor E(S*) and takes factor 1 at both ends in each state, and an `:EqualAI` copy,
+    # states agree too. The only `:EqualAI` groups are E + P ⇌ EP, which touches neither
+    # ES nor E(S*) and takes factor 1 at both ends in each state, and an `:EqualAI` copy,
     # which takes 1 at E and its one factor s at E(S*) in each. So a copy here is
     # redundant exactly when E(S*) has a twin in every state where it binds. In the active
-    # state that twin is E(S), formed from E by the RE S binding.
-    # S binding `:OnlyA`: the inactive state holds E, E(P) and an `:EqualAI` copy's
+    # state that twin is ES, formed from E by the RE S binding.
+    # S binding `:OnlyA`: the inactive state holds E, EP and an `:EqualAI` copy's
     # E(S*), and no productive form bound to S. The copy is new there and kept.
     onlya_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
@@ -10753,7 +10750,7 @@ end
         _testhelper_candidate(onlya_with_equalai_copy)))
     @test _testhelper_fitted(onlya_with_equalai_copy) ==
         _testhelper_identifiable_rank(onlya_with_equalai_copy)
-    # An `:OnlyA` copy binds the active state only, where E(S) is its twin: redundant,
+    # An `:OnlyA` copy binds the active state only, where ES is its twin: redundant,
     # its constant one fitted parameter above the rank.
     onlya_with_onlya_copy = @enzyme_mechanism begin
         substrates: S
@@ -10770,7 +10767,7 @@ end
         ER.Enumeration._redundant_copy_groups(_testhelper_candidate(onlya_with_onlya_copy)))
     @test _testhelper_fitted(onlya_with_onlya_copy) ==
         _testhelper_identifiable_rank(onlya_with_onlya_copy) + 1
-    # S binding `:NonequalAI`: E(S) exists in both states and is the twin in each, so an
+    # S binding `:NonequalAI`: ES exists in both states and is the twin in each, so an
     # `:EqualAI` copy is redundant.
     nonequal_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
@@ -10824,10 +10821,10 @@ end
 
 @testset "_redundant_copy_groups: an :OnlyI copy binds the inactive state alone" begin
     ER = EnzymeRates
-    # The copy binds E in the inactive conformation, where E(S) is its twin and the
-    # :NonequalAI S binding's inactive constant absorbs it. Its binding at E(S, J) lies
+    # The copy binds E in the inactive conformation, where ES is its twin and the
+    # :NonequalAI S binding's inactive constant absorbs it. Its binding at EJS lies
     # in neither law: the active law drops the :OnlyI group, and the inactive law prunes
-    # E(S, J) behind the :OnlyA J binding. Read over every step, E(S, J, S::Mod) would
+    # EJS behind the :OnlyA J binding. Read over every step, EJSSmod would
     # have no twin and the copy would be kept.
     copy_beyond = @enzyme_mechanism begin
         substrates: S
@@ -10845,8 +10842,8 @@ end
     g = only(_testhelper_groups_binding_copy(copy_beyond, :S))
     @test ER.Enumeration._redundant_copy_groups(_testhelper_candidate(copy_beyond)) == [g]
     @test _testhelper_fitted(copy_beyond) == _testhelper_identifiable_rank(copy_beyond) + 1
-    # Tagged :EqualAI, the copy also binds the active conformation, at E and at E(S, J),
-    # where E(S, J, S::Mod) has no twin: kept.
+    # Tagged :EqualAI, the copy also binds the active conformation, at E and at EJS,
+    # where EJSSmod has no twin: kept.
     equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -10899,8 +10896,8 @@ end
          only(unique(e.kinetic_group for (k, e) in enumerate(m.catalytic.steps)
                      if _testhelper_binds_copy(c, k))))
 
-    # B1: ordered bi-bi with A* at E. The twin E(A) is formed
-    # by E + A ⇌ E(A), alone in its group, so the A group's ratio is 1/ρ, the B group's
+    # B1: ordered bi-bi with A* at E. The twin EA is formed
+    # by E + A ⇌ EA, alone in its group, so the A group's ratio is 1/ρ, the B group's
     # ρ and the chemistry's forward factor ρ, each over one step: the gauge exists.
     # 6 fitted, rank 5.
     b1 = @enzyme_mechanism begin
@@ -10919,9 +10916,9 @@ end
         _testhelper_candidate(b1)) == [_testhelper_copy_group(b1)]
     @test _testhelper_fitted(b1) == 6 && _testhelper_identifiable_rank(b1) == 5
 
-    # Case 3: the A group also binds at E(Q), forming the abortive E(A, Q). The copy at
-    # E duplicates E(A), but the A group then holds a step with ratio 1/ρ (at E) and
-    # one with ratio 1 (at E(Q), no copy): no gauge, and the copy's constant is
+    # Case 3: the A group also binds at EQ, forming the abortive EAQ. The copy at
+    # E duplicates EA, but the A group then holds a step with ratio 1/ρ (at E) and
+    # one with ratio 1 (at EQ, no copy): no gauge, and the copy's constant is
     # identifiable. 6 fitted, rank 6.
     case3 = @enzyme_mechanism begin
         substrates: A, B
@@ -10942,10 +10939,10 @@ end
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(case3)))
     @test _testhelper_fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
 
-    # B14: the same parent with A* at E and E(Q), the Q binding E + Q ⇌ E(Q) mirrored
-    # onto the copy forms. Both twins, E(A) and E(A, Q), are formed by the one A
+    # B14: the same parent with A* at E and EQ, the Q binding E + Q ⇌ EQ mirrored
+    # onto the copy forms. Both twins, EA and EAQ, are formed by the one A
     # group, so they share ρ: the A group's two steps both have ratio 1/ρ, and the Q
-    # group's three steps (E → E(Q), E(A) → E(A, Q) and the mirror between the two
+    # group's three steps (E → EQ, EA → EAQ and the mirror between the two
     # complexes, both at s) all have ratio 1. The gauge exists. 6 fitted, rank 5.
     b14 = @enzyme_mechanism begin
         substrates: A, B
@@ -10963,9 +10960,9 @@ end
         _testhelper_candidate(b14)) == [_testhelper_copy_group(b14)]
     @test _testhelper_fitted(b14) == 6 && _testhelper_identifiable_rank(b14) == 5
 
-    # H1: A binds E in one group and E(B) in another, so the twins E(A) and E(A, B)
-    # have different ρ. The B group shared by E(A) + B ⇌ E(A, B) (ratio ρ₁/ρ₂) and
-    # E(Q) + B ⇌ E(B, Q) (ratio 1) cannot absorb both: no gauge. (The B group at E
+    # H1: A binds E in one group and EB in another, so the twins EA and EAB
+    # have different ρ. The B group shared by EA + B ⇌ EAB (ratio ρ₁/ρ₂) and
+    # EQ + B ⇌ EBQ (ratio 1) cannot absorb both: no gauge. (The B group at E
     # and its mirror between the complexes have ratio 1.) 7 fitted, rank 7.
     h1 = @enzyme_mechanism begin
         substrates: A, B
@@ -10989,8 +10986,8 @@ end
     @test _testhelper_fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
 
     # A step that leaves a complex takes the complex's factor s, never its twin's. B14
-    # plus P* at the complex E(A*) and at the twin E(A, Q): the P* group holds
-    # E(A*) → E(A*, P*) at s beside E(A, Q) → E(A, P*, Q) at ρ, two ratios, so no gauge,
+    # plus P* at the complex E(A*) and at the twin EAQ: the P* group holds
+    # E(A*) → E(A*, P*) at s beside EAQ → E(A, P*, Q) at ρ, two ratios, so no gauge,
     # and the copy's constant shows (7 fitted, rank 7, as without the copy). The
     # mechanism is a valid parent.
     p_at_twin = @enzyme_mechanism begin
@@ -11011,9 +11008,9 @@ end
         _testhelper_candidate(p_at_twin)) === nothing
     @test _testhelper_fitted(p_at_twin) == 7 &&
           _testhelper_identifiable_rank(p_at_twin) == 7
-    # P* at E(A*) and at its own twin E(A) instead: E(A*, P*) pairs with E(A, P*), and a
+    # P* at E(A*) and at its own twin EA instead: E(A*, P*) pairs with E(A, P*), and a
     # phantom remains (7 fitted, rank 6). The gauge does not reach it: it reads
-    # E(A*) → E(A*, P*) at s beside E(A) → E(A, P*) at ρ, and the copy is kept.
+    # E(A*) → E(A*, P*) at s beside EA → E(A, P*) at ρ, and the copy is kept.
     p_at_own_twin = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11034,8 +11031,8 @@ end
 
     # An RE mirror joins two complexes, both at s, so its ratio is 1, as is its parent
     # step's between two sites, whatever the twins' classes. Random-order A in two
-    # groups with A* at {E, E(B)}: twins E(A) and E(A, B) of two classes, and
-    # E + B ⇌ E(B) mirrored onto the complexes. Redundant: 7 fitted, rank 6.
+    # groups with A* at {E, EB}: twins EA and EAB of two classes, and
+    # E + B ⇌ EB mirrored onto the complexes. Redundant: 7 fitted, rank 6.
     two_classes = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11054,8 +11051,8 @@ end
           [_testhelper_copy_group(two_classes)]
     @test _testhelper_fitted(two_classes) == 7 &&
           _testhelper_identifiable_rank(two_classes) == 6
-    # B14 with the A bindings and E(A) + Q ⇌ E(A, Q) each in a group of their own: the
-    # twins E(A) and E(A, Q) have two classes, and the Q mirror joins their complexes.
+    # B14 with the A bindings and EA + Q ⇌ EAQ each in a group of their own: the
+    # twins EA and EAQ have two classes, and the Q mirror joins their complexes.
     # Redundant: 7 fitted, rank 6. With the Q group at steady state the mirror carries
     # flux between the complexes, its forward constant needs s beside its parent step's
     # 1, and the gauge fails.
@@ -11129,7 +11126,7 @@ end
     @test _testhelper_fitted(p_at_complexes) == 8 &&
           _testhelper_identifiable_rank(p_at_complexes) == 7
 
-    # Case 1, uni-uni with S* at E: the twin E(S) is formed by the S group alone, and
+    # Case 1, uni-uni with S* at E: the twin ES is formed by the S group alone, and
     # the chemistry leaves it alone. 4 fitted, rank 3.
     uni = @enzyme_mechanism begin
         substrates: S
@@ -11146,10 +11143,10 @@ end
     @test _testhelper_fitted(uni) == 4 && _testhelper_identifiable_rank(uni) == 3
 
     # A fused RE binding forms a twin as a plain one does. Merged uni-uni with A* at E:
-    # E + A ⇌ E(P) is fused and rapid equilibrium, E + P → E(P) steady state, so E(P)
+    # E + A ⇌ EP is fused and rapid equilibrium, E + P → EP steady state, so EP
     # shares E's segment at the offsets {A: 1}, those of E·A*, and is its twin though
     # no form has the complex's composition. The fused group forms that twin alone, so
-    # the twin's class is that group: its ratio is 1/ρ, P's binding takes ρ at E(P),
+    # the twin's class is that group: its ratio is 1/ρ, P's binding takes ρ at EP,
     # and the copy s at its complex; the gauge exists. The law
     # E_t·k·(Keq·A − P)/(1 + A/K_A + A/K*), k the P binding's rate constant, sees K_A
     # and K* only through 1/K_A + 1/K*: 3 fitted, rank 2, against 2 and 2 without A*.
@@ -11232,7 +11229,7 @@ end
     @test _testhelper_fitted(pp_q) == 9 && _testhelper_identifiable_rank(pp_q) == 7
 
     # A twin must share its site's segment. A binds E at steady state and E·A*
-    # duplicates E(A) by composition only: E(A) lies in another segment, so merging
+    # duplicates EA by composition only: EA lies in another segment, so merging
     # E·A* into it is no reparameterization, and the copy's constant shows (7 fitted,
     # rank 7, one above the mechanism without the copy).
     ss_twin = @enzyme_mechanism begin
@@ -11264,8 +11261,8 @@ end
           _testhelper_identifiable_rank(ss_parent) == 6
 
     # An `:EqualAI` group has one constant in both states, so it must take one rescaling.
-    # A binds `:NonequalAI`, so the twin E(A) has ρ = K_A/(K_A + K*) with a different K_A
-    # in each state, while the `:EqualAI` B binding leaves E(A) in both: the active state
+    # A binds `:NonequalAI`, so the twin EA has ρ = K_A/(K_A + K*) with a different K_A
+    # in each state, while the `:EqualAI` B binding leaves EA in both: the active state
     # asks K_B·ρ_A, the inactive K_B·ρ_I. Each state alone has a gauge; the two together
     # have none, and the copy adds an identifiable constant (rank one above the
     # mechanism without it).
@@ -11300,11 +11297,11 @@ end
 end
 
 @testset "_gauge_rescaling: group 2 and form 2 are two classes" begin
-    # A::Mod binds E and Estar, which E ⇌ Estar keeps at one weight ratio, so both
-    # complexes have the twin E(A), form 2, in a class of its own; the copy's group is
-    # group 2. P::Mod binds the complex E(A::Mod) and the twin E(A) in one group, which
+    # A binds E and Estar, which E ⇌ Estar keeps at one weight ratio, so both
+    # complexes have the twin EA, form 2, in a class of its own; the copy's group is
+    # group 2. P binds the complex EAmod and the twin EA in one group, which
     # then needs the complexes' factor at one step and the twin's at the other: the
-    # A::Mod gauge fails. A class keyed by one index would make group 2 and form 2 one
+    # A gauge fails. A class keyed by one index would make group 2 and form 2 one
     # number, that group would rescale alike, and the gauge would hold.
     ER = EnzymeRates
     m = @enzyme_mechanism begin
@@ -11350,8 +11347,8 @@ end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(ordered))
 
-    # Random SS bi-bi: A binds on E → E(A) and on E(B) → E(A, B); both edges lie
-    # in one tree toward E(A, B), so the denominator carries A².
+    # Random SS bi-bi: A binds on E → EA and on EB → EAB; both edges lie
+    # in one tree toward EAB, so the denominator carries A².
     random_ss = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11380,8 +11377,8 @@ end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(random_re))
 
-    # Random RE bi-bi with the A group flipped: the segment {E(A), E(A, B)} has
-    # E(A, B) carrying B beyond its bottom E(A), and the edge E(B) → E(A, B) into
+    # Random RE bi-bi with the A group flipped: the segment {EA, EAB} has
+    # EAB carrying B beyond its bottom EA, and the edge EB → EAB into
     # it leaves a form carrying B, so the term rooted there carries B².
     random_flip_a = @enzyme_mechanism begin
         substrates: A, B
@@ -11397,10 +11394,10 @@ end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
         _testhelper_candidate(random_flip_a))
 
-    # Ordered SS bi-bi with substrate A binding E(Q) as an abortive complex at
-    # rapid equilibrium: E(A, Q) sits one A above E(Q) in its segment, and the
-    # term rooted there holds E → E(A), so the equation carries A². A binds its
-    # catalytic site, so the power counts even though E(A, Q) is a dead end.
+    # Ordered SS bi-bi with substrate A binding EQ as an abortive complex at
+    # rapid equilibrium: EAQ sits one A above EQ in its segment, and the
+    # term rooted there holds E → EA, so the equation carries A². A binds its
+    # catalytic site, so the power counts even though EAQ is a dead end.
     dead_end = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11415,8 +11412,8 @@ end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(dead_end))
 
-    # Uni-bi with random SS product release: P binds on E → E(P) and on
-    # E(Q) → E(P, Q), both toward E(P, Q), so the denominator carries P².
+    # Uni-bi with random SS product release: P binds on E → EP and on
+    # EQ → EPQ, both toward EPQ, so the denominator carries P².
     unibi_ss = @enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -11446,8 +11443,8 @@ end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(pingpong))
 
     # An allosteric mechanism is scored on its catalytic steps: uni-bi with the
-    # P group at steady state carries Q² (the segment {E(P), E(P, Q)} plus the
-    # edge E(Q) → E(P, Q)).
+    # P group at steady state carries Q² (the segment {EP, EPQ} plus the
+    # edge EQ → EPQ).
     allo_unibi_flip_p = @enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -11463,8 +11460,8 @@ end
         _testhelper_candidate(allo_unibi_flip_p))
 
     # Ordered SS bi-bi whose A group also binds A as an abortive complex on
-    # E(Q), as the enumerator groups it. The abortive step went to steady state
-    # with its group; the tree toward E(A, Q) holds E → E(A) and E(Q) → E(A, Q),
+    # EQ, as the enumerator groups it. The abortive step went to steady state
+    # with its group; the tree toward EAQ holds E → EA and EQ → EAQ,
     # both binding A, so the equation carries A².
     grouped_dead_end = @enzyme_mechanism begin
         substrates: A, B
@@ -11481,9 +11478,9 @@ end
         _testhelper_candidate(grouped_dead_end))
 
     # Ping-pong whose second chemistry step is at rapid equilibrium, with B also
-    # bound as an abortive complex on E(Q) in the same kinetic group as its
+    # bound as an abortive complex on EQ in the same kinetic group as its
     # catalytic binding. One segment spans both halves: E sits one B above
-    # E(; residual) and E(B, Q) two above, so the segment weight carries B².
+    # E(; residual) and EBQ two above, so the segment weight carries B².
     pingpong_abortive = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11499,10 +11496,10 @@ end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
         _testhelper_candidate(pingpong_abortive))
 
-    # Ordered SS bi-bi with the abortive complex E(A, Q) reachable from both
-    # E(A) + Q and E(Q) + A, each step grouped with its metabolite's catalytic
-    # binding as the enumerator writes it. The tree toward E(A, Q) holds
-    # E → E(A) and E(Q) → E(A, Q), both binding A, so the equation carries A².
+    # Ordered SS bi-bi with the abortive complex EAQ reachable from both
+    # EA + Q and EQ + A, each step grouped with its metabolite's catalytic
+    # binding as the enumerator writes it. The tree toward EAQ holds
+    # E → EA and EQ → EAQ, both binding A, so the equation carries A².
     two_sided_abortive = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11517,7 +11514,7 @@ end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
         _testhelper_candidate(two_sided_abortive))
 
-    # A competitive-inhibitor square (I on E and on E(A), with A binding the
+    # A competitive-inhibitor square (I on E and on EA, with A binding the
     # inhibitor-bound form too) leaves the verdict unchanged: an inhibitor binds
     # a site of its own, so every step touching a form that carries it is left
     # out.
@@ -11546,7 +11543,7 @@ end
     # the substrate's own name. Its bindings put A² and A³ into the derived
     # denominator, but those powers come from the inhibitor site, which the
     # predicate leaves out: the four placements on the ordered scheme pass, with
-    # degrees 1, 2, 2 and 3. A binds at steady state, so E(A) sits in a segment of
+    # degrees 1, 2, 2 and 3. A binds at steady state, so EA sits in a segment of
     # its own and E·A* is no twin of it: the copy at E alone is emitted, and it adds
     # a phantom (10 fitted, rank 7, over the parent's 9 and 7).
     rxn_a_inhibits = @enzyme_reaction begin
@@ -11554,7 +11551,7 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: A
     end
-    # The forms (`_form_name`) where a step binds the copy A::Mod.
+    # The forms (`_form_name`) where a step binds the copy A.
     _testhelper_copy_sites(k) =
         (c = _testhelper_candidate(k);
          Set(k.catalytic.enzyme_forms[e.from] for (j, e) in enumerate(k.catalytic.steps)
@@ -11578,9 +11575,9 @@ end
 
     # Inhibitor-bound forms leave, but catalytic-site powers stay: adding the
     # inhibitor role of A to the abortive-complex scheme keeps it non-hyperbolic.
-    # E(A) is formed at steady state, so E·A* has no twin and no placement is
-    # redundant: all four are emitted. At {E, E(Q)}, where E(Q)·A* duplicates the
-    # abortive E(A, Q), the copy adds an identifiable constant (11 fitted, rank 9, over
+    # EA is formed at steady state, so E·A* has no twin and no placement is
+    # redundant: all four are emitted. At {E, EQ}, where EQ·A* duplicates the
+    # abortive EAQ, the copy adds an identifiable constant (11 fitted, rank 9, over
     # the parent's 10 and 8); at E alone it adds a phantom (11 fitted, rank 8).
     dead_end_with_a =
         _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, dead_end,
@@ -11600,12 +11597,12 @@ end
     # abortive ping-pong at two subunits, Q's binding and the second half-reaction
     # :OnlyA: its catalytic graph is hyperbolic, but the inactive conformation, without
     # the second half, has two rapid-equilibrium segments joined only by the steady-state
-    # first half, and each holds an abortive complex, E(A, P) or E(A, P; residual = A -
+    # first half, and each holds an abortive complex, EAP or E(A, P; residual = A -
     # P). A term rooted at one segment carries that complex's A or P, and the first half
     # leaves the other segment from a form that carries the same metabolite, so the
     # inactive law reaches A² and P². The predicate reads the graph alone: the guard
     # rejects this mechanism, since in the inactive conformation the :OnlyA step
-    # E(B; residual = A - P) ⇌ E(Q) bridges forms that the other steps keep apart.
+    # EB_res_plusA_minusP ⇌ EQ bridges forms that the other steps keep apart.
     merged_abortive = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
@@ -11634,7 +11631,7 @@ end
     # :OnlyA beside the second half-reaction they leave the inactive conformation no
     # abortive complex: both laws are hyperbolic. The guard rejects this one too: the
     # inactive conformation keeps the two sides of the rapid-equilibrium step
-    # E(B; residual = A - P) ⇌ E(Q) joined.
+    # EB_res_plusA_minusP ⇌ EQ joined.
     split_abortive = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
@@ -11780,7 +11777,7 @@ end
             E + P ⇌ EP
         end
     end
-    # Flipping E + S ⇌ E(S) cuts the one segment in two.
+    # Flipping E + S ⇌ ES cuts the one segment in two.
     @test EnzymeRates.Enumeration._re_segment_count(
         m.catalytic, _testhelper_flags(m)) == 1
     flipped = _testhelper_flags(m)
@@ -11848,7 +11845,7 @@ function _testhelper_flip_groups(m, gs)
 end
 
 @testset "_context_bipartitions" begin
-    # A binds E, E(B), and E(P): contexts B and P give two bipartitions.
+    # A binds E, EB, and EP: contexts B and P give two bipartitions.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -11882,10 +11879,10 @@ end
     # name: bps[1] is the P-context division, bps[2] the B-context division.
     @test bps[1][2] == [_testhelper_edge(m, "EP + A ⇌ EAP")]
     @test bps[2][2] == [_testhelper_edge(m, "EB + A ⇌ EAB")]
-    # By P: the P-free forms E, E(B) against the P-bound form E(P).
+    # By P: the P-free forms E, EB against the P-bound form EP.
     @test _testhelper_src_forms(bps[1][1], m) == Set([:E, :EB])
     @test _testhelper_src_forms(bps[1][2], m) == Set([:EP])
-    # By B: the B-free forms E, E(P) against the B-bound form E(B).
+    # By B: the B-free forms E, EP against the B-bound form EB.
     @test _testhelper_src_forms(bps[2][1], m) == Set([:E, :EP])
     @test _testhelper_src_forms(bps[2][2], m) == Set([:EB])
     # _context_form: a binding is stored taking its metabolite up, so the context form
@@ -11894,7 +11891,7 @@ end
           m.catalytic.steps[first(a_group)].from
     # _context_form: a steady-state step that gives off one metabolite found in neither
     # end's bound list (the Segel ping-pong step shape) is stored as the binding it
-    # reverses, F + P → E(A), so its context form is F, the form P binds to.
+    # reverses, F + P → EA, so its context form is F, the form P binds to.
     segel = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -11940,10 +11937,10 @@ end
         _testhelper_candidate(cube), _testhelper_group_of(cube, "E + A ⇌ EA"))
     @test length(cube_bps) == 2
     # Both contexts are substrates, so they are ordered by name: B then C.
-    # By B: the B-free forms E, E(C) against the B-bound forms E(B), E(B,C).
+    # By B: the B-free forms E, EC against the B-bound forms EB, EBC.
     @test _testhelper_src_forms(cube_bps[1][1], cube) == Set([:E, :EC])
     @test _testhelper_src_forms(cube_bps[1][2], cube) == Set([:EB, :EBC])
-    # By C: the C-free forms E, E(B) against the C-bound forms E(C), E(B,C).
+    # By C: the C-free forms E, EB against the C-bound forms EC, EBC.
     @test _testhelper_src_forms(cube_bps[2][1], cube) == Set([:E, :EB])
     @test _testhelper_src_forms(cube_bps[2][2], cube) == Set([:EC, :EBC])
 
@@ -11974,8 +11971,8 @@ end
           _testhelper_src_forms(rbps[2][2], res) == Set([Er, EBr])
 
     # Residual contexts come in content order: by the names a residual adds, then by
-    # those it subtracts. Q binds at E, at E(; residual = A - P) and at
-    # E(; residual = A + B - P), so each residual parts one binding from the other two:
+    # those it subtracts. Q binds at E, at E_res_plusA_minusP and at
+    # E_res_plusA_plusB_minusP, so each residual parts one binding from the other two:
     # no residual first, then A - P, then A + B - P.
     residues = @enzyme_mechanism begin
         substrates: A, B
@@ -11999,7 +11996,7 @@ end
               residues.catalytic.steps[none].kinetic_group) ==
           [([none], [a_p, ab_p]), ([none, ab_p], [a_p]), ([none, a_p], [ab_p])]
 
-    # Conformation as a context: A binds E, Estar, and Estar(B), which B's binding to
+    # Conformation as a context: A binds E, Estar, and EstarB, which B's binding to
     # Estar forms.
     conf = @enzyme_mechanism begin
         substrates: A, B
@@ -12054,7 +12051,7 @@ end
             EP ⇌ E + P
         end
     end
-    # Canonical form stores the steps E + P → E(P), E + S → E(S), E(S) → E(P).
+    # Canonical form stores the steps E + P → EP, E + S → ES, ES → EP.
     @test EnzymeRates.Enumeration._with_flags(_testhelper_candidate(m),
                                               BitVector([1, 0, 0])).mechanism ==
           @enzyme_mechanism begin
@@ -12104,9 +12101,9 @@ end
             EQ <--> E + Q
         end
     end
-    # Canonical form stores the steps E + A → E(A), E + B → E(B), E + Q → E(Q),
-    # E(A) + B → E(A, B), E(A, B) → E(P, Q), E(B) + A → E(A, B), E(Q) + P → E(P, Q), in
-    # the groups [1, 2, 3, 2, 4, 1, 5]. The groups below put E(B) + A in a group of its own.
+    # Canonical form stores the steps E + A → EA, E + B → EB, E + Q → EQ,
+    # EA + B → EAB, EAB → EPQ, EB + A → EAB, EQ + P → EPQ, in
+    # the groups [1, 2, 3, 2, 4, 1, 5]. The groups below put EB + A in a group of its own.
     split = [1, 2, 3, 2, 4, 6, 5]
     @test EnzymeRates.Enumeration._regrouped(_testhelper_candidate(m), split,
                                              flags(m)).mechanism ==
@@ -12122,7 +12119,7 @@ end
                   EQ <--> E + Q
               end
           end
-    # New groups and new flags at once: E(B) + A also turns steady state.
+    # New groups and new flags at once: EB + A also turns steady state.
     @test EnzymeRates.Enumeration._regrouped(_testhelper_candidate(m), split,
                                              BitVector([1, 1, 0, 1, 0, 0, 0])).mechanism ==
           @enzyme_mechanism begin
@@ -12225,7 +12222,7 @@ end
 end
 
 @testset "_revert_zero_flux_parts" begin
-    # Random-order product release with B also bound abortively at E(Q) and at E(P),
+    # Random-order product release with B also bound abortively at EQ and at EP,
     # the two abortive bindings one steady-state group. Neither abortive step carries
     # flux, so with both flags false both parts of the group's context bipartition
     # revert to rapid equilibrium; with both flags true neither does.
@@ -12308,8 +12305,8 @@ end
     end
 
     @testset "_expand_re_to_ss: uni-uni emits no flip, both bindings are chain flanks" begin
-        # Uni-uni steady-state and rapid-equilibrium laws have the same form: E(S) →
-        # E(P) is a qualifying chain whose flanks are the S and P groups, so neither
+        # Uni-uni steady-state and rapid-equilibrium laws have the same form: ES →
+        # EP is a qualifying chain whose flanks are the S and P groups, so neither
         # flips (`_chain_flank_groups`). The S flip, absent, keeps the parent's rank; the
         # P flip is its mirror under reversing the reaction.
         m = @enzyme_mechanism begin
@@ -12403,7 +12400,7 @@ end
     end
 
     @testset "_expand_re_to_ss: a dead-end leaf group never flips" begin
-        # E(P) + S ⇌ E(P, S) is a bridge: no cycle through it contains chemistry,
+        # EP + S ⇌ EPS is a bridge: no cycle through it contains chemistry,
         # so at steady state it carries no net flux and flipping it would add a
         # parameter the data cannot see. Only the two catalytic bindings flip.
         m = @enzyme_mechanism begin
@@ -12445,7 +12442,7 @@ end
 
     @testset "_expand_re_to_ss: a split metabolite flips as a pair, never singly" begin
         # A's two binding steps sit in separate groups. Flipping either alone
-        # leaves E and E(A) joined through the other A step (E–E(B)–E(A,B)–E(A)),
+        # leaves E and EA joined through the other A step (E–EB–EAB–EA),
         # so the segment count does not rise and no such child exists. The pair
         # cuts the square, so it is emitted; B, P, and Q each flip alone, since each
         # cuts a segment on its own.
@@ -12512,7 +12509,7 @@ end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
         @test length(kids) == 4
         @test Set(kids) == Set([flipA, flipB, flipP, flipQ])
-        # The two single-A flips are absent: each is segment-flat (E and E(A) stay joined
+        # The two single-A flips are absent: each is segment-flat (E and EA stay joined
         # through the other A step), so the move does not emit it.
         # The first also fails class 3 at zero substrates: its segment's steady state
         # depends on how fast the rapid-equilibrium steps run.
@@ -12678,16 +12675,16 @@ end
 
     @testset "_expand_re_to_ss: split ter-ter pairs the A and B parts" begin
         # Ter-ter after one context split: A is split by whether B is bound and B
-        # by whether A is bound. Each of the four parts alone leaves E and E(A)
+        # by whether A is bound. Each of the four parts alone leaves E and EA
         # joined through its sibling, so nothing flips one part by itself; C, P, Q
         # and R still flip alone. Of the six pairs, {A1, B1} cuts both binding edges
-        # at E and E(C) and leaves {E(A), E(B), E(A, B), E(A, C), E(B, C), E(A, B, C)}
+        # at E and EC and leaves {EA, EB, EAB, EAC, EBC, EABC}
         # as a segment with no substrate-free form, which the boundary check rejects.
-        # {A1, B2} isolates {E(A), E(A, C)}: its four edges to the rest all have
+        # {A1, B2} isolates {EA, EAC}: its four edges to the rest all have
         # weight 1 inward (A uptake) and −1 outward (B uptake against the +2 offset
-        # of E(A, B)), so every cycle through them is balanced and the pair carries
-        # no flux; the turnover runs through E(B) inside the big segment. {A2, B1}
-        # isolates {E(B), E(B, C)} the same way. Both count as failed and have no
+        # of EAB), so every cycle through them is balanced and the pair carries
+        # no flux; the turnover runs through EB inside the big segment. {A2, B1}
+        # isolates {EB, EBC} the same way. Both count as failed and have no
         # extension, since every three-set containing them holds a gaining pair.
         # The other three pairs cut a block that also holds the chemistry edge
         # (weight 4 or 5 against flipped edges of weight 2 or 1; every cycle through
@@ -12756,12 +12753,12 @@ end
     end
 
     @testset "_expand_re_to_ss: ping-pong" begin
-        # The rapid-equilibrium subgraph is two trees, {E, E(A), E(Q)} and
+        # The rapid-equilibrium subgraph is two trees, {E, EA, EQ} and
         # {E(P; res), E(; res), E(B; res)}, so every RE group is a bridge and
         # flipping any one of them alone raises the segment count. Both
         # isomerizations are steady state, and each of their ends has one other
-        # step, a binding into that end alone in its group: E(A) → E(P; res) and
-        # E(B; res) → E(Q) are qualifying chains whose flanks are all four binding
+        # step, a binding into that end alone in its group: EA → E(P; res) and
+        # E(B; res) → EQ are qualifying chains whose flanks are all four binding
         # groups (`_chain_flank_groups`). No group is a unit, so no child. The A flip,
         # absent, keeps the parent's rank; the B, P and Q flips are its images under
         # swapping the two half-reactions and reversing the reaction.
@@ -12796,9 +12793,9 @@ end
 
     @testset "_expand_re_to_ss: an allosteric parent keeps a hyperbolic scheme" begin
         # Uni-bi with random product release. Flipping the S group alone splits
-        # off {E(S)} and the equation stays degree 1. Flipping the P group splits
-        # off {E(P), E(P, Q)}, whose term carries Q from E(P, Q) beyond its
-        # bottom E(P) and again from the edge E(Q) → E(P, Q), so the equation
+        # off {ES} and the equation stays degree 1. Flipping the P group splits
+        # off {EP, EPQ}, whose term carries Q from EPQ beyond its
+        # bottom EP and again from the edge EQ → EPQ, so the equation
         # carries Q²; flipping Q mirrors it with P². A plain Mechanism emits all
         # three; an allosteric parent emits only the S flip.
         plain = @enzyme_mechanism begin
@@ -12927,18 +12924,18 @@ end
     end
 
     @testset "_expand_re_to_ss: a zero-flux pair is absent, its supersets reachable" begin
-        # Ordered bi-bi with the abortive complex E(A, Q), after both the A group and
+        # Ordered bi-bi with the abortive complex EAQ, after both the A group and
         # the Q group were split by context: six rapid-equilibrium binding groups,
-        # each holding one step. Singles: E(A) + B and E(Q) + P are bridges of the RE
-        # graph (E(A, B) and E(P, Q) are leaves there), so each would flip alone, but
-        # they are the flanks of the qualifying chain E(A, B) → E(P, Q) and never flip
-        # (`_chain_flank_groups`); the four bindings on the square E–E(A)–E(A, Q)–E(Q)
+        # each holding one step. Singles: EA + B and EQ + P are bridges of the RE
+        # graph (EAB and EPQ are leaves there), so each would flip alone, but
+        # they are the flanks of the qualifying chain EAB → EPQ and never flip
+        # (`_chain_flank_groups`); the four bindings on the square E–EA–EAQ–EQ
         # are no bridges. Pairs of square edges all divide the segment.
         # {E + A, E + Q} isolates {E}, joined to the rest by
-        # two parallel edges of weight 0 (A uptake +1 against E(A)'s offset +1; Q
-        # uptake −1 against E(Q)'s offset −1): a balanced block, so neither flipped
+        # two parallel edges of weight 0 (A uptake +1 against EA's offset +1; Q
+        # uptake −1 against EQ's offset −1): a balanced block, so neither flipped
         # group carries flux and the child would be its parent plus two phantoms.
-        # {E(A) + Q, E(Q) + A} isolates {E(A, Q)} the same way (weights −1 + 1 and
+        # {EA + Q, EQ + A} isolates {EAQ} the same way (weights −1 + 1 and
         # 1 − 1). The other four pairs each cut a block that also holds the chemistry
         # edge, whose weight 3 or 4 against a binding edge of weight 1 makes the block
         # unbalanced. Each of the two zero-flux pairs has no extension: every
@@ -12958,7 +12955,7 @@ end
             end
         end
         expected = [
-            (@enzyme_mechanism begin      # {E + A, E(A) + Q}
+            (@enzyme_mechanism begin      # {E + A, EA + Q}
                 substrates: A, B
                 products: P, Q
                 steps: begin
@@ -12971,7 +12968,7 @@ end
                     EQ + P ⇌ EPQ
                 end
             end),
-            (@enzyme_mechanism begin      # {E + A, E(Q) + A}
+            (@enzyme_mechanism begin      # {E + A, EQ + A}
                 substrates: A, B
                 products: P, Q
                 steps: begin
@@ -12984,7 +12981,7 @@ end
                     EQ + P ⇌ EPQ
                 end
             end),
-            (@enzyme_mechanism begin      # {E + Q, E(A) + Q}
+            (@enzyme_mechanism begin      # {E + Q, EA + Q}
                 substrates: A, B
                 products: P, Q
                 steps: begin
@@ -12997,7 +12994,7 @@ end
                     EQ + P ⇌ EPQ
                 end
             end),
-            (@enzyme_mechanism begin      # {E + Q, E(Q) + A}
+            (@enzyme_mechanism begin      # {E + Q, EQ + A}
                 substrates: A, B
                 products: P, Q
                 steps: begin
@@ -13019,7 +13016,7 @@ end
         # flip of B with the reaction reversed.
         r0 = _testhelper_identifiable_rank(m)
         for absent in (
-            (@enzyme_mechanism begin  # {E(A) + B}
+            (@enzyme_mechanism begin  # {EA + B}
                 substrates: A, B
                 products: P, Q
                 steps: begin
@@ -13045,7 +13042,7 @@ end
                     EQ + P ⇌ EPQ
                 end
             end),
-            @enzyme_mechanism begin  # {E(A) + Q, E(Q) + A}
+            @enzyme_mechanism begin  # {EA + Q, EQ + A}
                 substrates: A, B
                 products: P, Q
                 steps: begin
@@ -13066,7 +13063,7 @@ end
 
     @testset "_expand_re_to_ss: a Theorell–Chance parent flips each binding" begin
         # No isomerization step. Every step lies on the unbalanced cycle
-        # E → E(A) → E(Q) → E (weights 1, 2, 1), so both rapid-equilibrium bindings
+        # E → EA → EQ → E (weights 1, 2, 1), so both rapid-equilibrium bindings
         # are units; each divides the one segment alone.
         m = @enzyme_mechanism begin
             substrates: A, B
@@ -13409,13 +13406,13 @@ end
 end
 
 @testset "_expand_split_kinetic_group: a split member of a tied group turns alone" begin
-    # E <--> D and E(S) <--> D(S) share their constants. The reaction turns over through
-    # them in opposite directions, E → D and D(S) → E(S), so the group turns as one with
-    # its lead E → D, nearer free E, and stores E(S) → D(S) as written relative to it.
-    # Split by S, E(S) <--> D(S) is a group of its own and runs the way the reaction
-    # turns over through it, from D(S). The child goes through the checked constructor,
+    # E <--> D and ES <--> DS share their constants. The reaction turns over through
+    # them in opposite directions, E → D and DS → ES, so the group turns as one with
+    # its lead E → D, nearer free E, and stores ES → DS as written relative to it.
+    # Split by S, ES <--> DS is a group of its own and runs the way the reaction
+    # turns over through it, from DS. The child goes through the checked constructor,
     # which turns it; a child built from the parent's stored directions would keep
-    # E(S) → D(S).
+    # ES → DS.
     m = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -13451,7 +13448,7 @@ end
 end
 
 @testset "_expand_split_kinetic_group: by conformation" begin
-    # S binds both conformations in one kinetic group; Estar(S) is a dead end
+    # S binds both conformations in one kinetic group; EstarS is a dead end
     # whose dissociation constant no cycle ties, so dividing the group by
     # conformation frees one parameter. The other groups are singletons.
     m = @enzyme_mechanism begin
@@ -13683,7 +13680,7 @@ end
 end
 
 @testset "candidate_mechanisms on a merged uni-uni" begin
-    # E + S → E(P) fused (SS), E + P ⇌ E(P) (RE). Flip: the P group cuts E from E(P),
+    # E + S → EP fused (SS), E + P ⇌ EP (RE). Flip: the P group cuts E from EP,
     # carries flux, no bottomless segment: one child, both steps SS. Split: single-step
     # groups, nothing. Dead end: no regulator. To-allosteric at multiplicity 1: the
     # chemistry group (the fused step) is :OnlyA, the binding subsets range over {P}:
@@ -13736,10 +13733,10 @@ end
 end
 
 @testset "_expand_change_allo_state on a merged uni-uni K-type" begin
-    # The fused step E + S → E(P) is the chemistry group. Relaxing P to :NonequalAI
+    # The fused step E + S → EP is the chemistry group. Relaxing P to :NonequalAI
     # keeps the chemistry :OnlyA: the inactive conformation binds P with a constant of
     # its own and runs no chemistry, a valid child. The chemistry is not relaxed while
-    # P's binding is :OnlyA: restored, it would join E to E(P) in the inactive
+    # P's binding is :OnlyA: restored, it would join E to EP in the inactive
     # conformation beside the :OnlyA P binding, which then has no path to its limit
     # (admission's existence test). One child.
     k_type = @enzyme_mechanism begin
@@ -13771,10 +13768,10 @@ end
 end
 
 @testset "_expand_to_allosteric on an ordered Theorell–Chance mechanism" begin
-    # E(A) + B → E(Q) + P takes up B and gives off P in one step: the chemistry group.
+    # EA + B → EQ + P takes up B and gives off P in one step: the chemistry group.
     # Each K-type child sets it :OnlyA and ranges the binding subsets over {A, Q}:
     # {A}, {Q} and {A, Q}. In the inactive conformation the :OnlyA chemistry leaves
-    # the A and Q bindings as the tree E(A) – E – E(Q), so every subset's bindings
+    # the A and Q bindings as the tree EA – E – EQ, so every subset's bindings
     # point away from E and admission refuses none. No regulator, so no V-type:
     # three children.
     m = @enzyme_mechanism begin
@@ -13838,17 +13835,17 @@ end
 end
 
 @testset "_expand_to_allosteric on a merged ordered bi-bi at multiplicity 2" begin
-    # The ordered bi-bi seed with E(A, B) merged into E(P, Q): B's binding is fused
-    # with the chemistry (E(A) + B ⇌ E(P, Q)), and the A and P bindings are steady
+    # The ordered bi-bi seed with EAB merged into EPQ: B's binding is fused
+    # with the chemistry (EA + B ⇌ EPQ), and the A and P bindings are steady
     # state. The fused B group is the chemistry group, :OnlyA in every K-type child,
     # and the subsets range over the A, P and Q groups: 2^3 − 1 = 7. Without the
-    # :OnlyA chemistry group the bindings form the tree E(A) – E – E(Q) – E(P, Q). The
-    # guard refuses one child: with A's binding :OnlyA too, E(A) is cut off in the
+    # :OnlyA chemistry group the bindings form the tree EA – E – EQ – EPQ. The
+    # guard refuses one child: with A's binding :OnlyA too, EA is cut off in the
     # inactive conformation, and at zero A and B the fused binding, vanishing one way into
-    # E(A), fills it faster than A's steady-state binding empties it (`_FILLED`). The
+    # EA, fills it faster than A's steady-state binding empties it (`_FILLED`). The
     # scheme is hyperbolic, so
-    # multiplicity 2 stays open: the RE segments are {E, E(Q)}, where E(Q) carries one
-    # Q, and {E(A), E(P, Q)}, where E(P, Q) carries one B; the steady-state A and P
+    # multiplicity 2 stays open: the RE segments are {E, EQ}, where EQ carries one
+    # Q, and {EA, EPQ}, where EPQ carries one B; the steady-state A and P
     # bindings join them, and each metabolite scores on one edge only, an edge that
     # leaves the segment carrying that metabolite (`_hyperbolic_catalysis`). No
     # regulator, so no V-type: seven children.
@@ -13952,15 +13949,15 @@ end
 end
 
 @testset "_expand_to_allosteric on a merged bi-bi whose B group mixes fused and plain" begin
-    # The merged ordered bi-bi with B's abortive binding at E(Q) in B's own group:
-    # E(A) + B ⇌ E(P, Q) is fused, E(Q) + B ⇌ E(B, Q) is plain, one RE kinetic group. A
+    # The merged ordered bi-bi with B's abortive binding at EQ in B's own group:
+    # EA + B ⇌ EPQ is fused, EQ + B ⇌ EBQ is plain, one RE kinetic group. A
     # group holding a chemistry step is chemistry, so the whole B group, its plain step
     # included, is :OnlyA in every K-type child, and the subsets range over the A, P
     # and Q groups: 2^3 − 1 = 7. Without the :OnlyA B group the inactive conformation
-    # keeps the tree E(A) – E – E(Q) – E(P, Q), and E(B, Q) lies behind B's plain
-    # binding at E(Q). The guard refuses one child: with A's binding :OnlyA too, E(A) is
+    # keeps the tree EA – E – EQ – EPQ, and EBQ lies behind B's plain
+    # binding at EQ. The guard refuses one child: with A's binding :OnlyA too, EA is
     # cut off in the inactive conformation, and at zero A and B the fused binding,
-    # vanishing one way into E(A), fills it faster than A's steady-state binding empties
+    # vanishing one way into EA, fills it faster than A's steady-state binding empties
     # it (`_FILLED`). No regulator, so no V-type: seven children.
     m = @enzyme_mechanism begin
         substrates: A, B
@@ -14049,7 +14046,7 @@ end
     # The parent has 5 fitted constants, all identifiable. Each child the guard admits
     # adds L, and its dead inactive conformation keeps the bindings it reaches from the
     # free enzyme through :EqualAI groups: A's where A is :EqualAI; Q's where Q is, then
-    # P's at E(Q) where P is too. Where it keeps one, L multiplies a binding
+    # P's at EQ where P is too. Where it keeps one, L multiplies a binding
     # polynomial that carries A or Q, which no rescaling of the parent's constants
     # absorbs: 6 fitted, rank 6. Where A and Q are both :OnlyA it binds nothing, so L
     # multiplies the free enzyme's terms alone, and 1 + L folds into A's binding rate and
@@ -14075,14 +14072,14 @@ end
 
 @testset "_expand_to_allosteric on a random-order merged bi-bi led by plain bindings" begin
     # The random-order merged bi-bi: A and B bind free E in either order, and the second
-    # binding is fused with the chemistry. A's steady-state group holds E + A → E(A) and
-    # the fused E(B) + A → E(P, Q); B's rapid-equilibrium group holds E + B ⇌ E(B) and
-    # the fused E(A) + B ⇌ E(P, Q). Canonical order sorts a group's steps by source form,
-    # E before E(A) and E(B), so each group opens with its plain binding. A group holding
+    # binding is fused with the chemistry. A's steady-state group holds E + A → EA and
+    # the fused EB + A → EPQ; B's rapid-equilibrium group holds E + B ⇌ EB and
+    # the fused EA + B ⇌ EPQ. Canonical order sorts a group's steps by source form,
+    # E before EA and EB, so each group opens with its plain binding. A group holding
     # a chemistry step is chemistry whatever its first step, so both are :OnlyA in every
     # K-type child, and the subsets range over the Q and P groups: 2^2 − 1 = 3. Without
-    # the :OnlyA A and B groups the inactive conformation keeps the path E – E(Q) –
-    # E(P, Q), and E(A) and E(B) lie behind A's and B's bindings at E, so admission
+    # the :OnlyA A and B groups the inactive conformation keeps the path E – EQ –
+    # EPQ, and EA and EB lie behind A's and B's bindings at E, so admission
     # refuses none. The reaction allows one catalytic subunit
     # and declares no regulator, so no V-type: three children. Read by its first step,
     # neither group would be chemistry, and the subsets would range over all four groups.
@@ -14137,9 +14134,9 @@ end
     @test length(kids) == 3
     @test Set(kids) == Set([only_q, only_p, p_and_q])
     # The parent has 5 fitted constants, all identifiable. Each child adds L. Its dead
-    # inactive conformation reaches no E(B), since B's group is :OnlyA, so it adds L·E to
-    # E's rapid-equilibrium segment {E, E(B), E(Q)}, times 1 + Q/K_Q where Q stays
-    # :EqualAI. A's group takes A up at E and at E(B) under one rate constant, so the
+    # inactive conformation reaches no EB, since B's group is :OnlyA, so it adds L·E to
+    # E's rapid-equilibrium segment {E, EB, EQ}, times 1 + Q/K_Q where Q stays
+    # :EqualAI. A's group takes A up at E and at EB under one rate constant, so the
     # denominator's A·B term is 2·B/K_B times its A term whatever L is: K_B is pinned and
     # cannot also absorb the 1 + L at E. L shows in every child, the two whose inactive
     # conformation binds nothing included: 6 fitted, rank 6.
@@ -14159,17 +14156,17 @@ end
 @testset "K-types build on the every-chemistry set when the guard rejects it" begin
     # Census bi-bi parent 1291abb91f537c6b (census/base6), one of the 12 bi-bi parents
     # whose V-type set fails the guard. A's group mixes its plain bindings at E
-    # and E(P) with its fused binding into E(P, Q), and B's mixes its plain binding at E
+    # and EP with its fused binding into EPQ, and B's mixes its plain binding at E
     # with its fused one, so both are chemistry. Tagged :OnlyA with every binding group
-    # :EqualAI, the rapid-equilibrium fused binding E(B) + A ⇌ E(P, Q) keeps both sides
-    # joined, through Q's bindings, P's and B's binding at E(Q), so it cannot be switched
+    # :EqualAI, the rapid-equilibrium fused binding EB + A ⇌ EPQ keeps both sides
+    # joined, through Q's bindings, P's and B's binding at EQ, so it cannot be switched
     # off (`_FAST_STEP_PINNED`). No smaller set of chemistry groups stops the inactive
     # conformation's catalysis, so there is no base, and the K-types build on that set
-    # itself: a tagged Q binding or B binding at E(Q) cuts the join. The move emits all
+    # itself: a tagged Q binding or B binding at EQ cuts the join. The move emits all
     # seven candidates; the guard accepts five. P's bindings alone leave B's binding at E
-    # joined, so the inactive conformation stops it, and at zero P and Q E(B) holds enzyme
-    # apart from free E (`_NONUNIQUE`). B's binding at E(Q) alone leaves the fused A binding
-    # filling E(B) at zero A and B faster than E(B) empties (`_FILLED`).
+    # joined, so the inactive conformation stops it, and at zero P and Q EB holds enzyme
+    # apart from free E (`_NONUNIQUE`). B's binding at EQ alone leaves the fused A binding
+    # filling EB at zero A and B faster than EB empties (`_FILLED`).
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -14283,7 +14280,7 @@ end
     # binding group. Tagging every chemistry group :OnlyA fails the guard: at zero A, B and
     # D the fused A binding, vanishing one way into the covalent form, fills it faster than
     # it empties (`_FILLED`). So the bases are the smallest stopping sets that pass. Q's
-    # group alone passes and is the one base. B's alone passes the guard but keeps E(B),
+    # group alone passes and is the one base. B's alone passes the guard but keeps EB,
     # which only the binding it excludes enters (`_kept_forms_keep_a_binding`); D's alone
     # and A's alone each leave the sides of a rapid-equilibrium binding joined. Each K-type
     # adds P's binding to the base or to the every-chemistry set, and the guard admits
@@ -14385,10 +14382,10 @@ end
     # A K-type of census bi-bi parent 1291abb91f537c6b (testset "K-types build on the
     # every-chemistry set when the guard rejects it"): A's and B's mixed groups and Q's
     # bindings :OnlyA. Relaxing Q's bindings to :NonequalAI gives back the every-chemistry
-    # set, whose rapid-equilibrium fused binding E(B) + A ⇌ E(P, Q) has its two sides
+    # set, whose rapid-equilibrium fused binding EB + A ⇌ EPQ has its two sides
     # joined in the inactive conformation, through Q's bindings, P's and B's binding at
-    # E(Q), so it cannot be switched off (`_FAST_STEP_PINNED`), and the exit drops it.
-    # Relaxing P's bindings or B's binding at E(Q) leaves Q's cut, and the guard accepts
+    # EQ, so it cannot be switched off (`_FAST_STEP_PINNED`), and the exit drops it.
+    # Relaxing P's bindings or B's binding at EQ leaves Q's cut, and the guard accepts
     # both. The chemistry does not relax while a binding is :OnlyA. Three children.
     q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
@@ -14459,7 +14456,7 @@ end
 end
 
 @testset "candidate_mechanisms rejects a parent with a zero-flux steady-state group" begin
-    # E + A and E + Q at steady state while E(Q) + A ⇌ E(A, Q) ⇌ E(A) + Q stays at
+    # E + A and E + Q at steady state while EQ + A ⇌ EAQ ⇌ EA + Q stays at
     # rapid equilibrium: {E} joins the rest by two edges of weight 0, so neither
     # group carries flux and their constants enter the rate only as ratios. The
     # flip never emits this child; a hand-written parent is refused.
@@ -14491,8 +14488,8 @@ end
 end
 
 @testset "candidate_mechanisms rejects a parent whose copy group is redundant" begin
-    # A bound as its own competitive inhibitor at E alone: E(A::Mod) has the
-    # composition of E(A), formed by the A group alone, so the gauge exists and the
+    # A bound as its own competitive inhibitor at E alone: EAmod has the
+    # composition of EA, formed by the A group alone, so the gauge exists and the
     # copy's constant enters the rate only added to K_A's. The dead-end move never
     # emits this child; a hand-written parent is refused.
     rxn = @enzyme_reaction begin
@@ -14536,7 +14533,7 @@ end
     @test !isempty(_testhelper_children(rxn, [kept]))
     @test EnzymeRates.Enumeration._assert_emission_rules(
         _testhelper_candidate(kept)) === nothing
-    # A copy at E alone whose A group also binds at E(Q), forming E(A, Q): every
+    # A copy at E alone whose A group also binds at EQ, forming EAQ: every
     # complex duplicates a productive form, but the gauge fails, so it is a valid
     # parent.
     no_gauge = @enzyme_mechanism begin
@@ -14558,10 +14555,10 @@ end
 
 @testset "candidate_mechanisms checks that every child's rate law is defined" begin
     # Random product release at rapid equilibrium between steady-state releases leaves
-    # the segment {E(P), E(P, Q), E(Q)} without a bottom form. The macro rejects such a
+    # the segment {EP, EPQ, EQ} without a bottom form. The macro rejects such a
     # mechanism; the constructor, which checks the representation only, builds it from
     # the walker's raw value. Its dead-end children keep the segment, the first of them
-    # with the copy's complex E(I, Q) in it, and `candidate_mechanisms` drops them.
+    # with the copy's complex EIQ in it, and `candidate_mechanisms` drops them.
     rxn = @enzyme_reaction begin
         substrates: S[C2]
         products: P[C], Q[C]
@@ -14613,7 +14610,7 @@ end
 end
 
 @testset "candidate_mechanisms binds an inhibitor I beside a substrate Iinh" begin
-    # The forms E(I) and E(Iinh) render apart (EI, EIinh), so the dead-end child holds
+    # The forms EI and EIinh render apart (EI, EIinh), so the dead-end child holds
     # both. The other three children tag the seed's groups (no oligomeric state is
     # declared, so they keep one catalytic subunit): the substrate binding, the product
     # binding, or both, :OnlyA with the chemistry.
@@ -14682,10 +14679,10 @@ end
     # The inhibitor binds the forms that bind a competing ligand, never a form
     # already carrying one, so a competing substrate's binding step is never
     # mirrored and no inhibitor-bound branch completes the net reaction. With A
-    # binding E(Q) and P binding E(B; res) as dead ends, the pattern "compete
-    # with A and P" puts I on E, E(Q), E(; res) and E(B; res): the second
+    # binding EQ and P binding E(B; res) as dead ends, the pattern "compete
+    # with A and P" puts I on E, EQ, E(; res) and E(B; res): the second
     # half-reaction (B binds, chemistry, Q leaves) runs with I bound, and A
-    # cannot bind E(I). Six patterns give distinct targets.
+    # cannot bind EI. Six patterns give distinct targets.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
@@ -15268,7 +15265,7 @@ end
 
 @testset "seed_mechanisms errors when no mechanism binds every required regulator" begin
     # Uni-uni with S as its own competitive inhibitor: the only site that carries
-    # neither S nor P is free E, where the copy duplicates E(S). No seed exists,
+    # neither S nor P is free E, where the copy duplicates ES. No seed exists,
     # and the beam must say so rather than return nothing.
     rxn = @enzyme_reaction begin
         substrates: S[C]
@@ -15392,7 +15389,7 @@ end
     # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
     # zero A and B, so it is dropped. With its second half tagged instead, the inactive
     # conformation keeps the two sides of the rapid-equilibrium step
-    # E(B; residual = A - P) ⇌ E(Q) joined (`_FAST_STEP_PINNED`), so it is no seed either.
+    # EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`), so it is no seed either.
     # With both halves tagged it stays.
     half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -15532,7 +15529,7 @@ end
 @testset "the tagging move builds a three-step ping-pong on both half-reactions" begin
     # The three-step ping-pong of census pingpong seed 8fe71fded09a27ec: free E takes up
     # A and gives off P in one Theorell–Chance step, leaving the covalent form E(;
-    # residual = A - P), which takes up B into E(Q) (fused); Q's release is the one
+    # residual = A - P), which takes up B into EQ (fused); Q's release is the one
     # binding group. Tagging both half-reactions :OnlyA cuts the covalent form off in the
     # inactive conformation, and the guard admits it, so that set is the one base, though
     # the guard admits each half alone too. The move emits Q's binding :OnlyA on the base
@@ -15611,7 +15608,7 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(kids) == 3
     @test Set(kids) == Set([k_q_every, v_every_a, v_every_i])
-    # Q's binding :OnlyA on the base cuts E(Q) off as well; both oracles agree with the
+    # Q's binding :OnlyA on the base cuts EQ off as well; both oracles agree with the
     # law on every face.
     @test all(_testhelper_admission_agreement(
         k_q_every; rng = Random.MersenneTwister(15209), corners = true))
@@ -15622,8 +15619,8 @@ end
 
 @testset "the tagging move builds a random-order ping-pong on both half-reactions" begin
     # A ping-pong of census pingpong (a plain parent of the census): A and Q bind free E
-    # at random, P and B bind the covalent form E(; residual = A - P), and two chemistry
-    # groups, E(A) to E(P; residual = A - P) and E(B; residual = A - P) to E(Q), make the
+    # at random, P and B bind the covalent form E_res_plusA_minusP, and two chemistry
+    # groups, EA to EP_res_plusA_minusP and EB_res_plusA_minusP to EQ, make the
     # two half-reactions. Tagging both chemistry groups :OnlyA (`every`) cuts the covalent
     # forms off in the inactive conformation, and the guard admits it, so that set is the
     # one base. Admission accepts the first half's chemistry :OnlyA alone (`half1`), but
@@ -15885,8 +15882,8 @@ end
     # A ter-bi ping-pong of the census ter-bi reaction: B and D bind free E in either
     # order, the second fused into the product-bound covalent form E(Q; residual = B + D -
     # Q) (B's and D's groups, each chemistry); Q's release from it leaves E(; residual =
-    # B + D - Q), which takes up A into E(P), fused (A's group), and Q's group holds Q's
-    # abortive binding at E(P) beside its release. P's binding at E is the one binding
+    # B + D - Q), which takes up A into EP, fused (A's group), and Q's group holds Q's
+    # abortive binding at EP beside its release. P's binding at E is the one binding
     # group. Every chemistry group :OnlyA fails the guard: at zero A, B and D the fused A
     # binding, vanishing one way into the covalent form, fills it faster than it empties
     # (`_FILLED`). So the bases are the smallest sets of chemistry groups that stop the
@@ -15894,7 +15891,7 @@ end
     # supersets in the search. Q's group alone keeps the two sides of its
     # rapid-equilibrium release joined in the inactive conformation (`_FAST_STEP_PINNED`),
     # and the search extends it to B's and Q's groups and to D's and Q's, which pass. B's
-    # group alone passes the guard but keeps E(B), which only the binding it excludes
+    # group alone passes the guard but keeps EB, which only the binding it excludes
     # enters (`_kept_forms_keep_a_binding`), so it fails too and extends to B's and D's
     # groups; D's alone likewise. A's group alone keeps the sides of its fused binding
     # joined, and each pair that holds it fails the guard too. Three bases: the move emits
@@ -16391,7 +16388,7 @@ end
     # rapid equilibrium, shows the exit's drop. Its one base tags A's fused binding alone.
     # Of the six K-types on the base and on the every-chemistry set the guard rejects
     # one: P's binding :OnlyA on the every-chemistry set, where at zero A and B the fused
-    # B binding fills the covalent form E(; residual = A - P) faster than it empties
+    # B binding fills the covalent form E_res_plusA_minusP faster than it empties
     # (`_FILLED`). The exit keeps the other seven children and the two flips.
     rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
@@ -16615,9 +16612,9 @@ end
 @testset "the enumerator does not build a kept form that no running binding enters" begin
     En = EnzymeRates.Enumeration
     # S binding steady-state :OnlyA, the rest :EqualAI: the inactive conformation keeps
-    # its two sides joined and stops it, while E(S) stays in its law, reached from E(P) by
+    # its two sides joined and stops it, while ES stays in its law, reached from EP by
     # the chemistry, and the guard admits the law. No binding that runs there enters
-    # E(S), so `_kept_forms_keep_a_binding` is false and the enumerator does not build it.
+    # ES, so `_kept_forms_keep_a_binding` is false and the enumerator does not build it.
     shut_door = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -16630,7 +16627,7 @@ end
     @test EnzymeRates.Derivation.check_valid_rate_equation(Bool, shut_door)
     @test !En._kept_forms_keep_a_binding(shut_door)
     @test !En._enumerator_keeps(shut_door)
-    # The chemistry :OnlyA too: E(S) is cut off.
+    # The chemistry :OnlyA too: ES is cut off.
     k_type = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -16653,8 +16650,8 @@ end
         end
     end
     @test En._kept_forms_keep_a_binding(merged_v_type)
-    # The active conformation is read alike: S's binding :OnlyI keeps E(S), reached from
-    # E(P), in the active law with no binding into it that runs there. (The guard rejects
+    # The active conformation is read alike: S's binding :OnlyI keeps ES, reached from
+    # EP, in the active law with no binding into it that runs there. (The guard rejects
     # this one too: the active conformation turns nothing over.)
     shut_door_active = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -16679,7 +16676,7 @@ end
 end
 
 @testset "class 3 inside the flip move emits the superset flips" begin
-    # Random-order merged bi-bi with the abortive complex E(A, P) (census
+    # Random-order merged bi-bi with the abortive complex EAP (census
     # 0988ab459f638946). Flipping the A group alone gains a segment but leaves a face
     # whose steady state moves with the relative speeds of the rapid-equilibrium steps, a
     # class-3 rejection (`_LIMIT_SPEED`) the RE-speed oracle reads as a pattern. The flip
@@ -16736,7 +16733,7 @@ end
                 EP + Q <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # A and P@E(A)
+        (@enzyme_mechanism begin      # A and P@EA
             substrates: A, B
             products: P, Q
             steps: begin
@@ -16748,7 +16745,7 @@ end
                 EP + Q <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # A and A@E(P)
+        (@enzyme_mechanism begin      # A and A@EP
             substrates: A, B
             products: P, Q
             steps: begin
@@ -16760,7 +16757,7 @@ end
                 EP + Q <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # P@E and P@E(A)
+        (@enzyme_mechanism begin      # P@E and P@EA
             substrates: A, B
             products: P, Q
             steps: begin
@@ -16772,7 +16769,7 @@ end
                 EP + Q <--> EPQ
             end
         end),
-        (@enzyme_mechanism begin      # P@E and A@E(P)
+        (@enzyme_mechanism begin      # P@E and A@EP
             substrates: A, B
             products: P, Q
             steps: begin
@@ -16791,9 +16788,9 @@ end
 end
 
 @testset "the flip move's guard reads both conformations of an allosteric child" begin
-    # A ping-pong whose abortive complex E(A, P) forms in the active conformation only.
+    # A ping-pong whose abortive complex EAP forms in the active conformation only.
     # Flipping the A group leaves, at zero A and B, the rapid-equilibrium segment of
-    # F = E(; residual = A - P) and F(P) split between the two conformations, which only
+    # F = E_res_plusA_minusP and FP split between the two conformations, which only
     # B's uptake joins. The split moves with the relative speeds of the rapid-equilibrium
     # steps (`_LIMIT_SPEED`), a pattern to the RE-speed oracle. The catalytic graph alone,
     # one conformation, passes. The move's guard reads the child's two conformations, so
@@ -16962,9 +16959,9 @@ end
 end
 
 @testset "_base_tier replaces a degenerate seed by the flips that cure it" begin
-    # The undecorated ping-pong seed. Its steady-state chemistry E(A) → E(P; res) is a
+    # The undecorated ping-pong seed. Its steady-state chemistry EA → E(P; res) is a
     # qualifying chain, so the flip rule keeps its flanks, the A and P bindings, at rapid
-    # equilibrium. The rapid-equilibrium chemistry E(B; res) ⇌ E(Q) is left by the B and
+    # equilibrium. The rapid-equilibrium chemistry E(B; res) ⇌ EQ is left by the B and
     # the Q binding, both rapid equilibrium, so the seed is degenerate. Each of the other
     # three groups alone raises the segment count, and each flip cures the seed: it turns
     # that chemistry steady state, or one of its two exits.
@@ -17025,7 +17022,7 @@ end
 end
 
 @testset "_base_tier throws a degenerate seed's expansion error" begin
-    # The chemistry step E(S) ⇌ E(P) makes P's N from nothing (T binds free E only in a
+    # The chemistry step ES ⇌ EP makes P's N from nothing (T binds free E only in a
     # dead end), so the atom-conservation assertion raises on its flip children. With the P
     # binding steady state the seed has no maximal rate in products (turning that
     # binding rapid equilibrium closes an all-RE turnover cycle), so it is degenerate and
@@ -17052,16 +17049,16 @@ end
         e
     end
     @test err isa ErrorException
-    # The error is the assertion's: the chemistry step E(S) → E(P) makes an N.
+    # The error is the assertion's: the chemistry step ES → EP makes an N.
     @test occursin("atom-non-conserving step ES → EP", err.msg)
     @test occursin("= Dict(:N => 1)", err.msg)
 end
 
 @testset "the flip move keeps the flips that leave a tagged step between two groups" begin
-    # The guard admits the seed. Its chemistry E(S) ⇌ E(P) sits in rapid equilibrium with
+    # The guard admits the seed. Its chemistry ES ⇌ EP sits in rapid equilibrium with
     # both sides, so the seed is degenerate and expanded. Six flip sets gain a segment and
     # pass the guard. Three of them (`between`: the S binding, the chemistry, or the pair
-    # E(P) ⇌ F(P) and F + P ⇌ E(P) made steady state) leave the :OnlyA step E <--> F
+    # EP ⇌ FP and F + P ⇌ EP made steady state) leave the :OnlyA step E <--> F
     # between two groups of forms of the inactive conformation; the guard finds a reading
     # of it that gives a limit, and both oracles agree on every face. Two of the other
     # three keep the chemistry in rapid equilibrium with both sides, which makes them
@@ -17158,7 +17155,7 @@ end
                 FP ⇌ EP         :: EqualAI
             end
         end),
-        (@enzyme_mechanism begin    # F + P ⇌ F(P), F(P) ⇌ E(P)
+        (@enzyme_mechanism begin    # F + P ⇌ FP, FP ⇌ EP
             substrates: S
             products: P
             steps: begin
@@ -17193,9 +17190,9 @@ end
 
 @testset "the flip search extends a flip set whose child the guard rejects" begin
     # An allosteric ter-bi ping-pong among the census ter-bi children: B and D bind in
-    # either order, E(B, D) turns at rapid equilibrium into the covalent form E(Q; residual
-    # = B + D - Q), which releases Q, and the covalent form E(; residual = B + D - Q) takes
-    # up A and gives off P through the steady-state E(A; residual = B + D - Q) <--> E(P).
+    # either order, EBD turns at rapid equilibrium into the covalent form E(Q; residual
+    # = B + D - Q), which releases Q, and the covalent form E_res_plusB_plusD_minusQ takes
+    # up A and gives off P through the steady-state EA_res_plusB_plusD_minusQ <--> EP.
     # B's group, P's binding and both chemistry steps are :OnlyA. Every step but the
     # second chemistry step is at rapid equilibrium, so the seed is degenerate and
     # expanded. Flipping D's group alone, or Q's group alone, gains a segment, but at zero
@@ -17373,7 +17370,7 @@ end
 end
 
 @testset "_base_tier keeps every flip child the guard admits" begin
-    # Every step is rapid equilibrium, so the catalytic cycle E, E(S), E(P), F turns over
+    # Every step is rapid equilibrium, so the catalytic cycle E, ES, EP, F turns over
     # at rapid equilibrium: the seed is degenerate and expanded. The six flips of two steps
     # of the ring cut it, and each passes every face of the guard: the conformations flip
     # at E, so F needs no rapid-equilibrium link to it. No failure is recorded.

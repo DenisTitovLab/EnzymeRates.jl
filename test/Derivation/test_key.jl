@@ -281,8 +281,8 @@ end
 # ── One-subunit L phantoms ─────────────────────────────────────────────────
 
 @testset "a certificate maps the phantom onto its L→0 law" begin
-    # The merged uni-uni K-type at one catalytic subunit: E + S <--> E(P) and
-    # E + P ⇌ E(P), both :OnlyA. Its inactive conformation is free E alone, so the law is
+    # The merged uni-uni K-type at one catalytic subunit: E + S <--> EP and
+    # E + P ⇌ EP, both :OnlyA. Its inactive conformation is free E alone, so the law is
     # v = N/(Y + L·X) with X a term of Y. The certificate scales P's dissociation constant
     # by (1 + L) and the uptake rate constant by 1/(1 + L): at every L the variant is its
     # law at L = 0, the law of its catalytic mechanism, at those constants (spec

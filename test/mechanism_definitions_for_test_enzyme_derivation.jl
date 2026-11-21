@@ -2148,8 +2148,8 @@ function _testhelper_certified(am, c::Int)
     all(arc -> φ[arc[2]] - φ[arc[1]] >= 1, ex.arcs) && all(z -> iszero(sum(z .* a)), rows)
 end
 
-"""The uni-uni grid of admission's existence test: `E + S ⇌ E(S)` or `<-->`,
-`E(S) <--> E(P)` and `E + P ⇌ E(P)` or `<-->`, each step with each of `:OnlyA`,
+"""The uni-uni grid of admission's existence test: `E + S ⇌ ES` or `<-->`,
+`ES <--> EP` and `E + P ⇌ EP` or `<-->`, each step with each of `:OnlyA`,
 `:EqualAI` and `:NonequalAI`, 4 × 27 = 108 allosteric mechanisms, built unguarded."""
 function _testhelper_uniuni_grid()
     tags = (:OnlyA, :EqualAI, :NonequalAI)
@@ -4118,7 +4118,7 @@ let
         mechanism=m,
         raw=raw,
         metabolite_names=[:S, :P],
-        expected_n_states=3,          # catalytic subunit: E, E(S), E(P)
+        expected_n_states=3,          # catalytic subunit: E, ES, EP
         expected_n_steps=3,           # 2 RE + 1 SS per subunit
         expected_n_haldane_constraints=2,         # k3r per conformation × 2
         expected_n_independent_params=7,
@@ -4993,7 +4993,7 @@ let
         k2r = k2f * K3 / (Keq * K1)
 
         Q_cat_R = 1 + S/K1 + P/K3
-        # E(P) unreachable in T-state (catalysis + P-binding :OnlyA)
+        # EP unreachable in T-state (catalysis + P-binding :OnlyA)
         Q_cat_T = 1 + S/K1
 
         N_R = k2f * S/K1 - k2r * P/K3

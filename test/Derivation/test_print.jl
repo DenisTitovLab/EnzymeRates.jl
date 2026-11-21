@@ -188,7 +188,7 @@ end
 end
 
 @testset "F3, a rapid-equilibrium Theorell–Chance step, takes no normalizer" begin
-    # Every term holds B or P (the rapid-equilibrium step E(A) + B ⇌ E(Q) + P ties them),
+    # Every term holds B or P (the rapid-equilibrium step EA + B ⇌ EQ + P ties them),
     # and the units equation has no solution on the basis B, P, A·B, B·Q, so no product of
     # the coefficients has the denominator's unit, each concentration counting as a
     # dimension of its own, and the law prints as derived.
@@ -254,10 +254,10 @@ end
     # the conformations takes Cleland's normalizer in both, each on its own terms. F3 with
     # every step :OnlyA, beside a steady-state dead-end inhibitor I that binds free E in
     # both conformations, takes no normalizer in the active conformation and the constant
-    # term in the inactive one, which keeps free E and E(I). With A's binding and the
+    # term in the inactive one, which keeps free E and EI. With A's binding and the
     # Theorell–Chance step alone :OnlyA, the inactive conformation would keep free E and
-    # E(Q), but the rapid-equilibrium Theorell–Chance step, which then lies between two of
-    # its groups, fills E(A) faster than E(A) empties at zero substrates, and the guard
+    # EQ, but the rapid-equilibrium Theorell–Chance step, which then lies between two of
+    # its groups, fills EA faster than EA empties at zero substrates, and the guard
     # refuses it; under none of its consistent readings does the ε-path oracle find a
     # limit.
     filled = @_testhelper_unguarded @enzyme_mechanism begin
@@ -547,7 +547,7 @@ end
     # steady-state dead-end inhibitor I, and the inactive one of `pp`; the rule pin keeps
     # `pp` an MWC law whose other conformation has a normalizer. `pp`'s inactive and `tc`'s
     # active conformation print their polynomials as derived, with no `N` line, and `tc`'s
-    # inactive one, free E and E(I), prints its constant term's D_I line.
+    # inactive one, free E and EI, prints its constant term's D_I line.
     f1 = @enzyme_mechanism begin
         substrates: A
         products: P

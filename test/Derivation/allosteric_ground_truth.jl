@@ -179,18 +179,18 @@ end
 end
 
 # ── Metabolite-bearing-D ordered bi-uni :OnlyA network (the LDH i-state case) ──
-# S + B ⇌ P. S binds :OnlyA via a STEADY-STATE step (E + S <--> E(S)); B binds
-# :EqualAI at rapid equilibrium on E(S); catalysis E(S,B) <--> E(P) is
+# S + B ⇌ P. S binds :OnlyA via a STEADY-STATE step (E + S <--> ES); B binds
+# :EqualAI at rapid equilibrium on ES; catalysis EBS <--> EP is
 # steady-state :OnlyA (inactive rate k_I = 0); P binds :EqualAI at rapid
 # equilibrium. Because B binds rapidly on the steady-state catalytic path, free E's
 # weight in the active conformation CARRIES the metabolite B: koff + k·B/K_B. The
 # inactive conformation runs no catalysis and never binds S or B (both :OnlyA), so its
-# graph is a single rapid-equilibrium segment {E_I, E(P)_I} and free E weighs 1 there.
+# graph is a single rapid-equilibrium segment {E_I, EP_I} and free E weighs 1 there.
 # Free E's weight differs between the conformations (fA ≠ fI), a metabolite-bearing
 # active weight against a bare inactive one: the cross-weight regime, which has no
 # other ground truth. Flip ratio [X_I]/[X_A] = L·∏(K_A/K_I): free enzyme and
-# E(P) flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so E(S) and
-# E(S,B) never flip. Reverse catalysis kr from the Haldane relation.
+# EP flip (ratio L); an S-bearing state has ratio 0 (S :OnlyA), so ES and
+# EBS never flip. Reverse catalysis kr from the Haldane relation.
 function _testhelper_metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, P, FAST=1e7)
     kr = k * kon * KP / (koff * KB * Keq)
     species = [:E_A, :ES_A, :ESB_A, :EP_A, :E_I, :EP_I]
@@ -208,7 +208,7 @@ function _testhelper_metab_dfree_onlyA_flux(kon, koff, KB, KP, k; L, Keq, S, B, 
 end
 
 # ── Single-conformation (non-allosteric) reference for the ordered bi-uni ─────
-# The active mechanism alone (E, E(S), E(S,B), E(P)); no inactive conformation,
+# The active mechanism alone (E, ES, EBS, EP); no inactive conformation,
 # no flips. The L → 0 limit of the :OnlyA flux must equal this rate.
 function _testhelper_metab_dfree_base_flux(kon, koff, KB, KP, k, Keq, S, B, P; FAST=1e7)
     kr = k * kon * KP / (koff * KB * Keq)
@@ -281,8 +281,8 @@ end
 end
 
 # ── Free-flip-only ordered bi-uni :NonequalAI-catalysis reference ────────────
-# A + B ⇌ P. A binds :EqualAI via a STEADY-STATE step (E + A <--> E(A), kon·A /
-# koff); B binds :EqualAI at rapid equilibrium on E(A); catalysis E(A,B) <--> E(P)
+# A + B ⇌ P. A binds :EqualAI via a STEADY-STATE step (E + A <--> EA, kon·A /
+# koff); B binds :EqualAI at rapid equilibrium on EA; catalysis EAB <--> EP
 # is STEADY-STATE :NonequalAI (rate k_A in the active conformation, k_I in the
 # inactive); P binds :EqualAI at rapid equilibrium. Every ligand is :EqualAI
 # (K_I = K_A).
@@ -369,7 +369,7 @@ end
 
 # ── The gate: allosteric ping-pong (single free form, formulation-1 normalization) ─
 # A ping-pong mechanism has ONE free enzyme form — the covalent intermediate
-# `E(; residual = A - P)` carries a residual, so it is not free — hence free E's
+# `E_res_plusA_minusP` carries a residual, so it is not free — hence free E's
 # weight is well-defined and the derivation normalizes it like any other mechanism (no
 # special case, no guard). This gate confirms the derivation handles the
 # four-segment residual-bearing King–Altman and that the normalization collapses
@@ -415,7 +415,7 @@ end
 
 # ── Two-conformation ping-pong bi-bi network (formulation 1) ─────────────────
 # Ping-pong has TWO empty-bound forms — free E and the covalent intermediate F
-# (`E(; residual = A - P)`). Only free E flips; F does not. The E_A<->E_I edge is
+# (`E_res_plusA_minusP`). Only free E flips; F does not. The E_A<->E_I edge is
 # therefore the ONLY cut between the two conformation subnetworks, so at steady
 # state it carries zero net flux and E_I/E_A sits at exactly L for ANY FAST — the
 # fast-flip limit is exact for this topology rather than a large-FAST limit. Each
@@ -580,7 +580,7 @@ end
         A = 0.5+2rand(rng); B = 0.5+2rand(rng); P = 0.5+2rand(rng); Q = 0.5+2rand(rng)
         # Map parameters(m) -> ground-truth params. A step that releases a
         # product while changing the residual is stored as the binding it
-        # reverses, F + P → E(A), however the step is written; its rate constants
+        # reverses, F + P → EA, however the step is written; its rate constants
         # are named by its two sides, so `k_…_EA_to_E_res_…_P` is the
         # product-releasing rate and `k_…_E_res_…_P_to_EA` the product-rebinding
         # one — the binding steps read the usual way round.
@@ -628,21 +628,21 @@ end
 end
 
 # ── Ping-pong network with rapid-equilibrium chemistry, at zero products ──────
-# The undecorated ping-pong: E + A ⇌ EA → F(P) ⇌ F + P, F + B ⇌ FB ⇌ EQ ⇌ E + Q,
-# with both chemistry steps :OnlyA and every binding :EqualAI. Only EA → F(P) is
+# The undecorated ping-pong: E + A ⇌ EA → FP ⇌ F + P, F + B ⇌ FB ⇌ EQ ⇌ E + Q,
+# with both chemistry steps :OnlyA and every binding :EqualAI. Only EA → FP is
 # steady state; the second chemistry FB ⇌ EQ is rapid equilibrium, so free E and
 # the covalent F lie in one active rapid-equilibrium segment. Rapid steps use FAST.
 # Only free E flips (formulation 1, E_I/E_A = L). The inactive conformation runs no
 # chemistry, so it holds E_I, EA_I and EQ_I; its covalent forms, which free E cannot
 # reach, hold no mass. At P = Q = 0 the P and Q releases are one-way and the
-# chemistry's reverse never fires, so every form past EA → F(P) drains back to E,
+# chemistry's reverse never fires, so every form past EA → FP drains back to E,
 # and the rate is k·(A/KA)/((1 + A/KA)(1 + L)), free of B.
 function _testhelper_pingpong_re_chemistry_flux(; KA, KB, KP, KQ, K2, k, L, A, B, FAST=1e9)
     species = [:E_A, :EA_A, :FP_A, :F_A, :FB_A, :EQ_A, :E_I, :EA_I, :EQ_I]
     edges = [
         (:E_A, :EA_A, FAST * A), (:EA_A, :E_A, FAST * KA),   # E + A ⇌ EA (RE)
-        (:EA_A, :FP_A, k),                                   # EA → F(P) (SS)
-        (:FP_A, :F_A, FAST * KP),                            # F(P) → F + P (RE, P = 0)
+        (:EA_A, :FP_A, k),                                   # EA → FP (SS)
+        (:FP_A, :F_A, FAST * KP),                            # FP → F + P (RE, P = 0)
         (:F_A, :FB_A, FAST * B), (:FB_A, :F_A, FAST * KB),   # F + B ⇌ FB (RE)
         (:FB_A, :EQ_A, FAST * K2), (:EQ_A, :FB_A, FAST),     # FB ⇌ EQ (RE)
         (:EQ_A, :E_A, FAST * KQ),                            # EQ → E + Q (RE, Q = 0)
@@ -675,12 +675,12 @@ end
 @testset "ping-pong MWC derivation with free E and F in one RE segment" begin
     # Both half-reactions :OnlyA: in the inactive conformation the covalent forms between
     # the halves join free E only through the tagged chemistry. The guard admits the
-    # mechanism under a reading in which E(A) <--> E(P; residual = A - P) loses its stored
-    # direction and E(B; residual = A - P) ⇌ E(Q) its reverse, both into the covalent forms,
+    # mechanism under a reading in which EA <--> EP_res_plusA_minusP loses its stored
+    # direction and EB_res_plusA_minusP ⇌ EQ its reverse, both into the covalent forms,
     # and both oracles find the law the limit on every face. Its active rapid-equilibrium
-    # segment holds free E and F = E(; residual = A - P), and the law equals the exact
+    # segment holds free E and F = E_res_plusA_minusP, and the law equals the exact
     # two-conformation steady state. With the second half alone :OnlyA, the inactive
-    # conformation's other steps join the two sides of E(B; residual = A - P) ⇌ E(Q), a
+    # conformation's other steps join the two sides of EB_res_plusA_minusP ⇌ EQ, a
     # rapid-equilibrium step no reading switches off. (Half 1 alone fails class 3 at zero
     # substrates and at B = 0.)
     both = @enzyme_mechanism begin
@@ -787,7 +787,7 @@ end
 # through tagged chemistry: under each consistent reading the F6P binding runs one way
 # into E(; residual) at zero substrates, which fills faster than it empties (`_FILLED`),
 # the ε-path oracle finding no limit there, and the macro rejects it. With the F6P
-# binding and the second half :OnlyA, the rapid-equilibrium E(F6P; residual) ⇌ E(ADP)
+# binding and the second half :OnlyA, the rapid-equilibrium E(F6P; residual) ⇌ EADP
 # bridges two groups of the inactive conformation (`_BRIDGE`), the ε-path oracle finding
 # no limit under its one consistent reading. With that step steady-state, the inactive
 # conformation keeps its free-enzyme root and every face passes; the derivation must
@@ -1088,12 +1088,12 @@ end
     # With the F6P binding and both half-reactions :OnlyA, the inactive conformation runs
     # neither half: the covalent forms between the halves join free E only through tagged
     # chemistry. Under the reading the guard reports, at zero products F16BP's release
-    # feeds E(; residual = ATP - F16BP), which leaves only through the vanishing F6P
+    # feeds E_res_plusATP_minusF16BP, which leaves only through the vanishing F6P
     # binding (`_PUMPED`), and the ε-path oracle finds the limit direction-dependent there.
     # The guard finds no consistent reading that passes; under one of them it refuses a
     # filling at zero substrates on which the ε-path oracle converges, a conservative
-    # rejection. With the second half alone :OnlyA, E(F6P; residual = ATP - F16BP) ⇌
-    # E(ADP) is a rapid-equilibrium step whose sides the inactive conformation's other
+    # rejection. With the second half alone :OnlyA, EF6P_res_plusATP_minusF16BP ⇌
+    # EADP is a rapid-equilibrium step whose sides the inactive conformation's other
     # steps join, which no reading switches off; with that step steady-state the mechanism
     # is admitted (half 1 alone fails class 3, as it does for the ping-pong above).
     dead = @_testhelper_unguarded @enzyme_mechanism begin
@@ -1123,7 +1123,7 @@ end
           :direction_dependent
     # The conservative rejection: of the three consistent readings, one lets the ε-path
     # oracle converge on every face, and under it the face checks refuse the filling of
-    # E(; residual = ATP - F16BP) at zero substrates.
+    # E_res_plusATP_minusF16BP at zero substrates.
     readings = _testhelper_consistent_readings(dead)
     @test length(readings) == 3
     converging = filter(readings) do reading

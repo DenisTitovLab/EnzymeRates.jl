@@ -44,8 +44,8 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             end
         end),
         # k_I_E_NAD_to_ENAD family (SS-speed dependent-param partition), with the Lactate
-        # binding at E(NAD) steady-state: at rapid equilibrium beside the steady-state NAD
-        # binding it traps E(NAD) at zero products, which the guard rejects
+        # binding at ENAD steady-state: at rapid equilibrium beside the steady-state NAD
+        # binding it traps ENAD at zero products, which the guard rejects
         # (test_rate_eq_derivation.jl).
         @enzyme_mechanism(begin
             substrates: NADH, Pyruvate

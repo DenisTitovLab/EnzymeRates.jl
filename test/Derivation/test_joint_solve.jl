@@ -138,7 +138,7 @@ end
         @test key(off_free_E, 1, 0) > _testhelper_key(m_re, "EA + B ⇌ EAB", 1, 0)
         @test key(off_free_E, 2, 0) > key(off_free_E, 1, 0)
         @test key("E + Q <--> EQ", 1, 0) > key("E + Q <--> EQ", 2, 0)
-        # A release of two products is stored as its uptake, E + P + Q → E(A, B), which
+        # A release of two products is stored as its uptake, E + P + Q → EAB, which
         # runs against the reaction, so its forward rate is the constant against it.
         two = @enzyme_mechanism begin
             substrates: A, B
@@ -257,10 +257,10 @@ end
     end
 
     @testset "a kinetic group turns with its member nearest free E (C9)" begin
-        # E <--> D and E(S) <--> D(S) share their constants. The reaction turns over
-        # through them in opposite directions, E → D (D takes up S) and D(S) → E(S), so on
-        # its own E(S) <--> D(S) would run from D(S). The group turns as one with its lead,
-        # E → D, the member nearest free E, and E(S) <--> D(S) keeps the direction it is
+        # E <--> D and ES <--> DS share their constants. The reaction turns over
+        # through them in opposite directions, E → D (D takes up S) and DS → ES, so on
+        # its own ES <--> DS would run from DS. The group turns as one with its lead,
+        # E → D, the member nearest free E, and ES <--> DS keeps the direction it is
         # written in relative to it. So both steps run from the E side to the D side.
         tied_mm = @enzyme_mechanism begin
             substrates: S
@@ -285,7 +285,7 @@ end
                  if length(ks) == 2)
         @test all(k -> label(tied_mm.catalytic.steps[k].from) === 'E' &&
                        label(tied_mm.catalytic.steps[k].to) === 'D', tied)
-        # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
+        # Written E <--> D and ES <--> DS, the group is stored the same way.
         @test (@enzyme_mechanism begin
             substrates: S
             products: P
@@ -351,9 +351,9 @@ end
     end
 
     @testset "a class keeps its last column, a member of the inactive law first" begin
-        # I binds E(A) and E(P) under one :NonequalAI group. In the inactive
-        # conformation E(A) and E(A, I) lie behind the :OnlyA binding of A, so only the
-        # E(P) + I member is in that conformation's law.
+        # I binds EA and EP under one :NonequalAI group. In the inactive
+        # conformation EA and EAI lie behind the :OnlyA binding of A, so only the
+        # EP + I member is in that conformation's law.
         am = @enzyme_mechanism begin
             substrates: A
             products: P
@@ -370,7 +370,7 @@ end
         group = [e.kinetic_group for e in am.catalytic.steps]
         g = only(g for (g, members) in enumerate(
             _testhelper_group_members(am.catalytic)) if length(members) == 2)
-        # Active: E(A) + I sorts before E(P) + I (A before P), so it is kept; inactive:
+        # Active: EA + I sorts before EP + I (A before P), so it is kept; inactive:
         # the member in the law is kept.
         @test _testhelper_edge_text(am, kept[(g, 1, false)]) == "EA + I ⇌ EAI"
         @test _testhelper_edge_text(am, kept[(g, 1, true)]) == "EP + I ⇌ EIP"
@@ -384,8 +384,8 @@ end
     end
 
     @testset "the inactive cycle row runs over the whole graph, islands included" begin
-        # E(A) and E(A, I) lie behind the :OnlyA binding of A, so the inactive law holds
-        # only E, E(P) and E(I, P). The cycle through E(A) still gets an inactive row,
+        # EA and EAI lie behind the :OnlyA binding of A, so the inactive law holds
+        # only E, EP and EIP. The cycle through EA still gets an inactive row,
         # which reads the inactive copies of the two :OnlyA steps, outside the law.
         am = @enzyme_mechanism begin
             substrates: A
@@ -526,7 +526,7 @@ end
 end
 
 @testset "_solve labels kinetic-group, Haldane and Wegscheider dependents" begin
-    # A binds E and E(B) under one group (a kinetic group: its occupied member's
+    # A binds E and EB under one group (a kinetic group: its occupied member's
     # constant equals the kept one); B's two bindings close a binding square with A's,
     # which ties them (Wegscheider); the cycle through the catalytic step fixes its
     # reverse rate (Haldane).

@@ -74,8 +74,8 @@ end
                 EP ⇌ E + P
             end
         end), [["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"]]),
-        # A Theorell–Chance step beside the merged complex E(P, Q): the triangle of the
-        # two routes from E(A) to E(Q) takes up B and gives off P once each way.
+        # A Theorell–Chance step beside the merged complex EPQ: the triangle of the
+        # two routes from EA to EQ takes up B and gives off P once each way.
         (@enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
@@ -168,8 +168,8 @@ end
 @testset "segments: a steady-state step inside a segment is no step of the graph" begin
     M = ER.Mechanisms
     # Random-order bi-bi whose binding of B to free E alone is steady state: the other
-    # three bindings put E, E(A), E(B) and E(A, B) in one rapid-equilibrium segment. The
-    # guard rejects it (E(B) fills at zero A and B); the view reads any graph.
+    # three bindings put E, EA, EB and EAB in one rapid-equilibrium segment. The
+    # guard rejects it (EB fills at zero A and B); the view reads any graph.
     m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -186,9 +186,9 @@ end
     every = trues(length(eachindex(m.catalytic.steps)))
     text(k) = _testhelper_edge_text(m, k)
     g = M.rapid_equilibrium_segments(m.catalytic, every)
-    # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q).
+    # Canonical form numbers the forms E, EA, EAB, EB, EPQ, EQ.
     @test g.segments == [[1, 2, 3, 4], [5], [6]]
-    # E + B <--> E(B) joins two forms of the first segment, so it is no step of the graph.
+    # E + B <--> EB joins two forms of the first segment, so it is no step of the graph.
     @test text.(g.steps) == ["E + Q <--> EQ", "EAB <--> EPQ", "EQ + P <--> EPQ"]
     @test g.bottom == Int[]
 end
@@ -222,7 +222,7 @@ end
 
 @testset "a sub-graph reads the forms, segments and bottom of the edges a mask keeps" begin
     # Random release of P and Q at rapid equilibrium between steady-state releases: the
-    # segment {E(P), E(P, Q), E(Q)} has every form holding a product.
+    # segment {EP, EPQ, EQ} has every form holding a product.
     m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -257,8 +257,8 @@ end
     @test g.steps == [1, 2, 6]
     @test (g.segment_of, g.segments, g.offsets, g.bottom) ==
           (s.segment_of, s.segments, s.offsets, s.bottom)
-    # Without the release of P from E(P, Q), E(Q) stands alone and E(P) is the bottom of
-    # {E(P), E(P, Q)}.
+    # Without the release of P from EPQ, EQ stands alone and EP is the bottom of
+    # {EP, EPQ}.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
     @test ER.Mechanisms._present_species(m.catalytic, no_p) == trues(5)
     s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, no_p, _testhelper_flags(m))
@@ -280,7 +280,7 @@ end
     @test none.steps == 1:6
 
     # The inactive conformation keeps the edges outside :OnlyA groups between forms that
-    # such edges reach from free E: here E(A) and E(A, I) lie behind the :OnlyA
+    # such edges reach from free E: here EA and EAI lie behind the :OnlyA
     # binding of A.
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A

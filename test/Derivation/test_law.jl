@@ -115,7 +115,7 @@ end
 
 @testset "a conformation's law on its mask is the law of the steps it keeps" begin
     # An inhibitor that binds only the inactive conformation (:OnlyI). The active mask
-    # drops its binding and the form E(I), keeping the Michaelis–Menten steps, whose
+    # drops its binding and the form EI, keeping the Michaelis–Menten steps, whose
     # constants both conformations share (:EqualAI); the inactive mask keeps all three
     # steps, the binding under its inactive constant. Both laws number their variables
     # alike: the mechanism's concentrations, the solve's independents, then Keq.
@@ -233,7 +233,7 @@ end
 end
 
 @testset "the engine refuses a rapid-equilibrium cycle that turns the reaction over" begin
-    # E + S ⇌ E(S) ⇌ E(P) ⇌ E + P closes a rapid-equilibrium cycle that turns S into P
+    # E + S ⇌ ES ⇌ EP ⇌ E + P closes a rapid-equilibrium cycle that turns S into P
     # beside a steady-state route; the macro rejects it (class 2), and the engine,
     # reading it unchecked, refuses to derive a law for it.
     beside = @_testhelper_unguarded @enzyme_mechanism begin
@@ -543,7 +543,7 @@ end
 end
 
 @testset "the cap counts both conformations" begin
-    # A random-order bi-bi with the abortive complexes E(A, Q) and E(B, P), every step
+    # A random-order bi-bi with the abortive complexes EAQ and EBP, every step
     # steady state: 9 forms and 480 spanning trees, 4,320 products. With its chemistry
     # :NonequalAI at one catalytic subunit both conformations keep every step, so the law
     # counts 4,320 + 4,320 = 8,640: over the cap of 5,000, though each conformation is

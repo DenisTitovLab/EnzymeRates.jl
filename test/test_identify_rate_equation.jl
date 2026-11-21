@@ -1721,7 +1721,7 @@ end
 
 # Two allosteric uni-bi mechanisms with one law and different fitted names: A and
 # Q bind only the active conformation (:OnlyA), so the inactive one keeps free E alone, and
-# P's binding at E(Q), which that conformation never reaches, is :EqualAI in the first and
+# P's binding at EQ, which that conformation never reaches, is :EqualAI in the first and
 # :OnlyA in the second. The first names its constant without a conformation
 # (`K_EPQ_to_EQ_P`), the second as the active conformation's (`K_A_EPQ_to_EQ_P`), so the
 # two sort it to different fitted positions. Returns the two and a problem on their
@@ -2410,8 +2410,8 @@ end
                                          EnzymeRates.Derivation._law(am2),
                                          c1.order, c2.order;
                                          rng = Random.MersenneTwister(3))
-    # The split constant is tied back: the square E, E(Lactate), E(Lactate, NADH),
-    # E(NADH), closed by the shared NADH group, makes K_ELactateNADH_to_ENADH_Lactate equal
+    # The split constant is tied back: the square E, ELactate, ELactateNADH,
+    # ENADH, closed by the shared NADH group, makes K_ELactateNADH_to_ENADH_Lactate equal
     # the free-enzyme Lactate constant in the active conformation, and the inactive one
     # binds no NADH. Both forms fit the same constants, as many as the test's own count
     # of the dimension.
@@ -2522,7 +2522,7 @@ end
     failure = only(failures)
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
-    # The recorded error is the assertion's: the chemistry step E(S) → E(P) makes an N.
+    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
     @test occursin("atom-non-conserving step ES → EP", failure.error)
     @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent, a seed of the reaction, expands with no failure.
@@ -2628,9 +2628,9 @@ end
     @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
     @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(tc_route))
-    # Read over every step, the X route's merged complex E(P, X) sits in rapid
+    # Read over every step, the X route's merged complex EPX sits in rapid
     # equilibrium with both sides (condition C), while the maximal rate exists both
-    # ways: the steady-state F(X) <--> E(X) keeps the route from closing a
+    # ways: the steady-state FX <--> EX keeps the route from closing a
     # rapid-equilibrium turnover cycle. Read through the edge mask, the route lies
     # outside the active law.
     merged_route = @_testhelper_unguarded @enzyme_mechanism begin

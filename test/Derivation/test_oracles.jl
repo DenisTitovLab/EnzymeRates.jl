@@ -224,7 +224,7 @@ end
         end
         point = setprecision(() -> _testhelper_consistent_point(
             m, Random.MersenneTwister(1)), BigFloat, 256)
-        # Both steps are stored as bindings: E + S → E(S) and E + P → E(S).
+        # Both steps are stored as bindings: E + S → ES and E + P → ES.
         _, Ka_S, k1 = only(x for x in point.active if x[1].consumed == [:S])
         _, Ka_P, km2 = only(x for x in point.active if x[1].consumed == [:P])
         km1, k2 = k1 / Ka_S, km2 / Ka_P
@@ -483,7 +483,7 @@ const _testhelper_sample_regroupings =
     end
 
     @testset "a :NonequalAI group behind an :OnlyA binding takes no inactive name" begin
-        # E(S) and E(I, S) lie behind the :OnlyA binding of S, so the inactive
+        # ES and EIS lie behind the :OnlyA binding of S, so the inactive
         # conformation never reaches the I binding: its inactive class is outside the
         # law, and no K_I_ constant is fitted.
         island = @enzyme_mechanism begin
@@ -529,7 +529,7 @@ const _testhelper_sample_regroupings =
 end
 
 @testset "the unguarded macro builds what the guard refuses" begin
-    # S binds :OnlyA at rapid equilibrium while E(S) <--> E(P) and E + P ⇌ E(P) keep its
+    # S binds :OnlyA at rapid equilibrium while ES <--> EP and E + P ⇌ EP keep its
     # two sides joined in the inactive conformation: thermodynamics pins the step's
     # equilibrium constant, and a step keeps its kind, so no reading switches it off and
     # the macro refuses the mechanism. The unguarded macro builds it, as the constructors
@@ -694,7 +694,7 @@ end
 end
 
 @testset "the RE-speed oracle sees a trap's pattern and an unfed closed class" begin
-    # LDH-like: at zero products the forms behind E(P) + Q ⇌ E(P, Q) trap enzyme, and
+    # LDH-like: at zero products the forms behind EP + Q ⇌ EPQ trap enzyme, and
     # at Q = 0 the segment of free E splits; both limits move with the RE speeds.
     ldh = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -711,7 +711,7 @@ end
     end
     @test _testhelper_respeed_verdicts(ldh; rng = Random.MersenneTwister(1)) ==
           [:agree, :pattern, :agree, :agree, :agree, :agree, :pattern]
-    # At zero products F(P, P) is a closed set the enzyme never leaves.
+    # At zero products FPP is a closed set the enzyme never leaves.
     fuzz5 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1312,7 +1312,7 @@ let children = [c
     # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
     # guard but 34, which candidate_mechanisms drops, and no allosteric child tags a
     # catalytic group :OnlyI (spec section 13). Each of the 34 tags :OnlyA a fused
-    # rapid-equilibrium binding into E(P, Q), E(A) + B ⇌ E(P, Q) or E(B) + A ⇌ E(P, Q),
+    # rapid-equilibrium binding into EPQ, EA + B ⇌ EPQ or EB + A ⇌ EPQ,
     # which the inactive conformation's other steps leave between two groups: at zero A
     # and B it runs one way into a cut-off form that fills faster than it empties
     # (`_FILLED`). An aggregate regression pin over the declaration's whole seed set
@@ -1389,7 +1389,7 @@ end
     # The sample, R2, which the guard admits under a reading it finds by search, and five
     # mechanisms the guard rejects: a lumpable split rejected at Q zero only (limit test
     # `differ`), an unfed trap rejected at Q zero only (`speed`), F3 with A's binding and
-    # its rapid-equilibrium Theorell–Chance step :OnlyA, whose E(A) fills faster than it
+    # its rapid-equilibrium Theorell–Chance step :OnlyA, whose EA fills faster than it
     # empties at zero substrates (`_FILLED`), S1's second closed class at zero substrates,
     # and a ping-pong whose inactive conformation runs neither half-reaction, pumped at
     # zero products (`_PUMPED`). Reversing the step order and every step's direction gives

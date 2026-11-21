@@ -418,7 +418,7 @@ end
     @testset "Speed" begin
         # Build a larger mechanism: Ordered Bi-Bi
         # Decomposed ordered bi-bi: the central complex EAB↔EPQ becomes an
-        # explicit iso step E(A, B) <--> E(P, Q). 5 steps total (was 4 in
+        # explicit iso step EAB <--> EPQ. 5 steps total (was 4 in
         # the lumped-central-complex form); fitter recovers k1-k5 params.
         ordered_bi_bi = @enzyme_mechanism begin
             substrates: A, B

@@ -71,7 +71,7 @@ end
 
 @testset "a law the guard admits can be 0/0 at a mixed corner, scored as a 0 in a fit" begin
     # Census mechanism d7a09031d5dd2fc6 (ter-bi). At B = P = Q = 0 the rapid-equilibrium
-    # segment {E(B, D), E(B, D, P), E(D, P)} has no form free of B and P, so the law is 0/0
+    # segment {EBD, EBDP, EDP} has no form free of B and P, so the law is 0/0
     # there; the guard's faces never zero one substrate with every product (spec section
     # 8). At A = P = Q = 0, another such corner, the law is 0.
     am = @enzyme_mechanism begin
@@ -200,7 +200,7 @@ end
             EQ ⇌ E + Q
         end
     end
-    # Forms E, E(A), E(A, B), E(P, Q), E(Q); offset rows A, B, P, Q.
+    # Forms E, EA, EAB, EPQ, EQ; offset rows A, B, P, Q.
     s = D._fast_segments(D._law_network(bibi))
     @test s.segment == [1, 1, 1, 2, 1]
     @test s.segments == [[1, 2, 5, 3], [4]]
@@ -903,7 +903,7 @@ end
           "are joined only by steps that take up a zeroed metabolite " *
           "(E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP), so " *
           "the rate law cannot weight one against the other."
-    # The LDH-like split at zero Q, every group :EqualAI: one part holds free E and E(A)
+    # The LDH-like split at zero Q, every group :EqualAI: one part holds free E and EA
     # of both conformations, joined through the flip, so the labels go on the forms.
     ldh = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -1015,9 +1015,9 @@ end
 end
 
 @testset "a trap across both conformations labels each form" begin
-    # Every step but the binding of B at E(P) runs in the active conformation alone. At
+    # Every step but the binding of B at EP runs in the active conformation alone. At
     # zero P and Q the fast class of free E holds E of both conformations, joined by the
-    # flip, and the step E + P ⇌ E(P) that joins it to the rest of its segment takes up P.
+    # flip, and the step E + P ⇌ EP that joins it to the rest of its segment takes up P.
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -1029,7 +1029,7 @@ end
             EP + B ⇌ EBP                                      :: EqualAI
         end
     end
-    # E(B) + A ⇌ E(P, Q) takes up A into E(P, Q), which the inactive conformation cuts
+    # EB + A ⇌ EPQ takes up A into EPQ, which the inactive conformation cuts
     # off, so it loses its affinity there and stays fast. The bridge its cut-off forms
     # open at the interior is set aside, and the harsh ε-path oracle converges there, so
     # the guard reports class 3's verdict at zero P and Q: the trap.
@@ -1239,7 +1239,7 @@ end
             EPP + S <--> FPP + P
         end
     end
-    # At P = 0 the dead end F(P, S) is closed and unreachable from E.
+    # At P = 0 the dead end FPS is closed and unreachable from E.
     unweighted = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1448,7 +1448,7 @@ end
             EQ + P ⇌ EBP_res_plusA_minusP                    :: NonequalAI
         end
     end
-    # The :OnlyA binding of B into E(Q), which the inactive conformation's Q binding still
+    # The :OnlyA binding of B into EQ, which the inactive conformation's Q binding still
     # reaches, cannot be switched off at rapid equilibrium, so the guard rejects the
     # interior first; class 3 sees the law chain at zero P and Q.
     v = EnzymeRates.Derivation._guard(differ)
@@ -1490,9 +1490,9 @@ end
 end
 
 @testset "a bridge's message names the tagged steps it needs" begin
-    # E + A ⇌ E(P; residual = A - P) binds A into a form the inactive conformation cuts
+    # E + A ⇌ EP_res_plusA_minusP binds A into a form the inactive conformation cuts
     # off, so it loses its affinity and stays fast: the cheapest spanning in-tree of that
-    # conformation's fed forms needs only the vanishing :OnlyA binding of A at E(Q), and
+    # conformation's fed forms needs only the vanishing :OnlyA binding of A at EQ, and
     # the message names it alone (the trap test's mechanism names a bridge of two). At zero
     # P and Q the ε-path converges: the rejection is conservative, as the message allows.
     bridge2 = @_testhelper_unguarded @enzyme_mechanism begin
@@ -1517,7 +1517,7 @@ end
           "kinetic group of EQ + A ⇌ EAQ steady-state."
     @test _testhelper_epath_verdict(bridge2; rng = Random.MersenneTwister(2),
                                     face = Set([:P, :Q])) === :converges
-    # With the binding of A into E(P; residual = A - P) steady-state, the guard's first
+    # With the binding of A into EP_res_plusA_minusP steady-state, the guard's first
     # built reading still finds a bridge at zero P and Q; the search admits the mechanism
     # under another reading, and the oracles agree on every face.
     leading_ss = @_testhelper_unguarded @enzyme_mechanism begin
@@ -1542,8 +1542,8 @@ end
 end
 
 @testset "the modifier faces catch a steady-state inhibitor binding" begin
-    # At I = 0 the rapid-equilibrium square through E(I) and E(I, S) no longer joins E
-    # and E(S), whose ratio the steady-state binding of S then sets.
+    # At I = 0 the rapid-equilibrium square through EI and EIS no longer joins E
+    # and ES, whose ratio the steady-state binding of S then sets.
     mixed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1563,7 +1563,7 @@ end
     @test all(_testhelper_agrees.(faults, verdicts))
     @test all(v -> _testhelper_names_its_step(mixed, v),
               _testhelper_face_verdicts(mixed)[4:6])
-    # At zero I and S the slow reverse catalysis fills E(S), and the rapid-equilibrium
+    # At zero I and S the slow reverse catalysis fills ES, and the rapid-equilibrium
     # binding of I that joins it to free E's segment takes up I.
     v = _testhelper_face_verdicts(mixed)[6]
     @test (v.fault, v.limit, v.conformation, v.edge) ==
@@ -2017,8 +2017,8 @@ _testhelper_tag_sets["terbi_d75d2415361c4dae"] =
         (EAB + D <--> EPQ, EQ + D <--> EDQ)                  :: OnlyA
     end
 end
-# An :OnlyA group mixing B's fused binding into E(P, Q) with its plain binding at E(Q),
-# which no untagged step joins to E(B, Q): its limit exists (spec section 7, "Mixed groups
+# An :OnlyA group mixing B's fused binding into EPQ with its plain binding at EQ,
+# which no untagged step joins to EBQ: its limit exists (spec section 7, "Mixed groups
 # stay allowed").
 _testhelper_tag_sets["mixed_group_limit"] =
     @_testhelper_unguarded @enzyme_mechanism begin
@@ -2200,7 +2200,7 @@ end
 @testset "how an excluded step is switched off" begin
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(2611)
-    # The S binding takes up one metabolite into E(S), which the inactive conformation's
+    # The S binding takes up one metabolite into ES, which the inactive conformation's
     # P binding no longer joins to E: it loses its affinity. The chemistry takes up
     # nothing, so it has no affinity to lose; at steady state it is stopped.
     k_type = @_testhelper_unguarded @enzyme_mechanism begin
@@ -2219,7 +2219,7 @@ end
     @test all(==(D._RUNS), D._built_reading(k_type)[:, 1])
     @test D._guard(k_type).fault === D._NO_FAULT
     @test all(_testhelper_admission_agreement(k_type; rng))
-    # With the chemistry untagged, E(S) stays, made from P: thermodynamics pins the S
+    # With the chemistry untagged, ES stays, made from P: thermodynamics pins the S
     # binding's equilibrium constant, and a rapid-equilibrium step cannot turn slow.
     pinned = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -2235,7 +2235,7 @@ end
           (D._FAST_STEP_PINNED, 2, _testhelper_edge(pinned, "E + S ⇌ ES"))
     @test _testhelper_epath_verdict(pinned; rng) === :no_path
     # The same binding at steady state is stopped: S neither binds nor leaves in the
-    # inactive conformation, and E(S) is made from P there.
+    # inactive conformation, and ES is made from P there.
     shut_door = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2248,7 +2248,7 @@ end
     @test D._STOPPED in D._built_reading(shut_door)[:, 2]
     @test D._guard(shut_door).fault === D._NO_FAULT
     @test all(_testhelper_admission_agreement(shut_door; rng))
-    # A rapid-equilibrium step that binds B and reacts at once, into E(P, Q), which the
+    # A rapid-equilibrium step that binds B and reacts at once, into EPQ, which the
     # P binding still makes: it cannot be switched off.
     fused_re = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -2283,8 +2283,8 @@ end
 
 @testset "a fast isomerization excluded between two groups loses a direction" begin
     # The isomerization takes up nothing, so no built reading switches it off. But the
-    # steps the inactive conformation keeps do not join its two sides: E(P) lies in a group
-    # of its own, and the isomerization loses its rate into E(P), staying fast. The search
+    # steps the inactive conformation keeps do not join its two sides: EP lies in a group
+    # of its own, and the isomerization loses its rate into EP, staying fast. The search
     # admits the mechanism, and the oracles agree on every face.
     D = EnzymeRates.Derivation
     am = @_testhelper_unguarded @enzyme_mechanism begin
@@ -2307,8 +2307,8 @@ end
 end
 
 @testset "a group that loses one affinity names its step that cannot be switched off" begin
-    # E(A) is a dead end, cut off in the inactive conformation, so the A binding at E
-    # loses its affinity; its groupmate binds A into E(P, Q), which the P binding still
+    # EA is a dead end, cut off in the inactive conformation, so the A binding at E
+    # loses its affinity; its groupmate binds A into EPQ, which the P binding still
     # makes, at rapid equilibrium: the verdict names the groupmate.
     D = EnzymeRates.Derivation
     am = @_testhelper_unguarded @enzyme_mechanism begin
@@ -2330,7 +2330,7 @@ end
 
 @testset "an uptake from one cut-off form into another loses its affinity" begin
     # Every step :OnlyA: the inactive conformation keeps only E. The B binding takes up
-    # one metabolite from E(A), cut off, into E(A, B), cut off too, so it loses its
+    # one metabolite from EA, cut off, into EAB, cut off too, so it loses its
     # affinity, and free E reaches both along the bindings.
     D = EnzymeRates.Derivation
     am = @_testhelper_unguarded @enzyme_mechanism begin
@@ -2526,7 +2526,7 @@ end
               D._built_reading(bridge_fast_b, D._ALL_STOPPED)[:, c]
     end
     # The first try decides when it passes: with its S binding stopped, the K-type
-    # uni-uni mechanism would leave E(S) out of free E's reach.
+    # uni-uni mechanism would leave ES out of free E's reach.
     k_type = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2549,11 +2549,11 @@ end
     # cut-off forms on the way to it from free E's part. The fixtures come from the gate's
     # populations.
     D = EnzymeRates.Derivation
-    # both_readings, inactive conformation: the steps it keeps join E(A) to E(A, P) and
-    # E(P) to E(P, Q), each part one uptake from free E's. The B binding, from one part to
+    # both_readings, inactive conformation: the steps it keeps join EA to EAP and
+    # EP to EPQ, each part one uptake from free E's. The B binding, from one part to
     # the other, must stop, or the steps that lose their affinity close a cycle with the
-    # A binding at E(P); the P binding at E must then lose its affinity, or no such step
-    # leads to E(P) and E(P, Q).
+    # A binding at EP; the P binding at E must then lose its affinity, or no such step
+    # leads to EP and EPQ.
     both_readings = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2579,7 +2579,7 @@ end
         @test _testhelper_reading(D._built_reading(both_readings, reading))[:, 2] ==
               _testhelper_reading(both_readings, name)[:, 2]
     end
-    # The same need with the substrates' roles swapped and the P binding at E(B) :OnlyI.
+    # The same need with the substrates' roles swapped and the P binding at EB :OnlyI.
     both_readings_only_i = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2622,7 +2622,7 @@ end
     @test D._guard(outward_pumped) == D._WELL_POSED
     @test all(_testhelper_admission_agreement(outward_pumped;
                                               rng = Random.MersenneTwister(1)))
-    # In the inactive conformation no uptake leads from free E to E(; residual = A - P),
+    # In the inactive conformation no uptake leads from free E to E_res_plusA_minusP,
     # which only the chemistry and the P release reach: its B binding leaves a part no
     # uptake reaches, so the outward reading stops it.
     unreached = @_testhelper_unguarded @enzyme_mechanism begin
@@ -2652,9 +2652,9 @@ end
 
 @testset "a reading may lose a step in either direction" begin
     # The ping-pong of the spec's fourth example, both chemistry steps :OnlyA. In the
-    # inactive conformation the covalent forms F, F(B) and F(P) form one cut-off group
-    # (F is E(; residual = A - P)). E(A) <--> F(P) loses its stored direction, into that
-    # group, and F(B) ⇌ E(Q) its reverse, also into that group: both point uphill from
+    # inactive conformation the covalent forms F, FB and FP form one cut-off group
+    # (F is E_res_plusA_minusP). EA <--> FP loses its stored direction, into that
+    # group, and FB ⇌ EQ its reverse, also into that group: both point uphill from
     # free E's group, and the cut-off group empties through both halves. No built reading
     # loses a step in reverse.
     D = EnzymeRates.Derivation
@@ -2680,7 +2680,7 @@ end
                      if eps.edge[t] == chem_b && eps.conformation[t] == 2 &&
                         eps.forward[t] == forward)
                 for forward in (true, false))
-    # F(B) ⇌ E(Q) in copy 2: the reverse (E(Q) → F(B)) vanishes, the forward does not,
+    # FB ⇌ EQ in copy 2: the reverse (EQ → FB) vanishes, the forward does not,
     # both fast.
     @test [eps.vanishing[t] for t in (fwd, rev)] == [false, true]
     @test eps.fast[fwd] && eps.fast[rev]
@@ -2691,7 +2691,7 @@ end
     # The verdict names the first of them in edge order.
     @test D._admission_interior(am, flipped) ==
           D._Verdict(D._ARC_CYCLE, D._LIMIT_UNTESTED, 0, 2, chem_a)
-    # A step keeps its kind, so a reading that stops the rapid-equilibrium F(B) ⇌ E(Q) is
+    # A step keeps its kind, so a reading that stops the rapid-equilibrium FB ⇌ EQ is
     # refused as one that cannot switch it off.
     stopped_fast = copy(r)
     stopped_fast[chem_b, 2] = D._STOPPED
@@ -2712,7 +2712,7 @@ end
     expected[chem_a, 2], expected[chem_b, 2] = :loses_forward, :loses_reverse
     @test _testhelper_reading(r) == expected
     # The ε-path oracle, fed the same reading, finds the limit on every face; under the
-    # guard's first built reading F(B) ⇌ E(Q) takes up nothing, so it cannot be switched
+    # guard's first built reading FB ⇌ EQ takes up nothing, so it cannot be switched
     # off, and there is no path.
     rng = Random.MersenneTwister(2614)
     for face in _testhelper_faces(am)
@@ -2727,12 +2727,12 @@ end
     D = EnzymeRates.Derivation
     NO, FI, U = D._NO_FAULT, D._FILLED, D._LIMIT_UNTESTED
     rng = Random.MersenneTwister(2650)
-    # `filled`: a ping-pong whose B binding at the covalent form F (E(; residual = A - P))
-    # and first chemistry step are :OnlyA. In the inactive conformation F and F(P) form a
-    # cut-off group: E(A) <--> F(P) loses its stored direction, into it, and F + B ⇌ F(B)
+    # `filled`: a ping-pong whose B binding at the covalent form F (E_res_plusA_minusP)
+    # and first chemistry step are :OnlyA. In the inactive conformation F and FP form a
+    # cut-off group: EA <--> FP loses its stored direction, into it, and F + B ⇌ FB
     # its reverse, the release of B, also into it. With B zero the uptake of B dies, and
-    # the release, fast though it vanishes, runs one way from the law's form F(B) into F,
-    # whose group empties only through the slow chemistry F(P) → E(A): F fills faster
+    # the release, fast though it vanishes, runs one way from the law's form FB into F,
+    # whose group empties only through the slow chemistry FP → EA: F fills faster
     # than it empties.
     filled = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -2759,7 +2759,7 @@ end
     @test _testhelper_admission_faults(filled; reading = _testhelper_reading(r)) ==
           [NO, NO, FI, NO, FI, NO, NO]
     # The message names the face, the step, the form it fills and the group's slow way
-    # out, and offers the fix the guard admits: F + B <--> F(B) steady-state.
+    # out, and offers the fix the guard admits: F + B <--> FB steady-state.
     @test D._steady_state_passes(filled, b_binding)
     @test D._admission_message(filled, v, r) ==
           "Mechanism: at zero A and B, in the inactive conformation the :OnlyA " *
@@ -2817,11 +2817,11 @@ end
     p[_testhelper_edge(pingpong, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
     @test D._admission(pingpong, p) == D._WELL_POSED
 
-    # `slow_source`: a ping-pong whose B binding at F gives E(Q) at once, every step
-    # :OnlyA but F + P ⇌ F(P). In the inactive conformation free E stands alone and the
+    # `slow_source`: a ping-pong whose B binding at F gives EQ at once, every step
+    # :OnlyA but F + P ⇌ FP. In the inactive conformation free E stands alone and the
     # steps that leave it are steady-state uptakes, which lose their uptake. With B zero
-    # F + B ⇌ E(Q) runs one way, fast though it vanishes, from E(Q) into F; but enzyme
-    # reaches E(Q) only through steady-state steps, so the flow into F vanishes, and the
+    # F + B ⇌ EQ runs one way, fast though it vanishes, from EQ into F; but enzyme
+    # reaches EQ only through steady-state steps, so the flow into F vanishes, and the
     # faces with B zero pass.
     slow_source = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -2850,7 +2850,7 @@ end
                             if eps.edge[t] == b_step && eps.conformation[t] == 2 &&
                                eps.forward[t] == forward)
                        for forward in (true, false))
-    # At zero A and B, the release E(Q) → F + B is fast, vanishing and alive while the
+    # At zero A and B, the release EQ → F + B is fast, vanishing and alive while the
     # uptake is dead; its source is fed, but not along fast transitions from the law's
     # forms.
     @test eps.fast[release] && eps.vanishing[release] && !eps.vanishing[uptake]
@@ -2863,7 +2863,7 @@ end
 
     # No built reading raises the fault. Under each of them `filled`'s excluded steps are
     # stopped or cannot be switched off, so none keeps a direction; `slow_source`'s
-    # F + B ⇌ E(Q) loses its affinity, and the direction it keeps is the release of B,
+    # F + B ⇌ EQ loses its affinity, and the direction it keeps is the release of B,
     # which takes up nothing, so no face kills it.
     for am in (filled, slow_source)
         law, built_faces = D._law_network(am), D._faces(am.catalytic)
@@ -2889,13 +2889,13 @@ end
         v.fault === BR && D._admission_face(am, eps, law, faces, i) == D._WELL_POSED
     end
     # `set_aside`: a ping-pong whose chemistry steps and the bindings of A and of P are
-    # :OnlyA. In the inactive conformation the law's forms are free E and E(Q), and the
-    # cut-off forms E(A), F(P), F and F(B) (F is E(; residual = A - P)), which the excluded
-    # steps join, are entered from free E by the A binding and from E(Q) by
-    # F(B) ⇌ E(Q), both losing their direction into them. Their vanishing steps open a
-    # route from free E to E(Q) on which the reaction turns over, so the face condition
+    # :OnlyA. In the inactive conformation the law's forms are free E and EQ, and the
+    # cut-off forms EA, FP, F and FB (F is E_res_plusA_minusP), which the excluded
+    # steps join, are entered from free E by the A binding and from EQ by
+    # FB ⇌ EQ, both losing their direction into them. Their vanishing steps open a
+    # route from free E to EQ on which the reaction turns over, so the face condition
     # refuses the interior as a bridge. But the law's own rapid-equilibrium step
-    # E + Q ⇌ E(Q) holds the two forms they touch in equilibrium, their fast classes drain,
+    # E + Q ⇌ EQ holds the two forms they touch in equilibrium, their fast classes drain,
     # and none fills faster than it empties: they are set aside.
     set_aside = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -2919,8 +2919,8 @@ end
     @test _testhelper_admission_faults(set_aside; reading = _testhelper_reading(r)) ==
           fill(NO, 7)
     # The face condition alone refuses the interior and the face with A zero. There the
-    # uptake E + A → E(A) is dead, so that pair runs one way, through its release, which
-    # does not vanish and only empties E(A): it is safe, and the cut-off forms go again.
+    # uptake E + A → EA is dead, so that pair runs one way, through its release, which
+    # does not vanish and only empties EA: it is safe, and the cut-off forms go again.
     @test _testhelper_faces(set_aside)[4] == Set([:A])
     let eps = D._eps_network(set_aside, D._re_flags(set_aside.catalytic), r),
         law = D._law_network(set_aside), faces = D._faces(set_aside.catalytic)
@@ -2934,8 +2934,8 @@ end
         @test _testhelper_epath_verdict(set_aside; rng, face, corners = true,
                                         reading = _testhelper_reading(r)) === :converges
     end
-    # `kept`: the same ping-pong with E + Q <--> E(Q) steady-state, so free E and E(Q) are
-    # no longer held in equilibrium, and E(A) ⇌ F(P) at rapid equilibrium, so the route
+    # `kept`: the same ping-pong with E + Q <--> EQ steady-state, so free E and EQ are
+    # no longer held in equilibrium, and EA ⇌ FP at rapid equilibrium, so the route
     # through the cut-off forms runs fast, its rates vanishing only as the reading says.
     # In the interior every transition at the cut-off forms runs both ways, and each of
     # them empties into the law's forms along fast steps that do not vanish, so none lies
@@ -2972,7 +2972,7 @@ end
           :direction_dependent
 
     # One touching law form counts: in this ping-pong's inactive conformation free E stands
-    # alone, and the cut-off forms E(A), F(P), F, F(B) and E(Q) touch nothing else.
+    # alone, and the cut-off forms EA, FP, F, FB and EQ touch nothing else.
     one_touch = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2993,10 +2993,10 @@ end
     @test D._admission(one_touch, o) == D._WELL_POSED
     @test _testhelper_admission_faults(one_touch; reading = _testhelper_reading(o)) ==
           fill(NO, 7)
-    # The face condition alone refuses five faces. With P zero the uptake F + P → F(P) is
-    # dead, and F + P ⇌ F(P) runs one way between two cut-off forms, through its release,
+    # The face condition alone refuses five faces. With P zero the uptake F + P → FP is
+    # dead, and F + P ⇌ FP runs one way between two cut-off forms, through its release,
     # which vanishes and is fast; it is safe because no fast transition from the law's
-    # forms reaches its source F(P), so the flow through it vanishes.
+    # forms reaches its source FP, so the flow through it vanishes.
     @test _testhelper_faces(one_touch)[6] == Set([:P])
     let eps = D._eps_network(one_touch, D._re_flags(one_touch.catalytic), o),
         law = D._law_network(one_touch), faces = D._faces(one_touch.catalytic)
@@ -3047,8 +3047,8 @@ end
 
     # R2funnel and R2funnel_SS under the guard's first built reading, at zero P. Their
     # cut-off forms touch free E alone, and each reaches it along transitions that do not
-    # vanish; but F and F(S) form a fast class whose one slow way out, to F(P), leads back
-    # into it along fast steps, while the slow E(P) <--> E(S) leaves E(P), which a fast
+    # vanish; but F and FS form a fast class whose one slow way out, to FP, leads back
+    # into it along fast steps, while the slow EP <--> ES leaves EP, which a fast
     # step empties into F. The class does not drain, nothing is set aside, the face stays
     # a bridge, and the limit there depends on the direction.
     for name in ("R2funnel", "R2funnel_SS")
@@ -3065,11 +3065,11 @@ end
 
     # The safety clause deciding. `stopped_exit` (a gate entry; the mechanism of
     # `slow_source` in "no form fills faster than it empties") under a reading that stops
-    # E + A <--> F(P), F being E(; residual = A - P), rather than letting it lose its
+    # E + A <--> FP, F being E_res_plusA_minusP, rather than letting it lose its
     # uptake. In the inactive conformation free E stands alone, so the cut-off forms
-    # touch one law form, and their fast classes drain through F(P) + Q <--> E(A, Q),
-    # E(A, Q) → E(Q) + A and E(Q) → E + Q. With A and B zero the stopped step runs one
-    # way, from F(P) into free E, along its vanishing direction: a pair at a law form with
+    # touch one law form, and their fast classes drain through FP + Q <--> EAQ,
+    # EAQ → EQ + A and EQ → E + Q. With A and B zero the stopped step runs one
+    # way, from FP into free E, along its vanishing direction: a pair at a law form with
     # only its vanishing direction alive, which is not safe. It alone keeps them: nothing
     # is set aside, the face stays a bridge, and the limit there depends on the direction.
     stopped_exit = @_testhelper_unguarded @enzyme_mechanism begin
@@ -3106,8 +3106,8 @@ end
           :direction_dependent
 
     # The conservative rejections the suite pins stay rejected under the guard's first
-    # built reading. R-B1's cut-off forms E(I) and E(I, J) touch free E and the dead end
-    # E(J), which only the steady-state E + J <--> E(J) joins; R-B2's basins reach the
+    # built reading. R-B1's cut-off forms EI and EIJ touch free E and the dead end
+    # EJ, which only the steady-state E + J <--> EJ joins; R-B2's basins reach the
     # law's forms only through vanishing steps, so they are stranded. (The search admits
     # R-B2 under other readings: "conservative rejections the oracle admits stay rejected
     # under their reading".)
@@ -3123,9 +3123,9 @@ end
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(2652)
     # The six-step ping-pong of the spec's fourth example, both chemistry steps :OnlyA (F is
-    # E(; residual = A - P)). No built reading switches off F(B) ⇌ E(Q), a
+    # E_res_plusA_minusP). No built reading switches off FB ⇌ EQ, a
     # rapid-equilibrium step that takes up nothing, so the guard searches. The first
-    # reading it finds loses E(A) <--> F(P)'s stored direction and F(B) ⇌ E(Q)'s reverse,
+    # reading it finds loses EA <--> FP's stored direction and FB ⇌ EQ's reverse,
     # both into the covalent group: the reading of "a reading may lose a step in either
     # direction".
     pingpong = @_testhelper_unguarded @enzyme_mechanism begin
@@ -3195,7 +3195,7 @@ end
         @test D._admitting_reading(backward) == r[back, :]
     end
 
-    # The three-step ping-pong: the inactive conformation keeps only E + Q <--> E(Q). The
+    # The three-step ping-pong: the inactive conformation keeps only E + Q <--> EQ. The
     # built readings stop both chemistry steps, which leaves F out of free E's reach; the
     # first reading the search finds loses the first half's stored direction and the
     # second half's reverse, both into F.
@@ -3547,13 +3547,13 @@ end
 
     # The same two ways with an active conformation that turns the reaction over, built
     # on random-order ter-ter: one full path of bindings, chemistry and releases kept by
-    # both conformations; the other nine bindings, a second chemistry through Estar(A, B, D)
+    # both conformations; the other nine bindings, a second chemistry through EstarABD
     # and a second release order of Q and R tagged. In `cap_active` all three are :OnlyI,
     # which leaves the active conformation more than `_MAX_CHOICES_PER_CONFORMATION` ways;
     # in `cap_pairs` the bindings are :OnlyI and the rest :OnlyA, and the two
     # conformations' consistent columns pair up more than `_MAX_READING_PAIRS` times. Each
-    # built reading leaves a group that no switched-off step reaches (Estar(A, B, D) under
-    # the two that lose affinity, E(B) or E(Q) when all stop), so none is consistent, and
+    # built reading leaves a group that no switched-off step reaches (EstarABD under
+    # the two that lose affinity, EB or EQ when all stop), so none is consistent, and
     # the guard reports the cap.
     cap_active = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D
@@ -3663,7 +3663,7 @@ end
 @testset "a rapid-equilibrium step whose sides stay joined cannot be switched off" begin
     rng = Random.MersenneTwister(31)
     FP, U = EnzymeRates.Derivation._FAST_STEP_PINNED, EnzymeRates.Derivation._LIMIT_UNTESTED
-    # The uni-uni S binding :OnlyA: the chemistry and the P binding join E to E(S) in the
+    # The uni-uni S binding :OnlyA: the chemistry and the P binding join E to ES in the
     # inactive conformation, so the S binding cannot lose its affinity there, and at rapid
     # equilibrium it cannot be stopped either.
     am = @_testhelper_unguarded @enzyme_mechanism begin
@@ -3712,7 +3712,7 @@ end
     end
     @test EnzymeRates.Derivation._guard(untagged) == EnzymeRates.Derivation._WELL_POSED
     @test EnzymeRates.Derivation._guard(joins_tagged) == EnzymeRates.Derivation._WELL_POSED
-    # AD1 and AD11: a mixed :OnlyA group that binds B into E(P, Q) and into E(B, Q), forms
+    # AD1 and AD11: a mixed :OnlyA group that binds B into EPQ and into EBQ, forms
     # the untagged steps still make. At steady state the group is stopped, and the law is
     # the limit on every face; at rapid equilibrium (AD1 RE) it cannot be switched off.
     # AD3c: a ::Mod copy's rapid-equilibrium binding whose sides untagged steps join.
@@ -3862,7 +3862,7 @@ end
         end
     end
     # Each variant of AD1, AD1 RE, AD3c and AD11 with the group untagged, or with the steps
-    # that join the sides of its B or S::Mod binding tagged, passes the guard.
+    # that join the sides of its B or S binding tagged, passes the guard.
     ad11_untagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3896,7 +3896,7 @@ end
         @test EnzymeRates.Derivation._guard(y) == EnzymeRates.Derivation._WELL_POSED
     end
     # The message prints a fix only when its variant passes. A dead-end I joins the S
-    # binding's sides a second way, through E(I) and E(I, S), so tagging the steps of the
+    # binding's sides a second way, through EI and EIS, so tagging the steps of the
     # path the message would name leaves that binding inside one component, and the guard
     # rejects its steady-state variant too: the message offers no fix. (Untagging the
     # binding passes, but is not one of the two fixes the message offers.)
@@ -4009,8 +4009,8 @@ end
 @testset "a tagged binding pinned inside one group, or closing a cycle of a reading" begin
     rng = Random.MersenneTwister(37)
     FP, U = EnzymeRates.Derivation._FAST_STEP_PINNED, EnzymeRates.Derivation._LIMIT_UNTESTED
-    # The ter cube of seven :OnlyA edges: the untagged E(A) + C, E(C) + B and E(B) + A
-    # bindings join E(A) to E(A, B), so its rapid-equilibrium :OnlyA binding of B stays
+    # The ter cube of seven :OnlyA edges: the untagged EA + C, EC + B and EB + A
+    # bindings join EA to EAB, so its rapid-equilibrium :OnlyA binding of B stays
     # inside one component and cannot be switched off.
     cube = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, C
@@ -4037,9 +4037,9 @@ end
           EnzymeRates.Derivation._Verdict(FP, U, 0, 2,
                                           _testhelper_edge(cube, "EA + B ⇌ EAB"))
     @test _testhelper_epath_verdict(cube; rng) === :no_path
-    # The message offers three fixes, each passing the guard: the B binding at E(A)
-    # untagged, the five untagged bindings that join its sides (E(A) + C, E(C) + A,
-    # E(C) + B, E(B) + C, E(B) + A) tagged, and the B binding steady-state.
+    # The message offers three fixes, each passing the guard: the B binding at EA
+    # untagged, the five untagged bindings that join its sides (EA + C, EC + A,
+    # EC + B, EB + C, EB + A) tagged, and the B binding steady-state.
     cube_untagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, C
         products: P
@@ -4092,10 +4092,10 @@ end
         "Make its kinetic group steady-state, or tag :OnlyA the steps that join its " *
         "sides: $joins.")
     # Both bindings of the ordered bi-uni :OnlyA: the chemistry and the P binding join
-    # E(A, B) back to E, so E(A) alone is cut off. No built reading switches off the B
+    # EAB back to E, so EA alone is cut off. No built reading switches off the B
     # binding, which takes up B into a form free E's group holds; the one consistent
-    # reading loses the A binding's uptake and the B binding's release, both into E(A).
-    # Their vanishing directions then bridge E and E(A, B), and the limit depends on the
+    # reading loses the A binding's uptake and the B binding's release, both into EA.
+    # Their vanishing directions then bridge E and EAB, and the limit depends on the
     # direction.
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
@@ -4110,7 +4110,7 @@ end
     b = _testhelper_edge(am, "EA + B ⇌ EAB")
     @test _testhelper_exclusion(am, 2).failure === :fast
     @test EnzymeRates.Derivation.exclusion_components(am, :inactive) ==
-          [1, 2, 1, 1]  # E, E(A), E(A, B), E(P)
+          [1, 2, 1, 1]  # E, EA, EAB, EP
     @test EnzymeRates.Derivation.exclusion_components(am, :active) == [1, 1, 1, 1]
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._BRIDGE, U, 1, 2, b)
@@ -4159,7 +4159,7 @@ end
     @test EnzymeRates.Derivation._guard(untagged) == EnzymeRates.Derivation._WELL_POSED
     @test EnzymeRates.Derivation._guard(joins_tagged) == EnzymeRates.Derivation._WELL_POSED
     @test EnzymeRates.Derivation._guard(one_untagged).fault === FP
-    # With I forms, E(A) is still cut off alone, and the one consistent reading loses both
+    # With I forms, EA is still cut off alone, and the one consistent reading loses both
     # bindings into it, as above. Admission passes the faces with I present, and class 3
     # rejects zero I, where the law splits a rapid-equilibrium segment, as the RE-speed
     # oracle finds. Tagging the chemistry and the P binding too leaves the law a second
@@ -4226,8 +4226,8 @@ end
     @test EnzymeRates.Derivation._guard(with_i_joins_tagged).fault ===
           EnzymeRates.Derivation._NONUNIQUE
     # Under the guard's built readings the arcs close a cycle between two cut-off parts:
-    # E(A) with E(A, Q), and E(Q) with E(A, B) and E(P, Q). The B binding at E(A) enters
-    # the second, the A binding at E(Q) the first, so the two affinities cannot vanish
+    # EA with EAQ, and EQ with EAB and EPQ. The B binding at EA enters
+    # the second, the A binding at EQ the first, so the two affinities cannot vanish
     # together. A reading in which one of them loses its release instead has no cycle,
     # and the search admits the mechanism under it, the oracles agreeing.
     cycle = @_testhelper_unguarded @enzyme_mechanism begin
@@ -4275,9 +4275,9 @@ end
     _testhelper_island_verdict(x) =
         _testhelper_epath_verdict(x; rng) in (:direction_dependent, :wrong_limit)
     # Both half-reactions of the ping-pong :OnlyA. Under the first built reading half 2
-    # takes up Q into E(B; residual = A - P), which the inactive conformation cuts off, so
+    # takes up Q into EB_res_plusA_minusP, which the inactive conformation cuts off, so
     # it loses its affinity and free E reaches the covalent forms along it: no island. At
-    # zero A and B, B's binding feeds E(; residual = A - P), whose only way out, half 1,
+    # zero A and B, B's binding feeds E_res_plusA_minusP, whose only way out, half 1,
     # is stopped: a pumped basin, as the ε-path oracle finds under that reading. The
     # search admits the ping-pong under a reading in which half 1 loses its rate into the
     # covalent forms instead.
@@ -4314,7 +4314,7 @@ end
           EnzymeRates.Derivation._WELL_POSED
     # R3 and R4: a second free form behind a tagged isomerization; untagging it passes.
     # Under the built readings R3's isomerization is steady-state, so it is stopped and
-    # F, F(I) are an island; R4's is at rapid equilibrium, which they cannot switch off.
+    # F, FI are an island; R4's is at rapid equilibrium, which they cannot switch off.
     # Each isomerization joins F's group to free E's, and the search lets it lose its rate
     # into F.
     r3 = @_testhelper_unguarded @enzyme_mechanism begin
@@ -4377,7 +4377,7 @@ end
     for fixed in (r3_untagged, r4_untagged)
         @test EnzymeRates.Derivation._guard(fixed) == EnzymeRates.Derivation._WELL_POSED
     end
-    # AD2b's P binding at F is at rapid equilibrium and joins F to E(P), in free E's group,
+    # AD2b's P binding at F is at rapid equilibrium and joins F to EP, in free E's group,
     # so no built reading switches it off. Its consistent readings let it lose its release
     # into F; with P zero its uptake then dies, and it runs one way into F, which empties
     # only through the slow F <--> E: F fills faster than it empties, as the ε-path oracle
@@ -4536,8 +4536,8 @@ const _testhelper_pinned_tag_sets = Set(["AD7b", "AD9", "BS2", "TC1"])
 end
 
 @testset "a mixed :OnlyA group whose limit exists is admitted" begin
-    # B's fused binding into E(P, Q) and its plain binding at E(Q) share one :OnlyA group;
-    # in the inactive conformation no untagged step joins E(Q) to E(B, Q), so the plain
+    # B's fused binding into EPQ and its plain binding at EQ share one :OnlyA group;
+    # in the inactive conformation no untagged step joins EQ to EBQ, so the plain
     # binding's affinity can vanish, and the limit is deletion plus pruning.
     am = _testhelper_tag_sets["mixed_group_limit"]
     @test _testhelper_exclusion(am, 2).failure === :none
@@ -4561,7 +4561,7 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
     NO, PU = EnzymeRates.Derivation._NO_FAULT, EnzymeRates.Derivation._PUMPED
     # Classes 1-3 and admission's interior accept R2, so under the guard's first built
     # reading the face condition alone rejects it (spec section 7): at P zero, F's exits
-    # vanish (F <--> E, stopped) or take up P (F + P ⇌ E(P)), and E(P) feeds it by a
+    # vanish (F <--> E, stopped) or take up P (F + P ⇌ EP), and EP feeds it by a
     # release whose reverse is dead. The search admits R2 under a reading in which
     # F <--> E loses its rate into F instead, so F drains into free E, and the oracles
     # agree on every face under it.
@@ -4593,11 +4593,11 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
 end
 
 @testset "a stranded basin with two vanishing exits names both steps in its message" begin
-    # Under the guard's first built reading, at P zero, E(S) feeds F by a release whose
-    # reverse takes up P; F and F(I) leave the inactive conformation's basin only through
-    # the :OnlyA steps E(I) ⇌ F(I) and F <--> E, which vanish there, so admission's face
-    # condition rejects that face. But that reading cannot switch off E(I) ⇌ F(I), at
-    # rapid equilibrium, which consistent readings let lose its rate into F(I); under the
+    # Under the guard's first built reading, at P zero, ES feeds F by a release whose
+    # reverse takes up P; F and FI leave the inactive conformation's basin only through
+    # the :OnlyA steps EI ⇌ FI and F <--> E, which vanish there, so admission's face
+    # condition rejects that face. But that reading cannot switch off EI ⇌ FI, at
+    # rapid equilibrium, which consistent readings let lose its rate into FI; under the
     # first of them class 3 rejects zero I, where the law splits a rapid-equilibrium
     # segment, as the RE-speed oracle finds.
     am = @_testhelper_unguarded @enzyme_mechanism begin
@@ -4643,7 +4643,7 @@ end
           "the inactive conformation, which leave only through the vanishing steps " *
           "F <--> E; FI ⇌ EI while nothing runs back the way it came, so admission " *
           "cannot show that their weight does not depend on how fast those steps vanish."
-    # With E(I) <--> F(I) steady-state the first built reading stops it, the interior
+    # With EI <--> FI steady-state the first built reading stops it, the interior
     # passes, and the face condition rejects the pumped basin at zero P, the ε-path
     # oracle agreeing. The search admits it under a reading in which the :OnlyA steps
     # lose their rates into F's group instead, both oracles agreeing on every face.
@@ -4780,7 +4780,7 @@ end
     rng = Random.MersenneTwister(59)
     NO, BR = EnzymeRates.Derivation._NO_FAULT, EnzymeRates.Derivation._BRIDGE
     SP, TR = EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._TRAP
-    # ADbridge: the :OnlyA bindings of I join E and E(S) of the inactive conformation, which
+    # ADbridge: the :OnlyA bindings of I join E and ES of the inactive conformation, which
     # turns over through its steady-state S binding. With them the fed forms' cheapest
     # in-tree needs one slow step fewer (R1 fails), and the turnover is no potential (T0+
     # fails). With I zero the bridge is dead, and class 3 finds the inhibitor square split.
@@ -4859,7 +4859,7 @@ end
     end
     @test EnzymeRates.Derivation._guard(drain_fixed) == EnzymeRates.Derivation._WELL_POSED
     # R2funnel: under the guard's first built reading, which stops F <--> E, at P zero the
-    # trap {F, F(S)} drains only through a slow step out of a fast transient, and the
+    # trap {F, FS} drains only through a slow step out of a fast transient, and the
     # bridge stays with the S binding steady-state (R2funnel_SS); the limit there depends
     # on the direction. The search admits both under a reading in which F <--> E loses
     # its rate into F instead, the oracles agreeing on every face.
@@ -4907,7 +4907,7 @@ end
         EnzymeRates.Derivation._PUMPED
     _testhelper_corner_verdict(am, i) =
         _testhelper_epath_verdict(am; rng, face = _testhelper_faces(am)[i], corners = true)
-    # R-B1, an equilibrium bridge: the bridge joins E and the dead end E(J), which deletion
+    # R-B1, an equilibrium bridge: the bridge joins E and the dead end EJ, which deletion
     # already holds at its equilibrium ratio, so the limit is deletion's, but no potential
     # proves it. The steady-state fix passes and the message offers it.
     am = _testhelper_tag_sets["bridge_deadend"]
@@ -4970,10 +4970,10 @@ end
         _testhelper_check_law_against_limit(x)
     end
     # R-B3, the set-aside rule's equilibrium condition. In this ping-pong's inactive
-    # conformation the cut-off forms E(A), F(P), F and F(B) (F is E(; residual = A - P))
-    # touch free E and E(Q), which only the steady-state E + Q <--> E(Q) joins, so they are
+    # conformation the cut-off forms EA, FP, F and FB (F is E_res_plusA_minusP)
+    # touch free E and EQ, which only the steady-state E + Q <--> EQ joins, so they are
     # not set aside and the interior stays a bridge. Yet the route through them crosses the
-    # slow chemistry E(A) <--> F(P), and every corner direction converges there: a
+    # slow chemistry EA <--> FP, and every corner direction converges there: a
     # conservative rejection.
     D = EnzymeRates.Derivation
     rb3 = @_testhelper_unguarded @enzyme_mechanism begin
@@ -5002,7 +5002,7 @@ end
     @test _testhelper_epath_verdict(rb3; rng, corners = true,
                                     reading = _testhelper_reading(r)) === :converges
     # R-B4, the set-aside rule's safety clause. In this random-order mechanism's inactive
-    # conformation, with P and Q zero, the stopped E + P <--> E(P) runs one way from E(P)
+    # conformation, with P and Q zero, the stopped E + P <--> EP runs one way from EP
     # into free E along its vanishing direction, a pair at a law form that is not safe;
     # the cut-off forms touch free E alone and their fast classes drain, so that pair
     # alone keeps them, and the face stays a bridge. Every corner direction converges
@@ -5146,8 +5146,8 @@ end
 end
 
 @testset "the guard rejects a steady-state dead end whose law is 0/0 at zero products" begin
-    # E(P) leaves only by binding Q, so every other form's weight holds Q, and E(P) is fed
-    # only from E(P, Q), which E(Q) + P ⇌ E(P, Q) ties to P: each term of the denominator
+    # EP leaves only by binding Q, so every other form's weight holds Q, and EP is fed
+    # only from EPQ, which EQ + P ⇌ EPQ ties to P: each term of the denominator
     # holds P or Q, so the law is 0/0 with both zero (face 2), where the law's segment
     # chain has two closed classes.
     m = @_testhelper_unguarded @enzyme_mechanism begin
@@ -5174,13 +5174,13 @@ end
     nan = [isnan(_testhelper_law_value(m, params, Dict(pairs(c)))) for c in faces]
     @test count(nan) == 1
     @test nan == [c.P == 0 && c.Q == 0 for c in faces]
-    # The same dead end with E(P) + Q <--> E(P, Q) in the active conformation only. The
+    # The same dead end with EP + Q <--> EPQ in the active conformation only. The
     # active denominator holds P or Q in every term, as above, and the inactive one is
     # weighted by the active free-enzyme weight, which holds Q in every term: the law is
     # 0/0 with P and Q zero, though the inactive denominator alone keeps a constant term.
-    # In the inactive conformation E(P) joins free E only through that :OnlyA step, which
+    # In the inactive conformation EP joins free E only through that :OnlyA step, which
     # the guard's built readings stop, leaving an island; the consistent reading lets it
-    # lose its rate into E(P), and class 3 rejects zero P and Q, where the law's segment
+    # lose its rate into EP, and class 3 rejects zero P and Q, where the law's segment
     # chain has two closed classes, as for the plain mechanism.
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -5233,9 +5233,9 @@ end
     rng = Random.MersenneTwister(73)
     NO, TR, SP = EnzymeRates.Derivation._NO_FAULT, EnzymeRates.Derivation._TRAP,
         EnzymeRates.Derivation._SPLIT
-    # With S1 and S2 zero, E(S1, S2) feeds E(S1) by the fast release of S2, and E(S1)
+    # With S1 and S2 zero, ES1S2 feeds ES1 by the fast release of S2, and ES1
     # leaves only by its slow release of S1: a trap, whose limit depends on the RE speeds.
-    # With S2 zero, the lowest forms are joined only through E(S1, S2): a split.
+    # With S2 zero, the lowest forms are joined only through ES1S2: a split.
     m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S1, S2
         products: P
@@ -5257,7 +5257,7 @@ end
           (TR, EnzymeRates.Derivation._LIMIT_SPEED, 3, feed)
     @test occursin(EnzymeRates.Mechanisms.step_text(m.catalytic, feed),
                    EnzymeRates.Derivation._guard_message(m))
-    # The variant moves the steady-state binding of S1 from free E to E(S2), where it
+    # The variant moves the steady-state binding of S1 from free E to ES2, where it
     # stays redundant inside the one RE segment: every face passes, and its law is the
     # exact steady state, before any pin.
     spec = only(s for s in MECHANISM_TEST_SPECS
@@ -5291,8 +5291,8 @@ end
     rng = Random.MersenneTwister(79)
     NO, TR, SP = EnzymeRates.Derivation._NO_FAULT, EnzymeRates.Derivation._TRAP,
         EnzymeRates.Derivation._SPLIT
-    # With Lactate and NAD zero, E(Lactate, NAD) feeds E(Lactate) by the fast release of
-    # NAD, and E(Lactate) leaves only slowly: a trap. With NAD zero, a split.
+    # With Lactate and NAD zero, ELactateNAD feeds ELactate by the fast release of
+    # NAD, and ELactate leaves only slowly: a trap. With NAD zero, a split.
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: NADH, Pyruvate
         products: Lactate, NAD
@@ -5673,7 +5673,7 @@ end
     # With bridge_REcycle's I bindings at steady state no fast cycle is left; class 3
     # then rejects zero products, where the steady state depends on how fast the
     # rapid-equilibrium steps run, and passes the other faces. The guard rejects the
-    # interior first: the inactive conformation cannot switch off F(I) ⇌ E(I).
+    # interior first: the inactive conformation cannot switch off FI ⇌ EI.
     ssbind = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -5694,7 +5694,7 @@ end
     @test _testhelper_respeed_verdicts(ssbind; rng = Random.MersenneTwister(64),
                                        law = :limit) ==
           [:agree, :pattern, :agree, :agree, :agree, :agree]
-    # With F(I) <--> E(I) steady-state as well it is stopped, the interior passes, and the
+    # With FI <--> EI steady-state as well it is stopped, the interior passes, and the
     # guard itself rejects zero products, where the steady state depends on the speeds;
     # both oracles agree on every face.
     ssbind_ss = @_testhelper_unguarded @enzyme_mechanism begin
@@ -5719,10 +5719,10 @@ end
 
 @testset "a fast cycle that only the inactive conformation keeps is named there" begin
     # The two :OnlyI steps each take up I and J at once, so no built reading switches them
-    # off; but they join the active conformation's group of E(I, J, S) and E(I, J, P) to
+    # off; but they join the active conformation's group of EIJS and EIJP to
     # free E's, and consistent readings let them lose their rates into it. With the
     # product binding :OnlyA, the inactive conformation keeps the I, J steps, which still
-    # join E(P) to free E: the product binding lies inside one group, the fault no reading
+    # join EP to free E: the product binding lies inside one group, the fault no reading
     # changes. No fast cycle is left to class 2.
     m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -5805,8 +5805,8 @@ end
     end
     v = EnzymeRates.Derivation._guard(fz)
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._EPS_NONUNIQUE, 2, 1)
-    # The class the message names, E(I) of the active conformation, which only the
-    # vanishing I binding at E(S) feeds, holds no form of the law networks.
+    # The class the message names, EI of the active conformation, which only the
+    # vanishing I binding at ES feeds, holds no form of the law networks.
     @test EnzymeRates.Derivation._guard_message(fz) ==
           "Mechanism: at zero P, the forms EI (active) hold the enzyme they " *
           "receive and are reached only through tagged steps, so the steady state " *
@@ -5830,7 +5830,7 @@ end
 end
 
 @testset "an :OnlyI bridge is rejected" begin
-    # copy_group_bridge and B2b: the :OnlyI bindings of I at E and E(S) bridge, in the
+    # copy_group_bridge and B2b: the :OnlyI bindings of I at E and ES bridge, in the
     # active conformation, forms its other steps keep apart, so the limit depends on how
     # fast the vanishing affinities fall; the ε-path settles on another value. With the
     # bridging group at steady state the guard admits the mechanism, the fix the message
@@ -5903,7 +5903,7 @@ end
 end
 
 @testset "an essential activator tagged :OnlyI stops catalysis" begin
-    # X binds only the inactive conformation, and every turnover passes through E(X):
+    # X binds only the inactive conformation, and every turnover passes through EX:
     # the active conformation, which must catalyze, turns nothing over. Tagging the X
     # binding :EqualAI or :NonequalAI, the message's fix, passes.
     ea = _testhelper_onlyi_fixtures().essential_activator
@@ -5931,9 +5931,9 @@ end
 end
 
 @testset "an :OnlyI activator whose retags fail is offered no fix" begin
-    # X binds E and E(S) in the inactive conformation only, and P leaves only from
-    # E(S, X), so the active conformation turns nothing over. Tagging the X bindings
-    # :EqualAI or :NonequalAI joins E, E(X), E(S, X) and E(S) in one rapid-equilibrium
+    # X binds E and ES in the inactive conformation only, and P leaves only from
+    # ESX, so the active conformation turns nothing over. Tagging the X bindings
+    # :EqualAI or :NonequalAI joins E, EX, ESX and ES in one rapid-equilibrium
     # segment that only the X bindings hold together, so each variant splits it at zero
     # X and the message offers no fix.
     am = @_testhelper_unguarded @enzyme_mechanism begin
@@ -5964,8 +5964,8 @@ end
     # fixes whose variants pass. The oracles agree with each verdict.
     rng = Random.MersenneTwister(91)
     FP, U = EnzymeRates.Derivation._FAST_STEP_PINNED, EnzymeRates.Derivation._LIMIT_UNTESTED
-    # I binds E and E(S); without E + I ⇌ E(I), the untagged I binding at E(S) and S
-    # binding at E(I) still join E to E(I), so the I binding cannot lose its affinity,
+    # I binds E and ES; without E + I ⇌ EI, the untagged I binding at ES and S
+    # binding at EI still join E to EI, so the I binding cannot lose its affinity,
     # and at rapid equilibrium the active conformation cannot switch it off. Neither fix
     # the message offers passes; untagging it would.
     no_limit = @_testhelper_unguarded @enzyme_mechanism begin
@@ -5988,9 +5988,9 @@ end
     @test all(t -> EnzymeRates.Derivation._retag_passes(no_limit, [k], t),
               (:EqualAI, :NonequalAI))
     @test _testhelper_epath_verdict(no_limit; rng) === :no_path
-    # I binds E and J binds E(I), both :OnlyI; the untagged J binding at E and I binding
-    # at E(J) join E(I, J) back to E, so the J binding at E(I) cannot lose its affinity,
-    # and no built reading switches it off. But E(I) is cut off alone, and the search lets
+    # I binds E and J binds EI, both :OnlyI; the untagged J binding at E and I binding
+    # at EJ join EIJ back to E, so the J binding at EI cannot lose its affinity,
+    # and no built reading switches it off. But EI is cut off alone, and the search lets
     # both :OnlyI bindings lose their rates into it, the oracles agreeing.
     square = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -6013,10 +6013,10 @@ end
     @test EnzymeRates.Derivation._guard(square) == EnzymeRates.Derivation._WELL_POSED
     @test all(_testhelper_admission_agreement(square; rng, corners = true))
     _testhelper_check_law_against_limit(square)
-    # E(I) is reached only as E(I, J) gives off J, and the active conformation's other
-    # steps make E(I, J): no built reading switches that J binding off, though the search
-    # lets it lose its rate into E(I). But the inactive conformation keeps it, and at zero
-    # I and J E(I) there holds the enzyme it receives: class 3 finds a second closed
+    # EI is reached only as EIJ gives off J, and the active conformation's other
+    # steps make EIJ: no built reading switches that J binding off, though the search
+    # lets it lose its rate into EI. But the inactive conformation keeps it, and at zero
+    # I and J EI there holds the enzyme it receives: class 3 finds a second closed
     # class, as the RE-speed oracle does.
     j_release = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -6044,7 +6044,7 @@ end
           "Mechanism: at zero I and J in the inactive conformation, the forms " *
           "{EI} keep enzyme away from free E: every step that leaves them takes up a " *
           "zeroed metabolite (EI + J ⇌ EIJ), so the steady state is not unique."
-    # At steady state the built readings stop that J binding, so E(I) is reached only
+    # At steady state the built readings stop that J binding, so EI is reached only
     # through a step that vanishes both ways: an island on the :OnlyI binding's unbound
     # side, which collects the active enzyme. The inactive conformation's second closed
     # class at zero I and J rejects it under every reading, as above.
@@ -6079,7 +6079,7 @@ end
 @testset "a pinned step and its mirror get one message, but for conformation and tag" begin
     # Either conformation is offered the same fixes, each with that conformation's tag,
     # when both conformations catalyze in every fix's variant, as here, where the S path
-    # stays untagged. I binds E :OnlyI, and the J bindings join E(I) back to E, so the
+    # stays untagged. I binds E :OnlyI, and the J bindings join EI back to E, so the
     # active conformation cannot switch the I binding off. Tagging :OnlyI the steps that
     # join its sides passes (and so would untagging it, which the message does not
     # offer). The mirror image, the I binding :OnlyA, gets the same message in the
@@ -6151,7 +6151,7 @@ end
     # ε-path oracle and by the RE-speed oracle against the package's law.
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(101)
-    # Two isomerization paths from E(S) to E(P); the direct one runs in the inactive
+    # Two isomerization paths from ES to EP; the direct one runs in the inactive
     # conformation alone. Its mirror image, the direct path :OnlyA, is the same model
     # with L inverted, and the guard admits it too.
     two_paths = @enzyme_mechanism begin
@@ -6329,9 +6329,9 @@ end
 @testset "joint R1 rejects a mechanism whose bridges cut the tree only together" begin
     # The hand-built joint-R1 network's pattern on a mechanism. Half 2 :OnlyA strands the
     # inactive conformation's covalent forms at zero P, so no in-tree of that
-    # conformation reaches its free E without half 2's vanishing steps. M binds E(A) and
+    # conformation reaches its free E without half 2's vanishing steps. M binds EA and
     # the covalent form :OnlyI, and M-bound half 1 runs at rapid equilibrium in the active
-    # conformation, where the vanishing M binding at E(A) lets free E's fast class leave,
+    # conformation, where the vanishing M binding at EA lets free E's fast class leave,
     # one way, for the M-bound covalent form. Each conformation's vanishing transitions
     # alone leave the cheapest spanning in-tree at 4 slow transitions; together they cut
     # it to 3. The guard rejects the interior first: the M bindings, which the inactive
@@ -6381,7 +6381,7 @@ end
               EnzymeRates.Derivation._Verdict(BR, U, 0, 0, 0)
     end
     # The face condition's message names the vanishing steps a cheapest in-tree needs: the
-    # M binding at E(A) of the active conformation and half 2 of the inactive one.
+    # M binding at EA of the active conformation and half 2 of the inactive one.
     w = EnzymeRates.Derivation._admission_face(am, eps, law, faces, 2)
     @test w == EnzymeRates.Derivation._Verdict(BR, U, 2, 0, 0)
     @test EnzymeRates.Derivation._admission_message(

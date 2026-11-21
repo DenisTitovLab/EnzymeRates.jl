@@ -7,7 +7,7 @@ const ER = EnzymeRates
     M = ER.Mechanisms
     D = ER.Derivation
     col = D._StepParameter
-    # Uni-uni: E + P → E(P) and E + S → E(S) at rapid equilibrium, E(S) → E(P) steady
+    # Uni-uni: E + P → EP and E + S → ES at rapid equilibrium, ES → EP steady
     # state, each its own group. The isomerization's columns come first, by its shape,
     # its reverse rate, which runs against the reaction, before its forward one; then the
     # bindings, the one whose forms come later by name first (ES after EP).
@@ -28,8 +28,8 @@ const ER = EnzymeRates
     # A plain mechanism's one conformation runs every step.
     @test (c.flat, c.tags, c.law) == ([1, 2, 3], [:None, :None, :None], trues(3))
 
-    # Allosteric uni-uni: E + P → E(P) :EqualAI, E + S → E(S) :NonequalAI and
-    # E(S) → E(P) :OnlyA, one group each. The :NonequalAI and :OnlyA groups get inactive
+    # Allosteric uni-uni: E + P → EP :EqualAI, E + S → ES :NonequalAI and
+    # ES → EP :OnlyA, one group each. The :NonequalAI and :OnlyA groups get inactive
     # columns; the inactive copies of the :OnlyA step lie outside the inactive law
     # (block 2) and come first, then the inactive binding (block 1), then the active
     # columns (block 0). An :OnlyA step's inactive copy takes its own name.
@@ -174,7 +174,7 @@ end
                              0 0 0 0])
 
     # At steady state the Theorell–Chance step's reverse rate constant takes up P, what
-    # the step gives off as stored: the rate over [P]. The isomerization E(Q) <--> F(Q)
+    # the step gives off as stored: the rate over [P]. The isomerization EQ <--> FQ
     # carries the Haldane relation.
     steady_theorell_chance = @enzyme_mechanism begin
         substrates: A, B
@@ -592,8 +592,8 @@ end
     end
     names = _testhelper_step_constant_names(m)
     @test :k_EAB_to_EQ_P in names && :k_EQ_P_to_EAB in names
-    # The fused release E(A, B) → E(Q) + P is stored as the binding of P it
-    # reverses, E(Q) + P → E(A, B), so its forward rate constant binds P.
+    # The fused release EAB → EQ + P is stored as the binding of P it
+    # reverses, EQ + P → EAB, so its forward rate constant binds P.
     k = _testhelper_edge(m, "EQ + P <--> EAB")
     kon, koff = _testhelper_step_parameters(m, k)
     @test (kon.slot, koff.slot) == (1, 2)
@@ -687,7 +687,7 @@ end
     @test !(:K_ES_to_E_S in allo_names)
     @test :K_EP_to_E_P in ER.parameters(allo) && !(:K_A_EP_to_E_P in allo_names)
     @test :K_I_EP_to_E_P ∉ ER.parameters(allo)
-    # A ping-pong residual form: B binds E(; residual = A - P), whose name is
+    # A ping-pong residual form: B binds E_res_plusA_minusP, whose name is
     # E_res_plusA_minusP, so the release-direction K reads
     # EB_res_plusA_minusP → E_res_plusA_minusP + B.
     # E and the covalent E(; residual) share one RE segment whose weights vanish only
@@ -776,8 +776,8 @@ end
 end
 
 @testset "an isomerization runs the way the reaction turns over through it" begin
-    # P leaves at F (the fused release E(S) → F + P) and S enters at E, so the cycle
-    # E → E(S) → F → E turns the reaction over and the isomerization between F and E runs
+    # P leaves at F (the fused release ES → F + P) and S enters at E, so the cycle
+    # E → ES → F → E turns the reaction over and the isomerization between F and E runs
     # F → E however either step is written.
     forward = @enzyme_mechanism begin
         substrates: S

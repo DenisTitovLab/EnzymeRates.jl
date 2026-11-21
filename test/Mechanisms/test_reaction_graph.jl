@@ -265,9 +265,9 @@ function _testhelper_flipped(block)
 end
 
 @testset "canonical form stores each step the way the graph gives it, a group as one" begin
-    # A step with one metabolite takes it up, so the fused release F(P) → F + P is stored
-    # as F + P → F(P). The isomerizations lie on the one cycle that turns the reaction
-    # over, E → E(S) → F(S) → F(P) → F → E, and run its way.
+    # A step with one metabolite takes it up, so the fused release FP → F + P is stored
+    # as F + P → FP. The isomerizations lie on the one cycle that turns the reaction
+    # over, E → ES → FS → FP → F → E, and run its way.
     @test _testhelper_flipped(:(begin
         substrates: S
         products: P
@@ -917,7 +917,7 @@ end
     # Isomerizations a turnover cycle orients, exchanges that run away from free E, and an
     # isomerization that keeps its direction relative to its group's lead, each case in two
     # writings, against each case's pinned canonical text. In the tied fixture neither
-    # exchange lies on a cycle: each runs from its form nearer free E, E(I) and F(I),
+    # exchange lies on a cycle: each runs from its form nearer free E, EI and FI,
     # taking up J.
     ss_text = ["substrates: S | products: P",
                "forms: E, ES, F, FP, FS",

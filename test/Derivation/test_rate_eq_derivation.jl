@@ -1044,7 +1044,7 @@ const _testhelper_fused_cases = [
             E + A + B ⇌ EAB; EAB <--> EPQ; EPQ <--> EQ + P
             EQ <--> E + Q end end),
         # the first substrate also binds as a dead-end modifier copy, at rapid
-        # equilibrium on E and at steady state on E(Q); both the derivation and
+        # equilibrium on E and at steady state on EQ; both the derivation and
         # the oracle count the first substrate by name
         @enzyme_mechanism(begin substrates: A, B; products: P, Q
             steps: begin
@@ -1087,7 +1087,7 @@ end
 
 @testset "the free-enzyme weight is free E's weight in the reduced denominator" begin
     # Ping-pong with a rapid-equilibrium second chemistry step: every form lies in one
-    # rapid-equilibrium segment rooted at free E, where E(; residual = A - P) sits at
+    # rapid-equilibrium segment rooted at free E, where E_res_plusA_minusP sits at
     # Q·K/B relative to E. Reducing the polynomials to lowest terms in the
     # concentrations multiplies them by B, so free E weighs B in the reduced
     # denominator; the MWC law reads this weight as free E's (`_cross_weights`).
@@ -1118,8 +1118,8 @@ end
 end
 
 @testset "a fused release keeps its catalytic rate constant fitted" begin
-    # E(S) <--> E + P gives off P while turning S into P. It is stored as the binding it
-    # reverses, E + P → E(S), whose forward constant k_E_P_to_ES runs against the
+    # ES <--> E + P gives off P while turning S into P. It is stored as the binding it
+    # reverses, E + P → ES, whose forward constant k_E_P_to_ES runs against the
     # reaction. The Haldane relation makes that constant dependent, as k₋₂ of the
     # textbook mechanism, and the catalytic constant k_ES_to_E_P stays fitted.
     ss = @enzyme_mechanism begin
@@ -1145,7 +1145,7 @@ end
     for m in _testhelper_fused_cases
         _testhelper_check_law_against_oracle(m)
     end
-    # The B group holds the fused E(A) + B → E(P, Q) and the dead-end E(Q) + B ⇌ E(B, Q).
+    # The B group holds the fused EA + B → EPQ and the dead-end EQ + B ⇌ EBQ.
     # Fitted: A (2) + B (1) + P (2) + Q (1) − 1 Haldane = 5.
     @test length(parameters(_testhelper_fused_and_plain_binding)) == 5
 end
@@ -1345,8 +1345,8 @@ end
 end
 
 @testset "the third reproducer with a rapid-equilibrium Lactate release traps ENAD" begin
-    # Written with E(NAD) + Lactate ⇌ E(Lactate, NAD) at rapid equilibrium beside the
-    # steady-state NAD binding, the mechanism fills E(NAD) by the fast Lactate release at
+    # Written with ENAD + Lactate ⇌ ELactateNAD at rapid equilibrium beside the
+    # steady-state NAD binding, the mechanism fills ENAD by the fast Lactate release at
     # zero products, and only steady-state steps empty it: a trap (`_TRAP`), which the
     # RE-speed oracle sees as a pattern, as it does the split at zero Lactate. The
     # reproducer takes the fix the message prints, that step steady-state, which passes
@@ -1763,7 +1763,7 @@ function _testhelper_reference_lines_match(m)
 end
 
 @testset "rate_equation_string prints every tie as a constraint line" begin
-    # A binds E and E(B) under one constant while B's two bindings keep their own, so
+    # A binds E and EB under one constant while B's two bindings keep their own, so
     # the RE binding square ties B's two dissociation constants. The occupied binding's
     # constant is the dependent one, and v reads it.
     folded = @enzyme_mechanism begin
@@ -1784,7 +1784,7 @@ end
     # S binds E and Estar under one constant, so the square of the two isomerizations
     # ties their equilibrium constants; the isomerization neither of whose forms is free E
     # is the dependent one. Both run the way the reaction turns over, E → Estar and
-    # Estar(S) → E(S), so round the square the bound one's constant is the inverse.
+    # EstarS → ES, so round the square the bound one's constant is the inverse.
     iso_tie = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2044,7 +2044,7 @@ end
     end
 
     @testset "a constant thermodynamics pins to 1 prints as 1" begin
-        # I binds E and F under one dissociation constant, so the cycle E → E(I) → F → E
+        # I binds E and F under one dissociation constant, so the cycle E → EI → F → E
         # forces K_E_to_F = 1 and leaves no other constant in its row.
         m = @enzyme_mechanism begin
             substrates: A
@@ -2136,7 +2136,7 @@ end
             EP2 ⇌ E + P2
         end
     end
-    # The activator route E(R) + S ⇌ E(S, R) ⇌ E(P, R) ⇌ E(R) + P is an all-RE catalytic
+    # The activator route ER + S ⇌ ERS ⇌ EPR ⇌ ER + P is an all-RE catalytic
     # cycle.
     @test_throws msg @enzyme_mechanism begin
         substrates: S
@@ -2517,7 +2517,7 @@ end
 @testset "Allosteric edge cases" begin
     # OnlyA substrate + OnlyA catalysis: S binds only in the R-state and only
     # the R-state catalyzes (k_T = 0). The T-state therefore carries no flux
-    # (N_T = 0) and never populates E(S), so no reverse-catalysis weight leaks
+    # (N_T = 0) and never populates ES, so no reverse-catalysis weight leaks
     # into Q_I. As K_A_ES_to_E_S → ∞ (weaker R-state binding), rate vanishes.
     onlyR_sub = @enzyme_mechanism begin
         substrates: S
@@ -2800,7 +2800,7 @@ end
 end
 
 @testset "an allosteric Wegscheider tie leaves the grouped mechanism's model" begin
-    # A binds E and E(B) under one shared K while B's two bindings keep their own, so
+    # A binds E and EB under one shared K while B's two bindings keep their own, so
     # the RE binding square ties B's two K's (K_EAB_to_EA_B = K_EB_to_E_B) in each
     # conformation. The tied constants are dependents, so the mechanism fits the same
     # constants as the one that groups B's two bindings outright, and its law takes the
@@ -2843,7 +2843,7 @@ end
 @testset "Fix A: dead-inactive-state allosteric body defines all I-state symbols" begin
     # Random-order allosteric bi-bi with an :OnlyA catalytic step → dead inactive
     # state. Verified pre-fix to crash with an UndefVarError on the I-state
-    # release rate of A from E(A).
+    # release rate of A from EA.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

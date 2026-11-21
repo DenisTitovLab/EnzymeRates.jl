@@ -2,7 +2,7 @@
 # ABOUTME: mechanisms and on their compiled rate laws.
 @testset "parameters API symmetry" begin
     # A bi-bi seed whose catalytic cycle's Haldane relation makes a constant dependent;
-    # B and P also bind as dead ends, at E(Q) and E(A).
+    # B and P also bind as dead ends, at EQ and EA.
     m_mono = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

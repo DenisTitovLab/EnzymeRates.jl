@@ -18,10 +18,10 @@ const ER = EnzymeRates
         end
     end
     m = am.catalytic
-    # Canonical form numbers the forms E, E(I), E(I, P), E(P), E(S) and stores the steps
-    # E + I → E(I), E + P → E(P), E + S → E(S), E(I) + P → E(I, P), E(S) → E(P).
+    # Canonical form numbers the forms E, EI, EIP, EP, ES and stores the steps
+    # E + I → EI, E + P → EP, E + S → ES, EI + P → EIP, ES → EP.
     @test [(e.from, e.to) for e in m.steps] == [(1, 2), (1, 4), (1, 5), (2, 3), (5, 4)]
-    # The active conformation drops the :OnlyI binding of I, which strands E(I) and so
+    # The active conformation drops the :OnlyI binding of I, which strands EI and so
     # also the binding of P to it.
     @test M.steps_in_active_conformation(am) == BitVector([0, 1, 1, 0, 1])
     # The inactive conformation drops the :OnlyA chemistry and keeps every form.
