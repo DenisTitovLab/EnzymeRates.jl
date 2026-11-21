@@ -10,16 +10,16 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             products: Lactate, NAD
             oligomeric_state: 4
             steps: begin
-                (E + NAD ⇌ E(NAD),
-                 E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)) :: EqualAI
-                (E + NADH ⇌ E(NADH),
-                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
-                (E + Pyruvate <--> E(Pyruvate),
-                 E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
-                (E(NAD) + Lactate ⇌ E(Lactate, NAD),
-                 E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: EqualAI
-                E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
-                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
+                (E + NAD ⇌ ENAD,
+                 EPyruvate + NAD ⇌ ENADPyruvate) :: EqualAI
+                (E + NADH ⇌ ENADH,
+                 EPyruvate + NADH ⇌ ENADHPyruvate) :: OnlyA
+                (E + Pyruvate <--> EPyruvate,
+                 ENADH + Pyruvate <--> ENADHPyruvate) :: EqualAI
+                (ENAD + Lactate ⇌ ELactateNAD,
+                 ENADH + Lactate ⇌ ELactateNADH) :: EqualAI
+                ENAD + Pyruvate <--> ENADPyruvate :: EqualAI
+                ENADHPyruvate <--> ELactateNAD :: OnlyA
             end
         end),
         # K_ELactateNAD_to_ELactate_NAD family (NonequalAI dependent-param partition)
@@ -28,19 +28,19 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             products: Lactate, NAD
             oligomeric_state: 4
             steps: begin
-                (E + Lactate ⇌ E(Lactate),
-                 E(NADH) + Lactate ⇌ E(Lactate, NADH)) :: NonequalAI
-                E + NAD ⇌ E(NAD) :: NonequalAI
-                (E + NADH ⇌ E(NADH),
-                 E(Lactate) + NADH ⇌ E(Lactate, NADH),
-                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
-                (E + Pyruvate <--> E(Pyruvate),
-                 E(NAD) + Pyruvate <--> E(NAD, Pyruvate),
-                 E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
-                E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
-                E(NAD) + Lactate ⇌ E(Lactate, NAD) :: NonequalAI
-                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
-                E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: NonequalAI
+                (E + Lactate ⇌ ELactate,
+                 ENADH + Lactate ⇌ ELactateNADH) :: NonequalAI
+                E + NAD ⇌ ENAD :: NonequalAI
+                (E + NADH ⇌ ENADH,
+                 ELactate + NADH ⇌ ELactateNADH,
+                 EPyruvate + NADH ⇌ ENADHPyruvate) :: OnlyA
+                (E + Pyruvate <--> EPyruvate,
+                 ENAD + Pyruvate <--> ENADPyruvate,
+                 ENADH + Pyruvate <--> ENADHPyruvate) :: EqualAI
+                ELactate + NAD ⇌ ELactateNAD :: EqualAI
+                ENAD + Lactate ⇌ ELactateNAD :: NonequalAI
+                ENADHPyruvate <--> ELactateNAD :: OnlyA
+                EPyruvate + NAD ⇌ ENADPyruvate :: NonequalAI
             end
         end),
         # k_I_E_NAD_to_ENAD family (SS-speed dependent-param partition), with the Lactate
@@ -52,19 +52,19 @@ const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
             products: Lactate, NAD
             oligomeric_state: 4
             steps: begin
-                E + Lactate ⇌ E(Lactate) :: EqualAI
-                E + NAD <--> E(NAD) :: NonequalAI
-                E + NADH ⇌ E(NADH) :: OnlyA
-                (E + Pyruvate <--> E(Pyruvate),
-                 E(NADH) + Pyruvate <--> E(NADH, Pyruvate)) :: EqualAI
-                E(Lactate) + NAD ⇌ E(Lactate, NAD) :: EqualAI
-                (E(Lactate) + NADH ⇌ E(Lactate, NADH),
-                 E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)) :: OnlyA
-                E(NAD) + Lactate <--> E(Lactate, NAD) :: EqualAI
-                E(NAD) + Pyruvate <--> E(NAD, Pyruvate) :: EqualAI
-                E(NADH) + Lactate ⇌ E(Lactate, NADH) :: EqualAI
-                E(NADH, Pyruvate) <--> E(Lactate, NAD) :: OnlyA
-                E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate) :: EqualAI
+                E + Lactate ⇌ ELactate :: EqualAI
+                E + NAD <--> ENAD :: NonequalAI
+                E + NADH ⇌ ENADH :: OnlyA
+                (E + Pyruvate <--> EPyruvate,
+                 ENADH + Pyruvate <--> ENADHPyruvate) :: EqualAI
+                ELactate + NAD ⇌ ELactateNAD :: EqualAI
+                (ELactate + NADH ⇌ ELactateNADH,
+                 EPyruvate + NADH ⇌ ENADHPyruvate) :: OnlyA
+                ENAD + Lactate <--> ELactateNAD :: EqualAI
+                ENAD + Pyruvate <--> ENADPyruvate :: EqualAI
+                ENADH + Lactate ⇌ ELactateNADH :: EqualAI
+                ENADHPyruvate <--> ELactateNAD :: OnlyA
+                EPyruvate + NAD ⇌ ENADPyruvate :: EqualAI
             end
         end),
     )

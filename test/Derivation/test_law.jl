@@ -48,15 +48,15 @@ end
         substrates: S1, S2
         products: P1, P2
         steps: begin
-            E + S1 <--> E(S1)
-            E + S2 <--> E(S2)
-            E(S1) + S2 <--> E(S1, S2)
-            E(S2) + S1 <--> E(S1, S2)
-            E(S1, S2) <--> E(P1, P2)
-            E(P1, P2) <--> E(P1) + P2
-            E(P1, P2) <--> E(P2) + P1
-            E(P1) <--> E + P1
-            E(P2) <--> E + P2
+            E + S1 <--> ES1
+            E + S2 <--> ES2
+            ES1 + S2 <--> ES1S2
+            ES2 + S1 <--> ES1S2
+            ES1S2 <--> EP1P2
+            EP1P2 <--> EP1 + P2
+            EP1P2 <--> EP2 + P1
+            EP1 <--> E + P1
+            EP2 <--> E + P2
         end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(random_bibi) === 336
@@ -64,8 +64,8 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
+            E + S ⇌ ES
+            ES <--> E + P
         end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(one_segment) === 1
@@ -100,8 +100,8 @@ end
                                    EnzymeRates.Derivation._solve(m).fitted; :Keq]
             env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
                                          for x in L.vars.names)
-            H = prod(env[x] for x in m.catalytic.substrates) -
-                prod(env[x] for x in m.catalytic.products) / env[:Keq]
+            H = prod(env[x] for x in _testhelper_substrates(m)) -
+                prod(env[x] for x in _testhelper_products(m)) / env[:Keq]
             @test isapprox(_testhelper_poly_value(L.H, L.vars, env), H;
                            rtol = big(10)^-60)
             @test !iszero(L.Q) && all(>(0), values(L.Q.terms))
@@ -124,17 +124,17 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)            :: EqualAI
-            E(S) <--> E + P         :: EqualAI
-            E + I ⇌ E(I)            :: OnlyI
+            E + S ⇌ ES            :: EqualAI
+            ES <--> E + P         :: EqualAI
+            E + I ⇌ EI            :: OnlyI
         end
     end
     mm = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
+            E + S ⇌ ES
+            ES <--> E + P
         end
     end
     competitive = @enzyme_mechanism begin
@@ -142,9 +142,9 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
-            E + I ⇌ E(I)
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
         end
     end
     s = EnzymeRates.Derivation._solve(am)
@@ -179,7 +179,8 @@ end
         m = spec.mechanism
         _testhelper_is_allosteric(m) && continue
         c = m.catalytic
-        back = _testhelper_plain_mechanism(c.substrates, c.products, c.nodes,
+        back = _testhelper_plain_mechanism(c.metabolites, c.enzyme_forms, c.substrates,
+                                           c.products,
                                            reverse(_testhelper_turned.(c.steps)))
         @test EnzymeRates.Derivation._law(back) == EnzymeRates.Derivation._law(m)
     end
@@ -189,21 +190,21 @@ end
         substrates: A, B
         products: P
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-            E + B ⇌ E(B)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P)
-            E(P) ⇌ E + P
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            E + B ⇌ EB
+            EA + B ⇌ EAB
+            EAB <--> EP
+            EP ⇌ E + P
         end
     end
     tied = @enzyme_mechanism begin
         substrates: A, B
         products: P
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            E(A, B) <--> E(P)
-            E(P) ⇌ E + P
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            EAB <--> EP
+            EP ⇌ E + P
         end
     end
     @test folded != tied
@@ -220,9 +221,9 @@ end
         rng = Random.MersenneTwister(600 + i)
         env = Dict{Symbol, BigFloat}(x => exp(4 * big(rand(rng)) - 2)
                                      for x in L.vars.names)
-        p1 = first(m.catalytic.products)
-        env[p1] = env[:Keq] * prod(env[x] for x in m.catalytic.substrates) /
-                  prod((env[x] for x in m.catalytic.products if x != p1);
+        p1 = first(_testhelper_products(m))
+        env[p1] = env[:Keq] * prod(env[x] for x in _testhelper_substrates(m)) /
+                  prod((env[x] for x in _testhelper_products(m) if x != p1);
                        init = big(1))
         off = copy(env)
         off[p1] /= 10
@@ -239,11 +240,11 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) ⇌ E(P)
-            E + P ⇌ E(P)
-            E(S) <--> F(P)
-            F(P) <--> E + P
+            E + S ⇌ ES
+            ES ⇌ EP
+            E + P ⇌ EP
+            ES <--> FP
+            FP <--> E + P
         end
     end
     msg = "internal error: a rapid-equilibrium cycle of this mechanism turns the " *
@@ -253,16 +254,16 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) ⇌ E(P)
-            E + P ⇌ E(P)
-            E(S) <--> F(P)
-            F(P) <--> E + P
+            E + S ⇌ ES
+            ES ⇌ EP
+            E + P ⇌ EP
+            ES <--> FP
+            FP <--> E + P
         end
     end
     @test startswith(err.value.msg,
-                     "Mechanism: the rapid-equilibrium steps E + P ⇌ E(P), " *
-                     "E + S ⇌ E(S) and E(S) ⇌ E(P) close a cycle")
+                     "Mechanism: the rapid-equilibrium steps E + P ⇌ EP, " *
+                     "E + S ⇌ ES and ES ⇌ EP close a cycle")
 end
 
 @testset "_law refuses a mask whose steady-state steps leave its segments apart" begin
@@ -272,15 +273,15 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(Q) + P
-            E(Q) <--> E + Q
+            E + A <--> EA
+            EA + B <--> EAB
+            EAB <--> EPQ
+            EPQ <--> EQ + P
+            EQ <--> E + Q
         end
     end
     mask = BitVector([EnzymeRates.Mechanisms.step_text(m.catalytic, k) in
-                      ("E + A <--> E(A)", "E(Q) + P <--> E(P, Q)")
+                      ("E + A <--> EA", "EQ + P <--> EPQ")
                       for k in eachindex(m.catalytic.steps)])
     @test EnzymeRates.Derivation.rate_equation_term_count(m.catalytic, mask) == 0
     msg = "internal error: the steady-state steps of this mechanism " *
@@ -298,22 +299,22 @@ end
         products: P, Q
         modifiers: R1
         steps: begin
-            E + A <--> E(A)
-            E(A) <--> F(P)
-            F(P) <--> F + P
-            F + B <--> F(B)
-            F(B) <--> E(Q)
-            E(Q) <--> E + Q
-            E + R1 <--> E(R1)
-            E(A) + R1 <--> E(A, R1)
-            F(P) + R1 <--> F(P, R1)
-            F + R1 <--> F(R1)
-            F(B) + R1 <--> F(B, R1)
-            E(R1) + A <--> E(A, R1)
-            E(A, R1) <--> F(P, R1)
-            F(P, R1) <--> F(R1) + P
-            F(R1) + B <--> F(B, R1)
-            F(B, R1) <--> E(R1) + Q
+            E + A <--> EA
+            EA <--> FP
+            FP <--> F + P
+            F + B <--> FB
+            FB <--> EQ
+            EQ <--> E + Q
+            E + R1 <--> ER1
+            EA + R1 <--> EAR1
+            FP + R1 <--> FPR1
+            F + R1 <--> FR1
+            FB + R1 <--> FBR1
+            ER1 + A <--> EAR1
+            EAR1 <--> FPR1
+            FPR1 <--> FR1 + P
+            FR1 + B <--> FBR1
+            FBR1 <--> ER1 + Q
         end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(m_manual) >
@@ -342,8 +343,8 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E + P
+            E + S <--> ES
+            ES <--> E + P
         end
     end
     bad = _testhelper_overflowing(EnzymeRates.Derivation._solve(mm))
@@ -357,9 +358,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)       :: EqualAI
-            E(S) <--> E(P)     :: NonequalAI
-            E + P ⇌ E(P)       :: EqualAI
+            E + S ⇌ ES       :: EqualAI
+            ES <--> EP     :: NonequalAI
+            E + P ⇌ EP       :: EqualAI
         end
     end
     bad = _testhelper_overflowing(EnzymeRates.Derivation._solve(am))
@@ -414,10 +415,10 @@ end
             products: P
             oligomeric_state: 1
             steps: begin
-                E + A <--> E(A)        :: EqualAI
-                E(A) + B ⇌ E(A, B)     :: EqualAI
-                E(A, B) <--> E(P)      :: NonequalAI
-                E + P ⇌ E(P)           :: EqualAI
+                E + A <--> EA        :: EqualAI
+                EA + B ⇌ EAB     :: EqualAI
+                EAB <--> EP      :: NonequalAI
+                E + P ⇌ EP           :: EqualAI
             end
         end),
         @enzyme_mechanism(begin
@@ -425,10 +426,10 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + A <--> E(A)        :: EqualAI
-                E(A) + B ⇌ E(A, B)     :: EqualAI
-                E(A, B) <--> E(P)      :: NonequalAI
-                E + P ⇌ E(P)           :: EqualAI
+                E + A <--> EA        :: EqualAI
+                EA + B ⇌ EAB     :: EqualAI
+                EAB <--> EP      :: NonequalAI
+                E + P ⇌ EP           :: EqualAI
             end
         end),
         @enzyme_mechanism(begin
@@ -436,10 +437,10 @@ end
             products: P
             oligomeric_state: 3
             steps: begin
-                E + A <--> E(A)        :: EqualAI
-                E(A) + B ⇌ E(A, B)     :: EqualAI
-                E(A, B) <--> E(P)      :: NonequalAI
-                E + P ⇌ E(P)           :: EqualAI
+                E + A <--> EA        :: EqualAI
+                EA + B ⇌ EAB     :: EqualAI
+                EAB <--> EP      :: NonequalAI
+                E + P ⇌ EP           :: EqualAI
             end
         end))
     for (n, am) in enumerate(mechs)
@@ -480,7 +481,8 @@ end
             cm = sub.catalytic
             onlyi =
                 Set(x for (k, ns) in enumerate(_testhelper_edge_names(sub, :I))
-                    if sub.allosteric.allosteric_states[cm.steps[k].group] === :OnlyI
+                    if sub.allosteric.allosteric_states[cm.steps[k].kinetic_group] ===
+                       :OnlyI
                     for x in ns)
             held = Set(A.vars.names[v] for mo in keys(A.active.D.terms) for (v, _) in mo)
             @test !isempty(onlyi)
@@ -497,9 +499,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: OnlyA
         end
     end
     @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(inert))
@@ -551,19 +553,19 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)          :: EqualAI
-            E + B <--> E(B)          :: EqualAI
-            E(A) + B <--> E(A, B)    :: EqualAI
-            E(B) + A <--> E(A, B)    :: EqualAI
-            E(A, B) <--> E(P, Q)     :: NonequalAI
-            E(P, Q) <--> E(P) + Q    :: EqualAI
-            E(P, Q) <--> E(Q) + P    :: EqualAI
-            E(P) <--> E + P          :: EqualAI
-            E(Q) <--> E + Q          :: EqualAI
-            E(A) + Q <--> E(A, Q)    :: EqualAI
-            E(Q) + A <--> E(A, Q)    :: EqualAI
-            E(B) + P <--> E(B, P)    :: EqualAI
-            E(P) + B <--> E(B, P)    :: EqualAI
+            E + A <--> EA          :: EqualAI
+            E + B <--> EB          :: EqualAI
+            EA + B <--> EAB    :: EqualAI
+            EB + A <--> EAB    :: EqualAI
+            EAB <--> EPQ     :: NonequalAI
+            EPQ <--> EP + Q    :: EqualAI
+            EPQ <--> EQ + P    :: EqualAI
+            EP <--> E + P          :: EqualAI
+            EQ <--> E + Q          :: EqualAI
+            EA + Q <--> EAQ    :: EqualAI
+            EQ + A <--> EAQ    :: EqualAI
+            EB + P <--> EBP    :: EqualAI
+            EP + B <--> EBP    :: EqualAI
         end
     end
     cm = am.catalytic

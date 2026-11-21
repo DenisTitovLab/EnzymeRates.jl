@@ -186,101 +186,44 @@ _rate_body(m::Mechanisms.Mechanism) =
 
 # ─── compile_rate_equation ─────────────────────────────────────────────────────
 #
-# A mechanism's Sig, the type parameter of its compiled rate law, every entry an `Int`:
-#   names       their number, then each name as its number of characters and each
-#               character's code point: the sorted distinct names of its metabolites, its
-#               conformation labels and its allosteric states. After them a name is its
-#               index among them, a list is its length followed by its entries, and a
-#               metabolite is its name followed by its modifier flag.
-#   catalytic   its substrates and its products; the number of forms, then each form
-#               (label, bound, added, subtracted); the number of steps, then each step
-#               (from, to, taken up, given off, flag, group).
-#   allostery   one allosteric state per kinetic group, none for a plain mechanism; the
-#               oligomeric state; the number of sites, then each site (ligands,
-#               multiplicity, states).
+# A mechanism's Sig, the type parameter of its compiled rate law, is the mechanism as nested
+# tuples of Symbols, Ints and Bools, its fields in declaration order:
+#   (metabolites, enzyme_forms, substrates, products,
+#    ((from, to, taken_up, given_off, rapid_equilibrium, kinetic_group), ...),
+#    allosteric_states, oligomeric_state, ((ligands, multiplicity, allosteric_states), ...))
+# each vector a tuple of its entries.
 
-"""`m` as one tuple of integers, its Sig (layout above): the only type parameter of its
-compiled rate law. Equal mechanisms have equal Sigs, since a mechanism is stored in
-canonical form."""
+"""`m` as nested tuples, its Sig (layout above): the only type parameter of its compiled
+rate law. Equal mechanisms have equal Sigs, since a mechanism is stored in canonical
+form."""
 function _sig_of(m::Mechanisms.Mechanism)
-    cm = m.catalytic
-    states, oligomeric_state, sites = m.allosteric.allosteric_states,
-                                      m.allosteric.oligomeric_state,
-                                      m.allosteric.regulatory_sites
-    names = sort!(unique!([Mechanisms.metabolites(m); [n.conformation for n in cm.nodes];
-                           states; [x for s in sites for x in s.allosteric_states]]))
-    out = Int[length(names)]
-    for x in names
-        text = String(x)
-        push!(out, length(text))
-        foreach(c -> push!(out, Int(c)), text)
-    end
-    index(x::Symbol) = searchsortedfirst(names, x)
-    function symbols!(list::Vector{Symbol})
-        push!(out, length(list))
-        foreach(x -> push!(out, index(x)), list)
-    end
-    function metabolite_list!(list::Vector{Mechanisms.Metabolite})
-        push!(out, length(list))
-        foreach(x -> push!(out, index(x.name), x.modifier), list)
-    end
-    symbols!(cm.substrates)
-    symbols!(cm.products)
-    push!(out, length(cm.nodes))
-    for n in cm.nodes
-        push!(out, index(n.conformation))
-        metabolite_list!(n.bound)
-        symbols!(n.added)
-        symbols!(n.subtracted)
-    end
-    push!(out, length(cm.steps))
-    for e in cm.steps
-        push!(out, e.from, e.to)
-        metabolite_list!(e.taken_up)
-        metabolite_list!(e.given_off)
-        push!(out, e.rapid_equilibrium, e.group)
-    end
-    symbols!(states)
-    push!(out, oligomeric_state, length(sites))
-    for s in sites
-        symbols!(s.ligands)
-        push!(out, s.multiplicity)
-        symbols!(s.allosteric_states)
-    end
-    Tuple(out)
+    c, a = m.catalytic, m.allosteric
+    # Each tuple is a vector splatted into the builtin `tuple`, and the vectors of steps
+    # and sites have their element type given, so the encoder dispatches nothing and
+    # compiles once, whatever the Sig's type.
+    steps = Tuple{Int, Int, Tuple{Vararg{Int}}, Tuple{Vararg{Int}}, Bool, Int}[
+        (e.from, e.to, (e.taken_up...,), (e.given_off...,), e.rapid_equilibrium,
+         e.kinetic_group) for e in c.steps]
+    sites = Tuple{Tuple{Vararg{Symbol}}, Int, Tuple{Vararg{Symbol}}}[
+        ((s.ligands...,), s.multiplicity, (s.allosteric_states...,))
+        for s in a.regulatory_sites]
+    ((c.metabolites...,), (c.enzyme_forms...,), (c.substrates...,), (c.products...,),
+     (steps...,), (a.allosteric_states...,), a.oligomeric_state, (sites...,))
 end
 
-"""A Sig read from its start: a struct, not captured variables, so nothing is boxed."""
-mutable struct _SigReader
-    sig::Vector{Int}
-    at::Int
-end
-_next!(r::_SigReader) = r.sig[r.at += 1]
-
-"""The mechanism whose Sig is `sig`, splatted, built by the constructors, which check it.
-The varargs method compiles once, whatever the Sig length, as long as callers splat a Sig
-whose length their code leaves open."""
-function _mechanism_from_sig(sig::Int...)
-    r = _SigReader(collect(sig), 0)
-    names = [Symbol(String([Char(_next!(r)) for _ in 1:_next!(r)])) for _ in 1:_next!(r)]
-    name() = names[_next!(r)]
-    symbols() = Symbol[name() for _ in 1:_next!(r)]
-    metabolite_list() =
-        Mechanisms.Metabolite[Mechanisms.Metabolite(name(), _next!(r) == 1)
-                              for _ in 1:_next!(r)]
-    substrates = symbols()
-    products = symbols()
-    forms = [Mechanisms.EnzymeForm(name(), metabolite_list(), symbols(), symbols())
-             for _ in 1:_next!(r)]
-    steps = [Mechanisms.Step(_next!(r), _next!(r), metabolite_list(), metabolite_list(),
-                             _next!(r) == 1, _next!(r))
-             for _ in 1:_next!(r)]
-    catalytic = Mechanisms.CatalyticScheme(substrates, products, forms, steps)
-    states = symbols()
-    oligomeric_state = _next!(r)
-    sites = [Mechanisms.RegulatorySite(symbols(), _next!(r), symbols())
-             for _ in 1:_next!(r)]
-    Mechanisms.Mechanism(catalytic, Mechanisms.Allostery(states, oligomeric_state, sites))
+"""The mechanism whose Sig is `sig`, built by the constructors, which check it. It takes
+the Sig unspecialized, so it compiles once, whatever the mechanism."""
+function _mechanism_from_sig(@nospecialize(sig::Tuple))
+    metabolites, forms, substrates, products, steps, states, oligomeric_state, sites = sig
+    catalytic = Mechanisms.CatalyticScheme(
+        Symbol[metabolites...], Symbol[forms...], Int[substrates...], Int[products...],
+        Mechanisms.Step[Mechanisms.Step(s[1], s[2], Int[s[3]...], Int[s[4]...], s[5], s[6])
+                        for s in steps])
+    regulatory_sites = Mechanisms.RegulatorySite[
+        Mechanisms.RegulatorySite(Symbol[s[1]...], s[2], Symbol[s[3]...]) for s in sites]
+    Mechanisms.Mechanism(catalytic,
+                         Mechanisms.Allostery(Symbol[states...], oligomeric_state,
+                                              regulatory_sites))
 end
 
 """The rate law of the mechanism whose Sig (`_sig_of`) is `Sig`, as a function
@@ -293,7 +236,7 @@ struct _CompiledRateEquation{Sig} end
 memo (`_well_posed`): what the law's generated methods derive from. It reads the Sig off
 `R` at run time, so it and the decoder compile once, whatever the mechanism."""
 _derivation_input(@nospecialize(R::Type{<:_CompiledRateEquation})) =
-    _well_posed(_mechanism_from_sig(R.parameters[1]...))
+    _well_posed(_mechanism_from_sig(R.parameters[1]))
 
 """
     compile_rate_equation(m) -> rate
@@ -324,9 +267,9 @@ julia> m = @enzyme_mechanism begin
            substrates: S
            products: P
            steps: begin
-               E + S ⇌ E(S)
-               E(S) <--> E(P)
-               E(P) ⇌ E + P
+               E + S ⇌ ES
+               ES <--> EP
+               EP ⇌ E + P
            end
        end;
 
@@ -360,7 +303,7 @@ end
 @generated parameters(compiled_law::_CompiledRateEquation) =
     Tuple(_solve(_derivation_input(compiled_law)).fitted)
 @generated Mechanisms.metabolites(compiled_law::_CompiledRateEquation) =
-    Tuple(Mechanisms.metabolites(_mechanism_from_sig(compiled_law.parameters[1]...)))
+    Tuple(Mechanisms.metabolites(_mechanism_from_sig(compiled_law.parameters[1])))
 
 # A compiled law prints one line whatever its mechanism; `@nospecializeinfer` keeps a caller
 # compiled for one law, such as `sprint`, from inferring a show for that law.

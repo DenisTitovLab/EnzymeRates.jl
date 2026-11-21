@@ -19,8 +19,8 @@ oligomeric states the search may use.
   chemical formula in brackets: `S[C6H12O6]`. The atoms of the two sides balance, and a
   name is a substrate or a product, not both.
 - `competitive_inhibitors:` lists the competitive inhibitors, names that bind the
-  catalytic site without reacting. A substrate or product listed here may also bind as
-  its modifier copy, which a mechanism writes `X::Mod`.
+  catalytic site without reacting. A substrate or product listed here may also bind
+  where it does not react, as an inhibitor.
 - `allosteric_regulators:` lists the allosteric regulators, names that bind regulatory
   sites. A type tag, `A::Activator` or `A::Inhibitor`, pins the regulator to the
   allosteric state that activates or inhibits; an untagged one (`:unspecified`) may take
@@ -35,12 +35,13 @@ oligomeric states the search may use.
 
 No metabolite is named `Keq`, `L`, `N`, `params`, `concs` or `v`, or holds `_`: a
 rate equation keeps those names, and its constant names join names with `_`. Nor
-is one named `E`, the label of the free enzyme form; a name is an identifier that is no
-keyword. An enzyme form's name joins its bound metabolites' names without a separator,
-so the names may not spell one string two ways: with `Ac`, `CoA` and `AcCoA`, E with Ac
-and CoA bound and E with AcCoA bound would both be `EAcCoA`. `@enzyme_reaction` rejects
-such a reaction and names both spellings (`Ac + CoA and AcCoA both spell AcCoA`); rename
-one (`Acetyl`). A reactant's modifier copy is named `Xmod`, which counts as a name too.
+is one named `E`, the name of the free enzyme form; a name is an identifier that is no
+keyword. The mechanism search names an enzyme form by joining its bound metabolites'
+names without a separator, so the names may not spell one string two ways: with `Ac`,
+`CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound would both be
+`EAcCoA`. `@enzyme_reaction` rejects such a reaction and names both spellings
+(`Ac + CoA and AcCoA both spell AcCoA`); rename one (`Acetyl`). A reactant bound where it
+does not react is written `Xmod` in a form's name, which counts as a name too.
 
 A reaction prints as the block that builds it, its names sorted:
 
@@ -74,7 +75,7 @@ end
         modifiers: I, ...
         oligomeric_state: 2              # an allosteric mechanism only
         steps: begin
-            E + S ⇌ E(S)                 # :: EqualAI on every statement, if allosteric
+            E + S ⇌ ES                   # :: EqualAI on every statement, if allosteric
             ...
         end
         regulatory_site(2): X::OnlyA     # an allosteric mechanism only
@@ -91,8 +92,9 @@ Labels:
 - `substrates:` and `products:` (required) name the reactants, without atoms; atoms
   belong in [`@enzyme_reaction`](@ref).
 - `modifiers:` names the metabolites that bind the catalytic site without reacting, such
-  as inhibitors and activators. A substrate or product listed here may bind as a modifier
-  as well.
+  as inhibitors and activators. A name is declared once: a substrate or product that
+  also binds where it does not react is not listed here, since a step that binds it
+  simply takes it up (`ES + S ⇌ ESS`).
 - `steps:` (required) holds the steps in one `begin ... end` block.
 - `substrates:`, `products:` and `modifiers:` may repeat; their names accumulate.
 - `oligomeric_state:` and `regulatory_site(n):` belong to an allosteric mechanism (below).
@@ -101,31 +103,25 @@ Steps, one per line:
 - `lhs ⇌ rhs` is a rapid-equilibrium step and `lhs <--> rhs` a steady-state one; either
   direction may be written.
 - Each side holds one enzyme form and the metabolites the step takes up (left) or gives
-  off (right): `E + S ⇌ E(S)`, `E(A) + B <--> E(Q) + P`.
-- An enzyme form is a conformation label with its bound metabolites in parentheses:
-  `E`, `E(S)`, `E(A, B)`. `E` is the free enzyme; another conformation takes another
-  label, a capital letter followed by lowercase letters and digits such as `Estar` or
-  `F2`, never `A` or `I` (constant names tag the active and inactive conformations with
-  `A_` and `I_`) and never a metabolite's name. A label such as `ES` reads as an opaque
-  name and is rejected; write `E(S)`.
-- `residual =` records the atoms a covalent intermediate keeps, the substrates it took
-  up minus the products it gave off (ping-pong): `E(; residual = A - P)` is the enzyme
-  without bound metabolites after A bound and P left.
+  off (right): `E + S ⇌ ES`, `EA + B <--> EQ + P`. A name on a side that no label
+  declares is an enzyme form, and each side holds exactly one.
+- An enzyme form's name is any identifier that names no metabolite, such as `ES`, `EAB`
+  or `Fstar`; `E` is the free enzyme. The name says nothing to the package, but it is
+  part of its constants' names, so a name that tells what the form holds keeps the rate
+  law readable: the mechanism search writes `EAB` for E with A and B bound, and
+  `E_res_plusA_minusP` for a ping-pong's covalent intermediate after A bound and P left.
 - A parenthesized tuple of steps is one kinetic group, whose steps share their
-  constants: `(E + I ⇌ E(I), E(S) + I ⇌ E(I, S))`.
-- A name binds in its own role; a name that is only a modifier is written bare. A
-  substrate or product that `modifiers:` lists binds as a modifier where it is written
-  `X::Mod`: `E(S) + S::Mod ⇌ E(S, S::Mod)`.
+  constants: `(E + I ⇌ EI, ES + I ⇌ EIS)`.
+- A substrate or product binds wherever a step takes it up. Substrate inhibition is
+  `ES + S ⇌ ESS`; the form's name tells the two bindings apart.
 
-Every mechanism holds the free enzyme `E`, with nothing bound and no residual, and its
-steps join every form to it. Each declared name takes part in some step: a step takes up
-or gives off each substrate and product, and binds each modifier.
+Every mechanism holds the free enzyme `E`, and its steps join every form to it. Each
+declared name takes part in some step: a step takes up or gives off each substrate and
+product, and binds each modifier.
 
-Constants are named after the forms a step joins, each form written as its label and
-its bound names without a separator: `K_ES_to_E_S` for `E + S ⇌ E(S)`, `k_ES_to_EP` and
-`k_EP_to_ES` for `E(S) <--> E(P)`. A form writes a modifier copy as `Smod` and a residual
-as `_res_plusA_minusP`; a constant writes the metabolite a step takes up or gives off by
-its name alone (`K_ESSmod_to_ES_S`).
+Constants are named after the forms and metabolites a step joins: `K_ES_to_E_S` for
+`E + S ⇌ ES`, `k_ES_to_EP` and `k_EP_to_ES` for `ES <--> EP`, `K_ESSmod_to_ES_S` for
+`ES + S ⇌ ESSmod`.
 
 An allosteric (MWC) mechanism: the enzyme is active (A) or inactive (I), the free
 enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory sites
@@ -166,8 +162,8 @@ the macro cannot show that the limit does not depend on how fast the switched-of
 constants vanish), or when the states allow more choices than it searches and none of the
 few it tries first gives the limit (see [How an excluded step is switched off](@ref)).
 
-Below, the inhibitor I binds E and E(S) with one constant, and a second S binds E(S) as
-a modifier, which inhibits at high substrate:
+Below, the inhibitor I binds E and ES with one constant, and a second S binds ES, which
+inhibits at high substrate:
 
 ```jldoctest
 julia> using EnzymeRates
@@ -175,13 +171,13 @@ julia> using EnzymeRates
 julia> m = @enzyme_mechanism begin
            substrates: S
            products: P
-           modifiers: I, S
+           modifiers: I
            steps: begin
-               E + S ⇌ E(S)
-               E(S) <--> E(P)
-               E(P) ⇌ E + P
-               (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))
-               E(S) + S::Mod ⇌ E(S, S::Mod)
+               E + S ⇌ ES
+               ES <--> EP
+               EP ⇌ E + P
+               (E + I ⇌ EI, ES + I ⇌ EIS)
+               ES + S ⇌ ESSmod
            end
        end;
 
@@ -202,16 +198,16 @@ julia> using EnzymeRates
 julia> am = @enzyme_mechanism begin
            substrates: A, B
            products: P, Q
-           modifiers: I, P
+           modifiers: I
            oligomeric_state: 2
            steps: begin
-               E + A ⇌ E(A)                          :: EqualAI
-               E(A) + B ⇌ E(A, B)                    :: NonequalAI
-               E(A, B) <--> E(P, Q)                  :: OnlyA
-               E(P, Q) ⇌ E(Q) + P                    :: EqualAI
-               E(Q) ⇌ E + Q                          :: EqualAI
-               (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))    :: EqualAI
-               E(Q) + P::Mod ⇌ E(P::Mod, Q)          :: EqualAI
+               E + A ⇌ EA                          :: EqualAI
+               EA + B ⇌ EAB                    :: NonequalAI
+               EAB <--> EPQ                  :: OnlyA
+               EPQ ⇌ EQ + P                    :: EqualAI
+               EQ ⇌ E + Q                          :: EqualAI
+               (E + I ⇌ EI, EA + I ⇌ EAI)    :: EqualAI
+               EQ + P ⇌ EPmodQ          :: EqualAI
            end
            regulatory_site(2): X::OnlyA, Y::OnlyI
        end;

@@ -183,7 +183,7 @@ end
 
 """
 Coerce labeled-line values to bare Symbols. Reject any other value, with a hint where an
-atom bracket (`S[C]`) or a role tag (`P::Mod`) goes.
+atom bracket (`S[C]`) goes, or that a name tagged (`P::Mod`) is listed bare.
 """
 function _bare_symbols_from_values(values, label)
     for v in values
@@ -193,7 +193,7 @@ function _bare_symbols_from_values(values, label)
                untagged isa Expr && untagged.head === :ref ?
                    " Atom brackets belong in @enzyme_reaction." :
                v.head === :(::) && name !== nothing ?
-                   " List `$name` bare; a role tag goes on the metabolite in a step." : ""
+                   " List `$name` bare." : ""
         error("`$label:` expects bare names; got $(join(values, ", ")).$hint")
     end
     Symbol[values...]
@@ -227,11 +227,12 @@ The mechanism an `@enzyme_mechanism` block writes, as written. It reads the bloc
 expression without evaluating it or building code, and throws the DSL's syntax errors;
 the constructors (`_construct`) and the boundary check (`check_valid_rate_equation`) check
 the mechanism. The value holds the declared `substrates`, `products` and `modifiers`; the
-steps as `nodes` and `steps` (`_raw_steps`): step `j` joins nodes `2j - 1` and `2j`, its
-written ends, in its written direction, and its `group` is the label of its statement;
-the allosteric state of each group label (`allosteric_states`, empty when no statement
-carries one); the `oligomeric_state`, 1 when not given; and the `regulatory_sites`, each
-as written (`_raw_site`).
+steps as `forms` and `steps` (`_raw_steps`): each step joins two forms of `forms` in its
+written direction, takes up and gives off metabolites by their place among
+`[substrates; products; modifiers]`, and its `kinetic_group` is the label of its
+statement; the allosteric state of each group label (`allosteric_states`, empty when no
+statement carries one); the `oligomeric_state`, 1 when not given; and the
+`regulatory_sites`, each as written (`_raw_site`).
 
 `substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
 holds one `begin ... end` block (`_raw_steps`). A mechanism is allosteric when its
@@ -286,7 +287,7 @@ function raw_mechanism(block)
     steps_block === nothing && error("@enzyme_mechanism: `steps:` not specified.")
     regulators = unique!([l for site in sites for l in site.ligands])
     names = (; substrates, products, modifiers, regulators)
-    nodes, steps, states = _raw_steps(steps_block, names)
+    forms, steps, states = _raw_steps(steps_block, names)
     if isempty(states)
         allosteric_only = "is read only for an allosteric mechanism, whose statements " *
                           "each carry an allosteric state (`:: EqualAI`, " *
@@ -299,7 +300,7 @@ function raw_mechanism(block)
                                 "$allosteric_only; no statement carries one."))
     end
     _check_site_ligands(sites)
-    (; substrates, products, modifiers, nodes, steps, allosteric_states = states,
+    (; substrates, products, modifiers, forms, steps, allosteric_states = states,
      oligomeric_state = something(multiplicity, 1), regulatory_sites = sites)
 end
 
@@ -345,18 +346,20 @@ function _check_site_ligands(sites::Vector{_WrittenSite})
 end
 
 """
-The steps of a `steps:` block as written and each statement's allosteric state: `(nodes,
-steps, states)`. Each step joins its two written ends, which it adds to `nodes`
-(`_raw_step!`), and its `group` is its statement's label, the statements numbered from 1.
-A statement is one kinetic group: a step (`lhs ⇌ rhs` rapid equilibrium, `lhs <--> rhs`
-steady state) or a parenthesized tuple of steps (`(step,)` for one), and it may end in its
-state (`step :: State`, `(step, step) :: State`). Either every statement carries a state,
-and `states` holds them in statement order, or none does and `states` is empty; an
-`ArgumentError` names a statement without a state when others carry one. `names` holds
-the block's declared names.
+The steps of a `steps:` block as written and each statement's allosteric state: `(forms,
+steps, states)`. `forms` names each enzyme form a step side writes, once, in the order the
+sides first write them; each step joins two of them and takes up and gives off metabolites
+by their place among the declared names, `[names.substrates; names.products;
+names.modifiers]` (`_raw_step!`), and its `kinetic_group` is its statement's label, the
+statements numbered from 1. A statement is one kinetic group: a step (`lhs ⇌ rhs` rapid
+equilibrium, `lhs <--> rhs` steady state) or a parenthesized tuple of steps (`(step,)` for
+one), and it may end in its state (`step :: State`, `(step, step) :: State`). Either every
+statement carries a state, and `states` holds them in statement order, or none does and
+`states` is empty; an `ArgumentError` names a statement without a state when others carry
+one. `names` holds the block's declared names.
 """
 function _raw_steps(steps_block, names)
-    nodes, steps = Mechanisms.EnzymeForm[], Mechanisms.Step[]
+    forms, steps = Symbol[], Mechanisms.Step[]
     # Each statement as written, and its state or `nothing`.
     statements, states = Any[], Union{Symbol, Nothing}[]
     n = 0
@@ -369,7 +372,7 @@ function _raw_steps(steps_block, names)
             inner, state = arg.args
             inner isa Expr && inner.head === :tuple ||
                 error("@enzyme_mechanism: a single step carries its tag after its " *
-                      "right-hand side, as in `E + S ⇌ E(S) :: EqualAI`. Got `$arg`.")
+                      "right-hand side, as in `E + S ⇌ ES :: EqualAI`. Got `$arg`.")
             state isa Symbol ||
                 error("@enzyme_mechanism: step-group tag must be a Symbol; got $state")
             push!(states, state)
@@ -383,7 +386,7 @@ function _raw_steps(steps_block, names)
             state === nothing || state isa Symbol ||
                 error("@enzyme_mechanism: step tag must be a Symbol; got $state")
             push!(states, state)
-            push!(steps, _raw_step!(nodes, op, lhs, rhs, n, names))
+            push!(steps, _raw_step!(forms, op, lhs, rhs, n, names))
             continue
         else
             error("@enzyme_mechanism: expected step or step-group; got $arg")
@@ -391,7 +394,7 @@ function _raw_steps(steps_block, names)
         isempty(members) && error("@enzyme_mechanism: a parenthesized group holds no " *
                                   "step; a kinetic group holds at least one step.")
         for s in members
-            push!(steps, _raw_step!(nodes, _step_parts(s)..., n, names))
+            push!(steps, _raw_step!(forms, _step_parts(s)..., n, names))
         end
     end
     with = findfirst(!isnothing, states)
@@ -402,7 +405,7 @@ function _raw_steps(steps_block, names)
             "allosteric state, while `$(statements[with])` carries one; a mechanism is " *
             "allosteric when every statement ends in its state (`:: EqualAI`, " *
             "`:: NonequalAI`, `:: OnlyA` or `:: OnlyI`), and plain when none does."))
-    nodes, steps, Symbol[s for s in states if s !== nothing]
+    forms, steps, Symbol[s for s in states if s !== nothing]
 end
 
 """A step expression's operator, `⇌` or `<-->`, and the terms of its two sides; a side
@@ -424,15 +427,14 @@ _side_terms(side) = side isa Expr && side.head === :call && side.args[1] === :+ 
 
 """
 The tag a step's right-hand terms `rhs` end in, taken off the last term, or `nothing`.
-`::` binds tighter than `+`, so `E(P) ⇌ E + P :: EqualAI` reads `P :: EqualAI` as its
-last term, while `E(P) ⇌ (E + P) :: EqualAI` tags the whole side, whose terms then
-replace it. The role tag `::Mod` marks a metabolite, never a step. `::Inh` is read the
-same way, so `_raw_met` reports it as an unknown role tag rather than as a step's state.
+`::` binds tighter than `+`, so `EP ⇌ E + P :: EqualAI` reads `P :: EqualAI` as its last
+term, while `EP ⇌ (E + P) :: EqualAI` tags the whole side, whose terms then replace it.
+`::Mod` is left on its term, which `_raw_term` rejects with the text to write instead.
 """
 function _peel_tag!(rhs::Vector{Any})
     t = rhs[end]
-    t isa Expr && t.head === :(::) && length(t.args) == 2 &&
-        t.args[2] ∉ (:Mod, :Inh) || return nothing
+    t isa Expr && t.head === :(::) && length(t.args) == 2 && t.args[2] !== :Mod ||
+        return nothing
     rhs[end] = t.args[1]
     length(rhs) == 1 && splice!(rhs, 1, _side_terms(t.args[1]))
     t.args[2]
@@ -440,139 +442,110 @@ end
 
 """
 One step as written, in kinetic group `group`: `op` is `⇌` (rapid equilibrium) or
-`<-->` (steady state), `lhs` and `rhs` the terms of its two sides. Each side holds
-exactly one enzyme form and any number of metabolites (`_raw_met`): the left-hand
-metabolites are taken up, the right-hand ones given off. The left-hand form and then the
-right-hand one are added to `nodes`, and the step joins them. Every term of both sides is
-read before either side's enzyme forms are counted, so a misspelled bound metabolite is
-reported as undeclared rather than as a second enzyme form. Each form's conformation
-label is checked (`check_conformation_label`).
+`<-->` (steady state), `lhs` and `rhs` the terms of its two sides (`_raw_term`). Each side
+holds exactly one enzyme form and any number of declared metabolites: the left-hand
+metabolites are taken up, the right-hand ones given off, each by its place among
+`[names.substrates; names.products; names.modifiers]`. A form not yet in `forms` is added
+to it, and the step joins the two forms by their places there.
 """
-function _raw_step!(nodes::Vector{Mechanisms.EnzymeForm}, op, lhs, rhs, group::Int, names)
-    is_met(t) = t isa Symbol ? _is_declared(t, names) : t isa Expr && t.head === :(::)
-    read_term(t) = is_met(t) ? _raw_met(t, names) : _raw_form(t, names)
-    term_name(t) = t isa Expr && !isempty(t.args) ? t.args[1] : t
-    parsed = (Any[read_term(t) for t in lhs], Any[read_term(t) for t in rhs])
-    (from, taken_up), (to, given_off) = map((lhs, rhs), parsed) do terms, side
-        i = findall(x -> x isa Mechanisms.EnzymeForm, side)
-        isempty(i) && error("@enzyme_mechanism: step side has no enzyme-form term " *
-                            "(terms: $(join(term_name.(terms), ", "))).")
-        length(i) == 1 ||
+function _raw_step!(forms::Vector{Symbol}, op, lhs, rhs, group::Int, names)
+    declared = [names.substrates; names.products; names.modifiers]
+    (from, taken_up), (to, given_off) = map((lhs, rhs)) do terms
+        side = [_raw_term(t, names) for t in terms]
+        found = findall(first, side)
+        isempty(found) &&
+            error("@enzyme_mechanism: step side has no enzyme-form term (terms: " *
+                  "$(join(last.(side), ", "))); a name that is no declared metabolite " *
+                  "names an enzyme form.")
+        length(found) == 1 ||
             error("@enzyme_mechanism: step side has more than one enzyme-form term " *
-                  "($(term_name(terms[i[1]])), $(term_name(terms[i[2]]))); each " *
-                  "elementary step has exactly one enzyme form per side.")
-        Mechanisms.check_conformation_label(side[only(i)].conformation,
-                                            "@enzyme_mechanism")
-        side[only(i)],
-        sort!(Mechanisms.Metabolite[x for x in side if x isa Mechanisms.Metabolite])
+                  "($(join(last.(side[found]), ", "))); each elementary step has exactly " *
+                  "one enzyme form per side, and a name that is no declared metabolite " *
+                  "names an enzyme form.")
+        form = last(side[only(found)])
+        f = findfirst(==(form), forms)
+        f === nothing && (push!(forms, form); f = length(forms))
+        f, sort!(Int[findfirst(==(x), declared) for (is_form, x) in side if !is_form])
     end
-    push!(nodes, from, to)
-    Mechanisms.Step(length(nodes) - 1, length(nodes), taken_up, given_off, op === :⇌,
-                    group)
+    Mechanisms.Step(from, to, taken_up, given_off, op === :⇌, group)
 end
 
-"""Whether `x` is a name the block declares (`names`: substrates, products, modifiers
-and allosteric regulators)."""
+"""Whether `x` is a metabolite the block declares (`names`: substrates, products and
+modifiers)."""
 _is_declared(x, names) = x in names.substrates || x in names.products ||
-                         x in names.modifiers || x in names.regulators
-
-"""The block's declared names (`names`), each once, in name order, for error messages."""
-_declared_names(names) =
-    sort!(unique!([names.substrates; names.products; names.modifiers; names.regulators]))
+                         x in names.modifiers
 
 """
-A metabolite term as written: a declared name `X`, or `X::Mod`. A substrate or product
-written bare binds as itself, a name under `modifiers:` that is no reactant as a modifier,
-and `X::Mod` as the modifier copy of a reactant `X` that `modifiers:` also lists. An
-allosteric regulator binds only at its regulatory site. `species` is the enzyme-form term
-that binds the metabolite, or `nothing` for a free metabolite of a step.
+A term of a step side as written, `(is_form, name)`: a declared metabolite (`_is_declared`)
+is `(false, name)`, and any other name `(true, name)`, the name of an enzyme form, used as
+written. An allosteric regulator binds only at its regulatory site, unless `modifiers:`
+lists it too. A reactant's modifier copy `X::Mod` and a form in call notation (`E(A, B)`)
+are errors that say what to write instead.
 """
-function _raw_met(t, names, species = nothing)
-    name, tag = t isa Expr && length(t.args) == 2 ? (t.args[1], t.args[2]) : (t, nothing)
-    in_species = species === nothing ? "" : " in species `$species`"
-    name isa Symbol || error("@enzyme_mechanism: expected `name::Mod`$in_species; got $t")
-    tag === nothing || tag === :Mod ||
-        error("@enzyme_mechanism: unknown role tag ::$tag on $name; the one role tag is " *
-              "::Mod, which marks a substrate or product bound as a modifier.")
-    _is_declared(name, names) ||
-        error("@enzyme_mechanism: " *
-              (species === nothing ? "tagged metabolite `$name` in `$t`" :
-               "bound metabolite `$name` in species `$species`") *
-              " is not declared. Declared: $(_declared_names(names)).")
-    reactant = name in names.substrates || name in names.products
-    if tag === :Mod
-        reactant ||
-            error("@enzyme_mechanism: `$name::Mod` marks a substrate or product bound " *
-                  "as a modifier, and `$name` is neither; write a name under " *
-                  "`modifiers:` bare.")
-        name in names.modifiers ||
-            error("@enzyme_mechanism: `$name::Mod` names `$name`, which `modifiers:` " *
-                  "does not declare; add `$name` to `modifiers:` to let it bind the " *
-                  "catalytic site as a modifier.")
-        return Mechanisms.Metabolite(name, true)
+function _raw_term(t, names)
+    if t isa Symbol
+        !_is_declared(t, names) && t in names.regulators &&
+            error("@enzyme_mechanism: `$t` is an allosteric regulator; it binds only at " *
+                  "its regulatory site, unless `modifiers:` lists it too.")
+        return (!_is_declared(t, names), t)
     end
-    reactant && return Mechanisms.Metabolite(name, false)
-    name in names.modifiers && return Mechanisms.Metabolite(name, true)
-    error("@enzyme_mechanism: `$name` is an allosteric regulator; it binds only at its " *
-          "regulatory site.")
+    if t isa Expr && t.head === :(::) && length(t.args) == 2 && t.args[1] isa Symbol
+        x, tag = t.args
+        tag === :Mod &&
+            error("@enzyme_mechanism: `$t` writes a modifier copy, which a mechanism " *
+                  "does not hold: a step that binds $x as a modifier takes $x up; write " *
+                  "`$x`.")
+        error("@enzyme_mechanism: unknown tag ::$tag on $x; a step ends in its " *
+              "allosteric state, written after its right-hand side.")
+    end
+    if t isa Expr && t.head === :call && t.args[1] isa Symbol
+        name = _called_form_name(t)
+        error("@enzyme_mechanism: `$t` is call notation; an enzyme form is a name, so " *
+              (name === nothing ? "write one, such as `EAB` for `E(A, B)`." :
+               "write `$name`."))
+    end
+    error("@enzyme_mechanism: expected a metabolite or an enzyme form's name on a step " *
+          "side; got `$t`.")
 end
 
-"""
-An enzyme-form term as written, a node with each list sorted: a bare conformation label
-`E`, or a call `E(S, X::Mod; residual = A - P)` whose head is the conformation label,
-whose positional arguments are the bound metabolites (`_raw_met`) and whose `residual`
-lists the substrates added to and the products subtracted from the enzyme
-(`_read_residual!`). The constructors reject a conformation label that is a declared name.
-"""
-function _raw_form(t, names)
-    t isa Symbol || t isa Expr && t.head === :call && t.args[1] isa Symbol ||
-        error("@enzyme_mechanism: expected metabolite Symbol or species expression on " *
-              "step side; got $t")
-    conformation, args = t isa Symbol ? (t, Any[]) : (t.args[1], t.args[2:end])
-    bound, added, subtracted = Mechanisms.Metabolite[], Symbol[], Symbol[]
-    for a in args
-        if a isa Expr && a.head === :parameters
-            for kw in a.args
-                kw isa Expr && kw.head === :kw && kw.args[1] === :residual ||
-                    error("@enzyme_mechanism: unknown keyword in species `$t`: " *
-                          "$(Meta.isexpr(kw, :kw) ? Expr(:(=), kw.args...) : kw). Only " *
-                          "`residual = ...` is allowed.")
-                _read_residual!(added, subtracted, kw.args[2], true, names)
-            end
+"""A name for the form that the call `t` writes in call notation, for the error that asks
+for one, or `nothing` when `t` is no form in call notation: its head, then each bound
+metabolite (`Xmod` for `X::Mod`), then any residual as `_res`, `_plus<name>` per added
+substrate and `_minus<name>` per subtracted product (`E(B; residual = A - P)` gives
+`EB_res_plusA_minusP`)."""
+function _called_form_name(t::Expr)
+    io = IOBuffer()
+    print(io, t.args[1])
+    for a in t.args[2:end]
+        if a isa Symbol
+            print(io, a)
+        elseif a isa Expr && a.head === :(::) && a.args[1] isa Symbol && a.args[2] === :Mod
+            print(io, a.args[1], "mod")
+        elseif a isa Expr && a.head === :parameters && length(a.args) == 1 &&
+               a.args[1] isa Expr && a.args[1].head === :kw &&
+               a.args[1].args[1] === :residual
+            print(io, "_res")
+            _print_residual(io, a.args[1].args[2], true) || return nothing
         else
-            a isa Symbol || a isa Expr && a.head === :(::) ||
-                error("@enzyme_mechanism: invalid entry in species `$t`: $a")
-            push!(bound, _raw_met(a, names, t))
+            return nothing
         end
     end
-    Mechanisms.EnzymeForm(conformation, sort!(bound), sort!(added), sort!(subtracted))
+    String(take!(io))
 end
 
-"""
-Read a residual expression (`A`, `A - P`, `S1 + S2 - P1 - P3`, ...) into `added` (its
-positive names) and `subtracted` (its negative ones); `positive` is the sign of `e`. A
-residual adds substrates and subtracts products.
-"""
-function _read_residual!(added, subtracted, e, positive::Bool, names)
+"""Print the residual expression `e` as `_plus<name>` per added name and `_minus<name>` per
+subtracted one, `positive` the sign of `e`; whether `e` is a residual expression."""
+function _print_residual(io::IO, e, positive::Bool)
     if e isa Symbol
-        _is_declared(e, names) ||
-            error("@enzyme_mechanism: residual entry `$e` is not a declared metabolite. " *
-                  "Declared: $(_declared_names(names)).")
-        e in (positive ? names.substrates : names.products) ||
-            error("@enzyme_mechanism: a residual adds substrates and subtracts products; " *
-                  "got `$e`.")
-        push!(positive ? added : subtracted, e)
+        print(io, positive ? "_plus" : "_minus", e)
+        return true
     elseif e isa Expr && e.head === :call && e.args[1] === :+ && length(e.args) >= 3
-        for a in e.args[2:end]
-            _read_residual!(added, subtracted, a, positive, names)
-        end
+        return all(a -> _print_residual(io, a, positive), e.args[2:end])
     elseif e isa Expr && e.head === :call && e.args[1] === :- && length(e.args) in (2, 3)
-        length(e.args) == 3 &&
-            _read_residual!(added, subtracted, e.args[2], positive, names)
-        _read_residual!(added, subtracted, e.args[end], !positive, names)
-    else
-        error("@enzyme_mechanism: invalid residual expression: $e")
+        length(e.args) == 3 && !_print_residual(io, e.args[2], positive) && return false
+        return _print_residual(io, e.args[end], !positive)
     end
+    false
 end
 
 """
@@ -594,24 +567,18 @@ end
     _construct(raw) -> Mechanism
 
 The mechanism that `raw` (`raw_mechanism`) writes, built and checked by the constructors
-from its nodes and steps, the allosteric state of each group label, its oligomeric state
-and its regulatory sites. The names under `modifiers:` are checked here, since the
-constructors take every name bound as a modifier as one: each is listed once, and some
-step binds each as a modifier.
+from its declared names, forms and steps, the allosteric state of each group label, its
+oligomeric state and its regulatory sites.
 """
 function _construct(raw::NamedTuple)
-    allunique(raw.modifiers) || error("Mechanism: duplicate modifier names")
-    m = Mechanisms.Mechanism(
-        Mechanisms.CatalyticScheme(raw.substrates, raw.products, raw.nodes, raw.steps),
+    ns, np = length(raw.substrates), length(raw.products)
+    Mechanisms.Mechanism(
+        Mechanisms.CatalyticScheme([raw.substrates; raw.products; raw.modifiers], raw.forms,
+                                   collect(1:ns), collect((ns + 1):(ns + np)), raw.steps),
         Mechanisms.Allostery(raw.allosteric_states, raw.oligomeric_state,
                              [Mechanisms.RegulatorySite(s.ligands, s.multiplicity,
                                                         s.allosteric_states)
                               for s in raw.regulatory_sites]))
-    unused = findfirst(∉(m.catalytic.modifiers), raw.modifiers)
-    unused === nothing ||
-        error("Mechanism: modifier $(raw.modifiers[unused]) is declared, but no step " *
-              "binds it")
-    m
 end
 
 """

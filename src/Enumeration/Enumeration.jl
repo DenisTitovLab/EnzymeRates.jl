@@ -61,9 +61,9 @@ tagging searches apply to a candidate."""
 _enumerator_keeps(m) =
     Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_keep_a_binding(m)
 
-"""The number of entries named `name` in the metabolite list `v`, a reactant's modifier
-copies included."""
-_copies(v::Vector{Mechanisms.Metabolite}, name::Symbol) = count(x -> x.name === name, v)
+"""The number of copies of metabolite `i` (an index into a scheme's `metabolites`) in the
+list `v`."""
+_copies(v::Vector{Int}, i::Int) = count(==(i), v)
 
 """Whether `m` is allosteric: its kinetic groups carry allosteric states."""
 _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
@@ -74,9 +74,9 @@ _rapid_equilibrium_flags(m::Mechanisms.CatalyticScheme) =
 
 """Each kinetic group of graph `m`, its steps in step order."""
 function _kinetic_groups(m::Mechanisms.CatalyticScheme)
-    members = [Int[] for _ in 1:maximum(e -> e.group, m.steps; init = 0)]
+    members = [Int[] for _ in 1:maximum(e -> e.kinetic_group, m.steps; init = 0)]
     for (k, e) in enumerate(m.steps)
-        push!(members[e.group], k)
+        push!(members[e.kinetic_group], k)
     end
     members
 end
@@ -98,9 +98,10 @@ the residual the same and the label free to change. Every other step is chemistr
 isomerization, a fused binding (the last substrate binding straight into the
 product-bound form), a Theorell–Chance step or an exchange."""
 function _is_plain_binding(c::CandidateMechanism, k::Int)
-    e = c.mechanism.catalytic.steps[k]
+    cm = c.mechanism.catalytic
+    e = cm.steps[k]
     _is_binding(e) || return false
-    f, t, x = c.forms[e.from], c.forms[e.to], only(e.taken_up).name
+    f, t, x = c.forms[e.from], c.forms[e.to], cm.metabolites[only(e.taken_up)]
     f.adds == t.adds && f.subtracts == t.subtracts || return false
     _copy_change(c, k, x) > 0 ?
         f.productive == t.productive && _one_more(t.copies, f.copies, x) :

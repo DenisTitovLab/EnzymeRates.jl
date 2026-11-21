@@ -12,8 +12,8 @@ using OptimizationCMAEvolutionStrategy
         substrates: S
         products:   P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E + P
+            E + S <--> ES
+            ES <--> E + P
         end
     end
     _testhelper_mm_params(Km) = (k_ES_to_E_P = 5.0, k_ES_to_E_S = 5.0,
@@ -97,15 +97,15 @@ using OptimizationCMAEvolutionStrategy
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> E(A)
-                E + B <--> E(B)
-                E(A) + B <--> E(A, B)
-                E(B) + A <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) <--> E(P) + Q
-                E(P, Q) <--> E(Q) + P
-                E(P) <--> E + P
-                E(Q) <--> E + Q
+                E + A <--> EA
+                E + B <--> EB
+                EA + B <--> EAB
+                EB + A <--> EAB
+                EAB <--> EPQ
+                EPQ <--> EP + Q
+                EPQ <--> EQ + P
+                EP <--> E + P
+                EQ <--> E + Q
             end
         end
         data = (group = ["G1", "G1", "G1"], Rate = [0.5, 0.8, 1.0], A = [1.0, 2.0, 4.0],
@@ -127,9 +127,9 @@ using OptimizationCMAEvolutionStrategy
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: OnlyA
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: OnlyA
+                EP ⇌ E + P      :: EqualAI
             end
             regulatory_site(2): X::OnlyI
             regulatory_site(1): Y::NonequalAI

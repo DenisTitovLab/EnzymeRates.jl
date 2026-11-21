@@ -15,13 +15,13 @@ const ER = EnzymeRates
         substrates: NADH, Pyruvate
         products: Lactate, NAD
         steps: begin
-            E(Lactate) ⇌ E + Lactate
-            (E(NAD) ⇌ E + NAD, E(Lactate, NAD) ⇌ E(Lactate) + NAD)
-            (E + NADH <--> E(NADH), E(Lactate) + NADH <--> E(Lactate, NADH))
-            (E(Lactate, NAD) ⇌ E(NAD) + Lactate, E(Lactate, NADH) ⇌ E(NADH) + Lactate)
-            (E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
-             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)
+            ELactate ⇌ E + Lactate
+            (ENAD ⇌ E + NAD, ELactateNAD ⇌ ELactate + NAD)
+            (E + NADH <--> ENADH, ELactate + NADH <--> ELactateNADH)
+            (ELactateNAD ⇌ ENAD + Lactate, ELactateNADH ⇌ ENADH + Lactate)
+            (ENAD + Pyruvate ⇌ ENADPyruvate,
+             ENADH + Pyruvate ⇌ ENADHPyruvate)
+            ENADHPyruvate <--> ELactateNAD
         end
     end
     fp = parameters(m)

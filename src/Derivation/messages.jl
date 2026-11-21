@@ -19,8 +19,8 @@ function _guard_message(mech::Mechanisms.Mechanism)
     verdict.fault === _NO_FAULT && error("_guard_message: verdict $verdict holds no fault")
     verdict.fault === _SHARED_NAME &&
         return "Mechanism: constants of this mechanism's rate equation share a name (" *
-               join(_shared_constant_names(mech), ", ") * "). Rename a metabolite or a " *
-               "conformation label so that each constant has a name of its own."
+               join(_shared_constant_names(mech), ", ") * "). Rename a metabolite or an " *
+               "enzyme form so that each constant has a name of its own."
     verdict.fault === _NO_CYCLE &&
         return "Mechanism: no cycle of steps turns substrates into products, so the rate " *
                "is zero everywhere."
@@ -38,7 +38,8 @@ function _every_step_cures(mech::Mechanisms.Mechanism, net::_Network, cycle::Vec
     m = mech.catalytic
     for t in cycle
         re = _re_flags(m)
-        re[findall(s -> s.group == m.steps[net.edge[t]].group, m.steps)] .= false
+        g = m.steps[net.edge[t]].kinetic_group
+        re[findall(s -> s.kinetic_group == g, m.steps)] .= false
         isempty(_re_turnover_transitions(_eps_network(mech, re, reading))) || return false
     end
     true

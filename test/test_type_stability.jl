@@ -54,9 +54,9 @@ include("type_stability_harness.jl")
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     allosteric = @enzyme_mechanism begin
@@ -64,9 +64,9 @@ include("type_stability_harness.jl")
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
+            E + S ⇌ ES     :: EqualAI
+            ES <--> EP   :: OnlyA
+            EP ⇌ E + P     :: EqualAI
         end
         regulatory_site(2): X::OnlyA
     end
@@ -80,8 +80,6 @@ include("type_stability_harness.jl")
     forms = (; plain, allosteric)
 
     @testset "Mechanisms" begin
-        @_testhelper_no_dispatch Mech.check_conformation_label(:A, "label")
-        @_testhelper_no_dispatch Mech.form_text(plain.catalytic, 1)
         @_testhelper_no_dispatch Mech.step_text(plain.catalytic, 1)
         @_testhelper_no_dispatch Mech.has_turnover_cycle(plain.catalytic, ::BitVector)
         @_testhelper_no_dispatch Mech.has_unbalanced_cycle(
@@ -93,7 +91,7 @@ include("type_stability_harness.jl")
             plain.catalytic, ::BitVector, ::BitVector)
 
         @_testhelper_no_dispatch Mech.CatalyticScheme(
-            ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Mech.EnzymeForm},
+            ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Int}, ::Vector{Int},
             ::Vector{Mech.Step})
         @_testhelper_no_dispatch Mech.Allostery(
             ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
@@ -105,7 +103,6 @@ include("type_stability_harness.jl")
             @_testhelper_no_dispatch Mech.steps_in_active_conformation(m)
             @_testhelper_no_dispatch Mech.steps_in_inactive_conformation(m)
         end
-        @_testhelper_no_dispatch metabolites(plain.catalytic)
     end
 
     @testset "Derivation" begin

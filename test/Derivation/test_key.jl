@@ -195,9 +195,9 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
-            E + I ⇌ E(I)
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
         end
     end
     uni_J = @enzyme_mechanism begin
@@ -205,9 +205,9 @@ end
         products: P
         modifiers: J
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
-            E + J ⇌ E(J)
+            E + S ⇌ ES
+            ES <--> E + P
+            E + J ⇌ EJ
         end
     end
     unc_I = @enzyme_mechanism begin
@@ -215,9 +215,9 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
-            E(S) + I ⇌ E(S, I)
+            E + S ⇌ ES
+            ES <--> E + P
+            ES + I ⇌ EIS
         end
     end
     allo_R = @enzyme_mechanism begin
@@ -225,8 +225,8 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)       :: NonequalAI
-            E(S) <--> E + P    :: NonequalAI
+            E + S ⇌ ES       :: NonequalAI
+            ES <--> E + P    :: NonequalAI
         end
         regulatory_site(1): R::OnlyA
     end
@@ -235,8 +235,8 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)       :: NonequalAI
-            E(S) <--> E + P    :: NonequalAI
+            E + S ⇌ ES       :: NonequalAI
+            ES <--> E + P    :: NonequalAI
         end
         regulatory_site(1): T::OnlyA
     end
@@ -291,8 +291,8 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     A = EnzymeRates.Derivation._law(am)
@@ -318,9 +318,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)       :: EqualAI
-            E(S) <--> E(P)     :: OnlyA
-            E + P ⇌ E(P)       :: EqualAI
+            E + S ⇌ ES       :: EqualAI
+            ES <--> EP     :: OnlyA
+            E + P ⇌ EP       :: EqualAI
         end
     end
     A = EnzymeRates.Derivation._law(am)
@@ -335,9 +335,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)       :: NonequalAI
-            E(S) <--> E(P)     :: OnlyA
-            E + P ⇌ E(P)       :: EqualAI
+            E + S ⇌ ES       :: NonequalAI
+            ES <--> EP     :: OnlyA
+            E + P ⇌ EP       :: EqualAI
         end
     end
     @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(s_relaxed))
@@ -356,8 +356,8 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     p_relaxed = @enzyme_mechanism begin
@@ -365,16 +365,16 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: NonequalAI
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: NonequalAI
         end
     end
     onlyi_site = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
         regulatory_site(1): R::OnlyI
     end
@@ -382,17 +382,17 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     only_a = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B <--> E(Q) + P      :: OnlyA
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B <--> EQ + P      :: OnlyA
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
@@ -445,16 +445,16 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)
-            E + P ⇌ E(P)
+            E + S <--> EP
+            E + P ⇌ EP
         end
     end
     phantom = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     id = "phantom"
@@ -478,9 +478,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)       :: EqualAI
-            E(S) <--> E(P)     :: OnlyA
-            E + P ⇌ E(P)       :: EqualAI
+            E + S ⇌ ES       :: EqualAI
+            ES <--> EP     :: OnlyA
+            E + P ⇌ EP       :: EqualAI
         end
         regulatory_site(1): R::EqualAI
     end

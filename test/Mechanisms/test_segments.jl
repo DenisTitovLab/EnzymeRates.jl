@@ -3,26 +3,21 @@
 
 const ER = EnzymeRates
 
-"""The names of the metabolites in `list`, in order."""
-_testhelper_met_names(list) = Symbol[x.name for x in list]
-
-"""Whether a cycle of the steps of graph `m` that `on` keeps takes up some metabolite name
-net: for some name, the uptake of the kept steps is no difference of form potentials,
+"""Whether a cycle of the steps of graph `m` that `on` keeps takes up some metabolite net:
+for some metabolite, the uptake of the kept steps is no difference of form potentials,
 which holds when appending the uptake column to their incidence matrix raises its rank."""
 function _testhelper_net_uptake_cycle(m, on::BitVector)
     kept = filter(k -> on[k], collect(eachindex(m.steps)))
-    incidence = zeros(length(kept), length(eachindex(m.nodes)))
+    incidence = zeros(length(kept), length(m.enzyme_forms))
     for (r, k) in enumerate(kept)
         a, b = m.steps[k].from, m.steps[k].to
         incidence[r, a] -= 1
         incidence[r, b] += 1
     end
-    names = unique(reduce(vcat, [[_testhelper_met_names(e.taken_up);
-                                  _testhelper_met_names(e.given_off)]
-                                 for e in m.steps]))
-    any(names) do x
-        uptake = Int[count(y -> y.name === x, m.steps[k].taken_up) -
-                     count(y -> y.name === x, m.steps[k].given_off) for k in kept]
+    metabolites = unique(reduce(vcat, [[e.taken_up; e.given_off] for e in m.steps]))
+    any(metabolites) do x
+        uptake = Int[count(==(x), m.steps[k].taken_up) -
+                     count(==(x), m.steps[k].given_off) for k in kept]
         rank([incidence uptake]) > rank(incidence)
     end
 end
@@ -37,8 +32,8 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E + P
+                E + S ⇌ ES
+                ES <--> E + P
             end
         end), [["E + S ⇌ ES", "E + P <--> ES"]]),
         # Uni-uni through a second free form F.
@@ -46,8 +41,8 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S <--> F(P)
-                F(P) ⇌ F + P
+                E + S <--> FP
+                FP ⇌ F + P
                 E <--> F
             end
         end), [["E + S <--> FP", "F + P ⇌ FP", "F <--> E"]]),
@@ -58,11 +53,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                E(A, B) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                EAB <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
             end
         end), [["E + A ⇌ EA", "EA + B ⇌ EAB", "EAB <--> EPQ", "EQ + P <--> EPQ",
                 "E + Q <--> EQ"],
@@ -72,12 +67,11 @@ end
         (@enzyme_mechanism(begin
             substrates: S
             products: P
-            modifiers: S
             steps: begin
-                E + S ⇌ E(S)
-                E(S) + S::Mod ⇌ E(S, S::Mod)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES + S ⇌ ESSmod
+                ES <--> EP
+                EP ⇌ E + P
             end
         end), [["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"]]),
         # A Theorell–Chance step beside the merged complex E(P, Q): the triangle of the
@@ -86,11 +80,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
-                E(A) + B <--> E(Q) + P
+                E + A ⇌ EA
+                EA + B <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
+                EA + B <--> EQ + P
             end
         end), [["E + A ⇌ EA", "EA + B <--> EPQ", "EQ + P <--> EPQ", "E + Q <--> EQ"],
                ["E + A ⇌ EA", "EA + B <--> EQ + P", "E + Q <--> EQ"]]),
@@ -139,12 +133,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(Q) + P
-            E(Q) <--> E + Q
-            E(A) + Q <--> E(A, Q)
-            E(A, Q) <--> E
+            E + A <--> EA
+            EA + B <--> EAB
+            EAB <--> EQ + P
+            EQ <--> E + Q
+            EA + Q <--> EAQ
+            EAQ <--> E
         end
     end
     on = BitVector(k in [_testhelper_edge(aq, t)
@@ -155,12 +149,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(Q) + P
-            E(Q) <--> E + Q
-            E + B <--> E(B)
-            E(B) <--> E
+            E + A <--> EA
+            EA + B <--> EAB
+            EAB <--> EQ + P
+            EQ <--> E + Q
+            E + B <--> EB
+            EB <--> E
         end
     end
     on = BitVector(k in [_testhelper_edge(b_only, t)
@@ -180,13 +174,13 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(B) + A ⇌ E(A, B)
-            E + B <--> E(B)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(Q) + P
-            E(Q) <--> E + Q
+            E + A ⇌ EA
+            EB + A ⇌ EAB
+            E + B <--> EB
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EPQ <--> EQ + P
+            EQ <--> E + Q
         end
     end
     every = trues(length(eachindex(m.catalytic.steps)))
@@ -233,31 +227,29 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(P, Q) ⇌ E(Q) + P
-            E(P, Q) ⇌ E(P) + Q
-            E(P) <--> E + P
-            E(Q) <--> E + Q
+            E + S ⇌ ES
+            ES <--> EPQ
+            EPQ ⇌ EQ + P
+            EPQ ⇌ EP + Q
+            EP <--> E + P
+            EQ <--> E + Q
         end
     end
-    names(forms) = [ER.Mechanisms._form_name(m.catalytic, f) for f in forms]
-    @test names(eachindex(m.catalytic.nodes)) == ["E", "EP", "EPQ", "EQ", "ES"]
+    names(forms) = String.(m.catalytic.enzyme_forms[forms])
+    @test names(eachindex(m.catalytic.enzyme_forms)) == ["E", "EP", "EPQ", "EQ", "ES"]
     # One edge per group, so the edges group by group are the edges in order.
     @test [_testhelper_edge_text(m, k) for k in ER.Derivation._flat_edges(m.catalytic)] ==
           ["E + P <--> EP", "E + Q <--> EQ", "E + S ⇌ ES", "EP + Q ⇌ EPQ", "EQ + P ⇌ EPQ",
            "ES <--> EPQ"]
     @test _testhelper_flags(m) == BitVector([0, 0, 1, 1, 1, 0])
-    @test [ER.Mechanisms._is_free(f) for f in m.catalytic.nodes] ==
-          [true, false, false, false, false]
     every = trues(length(m.catalytic.steps))
     @test ER.Mechanisms._present_species(m.catalytic, every) == trues(5)
-    # Each segment breadth-first from its first form; offsets per metabolite name (rows
-    # P, Q, S) above the segment's lowest.
+    # Each segment breadth-first from its first form; offsets per metabolite (rows S, P,
+    # Q, the metabolites in stored order) above the segment's lowest.
     s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, every, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
-    @test s.offsets == [0 1 1 0 0; 0 0 1 1 0; 0 0 0 0 1]
+    @test s.offsets == [0 0 0 0 1; 0 1 1 0 0; 0 0 1 1 0]
     # Every form of the second segment holds a product, so it has no bottom form.
     @test names(s.bottom) == ["EP", "EPQ", "EQ"]
     # The steady-state steps that join two segments, which are all of them here.
@@ -296,16 +288,16 @@ end
         modifiers: I
         oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                                   :: OnlyA
-            E(A) <--> E(P)                                    :: OnlyA
-            E + P ⇌ E(P)                                      :: EqualAI
-            (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
+            E + A <--> EA                                   :: OnlyA
+            EA <--> EP                                    :: OnlyA
+            E + P ⇌ EP                                      :: EqualAI
+            (EA + I ⇌ EAI, EP + I ⇌ EIP)          :: NonequalAI
         end
     end
     inactive = ER.Mechanisms.steps_in_inactive_conformation(am)
     @test [_testhelper_edge_text(am, k) for k in findall(inactive)] ==
           ["E + P ⇌ EP", "EP + I ⇌ EIP"]
-    @test [ER.Mechanisms._form_name(am.catalytic, f)
-           for f in findall(ER.Mechanisms._present_species(am.catalytic, inactive))] ==
-          ["E", "EIP", "EP"]
+    @test am.catalytic.enzyme_forms[
+              findall(ER.Mechanisms._present_species(am.catalytic, inactive))] ==
+          [:E, :EIP, :EP]
 end

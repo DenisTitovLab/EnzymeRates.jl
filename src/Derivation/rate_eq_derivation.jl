@@ -31,8 +31,8 @@ the concentration of each metabolite `metabolites(m)[j]` to the power
 metabolite the step takes up in its direction. Every other constant has `rate` 0: a
 rapid-equilibrium binding's dissociation constant +1 for the metabolite that binds, any
 other rapid-equilibrium constant +1 for each metabolite given off and −1 for each taken
-up, a regulator's constant +1 for its ligand, and `L` none. A reactant's modifier copy
-counts as the reactant. Errors when the rate law of `m` is not defined
+up, a regulator's constant +1 for its ligand, and `L` none. Errors when the rate law of
+`m` is not defined
 (`check_valid_rate_equation`).
 """
 function parameter_units(m::Mechanisms.Mechanism)
@@ -52,8 +52,10 @@ end
 column."""
 function _write_units!(units, i::Int, p::_StepParameter, m::Mechanisms.Mechanism,
                        column::Dict{Symbol, Int})
-    e = m.catalytic.steps[p.step]
-    add!(xs, power) = foreach(x -> units.concentrations[i, column[x.name]] += power, xs)
+    c = m.catalytic
+    e = c.steps[p.step]
+    add!(xs, power) =
+        foreach(x -> units.concentrations[i, column[c.metabolites[x]]] += power, xs)
     if e.rapid_equilibrium
         # An equilibrium constant is what the direction it is named after gives off over
         # what it takes up: a binding's dissociation constant has what binds.
@@ -94,9 +96,9 @@ julia> m = @enzyme_mechanism begin
            substrates: S
            products: P
            steps: begin
-               E + S ⇌ E(S)
-               E(S) <--> E(P)
-               E(P) ⇌ E + P
+               E + S ⇌ ES
+               ES <--> EP
+               EP ⇌ E + P
            end
        end;
 

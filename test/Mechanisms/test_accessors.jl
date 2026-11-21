@@ -7,11 +7,11 @@
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E + Q ⇌ E(Q)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            (E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            E + A ⇌ EA
+            E + Q ⇌ EQ
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            (EA + P ⇌ EAP, EQ + P ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     params_mono = parameters(m_mono)
@@ -30,12 +30,12 @@
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
-    allosteric_states = fill(:NonequalAI, length(base.catalytic.groups))
+    allosteric_states = fill(:NonequalAI, length(_testhelper_group_members(base.catalytic)))
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:NonequalAI])
     am = EnzymeRates.Mechanism(
         base.catalytic, EnzymeRates.Mechanisms.Allostery(allosteric_states, 2, [site]))
@@ -66,9 +66,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     p = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0)
@@ -102,19 +102,19 @@ end
         substrates: S
         products: P
         steps: begin
-            (E(S) <--> F(S), E <--> F)
-            F(S) <--> E + P
-            F + S <--> E(S)
+            (ES <--> FS, E <--> F)
+            FS <--> E + P
+            F + S <--> ES
         end
     end
     cube = @enzyme_mechanism begin
         substrates: S, B
         products: P
         steps: begin
-            (E <--> F, E(S) <--> F(S), E(P) <--> F(P))
-            F + S <--> E(S)
-            F(S) + B <--> E(P)
-            F(P) <--> E + P
+            (E <--> F, ES <--> FS, EP <--> FP)
+            F + S <--> ES
+            FS + B <--> EP
+            FP <--> E + P
         end
     end
     rng = Random.MersenneTwister(12)
@@ -146,9 +146,9 @@ end
         substrates: S
         products: P
         steps: begin
-            (E(S) <--> F(S), E <--> F)
-            F(S) <--> E + P
-            F + S <--> E(S)
+            (ES <--> FS, E <--> F)
+            FS <--> E + P
+            F + S <--> ES
         end
     end
     p = (k_E_to_F = 1.0, k_E_P_to_FS = 1.0, k_FS_to_E_P = 1.0, k_ES_to_F_S = 4.0,

@@ -23,9 +23,9 @@ const _testhelper_uni_seed = @enzyme_mechanism begin
     substrates: S
     products: P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
-        E(P) ⇌ E + P
+        E + S ⇌ ES
+        ES <--> EP
+        EP ⇌ E + P
     end
 end
 
@@ -68,9 +68,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: NonequalAI
-            E(P) ⇌ E + P     :: OnlyA
+            E + S ⇌ ES     :: OnlyA
+            ES <--> EP   :: NonequalAI
+            EP ⇌ E + P     :: OnlyA
         end
         regulatory_site(1): R::OnlyI
     end
@@ -374,9 +374,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) <--> E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP <--> E + P
             end
         end
         other = EnzymeRates._mechanism_id(sprint(show, ss_release))
@@ -715,9 +715,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     regulated = @enzyme_mechanism begin
@@ -725,9 +725,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
+            E + S ⇌ ES     :: EqualAI
+            ES <--> EP   :: OnlyA
+            EP ⇌ E + P     :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end
@@ -898,18 +898,18 @@ end
         substrates: Sfold
         products: Pfold
         steps: begin
-            E + Sfold ⇌ E(Sfold)
-            E(Sfold) <--> E(Pfold)
-            E(Pfold) ⇌ E + Pfold
+            E + Sfold ⇌ ESfold
+            ESfold <--> EPfold
+            EPfold ⇌ E + Pfold
         end
     end
     ss_binding = @enzyme_mechanism begin
         substrates: Sfold
         products: Pfold
         steps: begin
-            E + Sfold <--> E(Sfold)
-            E(Sfold) <--> E(Pfold)
-            E(Pfold) ⇌ E + Pfold
+            E + Sfold <--> ESfold
+            ESfold <--> EPfold
+            EPfold ⇌ E + Pfold
         end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
@@ -1585,9 +1585,9 @@ function _testhelper_dedup_twins()
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)       :: OnlyA
-            E(S) <--> E(P)     :: NonequalAI
-            E(P) ⇌ E + P       :: OnlyA
+            E + S ⇌ ES       :: OnlyA
+            ES <--> EP     :: NonequalAI
+            EP ⇌ E + P       :: OnlyA
         end
     end
     m2 = @enzyme_mechanism begin
@@ -1595,9 +1595,9 @@ function _testhelper_dedup_twins()
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)       :: OnlyA
-            E(S) <--> E(P)     :: OnlyA
-            E(P) ⇌ E + P       :: OnlyA
+            E + S ⇌ ES       :: OnlyA
+            ES <--> EP     :: OnlyA
+            EP ⇌ E + P       :: OnlyA
         end
     end
     return m1, m2
@@ -1732,10 +1732,10 @@ function _testhelper_unibi_pair()
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)          :: OnlyA
-            E(A) <--> E(P, Q)        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + A <--> EA          :: OnlyA
+            EA <--> EPQ        :: OnlyA
+            EQ + P ⇌ EPQ       :: EqualAI
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     only_active = @enzyme_mechanism begin
@@ -1743,10 +1743,10 @@ function _testhelper_unibi_pair()
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)          :: OnlyA
-            E(A) <--> E(P, Q)        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)       :: OnlyA
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + A <--> EA          :: OnlyA
+            EA <--> EPQ        :: OnlyA
+            EQ + P ⇌ EPQ       :: OnlyA
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     rxn = @enzyme_reaction begin
@@ -1940,16 +1940,16 @@ function _testhelper_phantom_pair()
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)
-            E + P ⇌ E(P)
+            E + S <--> EP
+            E + P ⇌ EP
         end
     end
     phantom = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     parent, phantom
@@ -2009,11 +2009,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)              :: OnlyA
-            E + Q ⇌ E(Q)              :: OnlyA
-            E(A) + B <--> E(A, B)     :: EqualAI
-            E(A, B) <--> E(P, Q)      :: OnlyA
-            E(Q) + P ⇌ E(P, Q)        :: EqualAI
+            E + A ⇌ EA              :: OnlyA
+            E + Q ⇌ EQ              :: OnlyA
+            EA + B <--> EAB     :: EqualAI
+            EAB <--> EPQ      :: OnlyA
+            EQ + P ⇌ EPQ        :: EqualAI
         end
     end
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(m3268))
@@ -2049,9 +2049,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     regulated = @enzyme_mechanism begin
@@ -2059,9 +2059,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)       :: EqualAI
-            E(S) <--> E(P)     :: OnlyA
-            E + P ⇌ E(P)       :: EqualAI
+            E + S ⇌ ES       :: EqualAI
+            ES <--> EP     :: OnlyA
+            E + P ⇌ EP       :: EqualAI
         end
         regulatory_site(1): R::EqualAI
     end
@@ -2235,18 +2235,18 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)       :: OnlyA
-            E(S) <--> E(P)     :: NonequalAI
-            E(P) ⇌ E + P       :: OnlyA
+            E + S ⇌ ES       :: OnlyA
+            ES <--> EP     :: NonequalAI
+            EP ⇌ E + P       :: OnlyA
         end
     end
     m2 = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)       :: OnlyA
-            E(S) <--> E(P)     :: OnlyA
-            E(P) ⇌ E + P       :: OnlyA
+            E + S ⇌ ES       :: OnlyA
+            ES <--> EP     :: OnlyA
+            EP ⇌ E + P       :: OnlyA
         end
     end
     prob = _testhelper_uni_prob(NamedTuple)
@@ -2305,16 +2305,16 @@ end
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
         steps: begin
-            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD),
-             E(NADH) + Lactate ⇌ E(Lactate, NADH))
-            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD))
-            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
-            E + Pyruvate ⇌ E(Pyruvate)
-            (E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
-             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)
-            E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)
-            E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)
+            (E + Lactate ⇌ ELactate, ENAD + Lactate ⇌ ELactateNAD,
+             ENADH + Lactate ⇌ ELactateNADH)
+            (E + NAD ⇌ ENAD, ELactate + NAD ⇌ ELactateNAD)
+            (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+            E + Pyruvate ⇌ EPyruvate
+            (ENAD + Pyruvate ⇌ ENADPyruvate,
+             ENADH + Pyruvate ⇌ ENADHPyruvate)
+            ENADHPyruvate <--> ELactateNAD
+            EPyruvate + NADH ⇌ ENADHPyruvate
+            EPyruvate + NAD ⇌ ENADPyruvate
         end
     end
     # Split, 9 groups — same graph, Wegscheider-tied.
@@ -2322,16 +2322,16 @@ end
         substrates: NADH, Pyruvate
         products:   Lactate, NAD
         steps: begin
-            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD))
-            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD))
-            (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
-            E + Pyruvate ⇌ E(Pyruvate)
-            (E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate),
-             E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
-            E(NADH) + Lactate ⇌ E(Lactate, NADH)
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)
-            E(Pyruvate) + NADH ⇌ E(NADH, Pyruvate)
-            E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate)
+            (E + Lactate ⇌ ELactate, ENAD + Lactate ⇌ ELactateNAD)
+            (E + NAD ⇌ ENAD, ELactate + NAD ⇌ ELactateNAD)
+            (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+            E + Pyruvate ⇌ EPyruvate
+            (ENAD + Pyruvate ⇌ ENADPyruvate,
+             ENADH + Pyruvate ⇌ ENADHPyruvate)
+            ENADH + Lactate ⇌ ELactateNADH
+            ENADHPyruvate <--> ELactateNAD
+            EPyruvate + NADH ⇌ ENADHPyruvate
+            EPyruvate + NAD ⇌ ENADPyruvate
         end
     end
     @test m1 != m2
@@ -2372,16 +2372,16 @@ end
         products:   Lactate, NAD
         oligomeric_state: 4
         steps: begin
-            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD))   :: EqualAI
-            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
-             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))                           :: EqualAI
-            (E + NADH <--> E(NADH), E(Lactate) + NADH <--> E(Lactate, NADH),
-             E(Pyruvate) + NADH <--> E(NADH, Pyruvate))                      :: OnlyA
-            E + Pyruvate ⇌ E(Pyruvate)                                       :: NonequalAI
-            E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate)                             :: EqualAI
-            E(NADH) + Lactate ⇌ E(Lactate, NADH)                             :: EqualAI
-            E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)                           :: EqualAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
+            (E + Lactate ⇌ ELactate, ENAD + Lactate ⇌ ELactateNAD)   :: EqualAI
+            (E + NAD ⇌ ENAD, ELactate + NAD ⇌ ELactateNAD,
+             EPyruvate + NAD ⇌ ENADPyruvate)                           :: EqualAI
+            (E + NADH <--> ENADH, ELactate + NADH <--> ELactateNADH,
+             EPyruvate + NADH <--> ENADHPyruvate)                      :: OnlyA
+            E + Pyruvate ⇌ EPyruvate                                       :: NonequalAI
+            ENAD + Pyruvate ⇌ ENADPyruvate                             :: EqualAI
+            ENADH + Lactate ⇌ ELactateNADH                             :: EqualAI
+            ENADH + Pyruvate ⇌ ENADHPyruvate                           :: EqualAI
+            ENADHPyruvate <--> ELactateNAD                           :: OnlyA
         end
     end
     # Merged form: 7 groups.
@@ -2390,16 +2390,16 @@ end
         products:   Lactate, NAD
         oligomeric_state: 4
         steps: begin
-            (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD),
-             E(NADH) + Lactate ⇌ E(Lactate, NADH))                           :: EqualAI
-            (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD),
-             E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))                           :: EqualAI
-            (E + NADH <--> E(NADH), E(Lactate) + NADH <--> E(Lactate, NADH),
-             E(Pyruvate) + NADH <--> E(NADH, Pyruvate))                      :: OnlyA
-            E + Pyruvate ⇌ E(Pyruvate)                                       :: NonequalAI
-            E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate)                             :: EqualAI
-            E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate)                           :: EqualAI
-            E(NADH, Pyruvate) <--> E(Lactate, NAD)                           :: OnlyA
+            (E + Lactate ⇌ ELactate, ENAD + Lactate ⇌ ELactateNAD,
+             ENADH + Lactate ⇌ ELactateNADH)                           :: EqualAI
+            (E + NAD ⇌ ENAD, ELactate + NAD ⇌ ELactateNAD,
+             EPyruvate + NAD ⇌ ENADPyruvate)                           :: EqualAI
+            (E + NADH <--> ENADH, ELactate + NADH <--> ELactateNADH,
+             EPyruvate + NADH <--> ENADHPyruvate)                      :: OnlyA
+            E + Pyruvate ⇌ EPyruvate                                       :: NonequalAI
+            ENAD + Pyruvate ⇌ ENADPyruvate                             :: EqualAI
+            ENADH + Pyruvate ⇌ ENADHPyruvate                           :: EqualAI
+            ENADHPyruvate <--> ELactateNAD                           :: OnlyA
         end
     end
     @test am1 != am2
@@ -2437,10 +2437,10 @@ end
         substrates: S, T
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-            E + T ⇌ E(T)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
+            E + T ⇌ ET
         end
     end
     data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
@@ -2469,11 +2469,11 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) ⇌ E(P)
-            E + P ⇌ E(P)
-            E(S) <--> F(P)
-            F(P) <--> E + P
+            E + S ⇌ ES
+            ES ⇌ EP
+            E + P ⇌ EP
+            ES <--> FP
+            FP <--> E + P
         end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
@@ -2486,7 +2486,7 @@ end
         optimizer = opt, n_restarts = 1, maxtime = 1.0)
     @test isempty(entries) && opt.count == 0
     @test only(failures).mech == beside
-    @test occursin("E + S ⇌ E(S) and E(S) ⇌ E(P) close a cycle", only(failures).error)
+    @test occursin("E + S ⇌ ES and ES ⇌ EP close a cycle", only(failures).error)
     @test !occursin("internal error", only(failures).error)
 end
 
@@ -2504,10 +2504,10 @@ end
         substrates: S, T
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-            E + T ⇌ E(T)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
+            E + T ⇌ ET
         end
     end
     # Sanity: expansion of this mechanism genuinely raises.
@@ -2523,17 +2523,17 @@ end
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
     # The recorded error is the assertion's: the chemistry step E(S) → E(P) makes an N.
-    @test occursin("atom-non-conserving step E(S) → E(P)", failure.error)
+    @test occursin("atom-non-conserving step ES → EP", failure.error)
     @test occursin("= Dict(:N => 1)", failure.error)
     # A well-formed parent, a seed of the reaction, expands with no failure.
     good = @enzyme_mechanism begin
         substrates: S, T
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) + T ⇌ E(S, T)
-            E(S, T) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES + T ⇌ EST
+            EST <--> EP
+            EP ⇌ E + P
         end
     end
     gkids, _, gfail = EnzymeRates._expand_parents([entry(good)], rxn_bad; no_limits...)
@@ -2581,12 +2581,12 @@ end
         products: P
         modifiers: X
         steps: begin
-            E + S <--> E(S)         :: EqualAI
-            E(S) <--> E(P)          :: EqualAI
-            E(P) <--> E + P         :: EqualAI
-            E + X ⇌ E(X)            :: OnlyI
-            E(X) + S ⇌ E(S, X)      :: EqualAI
-            E(S, X) <--> E(X) + P   :: EqualAI
+            E + S <--> ES         :: EqualAI
+            ES <--> EP          :: EqualAI
+            EP <--> E + P         :: EqualAI
+            E + X ⇌ EX            :: OnlyI
+            EX + S ⇌ ESX      :: EqualAI
+            ESX <--> EX + P   :: EqualAI
         end
     end
     @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(route))
@@ -2596,12 +2596,12 @@ end
         products: P
         modifiers: X
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E(P)
-            E(P) <--> E + P
-            E + X ⇌ E(X)
-            E(X) + S ⇌ E(S, X)
-            E(S, X) <--> E(X) + P
+            E + S <--> ES
+            ES <--> EP
+            EP <--> E + P
+            E + X ⇌ EX
+            EX + S ⇌ ESX
+            ESX <--> EX + P
         end
     end))
     # The maximal-rate test turns rapid equilibrium every step that takes up or gives
@@ -2614,12 +2614,12 @@ end
         products: P
         modifiers: X
         steps: begin
-            E + S <--> E(S)           :: EqualAI
-            E(S) <--> E(P)            :: EqualAI
-            E(P) <--> E + P           :: EqualAI
-            E + X ⇌ E(X)              :: OnlyI
-            E(X) + S <--> F(X) + P    :: EqualAI
-            F(X) + S <--> E(X) + P    :: EqualAI
+            E + S <--> ES           :: EqualAI
+            ES <--> EP            :: EqualAI
+            EP <--> E + P           :: EqualAI
+            E + X ⇌ EX              :: OnlyI
+            EX + S <--> FX + P    :: EqualAI
+            FX + S <--> EX + P    :: EqualAI
         end
     end
     cm, on = tc_route.catalytic,
@@ -2638,22 +2638,21 @@ end
         products: P
         modifiers: X
         steps: begin
-            E + S <--> E(S)           :: EqualAI
-            E(S) <--> E(P)            :: EqualAI
-            E(P) <--> E + P           :: EqualAI
-            E + X ⇌ E(X)              :: OnlyI
-            E(X) + S ⇌ E(P, X)        :: EqualAI
-            E(P, X) ⇌ F(X) + P        :: EqualAI
-            F(X) <--> E(X)            :: EqualAI
+            E + S <--> ES           :: EqualAI
+            ES <--> EP            :: EqualAI
+            EP <--> E + P           :: EqualAI
+            E + X ⇌ EX              :: OnlyI
+            EX + S ⇌ EPX        :: EqualAI
+            EPX ⇌ FX + P        :: EqualAI
+            FX <--> EX            :: EqualAI
         end
     end
     cm, on = merged_route.catalytic,
              EnzymeRates.Mechanisms.steps_in_active_conformation(merged_route)
     re = _testhelper_flags(cm)
     subs = cm.substrates
-    @test EnzymeRates.Mechanisms.form_text.(
-        Ref(cm), EnzymeRates.Enumeration._merged_complexes(_testhelper_candidate(cm),
-                                                           subs)) == ["E(P, X)"]
+    @test cm.enzyme_forms[EnzymeRates.Enumeration._merged_complexes(
+        _testhelper_candidate(cm), subs)] == [:EPX]
     @test isempty(
         EnzymeRates.Enumeration._merged_complexes(_testhelper_candidate(cm), subs, on))
     @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
@@ -2672,12 +2671,12 @@ end
         products: P
         modifiers: X
         steps: begin
-            E + S <--> E(S)           :: EqualAI
-            E(S) <--> E(P)            :: EqualAI
-            E(P) <--> E + P           :: EqualAI
-            E + X ⇌ E(X)              :: OnlyI
-            E(X) + S ⇌ F(X) + P       :: EqualAI
-            F(X) <--> E(X)            :: EqualAI
+            E + S <--> ES           :: EqualAI
+            ES <--> EP            :: EqualAI
+            EP <--> E + P           :: EqualAI
+            E + X ⇌ EX              :: OnlyI
+            EX + S ⇌ FX + P       :: EqualAI
+            FX <--> EX            :: EqualAI
         end
     end
     cm, on = re_tc_route.catalytic,
@@ -2702,22 +2701,22 @@ end
         substrates: A, B
         products:   P, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
         end
     end
     m3 = @enzyme_mechanism begin
         substrates: A, B
         products:   P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     # m3 with a steady-state Q release: one more fitted parameter.
@@ -2725,11 +2724,11 @@ end
         substrates: A, B
         products:   P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q <--> EQ
         end
     end
     data = (group = ["a=b", "a=b", "c,d", "c,d", "x y", "x y"],
@@ -2803,20 +2802,20 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     ping_pong = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            E + Q ⇌ EQ
         end
     end
     allosteric = @enzyme_mechanism begin
@@ -2824,13 +2823,13 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
+            E + S ⇌ ES     :: EqualAI
+            ES <--> EP   :: OnlyA
+            EP ⇌ E + P     :: EqualAI
         end
         regulatory_site(3): I::OnlyI, J::EqualAI
     end
     @test [EnzymeRates._mechanism_id(sprint(show, m))
            for m in (plain, ping_pong, allosteric)] ==
-          ["f4ce3f6878d7229f", "dbcebb00ac48b73f", "31d05a04563642b7"]
+          ["2114ddbbecba8808", "c4311a1aa47c5bce", "490ce8fbb1e3316a"]
 end

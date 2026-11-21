@@ -24,33 +24,36 @@ end
 _testhelper_has_residual(f::EnzymeRates.Enumeration._FormRecord) =
     !isempty(f.adds) || !isempty(f.subtracts)
 
-# Build a Mechanism over `rxn`'s names from a topology, a written graph (`_trimmed`), each
-# step its own kinetic group.
-_testhelper_topo_mech(rxn, t) = EnzymeRates.Enumeration._candidate(
-    [s.name for s in rxn.substrates], [p.name for p in rxn.products], t.forms,
-    [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
-                                 e.rapid_equilibrium, k)
-     for (k, e) in enumerate(t.steps)]).mechanism
+# Build a Mechanism over `rxn`'s names from a topology, a written graph (`_trimmed`) whose
+# steps index the reactants in the reaction's order, each step its own kinetic group.
+function _testhelper_topo_mech(rxn, t)
+    subs, prods = [s.name for s in rxn.substrates], [p.name for p in rxn.products]
+    EnzymeRates.Enumeration._candidate(
+        [subs; prods], t.forms, collect(eachindex(subs)),
+        collect(length(subs) .+ eachindex(prods)),
+        [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
+                                     e.rapid_equilibrium, k)
+         for (k, e) in enumerate(t.steps)]).mechanism
+end
 
-# The names (`_form_name`) of the forms of the written graph `t` of a topology or a seed,
-# over `rxn`'s names.
-_testhelper_form_names(rxn, t) =
-    (m = _testhelper_topo_mech(rxn, t);
-     Set(Symbol(EnzymeRates.Mechanisms._form_name(m.catalytic, f))
-         for f in eachindex(m.catalytic.nodes)))
+# The names of the forms of the written graph `t` of a topology or a seed, over `rxn`'s
+# names.
+_testhelper_form_names(rxn, t) = Set(_testhelper_topo_mech(rxn, t).catalytic.enzyme_forms)
 
-# The names (`_form_name`) of the forms of graph `m` where `name` (its modifier copy when
-# `modifier` holds) is free on some edge (`_forms_where_free`).
+# The names of the forms of graph `m` where `name` (its modifier copy when `modifier`
+# holds) is free on some edge (`_forms_where_free`).
 _testhelper_free_at(m, name, modifier = false) =
-    Set(EnzymeRates.Mechanisms._form_name(m.catalytic, f)
+    Set(String(m.catalytic.enzyme_forms[f])
         for f in findall(EnzymeRates.Enumeration._forms_where_free(_testhelper_candidate(m),
                                                                    name, modifier)))
 
-# A mechanism as a written graph of the records of its forms and its steps in their stored
-# direction, each in group 0: the shape a topology of `_catalytic_topologies` takes, every
-# binding taking its metabolite up.
+# A mechanism as a written graph of the records of its forms (`_testhelper_candidate`) and
+# its steps in their stored direction, each in group 0: the shape a topology of
+# `_catalytic_topologies` takes, every binding taking its metabolite up. Its steps index
+# the metabolites in stored order, the reaction's order for a reaction whose substrates
+# and products are each written in name order.
 _testhelper_flat_topo(m) =
-    (; forms = EnzymeRates.Enumeration._form_records(m),
+    (; forms = _testhelper_candidate(m).forms,
      steps = [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
                                           e.rapid_equilibrium, 0)
               for e in m.catalytic.steps])
@@ -62,7 +65,7 @@ _testhelper_flat_topo(m) =
 # mechanism.
 _testhelper_connectivity_violations(m::EnzymeRates.Mechanism) =
     _testhelper_connectivity_violations(
-        (; forms = EnzymeRates.Enumeration._form_records(m), steps = m.catalytic.steps))
+        (; forms = _testhelper_candidate(m).forms, steps = m.catalytic.steps))
 function _testhelper_connectivity_violations(t)
     _bset(f) = Set(_testhelper_bound(f))
     _testhelper_key(f) = (f.label, f.adds, f.subtracts, Tuple(sort(collect(_bset(f)))))
@@ -135,15 +138,44 @@ function _testhelper_param_deltas(parent, kids)
     sort([_testhelper_fitted(k) - base for k in kids])
 end
 
-# Whether `child` keeps the reaction of `parent`: the same substrates and products, and
-# every modifier `parent` binds still bound.
+# The names that the forms of the enumerated mechanism `m` bind as modifier copies, a pure
+# inhibitor among them, read off the records of its forms (`_testhelper_candidate`).
+_testhelper_modifier_names(m) =
+    Set(x for f in _testhelper_candidate(m).forms for x in f.copies)
+
+# Whether step `k` of candidate `c` binds a modifier copy: a binding into a form whose
+# record holds one copy more than its source's.
+_testhelper_binds_copy(c, k) =
+    (e = c.mechanism.catalytic.steps[k];
+     EnzymeRates.Enumeration._is_binding(e) &&
+         length(c.forms[e.to].copies) == length(c.forms[e.from].copies) + 1)
+
+# The kinetic groups of graph `m` whose bindings take up `x` as a modifier copy.
+_testhelper_groups_binding_copy(m, x) =
+    (c = _testhelper_candidate(m);
+     unique(e.kinetic_group for (k, e) in enumerate(m.catalytic.steps)
+            if _testhelper_binds_copy(c, k) &&
+               m.catalytic.metabolites[only(e.taken_up)] === x))
+
+# Whether step `e` of candidate `c` is a fused binding: it takes up one metabolite and
+# gives off none, but its target's record is not its source's with that metabolite bound
+# and the residual unchanged.
+function _testhelper_is_fused(c, e)
+    EnzymeRates.Enumeration._is_binding(e) || return false
+    f, t = c.forms[e.from], c.forms[e.to]
+    x = c.mechanism.catalytic.metabolites[only(e.taken_up)]
+    !((f.adds, f.subtracts) == (t.adds, t.subtracts) &&
+      sort!([_testhelper_bound(f); x]) == sort!(_testhelper_bound(t)))
+end
+
+# Whether `child` keeps the reaction of `parent`: the same metabolites as substrates and
+# products, and every name `parent` binds as a modifier copy still bound so.
 _testhelper_keeps_reaction(child, parent) =
-    child.catalytic.substrates ==
-        parent.catalytic.substrates &&
-    child.catalytic.products ==
-        parent.catalytic.products &&
-    parent.catalytic.modifiers ⊆
-        child.catalytic.modifiers
+    child.catalytic.metabolites[child.catalytic.substrates] ==
+        parent.catalytic.metabolites[parent.catalytic.substrates] &&
+    child.catalytic.metabolites[child.catalytic.products] ==
+        parent.catalytic.metabolites[parent.catalytic.products] &&
+    _testhelper_modifier_names(parent) ⊆ _testhelper_modifier_names(child)
 
 # Whether `m` holds an isomerization step. It reads the graph's steps, not
 # `_testhelper_graph`: the population tests call it on every child of two expansion
@@ -154,7 +186,7 @@ _testhelper_holds_iso(m) =
 # The rapid-equilibrium flags of each kinetic group's edges of `m`, group by group.
 _testhelper_group_flags(m) = (cm = m.catalytic;
                               [[cm.steps[k].rapid_equilibrium for k in ks]
-                               for ks in cm.groups])
+                               for ks in _testhelper_group_members(cm)])
 
 # The steps of mechanism or catalytic scheme `m` apart from their kinetic groups: what a
 # regrouping move keeps.
@@ -167,8 +199,8 @@ _testhelper_iso_groups(m) =
     unique(s.group for s in _testhelper_graph(m).steps if _testhelper_is_iso(s))
 
 # Whether a step of graph `m` binds a metabolite named in `xs`.
-_testhelper_binds(m, xs...) = e -> EnzymeRates.Mechanisms._is_binding(e) &&
-    only(e.taken_up).name in xs
+_testhelper_binds(m, xs...) = e -> EnzymeRates.Enumeration._is_binding(e) &&
+    m.catalytic.metabolites[only(e.taken_up)] in xs
 
 # The kinetic-group index of every step of `m` that binds the metabolite named `x`.
 _testhelper_groups_binding(m, x) = [s.group for s in _testhelper_graph(m).steps
@@ -184,7 +216,7 @@ function _testhelper_flip_flags(m, preds...)
     re = _testhelper_flags(m)
     hit = EnzymeRates.Enumeration._groups_with(
         k -> any(p -> p(m.catalytic.steps[k]), preds), m.catalytic)
-    re[hit[[e.group for e in m.catalytic.steps]]] .= false
+    re[hit[[e.kinetic_group for e in m.catalytic.steps]]] .= false
     re
 end
 
@@ -199,31 +231,34 @@ _testhelper_flip_matching(m, preds...) =
 # (`_trimmed`, on the records of `m`'s forms), the group labels numbered
 # (`_numbered_groups`).
 function _testhelper_base(m, steps)
-    g = EnzymeRates.Enumeration._trimmed(EnzymeRates.Enumeration._form_records(m),
+    g = EnzymeRates.Enumeration._trimmed(_testhelper_candidate(m).forms,
                                          EnzymeRates.Enumeration._numbered_groups(steps))
-    EnzymeRates.Enumeration._candidate(m.catalytic.substrates, m.catalytic.products,
-                                       g.forms, g.steps).mechanism
+    cm = m.catalytic
+    EnzymeRates.Enumeration._candidate(cm.metabolites, g.forms, cm.substrates, cm.products,
+                                       g.steps).mechanism
 end
 
 # The bases of the seed `m` (`_seed_bases`), each built through the checked constructor as
 # a seed variant builds it.
 _testhelper_bases(m) =
-    [EnzymeRates.Enumeration._candidate(m.catalytic.substrates, m.catalytic.products,
-                                        b.forms, b.steps).mechanism
+    [EnzymeRates.Enumeration._candidate(m.catalytic.metabolites, b.forms,
+                                        m.catalytic.substrates, m.catalytic.products,
+                                        b.steps).mechanism
      for b in EnzymeRates.Enumeration._seed_bases(_testhelper_candidate(m))]
 
 # The productive twins of graph `m` over its whole graph (`_productive_twin`).
 _testhelper_twin(m) = EnzymeRates.Enumeration._productive_twin(
     _testhelper_candidate(m), trues(length(m.catalytic.steps)))
 
-# A kinetic group is catalytic iff it holds a chemistry step (any `step_kind` but
-# `:binding`: an isomerization, a fused binding or a Theorell–Chance step); otherwise it
-# is a binding group. Mirrors the rule `_expand_to_allosteric` uses to decide
-# whether a group's `:OnlyA` flip needs a paired regulator to be distinguishable.
+# A kinetic group is catalytic iff it holds a chemistry step (anything but a plain
+# binding: an isomerization, a fused binding or a Theorell–Chance step); otherwise it is a
+# binding group. Mirrors the rule `_expand_to_allosteric` uses to decide whether a group's
+# `:OnlyA` flip needs a paired regulator to be distinguishable.
 _testhelper_is_catalytic_group(m, g) =
-    (cm = m.catalytic;
-     any(k -> cm.step_kinds[k] !== :binding,
-         findall(e -> e.group == g, cm.steps)))
+    (c = _testhelper_candidate(m);
+     any(e -> e.kinetic_group == g &&
+              (!EnzymeRates.Enumeration._is_binding(e) || _testhelper_is_fused(c, e)),
+         m.catalytic.steps))
 
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
@@ -362,20 +397,20 @@ end
         substrates: S, A
         products: P
         steps: begin
-            (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
-            E + A ⇌ E(A)
-            E(A, S) <--> E(P)
-            E(P) ⇌ E + P
+            (E + S ⇌ ES, EA + S ⇌ EAS)
+            E + A ⇌ EA
+            EAS <--> EP
+            EP ⇌ E + P
         end
     end
     m_orderB = @enzyme_mechanism begin
         substrates: S, A
         products: P
         steps: begin
-            E(P) ⇌ E + P
-            E(A, S) <--> E(P)
-            E + A ⇌ E(A)
-            (E(A) + S ⇌ E(A, S), E + S ⇌ E(S))
+            EP ⇌ E + P
+            EAS <--> EP
+            E + A ⇌ EA
+            (EA + S ⇌ EAS, E + S ⇌ ES)
         end
     end
     @test m_orderA == m_orderB
@@ -388,11 +423,11 @@ end
         substrates: S, A
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(A) + S ⇌ E(A, S)
-            E + A ⇌ E(A)
-            E(A, S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            EA + S ⇌ EAS
+            E + A ⇌ EA
+            EAS <--> EP
+            EP ⇌ E + P
         end
     end
     mechs = [m_orderA, m_split, m_orderB]
@@ -403,8 +438,8 @@ end
     @test m_orderA == snapshot[1]
     @test m_split  == snapshot[2]
     @test m_orderB == snapshot[3]
-    @test (m_orderA.catalytic.nodes, m_orderA.catalytic.steps) ==
-          (snapshot[1].catalytic.nodes, snapshot[1].catalytic.steps)
+    @test (m_orderA.catalytic.enzyme_forms, m_orderA.catalytic.steps) ==
+          (snapshot[1].catalytic.enzyme_forms, snapshot[1].catalytic.steps)
 end
 
 @testset "_testhelper_assert_mechanism_invariants: coverage of every reactant" begin
@@ -428,21 +463,23 @@ end
         substrates: S, T
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end)
-    m_unused = _testhelper_plain_of(
-        _testhelper_canonicalize(EnzymeRates.DSL.raw_mechanism(:(begin
-        substrates: S, T
-        products: P
-        steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-        end
-    end))).scheme)
+    raw_unused = EnzymeRates.DSL.raw_mechanism(:(begin
+            substrates: S, T
+            products: P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+            end
+        end))
+    m_unused = _testhelper_plain_of(EnzymeRates.Mechanisms._canonical(
+        [raw_unused.substrates; raw_unused.products], raw_unused.forms, [1, 2], [3],
+        raw_unused.steps))
     @test_throws(ErrorException("declared substrate/product T appears in no step"),
                  _testhelper_assert_mechanism_invariants(m_unused))
 end
@@ -463,16 +500,16 @@ end
         substrates: NADH, Pyr
         products: Lac, NAD
         steps: begin
-            E + NADH ⇌ E(NADH)
-            E(NADH) <--> E(Lac)
-            E(Lac) ⇌ E + Lac
-            E + Pyr ⇌ E(Pyr)
-            E + NAD ⇌ E(NAD)
+            E + NADH ⇌ ENADH
+            ENADH <--> ELac
+            ELac ⇌ E + Lac
+            E + Pyr ⇌ EPyr
+            E + NAD ⇌ ENAD
         end
     end
     @test_throws ErrorException EnzymeRates.Enumeration._assert_atom_conserving(
         _testhelper_candidate(bad_m), ldh_rxn)
-    @test_throws("atom-non-conserving step E(NADH) → E(Lac)",
+    @test_throws("atom-non-conserving step ENADH → ELac",
                  EnzymeRates.Enumeration._assert_atom_conserving(
                      _testhelper_candidate(bad_m), ldh_rxn))
     # The label names the difference the message prints: Lac has 18 fewer C than NADH.
@@ -488,12 +525,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            EQ ⇌ E + Q
         end
     end
     @test EnzymeRates.Enumeration._assert_atom_conserving(_testhelper_candidate(good_m),
@@ -542,9 +579,9 @@ end
     # Uni-uni: the route binds S at E, isomerizes E(S) to E(P) and gives P off from E(P).
     # The topology holds the forms in the order the route meets them and writes that
     # release as the binding E + P → E(P), which takes P up; it lists its bindings first,
-    # by their forms in the canonical form order, then its steady-state isomerization.
-    none = ER.Mechanisms.Metabolite[]
-    S, P = [ER.Mechanisms.Metabolite(:S, false)], [ER.Mechanisms.Metabolite(:P, false)]
+    # by their forms in content order, then its steady-state isomerization.
+    # The steps index the reactants S and P, 1 and 2.
+    none, S, P = Int[], [1], [2]
     @test ER.Enumeration._catalytic_topologies(uni_uni_rxn) ==
           [(; forms = [form(), form(:S), form(:P)],
             steps = [ER.Mechanisms.Step(1, 3, P, none, true, 0),
@@ -552,16 +589,15 @@ end
                      ER.Mechanisms.Step(2, 3, none, none, false, 0)])]
 end
 
-@testset "isomerization patterns come in the canonical form order" begin
+@testset "isomerization patterns come in content order" begin
     # Ter-bi's ping-pongs run their first half-reaction on A and D or on B and D. The
-    # patterns sort by their isomerizations' forms in the canonical form order, so the
-    # one with E(A; residual = B + D - Q) comes before the one with E(A, D): that
-    # residual form binds fewer metabolites, though its name (`_form_name`) sorts after
-    # EAD.
+    # patterns sort by their isomerizations' forms in content order, so the one with
+    # EA_res_plusB_plusD_minusQ comes before the one with EAD: that residual form binds
+    # fewer metabolites, though its name sorts after EAD.
     # Each topology's first isomerization in that order is its steady-state step.
     function _testhelper_iso_texts(t)
         m = _testhelper_topo_mech(ter_bi_rxn, t)
-        sort([join(m.catalytic.step_sides[k], e.rapid_equilibrium ? " ⇌ " : " <--> ")
+        sort([EnzymeRates.Mechanisms.step_text(m.catalytic, k)
               for (k, e) in enumerate(m.catalytic.steps)
               if EnzymeRates.Mechanisms._is_iso(e)])
     end
@@ -784,13 +820,12 @@ end
     fused = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     # A Theorell–Chance step takes up B and gives off P in one step.
@@ -798,9 +833,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EQ + P
+            E + Q ⇌ EQ
         end
     end
     # An isomerization takes up and gives off nothing.
@@ -808,9 +843,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     plain = EnzymeRates.Enumeration._is_plain_binding
@@ -820,22 +855,22 @@ end
                    only(k for k in eachindex(m.catalytic.steps)
                         if EnzymeRates.Mechanisms.step_text(m.catalytic, k) == text))
     # A plain binding of a reactant.
-    c, k = at(fused, "E + A ⇌ E(A)")
+    c, k = at(fused, "E + A ⇌ EA")
     @test (plain(c, k), copies(c, k, :A)) == (true, 0)
     # The fused binding: B binds into E(P, Q), not into E(A, B).
-    c, k = at(fused, "E(A) + B <--> E(P, Q)")
+    c, k = at(fused, "EA + B <--> EPQ")
     @test (plain(c, k), copies(c, k, :B)) == (false, 0)
     # A binding of the modifier copy: one more copy of A, the productive A unchanged.
-    c, k = at(fused, "E + A::Mod ⇌ E(A::Mod)")
+    c, k = at(fused, "E + A ⇌ EAmod")
     @test (plain(c, k), copies(c, k, :A)) == (true, 1)
-    c, k = at(fused, "E(Q) + A::Mod ⇌ E(A::Mod, Q)")
+    c, k = at(fused, "EQ + A ⇌ EAmodQ")
     @test (plain(c, k), copies(c, k, :A), copies(c, k, :Q)) == (true, 1, 0)
     # The mirror: Q binds productively beside the copy, which stays.
-    c, k = at(fused, "E(A::Mod) + Q ⇌ E(A::Mod, Q)")
+    c, k = at(fused, "EAmod + Q ⇌ EAmodQ")
     @test (plain(c, k), copies(c, k, :Q), copies(c, k, :A)) == (true, 0, 0)
-    c, k = at(tc, "E(A) + B <--> E(Q) + P")
+    c, k = at(tc, "EA + B <--> EQ + P")
     @test (plain(c, k), copies(c, k, :B), copies(c, k, :P)) == (false, 0, 0)
-    c, k = at(iso, "E(S) <--> E(P)")
+    c, k = at(iso, "ES <--> EP")
     @test (plain(c, k), copies(c, k, :S), copies(c, k, :P)) == (false, 0, 0)
 end
 
@@ -847,9 +882,9 @@ m_uu = @enzyme_mechanism begin
     substrates: S
     products: P
     steps: begin
-        E + P ⇌ E(P)
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
+        E + P ⇌ EP
+        E + S ⇌ ES
+        ES <--> EP
     end
 end
 mech_uu = m_uu
@@ -861,15 +896,15 @@ m_bb = @enzyme_mechanism begin
     substrates: A, B
     products: P, Q
     steps: begin
-        E + A ⇌ E(A)
-        E(B) + A ⇌ E(A, B)
-        E + B ⇌ E(B)
-        E(A) + B ⇌ E(A, B)
-        E + P ⇌ E(P)
-        E(P) + Q ⇌ E(P, Q)
-        E + Q ⇌ E(Q)
-        E(Q) + P ⇌ E(P, Q)
-        E(A, B) <--> E(P, Q)
+        E + A ⇌ EA
+        EB + A ⇌ EAB
+        E + B ⇌ EB
+        EA + B ⇌ EAB
+        E + P ⇌ EP
+        EP + Q ⇌ EPQ
+        E + Q ⇌ EQ
+        EQ + P ⇌ EPQ
+        EAB <--> EPQ
     end
 end
 mech_bb = m_bb
@@ -885,14 +920,13 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     @test _testhelper_free_at(m, :A) == Set(["E"])
@@ -901,16 +935,16 @@ end
     @test isempty(_testhelper_free_at(m, :Q, true))
 end
 
-@testset "a Theorell–Chance step frees B at E(A) and P at E(Q)" begin
+@testset "a Theorell–Chance step frees B at EA and P at EQ" begin
     # E(A) + B → E(Q) + P takes B up at E(A) and gives P off at E(Q); A and Q
     # bind at E.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q <--> E(Q)
+            E + A <--> EA
+            EA + B <--> EQ + P
+            E + Q <--> EQ
         end
     end
     @test _testhelper_free_at(m, :A) == Set(["E"])
@@ -932,9 +966,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     topo = _testhelper_flat_topo(m)
@@ -965,15 +999,15 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(B) + A ⇌ E(A, B)
-            E + B ⇌ E(B)
-            E(A) + B ⇌ E(A, B)
-            E + P ⇌ E(P)
-            E(P) + Q ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E(Q) + P ⇌ E(P, Q)
-            E(A, B) <--> E(P, Q)
+            E + A ⇌ EA
+            EB + A ⇌ EAB
+            E + B ⇌ EB
+            EA + B ⇌ EAB
+            E + P ⇌ EP
+            EP + Q ⇌ EPQ
+            E + Q ⇌ EQ
+            EQ + P ⇌ EPQ
+            EAB <--> EPQ
         end
     end
     topo = _testhelper_flat_topo(m)
@@ -1009,10 +1043,10 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + Q ⇌ E(Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
+            E + Q ⇌ EQ
+            EQ + P ⇌ EPQ
+            E + S ⇌ ES
+            ES <--> EPQ
         end
     end
     topo = _testhelper_flat_topo(m)
@@ -1034,12 +1068,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            Estar + B ⇌ Estar(B)
-            E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(P)
-            E(A) <--> Estar(P)
-            Estar(B) ⇌ E(Q)
+            E + A ⇌ EA
+            Estar + B ⇌ EstarB
+            E + Q ⇌ EQ
+            Estar + P ⇌ EstarP
+            EA <--> EstarP
+            EstarB ⇌ EQ
         end
     end
     topo = _testhelper_flat_topo(m)
@@ -1125,13 +1159,11 @@ rxn = @enzyme_reaction begin
     products:   P[C], Q[C]
     shared_catalytic_site: (A, P)
 end
-# The names form `f` of graph `m` holds as reactants, not as modifier copies.
-_testhelper_reactant_names(m, f) = Set(x.name for x in f.bound if !x.modifier)
-_testhelper_binds_both(m, f) = :A in _testhelper_reactant_names(m, f) &&
-                               :P in _testhelper_reactant_names(m, f)
-@test !any(_testhelper_binds_both(m, f)
-           for m in _testhelper_mechanisms(
-               EnzymeRates.Enumeration.init_mechanisms(rxn)) for f in m.catalytic.nodes)
+# Whether the form whose record is `f` holds both A and P as reactants, not as modifier
+# copies.
+_testhelper_binds_both(f) = :A in f.productive && :P in f.productive
+@test !any(_testhelper_binds_both(f)
+           for c in EnzymeRates.Enumeration.init_mechanisms(rxn) for f in c.forms)
 end
 
 @testset "shared_catalytic_site strictly reduces mechanism count" begin
@@ -1167,9 +1199,9 @@ m_compiled = @enzyme_mechanism begin
     products: P
     oligomeric_state: 2
     steps: begin
-        E + S ⇌ E(S)             :: EqualAI
-        E + P ⇌ E(P)             :: NonequalAI
-        E(S) <--> E(P)           :: OnlyA
+        E + S ⇌ ES             :: EqualAI
+        E + P ⇌ EP             :: NonequalAI
+        ES <--> EP           :: OnlyA
     end
 end
 # Group order is canonical; allosteric tags stay bound to their steps.
@@ -1219,9 +1251,9 @@ end
     ER = EnzymeRates
     # A step from form `f` to form `t` of E, E(A), E(B), E(A, B), E(P, Q), E(P) and E(Q),
     # numbered 1 to 7, taking up `xs`.
-    step(f, t, xs, r) = ER.Mechanisms.Step(
-        f, t, ER.Mechanisms.Metabolite[ER.Mechanisms.Metabolite(x, false) for x in xs],
-        ER.Mechanisms.Metabolite[], r, 0)
+    # The metabolites A and B are 1 and 2.
+    index = Dict(:A => 1, :B => 2)
+    step(f, t, xs, r) = ER.Mechanisms.Step(f, t, Int[index[x] for x in xs], Int[], r, 0)
     # The A bindings at rapid equilibrium share label 1; B's rapid-equilibrium and
     # steady-state bindings take labels 2 and 3; each isomerization has a label of its
     # own though both take up and give off nothing. Labels run in order of first use.
@@ -1259,8 +1291,8 @@ end
     ER = EnzymeRates
     function _testhelper_kind(m)
         tc = any(_testhelper_is_tc, m.catalytic.steps)
-        fused = any(k -> m.catalytic.step_kinds[k] === :fused_binding,
-                    eachindex(m.catalytic.steps))
+        c = _testhelper_candidate(m)
+        fused = any(e -> _testhelper_is_fused(c, e), m.catalytic.steps)
         (tc ? (fused ? :half_tc : :tc) : :merged,
          count(fs -> !first(fs), _testhelper_group_flags(m)))
     end
@@ -1306,33 +1338,33 @@ end
     ordered_p = @enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
-            E + S <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
+            E + S <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q <--> EQ
         end
     end
     ordered_q = @enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
-            E + S <--> E(P, Q)
-            E(P) + Q ⇌ E(P, Q)
-            E + P <--> E(P)
+            E + S <--> EPQ
+            EP + Q ⇌ EPQ
+            E + P <--> EP
         end
     end
     random_p = @enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
-            E + S <--> E(P, Q)
-            (E(Q) + P <--> E(P, Q), E + P <--> E(P))
-            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+            E + S <--> EPQ
+            (EQ + P <--> EPQ, E + P <--> EP)
+            (EP + Q ⇌ EPQ, E + Q ⇌ EQ)
         end
     end
     random_q = @enzyme_mechanism begin
         substrates: S; products: P, Q
         steps: begin
-            E + S <--> E(P, Q)
-            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
-            (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
+            E + S <--> EPQ
+            (EQ + P ⇌ EPQ, E + P ⇌ EP)
+            (EP + Q <--> EPQ, E + Q <--> EQ)
         end
     end
     @test length(ub) == 7
@@ -1426,12 +1458,12 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S ⇌ E(S)
-            E + P ⇌ E(P)
-            E + Q ⇌ E(Q)
-            E(P) + Q ⇌ E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E(S) <--> E(P, Q)
+            E + S ⇌ ES
+            E + P ⇌ EP
+            E + Q ⇌ EQ
+            EP + Q ⇌ EPQ
+            EQ + P ⇌ EPQ
+            ES <--> EPQ
         end
     end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, parent)
@@ -1440,48 +1472,48 @@ end
             substrates: S
             products: P, Q
             steps: begin
-                E + S <--> E(S)
-                E + P ⇌ E(P)
-                E + Q ⇌ E(Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(S) <--> E(P, Q)
+                E + S <--> ES
+                E + P ⇌ EP
+                E + Q ⇌ EQ
+                EP + Q ⇌ EPQ
+                EQ + P ⇌ EPQ
+                ES <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # the two edges at E(P, Q)
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E + P ⇌ E(P)
-                E + Q ⇌ E(Q)
-                E(P) + Q <--> E(P, Q)
-                E(Q) + P <--> E(P, Q)
-                E(S) <--> E(P, Q)
+                E + S ⇌ ES
+                E + P ⇌ EP
+                E + Q ⇌ EQ
+                EP + Q <--> EPQ
+                EQ + P <--> EPQ
+                ES <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # P@E and P@E(Q)
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E + P <--> E(P)
-                E + Q ⇌ E(Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(Q) + P <--> E(P, Q)
-                E(S) <--> E(P, Q)
+                E + S ⇌ ES
+                E + P <--> EP
+                E + Q ⇌ EQ
+                EP + Q ⇌ EPQ
+                EQ + P <--> EPQ
+                ES <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # Q@E and Q@E(P)
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E + P ⇌ E(P)
-                E + Q <--> E(Q)
-                E(P) + Q <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(S) <--> E(P, Q)
+                E + S ⇌ ES
+                E + P ⇌ EP
+                E + Q <--> EQ
+                EP + Q <--> EPQ
+                EQ + P ⇌ EPQ
+                ES <--> EPQ
             end
         end)
     ]
@@ -1505,24 +1537,24 @@ end
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E + P <--> E(P)
-                E + Q ⇌ E(Q)
-                E(P) + Q <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(S) <--> E(P, Q)
+                E + S ⇌ ES
+                E + P <--> EP
+                E + Q ⇌ EQ
+                EP + Q <--> EPQ
+                EQ + P ⇌ EPQ
+                ES <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # Q@E and P@E(Q)
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E + P ⇌ E(P)
-                E + Q <--> E(Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(Q) + P <--> E(P, Q)
-                E(S) <--> E(P, Q)
+                E + S ⇌ ES
+                E + P ⇌ EP
+                E + Q <--> EQ
+                EP + Q ⇌ EPQ
+                EQ + P <--> EPQ
+                ES <--> EPQ
             end
         end)
     ])
@@ -1541,31 +1573,31 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     a_flip = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     q_flip = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q <--> EQ
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, seed)
@@ -1581,21 +1613,21 @@ end
         (@enzyme_mechanism begin      # the B flank
             substrates: A, B; products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E + Q ⇌ E(Q)
+                E + A ⇌ EA
+                EA + B <--> EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
+                E + Q ⇌ EQ
             end
         end),
         (@enzyme_mechanism begin      # the P flank
             substrates: A, B; products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P <--> E(P, Q)
-                E + Q ⇌ E(Q)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P <--> EPQ
+                E + Q ⇌ EQ
             end
         end)
     ])
@@ -1620,51 +1652,51 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     a_flip = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     b_flip = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B <--> E(A, B), E(Q) + B <--> E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B <--> EAB, EQ + B <--> EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     p_flip = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     q_flip = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EA
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q <--> EQ
         end
     end
     @test isempty(EnzymeRates.Enumeration._chain_flank_groups(seed))
@@ -1701,11 +1733,11 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     rxn2 = @enzyme_reaction begin
@@ -1716,11 +1748,11 @@ end
     am = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: EqualAI
-            E(A, B) <--> E(P, Q)        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)          :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: EqualAI
+            EAB <--> EPQ        :: OnlyA
+            EQ + P ⇌ EPQ          :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     @test am in _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, seed, rxn2)
@@ -1728,41 +1760,41 @@ end
     a_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: EqualAI
-            E(A, B) <--> E(P, Q)        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)          :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A <--> EA             :: OnlyA
+            EA + B ⇌ EAB          :: EqualAI
+            EAB <--> EPQ        :: OnlyA
+            EQ + P ⇌ EPQ          :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     b_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B <--> E(A, B)       :: EqualAI
-            E(A, B) <--> E(P, Q)        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)          :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B <--> EAB       :: EqualAI
+            EAB <--> EPQ        :: OnlyA
+            EQ + P ⇌ EPQ          :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     p_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: EqualAI
-            E(A, B) <--> E(P, Q)        :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: EqualAI
+            EAB <--> EPQ        :: OnlyA
+            EQ + P <--> EPQ       :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     q_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: EqualAI
-            E(A, B) <--> E(P, Q)        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)          :: EqualAI
-            E + Q <--> E(Q)             :: EqualAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: EqualAI
+            EAB <--> EPQ        :: OnlyA
+            EQ + P ⇌ EPQ          :: EqualAI
+            E + Q <--> EQ             :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am)
@@ -1785,21 +1817,21 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            Estar + B ⇌ Estar(B)
-            E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(P)
-            E(A) <--> Estar(P)
-            Estar(B) ⇌ E(Q)
+            E + A ⇌ EA
+            Estar + B ⇌ EstarB
+            E + Q ⇌ EQ
+            Estar + P ⇌ EstarP
+            EA <--> EstarP
+            EstarB ⇌ EQ
         end
     end
-    members = m.catalytic.groups
+    members = _testhelper_group_members(m.catalytic)
     flanks = Set(members[g] for g in EnzymeRates.Enumeration._chain_flank_groups(m))
     @test length(flanks) == 2
     @test all(ks -> length(ks) == 1 &&
-              EnzymeRates.Mechanisms._is_binding(m.catalytic.steps[only(ks)]),
+              EnzymeRates.Enumeration._is_binding(m.catalytic.steps[only(ks)]),
               flanks)
-    @test Set(only(m.catalytic.steps[only(ks)].taken_up).name
+    @test Set(m.catalytic.metabolites[only(m.catalytic.steps[only(ks)].taken_up)]
               for ks in flanks) == Set([:A, :P])
 end
 
@@ -1817,10 +1849,10 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) + P ⇌ E(P, S)
-            E(S) <--> Estar(P)
-            Estar + P ⇌ Estar(P)
+            E + S ⇌ ES
+            ES + P ⇌ EPS
+            ES <--> EstarP
+            Estar + P ⇌ EstarP
             Estar <--> E
         end
     end
@@ -1839,12 +1871,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            Estar + B ⇌ Estar(B)
-            E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(P)
-            E(A) <--> Estar(P)
-            Estar(B) ⇌ E(Q)
+            E + A ⇌ EA
+            Estar + B ⇌ EstarB
+            E + Q ⇌ EQ
+            Estar + P ⇌ EstarP
+            EA <--> EstarP
+            EstarB ⇌ EQ
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -1881,24 +1913,24 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P ⇌ Estar(P)
-                E(A) <--> Estar(P)
-                Estar(B) ⇌ E(Q)
+                E + A <--> EA
+                Estar + B ⇌ EstarB
+                E + Q ⇌ EQ
+                Estar + P ⇌ EstarP
+                EA <--> EstarP
+                EstarB ⇌ EQ
             end
         end),
         (@enzyme_mechanism begin      # the P flank
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P <--> Estar(P)
-                E(A) <--> Estar(P)
-                Estar(B) ⇌ E(Q)
+                E + A ⇌ EA
+                Estar + B ⇌ EstarB
+                E + Q ⇌ EQ
+                Estar + P <--> EstarP
+                EA <--> EstarP
+                EstarB ⇌ EQ
             end
         end)
     ])
@@ -1916,13 +1948,13 @@ end
         substrates: A, B, D
         products: P, Q, R
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) + D ⇌ E(A, B, D)
-            E + R ⇌ E(R)
-            E(R) + Q ⇌ E(Q, R)
-            E(Q, R) + P ⇌ E(P, Q, R)
-            E(A, B, D) <--> E(P, Q, R)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB + D ⇌ EABD
+            E + R ⇌ ER
+            ER + Q ⇌ EQR
+            EQR + P ⇌ EPQR
+            EABD <--> EPQR
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -1940,26 +1972,26 @@ end
             substrates: A, B, D
             products: P, Q, R
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) + D <--> E(A, B, D)
-                E + R ⇌ E(R)
-                E(R) + Q ⇌ E(Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(A, B, D) <--> E(P, Q, R)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB + D <--> EABD
+                E + R ⇌ ER
+                ER + Q ⇌ EQR
+                EQR + P ⇌ EPQR
+                EABD <--> EPQR
             end
         end),
         (@enzyme_mechanism begin      # the P flank
             substrates: A, B, D
             products: P, Q, R
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) + D ⇌ E(A, B, D)
-                E + R ⇌ E(R)
-                E(R) + Q ⇌ E(Q, R)
-                E(Q, R) + P <--> E(P, Q, R)
-                E(A, B, D) <--> E(P, Q, R)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB + D ⇌ EABD
+                E + R ⇌ ER
+                ER + Q ⇌ EQR
+                EQR + P <--> EPQR
+                EABD <--> EPQR
             end
         end)
     ])
@@ -1982,9 +2014,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
+                E + P ⇌ EP      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
             end
         end), [1, 1], [
             (@enzyme_mechanism begin
@@ -1992,9 +2024,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P <--> E(P)   :: EqualAI
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
+                    E + P <--> EP   :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
                 end
             end),
             (@enzyme_mechanism begin
@@ -2002,9 +2034,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)      :: EqualAI
-                    E + S <--> E(S)   :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
+                    E + P ⇌ EP      :: EqualAI
+                    E + S <--> ES   :: EqualAI
+                    ES <--> EP    :: EqualAI
                 end
             end)]),
         # Both binding groups :OnlyA (a balanced substrate/product pair, so the
@@ -2024,9 +2056,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)      :: OnlyA
-                E + S ⇌ E(S)      :: OnlyA
-                E(S) <--> E(P)    :: EqualAI
+                E + P ⇌ EP      :: OnlyA
+                E + S ⇌ ES      :: OnlyA
+                ES <--> EP    :: EqualAI
             end
         end), [1, 1], [
             (@enzyme_mechanism begin
@@ -2034,9 +2066,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P <--> E(P)   :: OnlyA
-                    E + S ⇌ E(S)      :: OnlyA
-                    E(S) <--> E(P)    :: EqualAI
+                    E + P <--> EP   :: OnlyA
+                    E + S ⇌ ES      :: OnlyA
+                    ES <--> EP    :: EqualAI
                 end
             end),
             (@enzyme_mechanism begin
@@ -2044,9 +2076,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)      :: OnlyA
-                    E + S <--> E(S)   :: OnlyA
-                    E(S) <--> E(P)    :: EqualAI
+                    E + P ⇌ EP      :: OnlyA
+                    E + S <--> ES   :: OnlyA
+                    ES <--> EP    :: EqualAI
                 end
             end)]),
         # One :NonequalAI group (S-binding), the others :EqualAI. When RE→SS converts a
@@ -2058,9 +2090,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)      :: EqualAI
-                E + S ⇌ E(S)      :: NonequalAI
-                E(S) <--> E(P)    :: EqualAI
+                E + P ⇌ EP      :: EqualAI
+                E + S ⇌ ES      :: NonequalAI
+                ES <--> EP    :: EqualAI
             end
         end), [1, 2], [
             (@enzyme_mechanism begin
@@ -2068,9 +2100,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P <--> E(P)   :: EqualAI
-                    E + S ⇌ E(S)      :: NonequalAI
-                    E(S) <--> E(P)    :: EqualAI
+                    E + P <--> EP   :: EqualAI
+                    E + S ⇌ ES      :: NonequalAI
+                    ES <--> EP    :: EqualAI
                 end
             end),
             (@enzyme_mechanism begin
@@ -2078,9 +2110,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)      :: EqualAI
-                    E + S <--> E(S)   :: NonequalAI
-                    E(S) <--> E(P)    :: EqualAI
+                    E + P ⇌ EP      :: EqualAI
+                    E + S <--> ES   :: NonequalAI
+                    ES <--> EP    :: EqualAI
                 end
             end)]),
         # Every group :NonequalAI — a distinguishable mechanism (an all-:EqualAI seed, the
@@ -2092,9 +2124,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: NonequalAI
-                E + P ⇌ E(P)    :: NonequalAI
-                E(S) <--> E(P)  :: NonequalAI
+                E + S ⇌ ES    :: NonequalAI
+                E + P ⇌ EP    :: NonequalAI
+                ES <--> EP  :: NonequalAI
             end
         end), [2, 2], [
             (@enzyme_mechanism begin
@@ -2102,9 +2134,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P <--> E(P)   :: NonequalAI
-                    E + S ⇌ E(S)      :: NonequalAI
-                    E(S) <--> E(P)    :: NonequalAI
+                    E + P <--> EP   :: NonequalAI
+                    E + S ⇌ ES      :: NonequalAI
+                    ES <--> EP    :: NonequalAI
                 end
             end),
             (@enzyme_mechanism begin
@@ -2112,9 +2144,9 @@ end
                 products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)      :: NonequalAI
-                    E + S <--> E(S)   :: NonequalAI
-                    E(S) <--> E(P)    :: NonequalAI
+                    E + P ⇌ EP      :: NonequalAI
+                    E + S <--> ES   :: NonequalAI
+                    ES <--> EP    :: NonequalAI
                 end
             end)]),
     ]
@@ -2152,41 +2184,38 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     expected = [
         (@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                E + A <--> E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+                E + A <--> EA
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                (E + Q <--> E(Q), E(A::Mod) + Q <--> E(A::Mod, Q))
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
+                (E + Q <--> EQ, EAmod + Q <--> EAmodQ)
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
             end
         end),
     ]
@@ -2198,27 +2227,25 @@ end
         (@enzyme_mechanism begin      # the B flank
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+                E + A ⇌ EA
+                EA + B <--> EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
             end
         end),
         @enzyme_mechanism begin      # the P flank
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P <--> E(P, Q)
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P <--> EPQ
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
             end
         end
     ]
@@ -2228,9 +2255,11 @@ end
     for r in kids
         _testhelper_assert_mechanism_invariants(r)
     end
-    for r in kids, s in _testhelper_graph(r).steps
-        _testhelper_is_binding(s) && only(s.consumed_modifier) &&
-            @test s.rapid_equilibrium
+    for r in kids
+        c = _testhelper_candidate(r)
+        for k in eachindex(r.catalytic.steps)
+            _testhelper_binds_copy(c, k) && @test r.catalytic.steps[k].rapid_equilibrium
+        end
     end
 end
 
@@ -2243,72 +2272,67 @@ end
     am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                            :: EqualAI
-            E(A) + B ⇌ E(A, B)                                      :: EqualAI
-            E(A, B) <--> E(P, Q)                                    :: OnlyA
-            E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))            :: EqualAI
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
+            E + A ⇌ EA                                            :: EqualAI
+            EA + B ⇌ EAB                                      :: EqualAI
+            EAB <--> EPQ                                    :: OnlyA
+            EQ + P ⇌ EPQ                                      :: EqualAI
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)            :: EqualAI
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
         end
     end
     expected = [
         (@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             oligomeric_state: 1
             steps: begin
-                E + A <--> E(A)                                         :: EqualAI
-                E(A) + B ⇌ E(A, B)                                      :: EqualAI
-                E(A, B) <--> E(P, Q)                                    :: OnlyA
-                E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))            :: EqualAI
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
+                E + A <--> EA                                         :: EqualAI
+                EA + B ⇌ EAB                                      :: EqualAI
+                EAB <--> EPQ                                    :: OnlyA
+                EQ + P ⇌ EPQ                                      :: EqualAI
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)            :: EqualAI
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             oligomeric_state: 1
             steps: begin
-                E + A ⇌ E(A)                                            :: EqualAI
-                E(A) + B <--> E(A, B)                                   :: EqualAI
-                E(A, B) <--> E(P, Q)                                    :: OnlyA
-                E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))            :: EqualAI
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
+                E + A ⇌ EA                                            :: EqualAI
+                EA + B <--> EAB                                   :: EqualAI
+                EAB <--> EPQ                                    :: OnlyA
+                EQ + P ⇌ EPQ                                      :: EqualAI
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)            :: EqualAI
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             oligomeric_state: 1
             steps: begin
-                E + A ⇌ E(A)                                            :: EqualAI
-                E(A) + B ⇌ E(A, B)                                      :: EqualAI
-                E(A, B) <--> E(P, Q)                                    :: OnlyA
-                E(Q) + P <--> E(P, Q)                                   :: EqualAI
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))            :: EqualAI
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
+                E + A ⇌ EA                                            :: EqualAI
+                EA + B ⇌ EAB                                      :: EqualAI
+                EAB <--> EPQ                                    :: OnlyA
+                EQ + P <--> EPQ                                   :: EqualAI
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)            :: EqualAI
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             oligomeric_state: 1
             steps: begin
-                E + A ⇌ E(A)                                            :: EqualAI
-                E(A) + B ⇌ E(A, B)                                      :: EqualAI
-                E(A, B) <--> E(P, Q)                                    :: OnlyA
-                E(Q) + P ⇌ E(P, Q)                                      :: EqualAI
-                (E + Q <--> E(Q), E(A::Mod) + Q <--> E(A::Mod, Q))      :: EqualAI
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))  :: EqualAI
+                E + A ⇌ EA                                            :: EqualAI
+                EA + B ⇌ EAB                                      :: EqualAI
+                EAB <--> EPQ                                    :: OnlyA
+                EQ + P ⇌ EPQ                                      :: EqualAI
+                (E + Q <--> EQ, EAmod + Q <--> EAmodQ)      :: EqualAI
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
             end
         end),
     ]
@@ -2323,7 +2347,7 @@ end
         onlya = findfirst(==(:OnlyA), r.allosteric.allosteric_states)
         cm = r.catalytic
         @test EnzymeRates.Mechanisms._is_iso(
-            cm.steps[findfirst(e -> e.group == onlya, cm.steps)])
+            cm.steps[findfirst(e -> e.kinetic_group == onlya, cm.steps)])
         @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
         @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
         @test _testhelper_keeps_reaction(r, am)
@@ -2349,13 +2373,13 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)          :: EqualAI
-            E(A) + B ⇌ E(A, B)    :: EqualAI
-            E(A, B) <--> E(P)      :: EqualAI
-            E + P ⇌ E(P)          :: EqualAI
-            E + I ⇌ E(I)          :: EqualAI
-            E(A) + I ⇌ E(A, I)    :: EqualAI
-            E(I) + A ⇌ E(A, I)    :: EqualAI
+            E + A ⇌ EA          :: EqualAI
+            EA + B ⇌ EAB    :: EqualAI
+            EAB <--> EP      :: EqualAI
+            E + P ⇌ EP          :: EqualAI
+            E + I ⇌ EI          :: EqualAI
+            EA + I ⇌ EAI    :: EqualAI
+            EI + A ⇌ EAI    :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
@@ -2365,13 +2389,13 @@ end
             products: P
             modifiers: I
             steps: begin
-                E + A ⇌ E(A)          :: EqualAI
-                E(A) + B ⇌ E(A, B)    :: EqualAI
-                E(A, B) <--> E(P)      :: EqualAI
-                E + P <--> E(P)       :: EqualAI
-                E + I ⇌ E(I)          :: EqualAI
-                E(A) + I ⇌ E(A, I)    :: EqualAI
-                E(I) + A ⇌ E(A, I)    :: EqualAI
+                E + A ⇌ EA          :: EqualAI
+                EA + B ⇌ EAB    :: EqualAI
+                EAB <--> EP      :: EqualAI
+                E + P <--> EP       :: EqualAI
+                E + I ⇌ EI          :: EqualAI
+                EA + I ⇌ EAI    :: EqualAI
+                EI + A ⇌ EAI    :: EqualAI
             end
         end),
         @enzyme_mechanism(begin
@@ -2379,13 +2403,13 @@ end
             products: P
             modifiers: I
             steps: begin
-                E + A ⇌ E(A)          :: EqualAI
-                E(A) + B <--> E(A, B)  :: EqualAI
-                E(A, B) <--> E(P)      :: EqualAI
-                E + P ⇌ E(P)          :: EqualAI
-                E + I ⇌ E(I)          :: EqualAI
-                E(A) + I ⇌ E(A, I)    :: EqualAI
-                E(I) + A ⇌ E(A, I)    :: EqualAI
+                E + A ⇌ EA          :: EqualAI
+                EA + B <--> EAB  :: EqualAI
+                EAB <--> EP      :: EqualAI
+                E + P ⇌ EP          :: EqualAI
+                E + I ⇌ EI          :: EqualAI
+                EA + I ⇌ EAI    :: EqualAI
+                EI + A ⇌ EAI    :: EqualAI
             end
         end),
         @enzyme_mechanism(begin
@@ -2393,13 +2417,13 @@ end
             products: P
             modifiers: I
             steps: begin
-                E + A <--> E(A)        :: EqualAI
-                E(A) + B ⇌ E(A, B)    :: EqualAI
-                E(A, B) <--> E(P)      :: EqualAI
-                E + P ⇌ E(P)          :: EqualAI
-                E + I ⇌ E(I)          :: EqualAI
-                E(A) + I ⇌ E(A, I)    :: EqualAI
-                E(I) + A <--> E(A, I)  :: EqualAI
+                E + A <--> EA        :: EqualAI
+                EA + B ⇌ EAB    :: EqualAI
+                EAB <--> EP      :: EqualAI
+                E + P ⇌ EP          :: EqualAI
+                E + I ⇌ EI          :: EqualAI
+                EA + I ⇌ EAI    :: EqualAI
+                EI + A <--> EAI  :: EqualAI
             end
         end)]
     @test length(kids) == 3
@@ -2407,8 +2431,8 @@ end
     # Mirror-lock: in every child the A binding at E and its mirror at E(I) carry one
     # flag.
     _testhelper_flag(c, from, to) = only(e.rapid_equilibrium for e in c.catalytic.steps
-        if (EnzymeRates.Mechanisms._form_name(c.catalytic, e.from),
-            EnzymeRates.Mechanisms._form_name(c.catalytic, e.to)) == (from, to))
+        if (String(c.catalytic.enzyme_forms[e.from]),
+            String(c.catalytic.enzyme_forms[e.to])) == (from, to))
     @test all(c -> _testhelper_flag(c, "E", "EA") == _testhelper_flag(c, "EI", "EAI"), kids)
 end
 
@@ -2419,9 +2443,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P <--> E(P)
-            E + S <--> E(S)
-            E(S) <--> E(P)
+            E + P <--> EP
+            E + S <--> ES
+            ES <--> EP
         end
     end
     @test isempty(_testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m_all_ss))
@@ -2444,11 +2468,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A <--> EA, EB + A <--> EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     _testhelper_assert_mechanism_invariants(m_seed)
@@ -2467,13 +2491,13 @@ end
     # context split by B gains alone and is emitted as a single split.
     _testhelper_lone_ss_a(r, ks) =
         length(ks) == 1 && !r.catalytic.steps[only(ks)].rapid_equilibrium &&
-        only(r.catalytic.steps[only(ks)].taken_up).name == :A
+        r.catalytic.metabolites[only(r.catalytic.steps[only(ks)].taken_up)] == :A
     a_split =
         [r for r in result
-         if length(r.catalytic.groups) ==
-                length(m_seed.catalytic.groups) + 1 &&
+         if length(_testhelper_group_members(r.catalytic)) ==
+                length(_testhelper_group_members(m_seed.catalytic)) + 1 &&
              any(ks -> _testhelper_lone_ss_a(r, ks),
-                 r.catalytic.groups)]
+                 _testhelper_group_members(r.catalytic))]
     @test length(a_split) == 1
 end
 
@@ -2487,11 +2511,11 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(A, B))    :: NonequalAI
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))          :: EqualAI
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: EqualAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: EqualAI
-            E(A, B) <--> E(P, Q)                        :: EqualAI
+            (E + A <--> EA, EB + A <--> EAB)    :: NonequalAI
+            (E + B ⇌ EB, EA + B ⇌ EAB)          :: EqualAI
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: EqualAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: EqualAI
+            EAB <--> EPQ                        :: EqualAI
         end
     end
     _testhelper_assert_mechanism_invariants(am)
@@ -2506,12 +2530,12 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A <--> E(A)                     :: NonequalAI
-                E(B) + A <--> E(A, B)               :: NonequalAI
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))  :: EqualAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))  :: EqualAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))  :: EqualAI
-                E(A, B) <--> E(P, Q)                :: EqualAI
+                E + A <--> EA                     :: NonequalAI
+                EB + A <--> EAB               :: NonequalAI
+                (E + B ⇌ EB, EA + B ⇌ EAB)  :: EqualAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)  :: EqualAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)  :: EqualAI
+                EAB <--> EPQ                :: EqualAI
             end
         end),
         @enzyme_mechanism(begin
@@ -2519,13 +2543,13 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(A, B))  :: NonequalAI
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))        :: EqualAI
-                E + P ⇌ E(P)                              :: EqualAI
-                E(Q) + P ⇌ E(P, Q)                        :: EqualAI
-                E + Q ⇌ E(Q)                              :: EqualAI
-                E(P) + Q ⇌ E(P, Q)                        :: EqualAI
-                E(A, B) <--> E(P, Q)                      :: EqualAI
+                (E + A <--> EA, EB + A <--> EAB)  :: NonequalAI
+                (E + B ⇌ EB, EA + B ⇌ EAB)        :: EqualAI
+                E + P ⇌ EP                              :: EqualAI
+                EQ + P ⇌ EPQ                        :: EqualAI
+                E + Q ⇌ EQ                              :: EqualAI
+                EP + Q ⇌ EPQ                        :: EqualAI
+                EAB <--> EPQ                      :: EqualAI
             end
         end)]
     @test length(result) == 2
@@ -2540,13 +2564,12 @@ end
     # constant to tie and its context split gains on its own: a child
     # that splits that group and nothing else is emitted.
     cm = am.catalytic
-    a_group = findall(
-        e -> e.group == cm.steps[_testhelper_edge(cm, "E + A <--> EA")].group,
-        cm.steps)
-    @test any(r -> length(r.catalytic.groups) ==
-              length(cm.groups) + 1 &&
+    a_g = cm.steps[_testhelper_edge(cm, "E + A <--> EA")].kinetic_group
+    a_group = findall(e -> e.kinetic_group == a_g, cm.steps)
+    @test any(r -> length(_testhelper_group_members(r.catalytic)) ==
+              length(_testhelper_group_members(cm)) + 1 &&
               _testhelper_ungrouped(r.catalytic) == _testhelper_ungrouped(cm) &&
-              length(unique(r.catalytic.steps[k].group for k in a_group)) == 2,
+              length(unique(r.catalytic.steps[k].kinetic_group for k in a_group)) == 2,
               result)
 
     # 3. kind and invariants
@@ -2561,11 +2584,12 @@ end
     # keeps its own. Group ORDER is canonical (not source-preserved), so match each
     # result group to its parent by step content rather than by position.
     for r in result
-        @test length(r.allosteric.allosteric_states) == length(r.catalytic.groups)
+        @test length(r.allosteric.allosteric_states) ==
+              length(_testhelper_group_members(r.catalytic))
         @test _testhelper_ungrouped(r.catalytic) == _testhelper_ungrouped(cm)
-        for (k, g) in enumerate(e.group for e in r.catalytic.steps)
+        for (k, g) in enumerate(e.kinetic_group for e in r.catalytic.steps)
             @test r.allosteric.allosteric_states[g] ==
-                  am.allosteric.allosteric_states[cm.steps[k].group]
+                  am.allosteric.allosteric_states[cm.steps[k].kinetic_group]
         end
     end
 
@@ -2583,9 +2607,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     @test isempty(_testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group,
@@ -2604,13 +2628,13 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))    :: NonequalAI
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))    :: EqualAI
-            E + P ⇌ E(P)             :: EqualAI
-            E(P) + Q ⇌ E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)             :: EqualAI
-            E(Q) + P ⇌ E(P, Q)       :: EqualAI
-            E(A, B) <--> E(P, Q)     :: EqualAI
+            (E + A ⇌ EA, EB + A ⇌ EAB)    :: NonequalAI
+            (E + B ⇌ EB, EA + B ⇌ EAB)    :: EqualAI
+            E + P ⇌ EP             :: EqualAI
+            EP + Q ⇌ EPQ       :: EqualAI
+            E + Q ⇌ EQ             :: EqualAI
+            EQ + P ⇌ EPQ       :: EqualAI
+            EAB <--> EPQ     :: EqualAI
         end
     end
     result = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m_seed)
@@ -2632,35 +2656,35 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B <--> E(A, B), E(Q) + B <--> E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B <--> EAB, EQ + B <--> EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     reverted = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(A, B)
-            E(Q) + B ⇌ E(B, Q)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EAB
+            EQ + B ⇌ EBQ
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     raw = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(A, B)
-            E(Q) + B <--> E(B, Q)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EAB
+            EQ + B <--> EBQ
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m)
@@ -2691,29 +2715,27 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: B
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E(A) + B::Mod ⇌ E(A, B::Mod), E(Q) + B::Mod ⇌ E(B::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (EA + B ⇌ EABmod, EQ + B ⇌ EBmodQ)
         end
     end
     @test isempty(_testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m))
     absent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: B
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E(A) + B::Mod ⇌ E(A, B::Mod)
-            E(Q) + B::Mod ⇌ E(B::Mod, Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            EA + B ⇌ EABmod
+            EQ + B ⇌ EBmodQ
         end
     end
     @test EnzymeRates.Derivation.fitted_parameter_count(absent) ==
@@ -2733,29 +2755,27 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E + A::Mod ⇌ E(A::Mod)
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            E + A ⇌ EAmod
         end
     end
     absent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(Q) + A ⇌ E(A, Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E(A) + Q ⇌ E(A, Q)
-            E + A::Mod ⇌ E(A::Mod)
+            E + A ⇌ EA
+            EQ + A ⇌ EAQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            EA + Q ⇌ EAQ
+            E + A ⇌ EAmod
         end
     end
     @test EnzymeRates.Enumeration._assert_emission_rules(
@@ -2781,32 +2801,30 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E(A) + Q::Mod ⇌ E(A, Q::Mod)
-            E(Q) + Q::Mod ⇌ E(Q, Q::Mod)
-            (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            EA + Q ⇌ EAQmod
+            EQ + Q ⇌ EQQmod
+            (EA + A ⇌ EAAmod, EQ + A ⇌ EAmodQ)
         end
     end
     emitted = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E(A) + Q::Mod ⇌ E(A, Q::Mod)
-            E(Q) + Q::Mod ⇌ E(Q, Q::Mod)
-            E(A) + A::Mod ⇌ E(A, A::Mod)
-            E(Q) + A::Mod ⇌ E(A::Mod, Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            EA + Q ⇌ EAQmod
+            EQ + Q ⇌ EQQmod
+            EA + A ⇌ EAAmod
+            EQ + A ⇌ EAmodQ
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m)
@@ -2830,85 +2848,85 @@ end
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P),
-             E(Q) + P ⇌ E(P, Q))                                    :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            (EB + A <--> EAB, EBP + A <--> EABP)    :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            (EAB + P ⇌ EABP, EB + P ⇌ EBP,
+             EQ + P ⇌ EPQ)                                    :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     p_by_a = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
-            (E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))                :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            (EB + A <--> EAB, EBP + A <--> EABP)    :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            EAB + P ⇌ EABP                                :: OnlyA
+            (EB + P ⇌ EBP, EQ + P ⇌ EPQ)                :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     p_by_b = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))          :: OnlyA
-            E(Q) + P ⇌ E(P, Q)                                      :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            (EB + A <--> EAB, EBP + A <--> EABP)    :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            (EAB + P ⇌ EABP, EB + P ⇌ EBP)          :: OnlyA
+            EQ + P ⇌ EPQ                                      :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     a_by_p = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            E(B) + A <--> E(A, B)                                   :: OnlyA
-            E(B, P) + A <--> E(A, B, P)                             :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P),
-             E(Q) + P ⇌ E(P, Q))                                    :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            EB + A <--> EAB                                   :: OnlyA
+            EBP + A <--> EABP                             :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            (EAB + P ⇌ EABP, EB + P ⇌ EBP,
+             EQ + P ⇌ EPQ)                                    :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(am) >
@@ -2948,65 +2966,65 @@ end
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
-            (E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))                :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            (EB + A <--> EAB, EBP + A <--> EABP)    :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            EAB + P ⇌ EABP                                :: OnlyA
+            (EB + P ⇌ EBP, EQ + P ⇌ EPQ)                :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     a_by_p = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            E(B) + A <--> E(A, B)                                   :: OnlyA
-            E(B, P) + A <--> E(A, B, P)                             :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
-            (E(B) + P ⇌ E(B, P), E(Q) + P ⇌ E(P, Q))                :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            EB + A <--> EAB                                   :: OnlyA
+            EBP + A <--> EABP                             :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            EAB + P ⇌ EABP                                :: OnlyA
+            (EB + P ⇌ EBP, EQ + P ⇌ EPQ)                :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     p_by_b = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q
         steps: begin
-            E + A <--> E(A)                                         :: OnlyA
-            (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))    :: OnlyA
-            E(D) + A <--> E(A, D)                                   :: OnlyA
-            E(B, D) + A <--> E(P, Q)                                :: OnlyA
-            E + B <--> E(B)                                         :: OnlyA
-            E(A) + B <--> E(A, B)                                   :: OnlyA
-            E(D) + B <--> E(B, D)                                   :: OnlyA
-            E(A, D) + B <--> E(P, Q)                                :: OnlyA
-            E + D <--> E(D)                                         :: OnlyA
-            E(A) + D <--> E(A, D)                                   :: OnlyA
-            E(B) + D <--> E(B, D)                                   :: OnlyA
-            E(A, B) + D <--> E(P, Q)                                :: OnlyA
-            E(A, B) + P ⇌ E(A, B, P)                                :: OnlyA
-            E(B) + P ⇌ E(B, P)                                      :: OnlyA
-            E(Q) + P ⇌ E(P, Q)                                      :: OnlyA
-            E + Q <--> E(Q)                                         :: EqualAI
+            E + A <--> EA                                         :: OnlyA
+            (EB + A <--> EAB, EBP + A <--> EABP)    :: OnlyA
+            ED + A <--> EAD                                   :: OnlyA
+            EBD + A <--> EPQ                                :: OnlyA
+            E + B <--> EB                                         :: OnlyA
+            EA + B <--> EAB                                   :: OnlyA
+            ED + B <--> EBD                                   :: OnlyA
+            EAD + B <--> EPQ                                :: OnlyA
+            E + D <--> ED                                         :: OnlyA
+            EA + D <--> EAD                                   :: OnlyA
+            EB + D <--> EBD                                   :: OnlyA
+            EAB + D <--> EPQ                                :: OnlyA
+            EAB + P ⇌ EABP                                :: OnlyA
+            EB + P ⇌ EBP                                      :: OnlyA
+            EQ + P ⇌ EPQ                                      :: OnlyA
+            E + Q <--> EQ                                         :: EqualAI
         end
     end
     @test EnzymeRates.Derivation.rate_equation_term_count(am) >
@@ -3036,7 +3054,7 @@ end
           Set([others; a_by_p; p_by_b])
 end
 
-@testset "Allosteric mechanism — a stopped :OnlyA binding strands E(A); no child" begin
+@testset "Allosteric mechanism — a stopped :OnlyA binding strands EA; no child" begin
     # Merged random-order bi-bi with the abortive complex E(A, Q). The steady-state A group
     # binds A at E and, fused, at E(B) into E(P, Q), all :OnlyA. In the inactive
     # conformation the :EqualAI steps E + Q <--> E(Q), E(Q) + A <--> E(A, Q) and
@@ -3057,17 +3075,17 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))                         :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                         :: OnlyA
-            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q))  :: EqualAI
-            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ)                         :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)                               :: OnlyA
+            (E + P <--> EP, EQ + P <--> EPQ)                         :: OnlyA
+            (E + Q <--> EQ, EA + Q <--> EAQ, EP + Q <--> EPQ)  :: EqualAI
+            EQ + A <--> EAQ                                            :: EqualAI
         end
     end
     D = EnzymeRates.Derivation
     v = D._guard(am)
     @test v.fault === D._NONUNIQUE
-    @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E(A) + Q <--> E(A, Q)"
+    @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "EA + Q <--> EAQ"
     @test D._face_names(am.catalytic, D._faces(am.catalytic)[v.face]) == [:P, :Q]
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(2922)))
     msg = D._guard_message(am)
@@ -3075,41 +3093,41 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))                         :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                               :: OnlyA
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                         :: OnlyA
-            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q))  :: EqualAI
-            E(Q) + A <--> E(A, Q)                                            :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ)                         :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)                               :: OnlyA
+            (E + P <--> EP, EQ + P <--> EPQ)                         :: OnlyA
+            (E + Q <--> EQ, EA + Q <--> EAQ, EP + Q <--> EPQ)  :: EqualAI
+            EQ + A <--> EAQ                                            :: EqualAI
         end
     end
     p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))                        :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                              :: OnlyA
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                        :: NonequalAI
-            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q)) :: EqualAI
-            E(Q) + A <--> E(A, Q)                                           :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ)                        :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)                              :: OnlyA
+            (E + P <--> EP, EQ + P <--> EPQ)                        :: NonequalAI
+            (E + Q <--> EQ, EA + Q <--> EAQ, EP + Q <--> EPQ) :: EqualAI
+            EQ + A <--> EAQ                                           :: EqualAI
         end
     end
     q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))                        :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                              :: OnlyA
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                        :: OnlyA
-            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q)) :: NonequalAI
-            E(Q) + A <--> E(A, Q)                                           :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ)                        :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)                              :: OnlyA
+            (E + P <--> EP, EQ + P <--> EPQ)                        :: OnlyA
+            (E + Q <--> EQ, EA + Q <--> EAQ, EP + Q <--> EPQ) :: NonequalAI
+            EQ + A <--> EAQ                                           :: EqualAI
         end
     end
     qa_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))                        :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))                              :: OnlyA
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))                        :: OnlyA
-            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q), E(P) + Q <--> E(P, Q)) :: EqualAI
-            E(Q) + A <--> E(A, Q)                                           :: NonequalAI
+            (E + A <--> EA, EB + A <--> EPQ)                        :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)                              :: OnlyA
+            (E + P <--> EP, EQ + P <--> EPQ)                        :: OnlyA
+            (E + Q <--> EQ, EA + Q <--> EAQ, EP + Q <--> EPQ) :: EqualAI
+            EQ + A <--> EAQ                                           :: NonequalAI
         end
     end
     relaxed = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am)
@@ -3127,7 +3145,7 @@ end
     @test Set(kids) == Set()
 end
 
-@testset "Allosteric mechanism — beside an inhibitor, stopped :OnlyA A strands E(A)" begin
+@testset "Allosteric mechanism — beside an inhibitor, stopped :OnlyA A strands EA" begin
     # Merged random-order bi-bi with the competitive inhibitor I and the abortive
     # complexes E(A, P) and E(B, Q); the A, B, I and Q groups :OnlyA. In the inactive
     # conformation the :EqualAI steps E + P <--> E(P), E(P) + A <--> E(A, P) and
@@ -3146,18 +3164,18 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
-            E(P) + A <--> E(A, P)                                             :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ, EI + A <--> EAI)   :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ, EQ + B ⇌ EBQ)            :: OnlyA
+            (E + I ⇌ EI, EA + I ⇌ EAI)                                :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ)   :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ)   :: OnlyA
+            EP + A <--> EAP                                             :: EqualAI
         end
     end
     D = EnzymeRates.Derivation
     v = D._guard(am)
     @test v.fault === D._NONUNIQUE
-    @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E(A) + P <--> E(A, P)"
+    @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "EA + P <--> EAP"
     @test D._face_names(am.catalytic, D._faces(am.catalytic)[v.face]) == [:P, :Q]
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(95)))
     msg = D._guard_message(am)
@@ -3166,12 +3184,12 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I))   :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))            :: OnlyA
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                                :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))   :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))   :: OnlyA
-            E(P) + A <--> E(A, P)                                             :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ, EI + A <--> EAI)   :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ, EQ + B ⇌ EBQ)            :: OnlyA
+            (E + I ⇌ EI, EA + I ⇌ EAI)                                :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ)   :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ)   :: OnlyA
+            EP + A <--> EAP                                             :: EqualAI
         end
     end
     rxn = @enzyme_reaction begin
@@ -3182,45 +3200,45 @@ end
     i_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))          :: OnlyA
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                              :: NonequalAI
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(P) + A <--> E(A, P)                                           :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ, EI + A <--> EAI) :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ, EQ + B ⇌ EBQ)          :: OnlyA
+            (E + I ⇌ EI, EA + I ⇌ EAI)                              :: NonequalAI
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EP + A <--> EAP                                           :: EqualAI
         end
     end
     p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))          :: OnlyA
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                              :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: NonequalAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(P) + A <--> E(A, P)                                           :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ, EI + A <--> EAI) :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ, EQ + B ⇌ EBQ)          :: OnlyA
+            (E + I ⇌ EI, EA + I ⇌ EAI)                              :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: NonequalAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EP + A <--> EAP                                           :: EqualAI
         end
     end
     q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))          :: OnlyA
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                              :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: NonequalAI
-            E(P) + A <--> E(A, P)                                           :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ, EI + A <--> EAI) :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ, EQ + B ⇌ EBQ)          :: OnlyA
+            (E + I ⇌ EI, EA + I ⇌ EAI)                              :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: NonequalAI
+            EP + A <--> EAP                                           :: EqualAI
         end
     end
     pa_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q), E(I) + A <--> E(A, I)) :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))          :: OnlyA
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))                              :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(P) + A <--> E(A, P)                                           :: NonequalAI
+            (E + A <--> EA, EB + A <--> EPQ, EI + A <--> EAI) :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ, EQ + B ⇌ EBQ)          :: OnlyA
+            (E + I ⇌ EI, EA + I ⇌ EAI)                              :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EP + A <--> EAP                                           :: NonequalAI
         end
     end
     relaxed = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am)
@@ -3267,7 +3285,7 @@ end
             am, EnzymeRates.Derivation._built_reading(am)).fault
         flux = EnzymeRates.Enumeration._flux_carrying_edges(
             cm, _testhelper_flags(cm))
-        units = [(g, bp) for g in 1:length(cm.groups)
+        units = [(g, bp) for g in 1:length(_testhelper_group_members(cm))
                  for bp in EnzymeRates.Enumeration._context_bipartitions(
                      _testhelper_candidate(cm), g)]
         reverted = [EnzymeRates.Enumeration._revert_zero_flux_parts(cm, bp, flux)
@@ -3308,11 +3326,11 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
-            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))      :: EqualAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
-            E(A, B) <--> E(P, Q)                                        :: OnlyA
+            (E + A ⇌ EA, EP + A ⇌ EAP)                          :: OnlyA
+            (E + P ⇌ EP, EA + P ⇌ EAP, EQ + P ⇌ EPQ)      :: EqualAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                          :: EqualAI
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)                    :: EqualAI
+            EAB <--> EPQ                                        :: OnlyA
         end
     end
     b_by_q = @enzyme_mechanism begin
@@ -3320,12 +3338,12 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
-            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))      :: EqualAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
-            E(A) + B ⇌ E(A, B)                                          :: EqualAI
-            E(A, B) <--> E(P, Q)                                        :: OnlyA
-            E(Q) + B ⇌ E(B, Q)                                          :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP)                          :: OnlyA
+            (E + P ⇌ EP, EA + P ⇌ EAP, EQ + P ⇌ EPQ)      :: EqualAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                          :: EqualAI
+            EA + B ⇌ EAB                                          :: EqualAI
+            EAB <--> EPQ                                        :: OnlyA
+            EQ + B ⇌ EBQ                                          :: EqualAI
         end
     end
     a_by_p_and_p_by_a = @enzyme_mechanism begin
@@ -3333,13 +3351,13 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                                :: OnlyA
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))                          :: EqualAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
-            E(A) + P ⇌ E(A, P)                                          :: EqualAI
-            E(A, B) <--> E(P, Q)                                        :: OnlyA
-            E(P) + A ⇌ E(A, P)                                          :: OnlyA
+            E + A ⇌ EA                                                :: OnlyA
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)                          :: EqualAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                          :: EqualAI
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)                    :: EqualAI
+            EA + P ⇌ EAP                                          :: EqualAI
+            EAB <--> EPQ                                        :: OnlyA
+            EP + A ⇌ EAP                                          :: OnlyA
         end
     end
     q_by_p_and_p_by_q = @enzyme_mechanism begin
@@ -3347,13 +3365,13 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
-            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))                          :: EqualAI
-            E + Q ⇌ E(Q)                                                :: EqualAI
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
-            E(A, B) <--> E(P, Q)                                        :: OnlyA
-            E(P) + Q ⇌ E(P, Q)                                          :: EqualAI
-            E(Q) + P ⇌ E(P, Q)                                          :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP)                          :: OnlyA
+            (E + P ⇌ EP, EA + P ⇌ EAP)                          :: EqualAI
+            E + Q ⇌ EQ                                                :: EqualAI
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)                    :: EqualAI
+            EAB <--> EPQ                                        :: OnlyA
+            EP + Q ⇌ EPQ                                          :: EqualAI
+            EQ + P ⇌ EPQ                                          :: EqualAI
         end
     end
     p_by_a = @enzyme_mechanism begin
@@ -3361,12 +3379,12 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))                          :: EqualAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
-            E(A) + P ⇌ E(A, P)                                          :: EqualAI
-            E(A, B) <--> E(P, Q)                                        :: OnlyA
+            (E + A ⇌ EA, EP + A ⇌ EAP)                          :: OnlyA
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)                          :: EqualAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                          :: EqualAI
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)                    :: EqualAI
+            EA + P ⇌ EAP                                          :: EqualAI
+            EAB <--> EPQ                                        :: OnlyA
         end
     end
     p_by_q = @enzyme_mechanism begin
@@ -3374,12 +3392,12 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))                          :: OnlyA
-            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))                          :: EqualAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                          :: EqualAI
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))                    :: EqualAI
-            E(A, B) <--> E(P, Q)                                        :: OnlyA
-            E(Q) + P ⇌ E(P, Q)                                          :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP)                          :: OnlyA
+            (E + P ⇌ EP, EA + P ⇌ EAP)                          :: EqualAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                          :: EqualAI
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)                    :: EqualAI
+            EAB <--> EPQ                                        :: OnlyA
+            EQ + P ⇌ EPQ                                          :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, am)
@@ -3412,11 +3430,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E + Q ⇌ E(Q)
-                E(Q) + P ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                E + Q ⇌ EQ
+                EQ + P ⇌ EPQ
+                EAB <--> EPQ
             end
         end), @enzyme_reaction(begin
             substrates: A[C], B[N]
@@ -3426,45 +3444,45 @@ end
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(A) + B ⇌ E(A, B)
-                    (E + Q ⇌ E(Q), E(I) + Q ⇌ E(I, Q))
-                    E(Q) + P ⇌ E(P, Q)
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+                    E + A ⇌ EA
+                    EA + B ⇌ EAB
+                    (E + Q ⇌ EQ, EI + Q ⇌ EIQ)
+                    EQ + P ⇌ EPQ
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EQ + I ⇌ EIQ)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(A) + B ⇌ E(A, B)
-                    E + Q ⇌ E(Q)
-                    E(Q) + P ⇌ E(P, Q)
-                    E(A, B) <--> E(P, Q)
-                    E + I ⇌ E(I)
+                    E + A ⇌ EA
+                    EA + B ⇌ EAB
+                    E + Q ⇌ EQ
+                    EQ + P ⇌ EPQ
+                    EAB <--> EPQ
+                    E + I ⇌ EI
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(A) + B ⇌ E(A, B)
-                    E + Q ⇌ E(Q)
-                    E(Q) + P ⇌ E(P, Q)
-                    E(A, B) <--> E(P, Q)
-                    (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+                    E + A ⇌ EA
+                    EA + B ⇌ EAB
+                    E + Q ⇌ EQ
+                    EQ + P ⇌ EPQ
+                    EAB <--> EPQ
+                    (EA + I ⇌ EAI, EQ + I ⇌ EIQ)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
-                    E(A) + B ⇌ E(A, B)
-                    E + Q ⇌ E(Q)
-                    E(Q) + P ⇌ E(P, Q)
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+                    (E + A ⇌ EA, EI + A ⇌ EAI)
+                    EA + B ⇌ EAB
+                    E + Q ⇌ EQ
+                    EQ + P ⇌ EPQ
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EA + I ⇌ EAI)
                 end
             end)]),
         # SEED: bi-bi random. It has 5 eligible forms (E, E_A, E_B, E_P, E_Q);
@@ -3475,11 +3493,11 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end), @enzyme_reaction(begin
             substrates: A[C], B[N]
@@ -3489,100 +3507,100 @@ end
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(I) + B ⇌ E(B, I))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(I) + Q ⇌ E(I, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(B) + I ⇌ E(B, I), E(Q) + I ⇌ E(I, Q))
+                    (E + A ⇌ EA, EB + A ⇌ EAB)
+                    (E + B ⇌ EB, EA + B ⇌ EAB, EI + B ⇌ EBI)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI + Q ⇌ EIQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EB + I ⇌ EBI, EQ + I ⇌ EIQ)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(I) + B ⇌ E(B, I))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(I) + P ⇌ E(I, P))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(B) + I ⇌ E(B, I), E(P) + I ⇌ E(I, P))
+                    (E + A ⇌ EA, EB + A ⇌ EAB)
+                    (E + B ⇌ EB, EA + B ⇌ EAB, EI + B ⇌ EBI)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ, EI + P ⇌ EIP)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EB + I ⇌ EBI, EP + I ⇌ EIP)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(I) + B ⇌ E(B, I))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(B) + I ⇌ E(B, I))
+                    (E + A ⇌ EA, EB + A ⇌ EAB)
+                    (E + B ⇌ EB, EA + B ⇌ EAB, EI + B ⇌ EBI)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EB + I ⇌ EBI)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(I) + A ⇌ E(A, I))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(I) + Q ⇌ E(I, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+                    (E + A ⇌ EA, EB + A ⇌ EAB, EI + A ⇌ EAI)
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI + Q ⇌ EIQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EA + I ⇌ EAI, EQ + I ⇌ EIQ)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(I) + A ⇌ E(A, I))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(I) + P ⇌ E(I, P))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))
+                    (E + A ⇌ EA, EB + A ⇌ EAB, EI + A ⇌ EAI)
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ, EI + P ⇌ EIP)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EA + I ⇌ EAI, EP + I ⇌ EIP)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(I) + A ⇌ E(A, I))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+                    (E + A ⇌ EA, EB + A ⇌ EAB, EI + A ⇌ EAI)
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EA + I ⇌ EAI)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(I) + Q ⇌ E(I, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+                    (E + A ⇌ EA, EB + A ⇌ EAB)
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI + Q ⇌ EIQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EQ + I ⇌ EIQ)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(I) + P ⇌ E(I, P))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
-                    (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))
+                    (E + A ⇌ EA, EB + A ⇌ EAB)
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ, EI + P ⇌ EIP)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
+                    (E + I ⇌ EI, EP + I ⇌ EIP)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
-                    E + I ⇌ E(I)
+                    (E + A ⇌ EA, EB + A ⇌ EAB)
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
+                    E + I ⇌ EI
                 end
             end)]),
         # SEED: bi-bi ping-pong with Estar. It has 4 eligible forms (E, E_A, Estar,
@@ -3591,12 +3609,12 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                Estar + B ⇌ Estar(B)
-                E + Q ⇌ E(Q)
-                Estar + P ⇌ Estar(P)
-                E(A) <--> Estar(P)
-                Estar(B) ⇌ E(Q)
+                E + A ⇌ EA
+                Estar + B ⇌ EstarB
+                E + Q ⇌ EQ
+                Estar + P ⇌ EstarP
+                EA <--> EstarP
+                EstarB ⇌ EQ
             end
         end), @enzyme_reaction(begin
             substrates: A[CX], B[N]
@@ -3606,37 +3624,37 @@ end
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    E + A ⇌ E(A)
-                    Estar + B ⇌ Estar(B)
-                    E + Q ⇌ E(Q)
-                    Estar + P ⇌ Estar(P)
-                    E(A) <--> Estar(P)
-                    Estar(B) ⇌ E(Q)
-                    (E + I ⇌ E(I), Estar + I ⇌ Estar(I))
+                    E + A ⇌ EA
+                    Estar + B ⇌ EstarB
+                    E + Q ⇌ EQ
+                    Estar + P ⇌ EstarP
+                    EA <--> EstarP
+                    EstarB ⇌ EQ
+                    (E + I ⇌ EI, Estar + I ⇌ EstarI)
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    E + A ⇌ E(A)
-                    Estar + B ⇌ Estar(B)
-                    E + Q ⇌ E(Q)
-                    Estar + P ⇌ Estar(P)
-                    E(A) <--> Estar(P)
-                    Estar(B) ⇌ E(Q)
-                    E + I ⇌ E(I)
+                    E + A ⇌ EA
+                    Estar + B ⇌ EstarB
+                    E + Q ⇌ EQ
+                    Estar + P ⇌ EstarP
+                    EA <--> EstarP
+                    EstarB ⇌ EQ
+                    E + I ⇌ EI
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B; products: P, Q; modifiers: I
                 steps: begin
-                    E + A ⇌ E(A)
-                    Estar + B ⇌ Estar(B)
-                    E + Q ⇌ E(Q)
-                    Estar + P ⇌ Estar(P)
-                    E(A) <--> Estar(P)
-                    Estar(B) ⇌ E(Q)
-                    Estar + I ⇌ Estar(I)
+                    E + A ⇌ EA
+                    Estar + B ⇌ EstarB
+                    E + Q ⇌ EQ
+                    Estar + P ⇌ EstarP
+                    EA <--> EstarP
+                    EstarB ⇌ EQ
+                    Estar + I ⇌ EstarI
                 end
             end)]),
     ]
@@ -3694,45 +3712,45 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q <--> E(Q)
+            E + A <--> EA
+            EA + B <--> EQ + P
+            E + Q <--> EQ
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q <--> E(Q)
-            E + I ⇌ E(I)
+            E + A <--> EA
+            EA + B <--> EQ + P
+            E + Q <--> EQ
+            E + I ⇌ EI
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(Q) + P
-            (E + Q <--> E(Q), E(I) + Q <--> E(I, Q))
-            (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+            E + A <--> EA
+            EA + B <--> EQ + P
+            (E + Q <--> EQ, EI + Q <--> EIQ)
+            (E + I ⇌ EI, EQ + I ⇌ EIQ)
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
-            E + A <--> E(A)
-            (E(A) + B <--> E(Q) + P, E(A, I) + B <--> E(I, Q) + P)
-            E + Q <--> E(Q)
-            (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+            E + A <--> EA
+            (EA + B <--> EQ + P, EAI + B <--> EIQ + P)
+            E + Q <--> EQ
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B; products: P, Q; modifiers: I
         steps: begin
-            (E + A <--> E(A), E(I) + A <--> E(A, I))
-            E(A) + B <--> E(Q) + P
-            E + Q <--> E(Q)
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+            (E + A <--> EA, EI + A <--> EAI)
+            EA + B <--> EQ + P
+            E + Q <--> EQ
+            (E + I ⇌ EI, EA + I ⇌ EAI)
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -3765,11 +3783,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, parent,
@@ -3778,40 +3796,37 @@ end
         @enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                E + A ⇌ E(A)
-                (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-                (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
+                E + A ⇌ EA
+                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
             end
         end),
         @enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                E + A ⇌ E(A)
-                E + Q ⇌ E(Q)
-                (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
+                E + A ⇌ EA
+                E + Q ⇌ EQ
+                (EA + A ⇌ EAAmod, EQ + A ⇌ EAmodQ)
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
             end
         end),
         @enzyme_mechanism(begin
             substrates: A, B
             products: P, Q
-            modifiers: A
             steps: begin
-                (E + A ⇌ E(A), E(A::Mod) + A ⇌ E(A, A::Mod))
-                (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
-                E + Q ⇌ E(Q)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
+                (E + A ⇌ EA, EAmod + A ⇌ EAAmod)
+                (E + A ⇌ EAmod, EA + A ⇌ EAAmod)
+                E + Q ⇌ EQ
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
             end
         end)]
     @test length(kids) == 3
@@ -3820,23 +3835,22 @@ end
     dropped = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E + A::Mod ⇌ E(A::Mod)
-            E + Q ⇌ E(Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
+            E + A ⇌ EA
+            E + A ⇌ EAmod
+            E + Q ⇌ EQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
         end
     end
     @test EnzymeRates.Enumeration._redundant_copy_groups(_testhelper_candidate(dropped)) ==
-          [dropped.catalytic.steps[_testhelper_edge(dropped, "E + Amod ⇌ EAmod")].group]
-    # The child's metabolite entries hold the copy beside A, before those of B, P and Q.
-    @test [x.name for x in EnzymeRates.Mechanisms._table(parent.catalytic)] ==
-          [:A, :B, :P, :Q]
-    @test all(k -> [x.name for x in EnzymeRates.Mechanisms._table(k.catalytic)] ==
-                   [:A, :A, :B, :P, :Q], kids)
+          [dropped.catalytic.steps[
+               _testhelper_edge(dropped, "E + A ⇌ EAmod")].kinetic_group]
+    # A bound where it does not react is A taken up: the children hold the parent's
+    # metabolites.
+    @test parent.catalytic.metabolites == [:A, :B, :P, :Q]
+    @test all(k -> k.catalytic.metabolites == [:A, :B, :P, :Q], kids)
 end
 
 @testset "Mechanism — Two regulators chain: J added after I preserves I" begin
@@ -3846,9 +3860,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -3886,11 +3900,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -3908,8 +3922,8 @@ end
     # Pick variant where I1 binds at multiple forms.
     multi = filter(result1) do r
         i1_forms = Set(e.to for e in r.catalytic.steps
-                       if EnzymeRates.Mechanisms._is_binding(e) &&
-                          only(e.taken_up).name === :I1)
+                       if EnzymeRates.Enumeration._is_binding(e) &&
+                          r.catalytic.metabolites[only(e.taken_up)] === :I1)
         length(i1_forms) >= 2
     end
     @test !isempty(multi)
@@ -3925,7 +3939,7 @@ end
     # coexist with I1 (fully-competing). Each form's bound names, read
     # off the variant's graph.
     _testhelper_bound_names(r) =
-        [Set(x.name for x in f.bound) for f in r.catalytic.nodes]
+        [Set(_testhelper_bound(f)) for f in _testhelper_candidate(r).forms]
     has_coexist = any(result2) do r
         any(b -> :I1 in b && :I2 in b, _testhelper_bound_names(r))
     end
@@ -3959,9 +3973,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E + P ⇌ E(P)
+                E + S ⇌ ES
+                ES <--> EP
+                E + P ⇌ EP
             end
         end
         @test isempty(_testhelper_move(
@@ -3986,63 +4000,59 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (EA + A ⇌ EAAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(A::Mod) + A ⇌ E(A, A::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
+            (E + A ⇌ EA, EAmod + A ⇌ EAAmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + A ⇌ EAmod, EA + A ⇌ EAAmod)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + A::Mod ⇌ E(A::Mod)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + A ⇌ EAmod
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4054,18 +4064,19 @@ end
     # fitted constant; every child has full rank.
     base_fitted = _testhelper_fitted(m)
     for r in kids
-        @test any(s -> _testhelper_is_binding(s) && only(s.consumed) === :A &&
-                       only(s.consumed_modifier),
-                  _testhelper_first_steps(_testhelper_graph(r)))
-        @test length(r.catalytic.groups) ==
-              length(m.catalytic.groups) + 1
+        c = _testhelper_candidate(r)
+        @test any(k -> _testhelper_binds_copy(c, k) &&
+                       r.catalytic.metabolites[only(r.catalytic.steps[k].taken_up)] === :A,
+                  eachindex(r.catalytic.steps))
+        @test length(_testhelper_group_members(r.catalytic)) ==
+              length(_testhelper_group_members(m.catalytic)) + 1
         fitted = _testhelper_fitted(r)
         @test fitted == base_fitted + 1
         @test fitted == _testhelper_identifiable_rank(r)
     end
 end
 
-@testset "Mechanism — shared A group with abortive E(A, Q): the gauge decides" begin
+@testset "Mechanism — shared A group with abortive EAQ: the gauge decides" begin
     # A binds at E and, in the same kinetic group, at E(Q) to form the abortive
     # complex E(A, Q). A copy of A at E duplicates E(A) and at E(Q) duplicates
     # E(A, Q), so the placements {E} and {E, E(Q)} are all-twin, and the dwell gauge
@@ -4086,63 +4097,59 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            (EA + A ⇌ EAAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q), E(A::Mod) + A ⇌ E(A, A::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ, EAmod + A ⇌ EAAmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            (E + A ⇌ EAmod, EA + A ⇌ EAAmod)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E + A::Mod ⇌ E(A::Mod)
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            E + A ⇌ EAmod
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4182,116 +4189,108 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
-            (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
+            (EA + A ⇌ EAAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod), E(A::Mod) + A ⇌ E(A, A::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod, EAmod + A ⇌ EAAmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
+            (E + A ⇌ EAmod, EA + A ⇌ EAAmod)
         end
     end
     at_E_EQ_EQinh = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod),
-             E(A::Mod) + Q::Mod ⇌ E(A::Mod, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q),
-             E(Q::Mod) + A::Mod ⇌ E(A::Mod, Q::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod,
+             EAmod + Q ⇌ EAmodQmod)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ,
+             EQmod + A ⇌ EAmodQmod)
         end
     end
     at_E_EQinh = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod),
-             E(A::Mod) + Q::Mod ⇌ E(A::Mod, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(Q::Mod) + A::Mod ⇌ E(A::Mod, Q::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod,
+             EAmod + Q ⇌ EAmodQmod)
+            (E + A ⇌ EAmod, EQmod + A ⇌ EAmodQmod)
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_E_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod), E(A::Mod) + A ⇌ E(A, A::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(A) + A::Mod ⇌ E(A, A::Mod),
-             E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod, EAmod + A ⇌ EAAmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
+            (E + A ⇌ EAmod, EA + A ⇌ EAAmod,
+             EQ + A ⇌ EAmodQ)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
-            E + A::Mod ⇌ E(A::Mod)
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
+            E + A ⇌ EAmod
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4341,116 +4340,108 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q), E(Q::Mod) + Q ⇌ E(Q, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E + Q::Mod ⇌ E(Q::Mod), E(Q) + Q::Mod ⇌ E(Q, Q::Mod))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ, EQmod + Q ⇌ EQQmod)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (E + Q ⇌ EQmod, EQ + Q ⇌ EQQmod)
         end
     end
     at_E_EAinh = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q),
-             E(Q::Mod) + A::Mod ⇌ E(A::Mod, Q::Mod))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A::Mod) + Q::Mod ⇌ E(A::Mod, Q::Mod))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ,
+             EQmod + A ⇌ EAmodQmod)
+            (E + Q ⇌ EQmod, EAmod + Q ⇌ EAmodQmod)
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E(A) + Q::Mod ⇌ E(A, Q::Mod), E(Q) + Q::Mod ⇌ E(Q, Q::Mod))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (EA + Q ⇌ EAQmod, EQ + Q ⇌ EQQmod)
         end
     end
     at_E_EA_EAinh = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q),
-             E(Q::Mod) + A::Mod ⇌ E(A::Mod, Q::Mod))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod),
-             E(A::Mod) + Q::Mod ⇌ E(A::Mod, Q::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ,
+             EQmod + A ⇌ EAmodQmod)
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod,
+             EAmod + Q ⇌ EAmodQmod)
         end
     end
     at_E_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q), E(Q::Mod) + Q ⇌ E(Q, Q::Mod))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod),
-             E(Q) + Q::Mod ⇌ E(Q, Q::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ, EQmod + Q ⇌ EQQmod)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod,
+             EQ + Q ⇌ EQQmod)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            E + Q::Mod ⇌ E(Q::Mod)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            E + Q ⇌ EQmod
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4491,114 +4482,113 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q), E(I) + Q ⇌ E(I, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ, EI + Q ⇌ EIQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (E + I ⇌ EI, EQ + I ⇌ EIQ)
         end
     end
     at_E_EAinh = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q),
-             E(I) + A::Mod ⇌ E(A::Mod, I))
-            (E + I ⇌ E(I), E(A::Mod) + I ⇌ E(A::Mod, I))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ,
+             EI + A ⇌ EAmodI)
+            (E + I ⇌ EI, EAmod + I ⇌ EAmodI)
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ)
         end
     end
     at_E_EA_EAinh = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q),
-             E(I) + A::Mod ⇌ E(A::Mod, I))
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(A::Mod) + I ⇌ E(A::Mod, I))
+            (E + A ⇌ EA, EI + A ⇌ EAI)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ,
+             EI + A ⇌ EAmodI)
+            (E + I ⇌ EI, EA + I ⇌ EAI, EAmod + I ⇌ EAmodI)
         end
     end
     at_E_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q), E(I) + Q ⇌ E(I, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+            (E + A ⇌ EA, EI + A ⇌ EAI)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ, EI + Q ⇌ EIQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (E + I ⇌ EI, EA + I ⇌ EAI, EQ + I ⇌ EIQ)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+            (E + A ⇌ EA, EI + A ⇌ EAI)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (E + I ⇌ EI, EA + I ⇌ EAI)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, A
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            E + I ⇌ E(I)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            E + I ⇌ EI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4630,53 +4620,52 @@ end
     m = @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        modifiers: S
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(S::Mod) + Q ⇌ E(Q, S::Mod))
-            (E + S::Mod ⇌ E(S::Mod), E(Q) + S::Mod ⇌ E(Q, S::Mod))
+            E + S ⇌ ES
+            ES <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, ESmod + Q ⇌ EQSmod)
+            (E + S ⇌ ESmod, EQ + S ⇌ EQSmod)
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        modifiers: I, S
+        modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(S::Mod) + Q ⇌ E(Q, S::Mod), E(I) + Q ⇌ E(I, Q))
-            (E + S::Mod ⇌ E(S::Mod), E(Q) + S::Mod ⇌ E(Q, S::Mod))
-            (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+            E + S ⇌ ES
+            ES <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, ESmod + Q ⇌ EQSmod, EI + Q ⇌ EIQ)
+            (E + S ⇌ ESmod, EQ + S ⇌ EQSmod)
+            (E + I ⇌ EI, EQ + I ⇌ EIQ)
         end
     end
     at_E_ESinh = @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        modifiers: I, S
+        modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(S::Mod) + Q ⇌ E(Q, S::Mod))
-            (E + S::Mod ⇌ E(S::Mod), E(Q) + S::Mod ⇌ E(Q, S::Mod),
-             E(I) + S::Mod ⇌ E(I, S::Mod))
-            (E + I ⇌ E(I), E(S::Mod) + I ⇌ E(I, S::Mod))
+            E + S ⇌ ES
+            ES <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, ESmod + Q ⇌ EQSmod)
+            (E + S ⇌ ESmod, EQ + S ⇌ EQSmod,
+             EI + S ⇌ EISmod)
+            (E + I ⇌ EI, ESmod + I ⇌ EISmod)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: S
         products: P, Q
-        modifiers: I, S
+        modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(S::Mod) + Q ⇌ E(Q, S::Mod))
-            (E + S::Mod ⇌ E(S::Mod), E(Q) + S::Mod ⇌ E(Q, S::Mod))
-            E + I ⇌ E(I)
+            E + S ⇌ ES
+            ES <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, ESmod + Q ⇌ EQSmod)
+            (E + S ⇌ ESmod, EQ + S ⇌ EQSmod)
+            E + I ⇌ EI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4712,84 +4701,83 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: B
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + B::Mod ⇌ E(B::Mod)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + B ⇌ EBmod
         end
     end
     at_E_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, B
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(I) + Q ⇌ E(I, Q))
-            E + B::Mod ⇌ E(B::Mod)
-            (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EI + Q ⇌ EIQ)
+            E + B ⇌ EBmod
+            (E + I ⇌ EI, EQ + I ⇌ EIQ)
         end
     end
     at_E = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, B
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + B::Mod ⇌ E(B::Mod)
-            E + I ⇌ E(I)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + B ⇌ EBmod
+            E + I ⇌ EI
         end
     end
     at_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, B
+        modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + B::Mod ⇌ E(B::Mod)
-            (E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + B ⇌ EBmod
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ)
         end
     end
     at_E_EA = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, B
+        modifiers: I
         steps: begin
-            (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + B::Mod ⇌ E(B::Mod)
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+            (E + A ⇌ EA, EI + A ⇌ EAI)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + B ⇌ EBmod
+            (E + I ⇌ EI, EA + I ⇌ EAI)
         end
     end
     at_E_EA_EQ = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: I, B
+        modifiers: I
         steps: begin
-            (E + A ⇌ E(A), E(I) + A ⇌ E(A, I))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(I) + Q ⇌ E(I, Q))
-            E + B::Mod ⇌ E(B::Mod)
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I), E(Q) + I ⇌ E(I, Q))
+            (E + A ⇌ EA, EI + A ⇌ EAI)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EI + Q ⇌ EIQ)
+            E + B ⇌ EBmod
+            (E + I ⇌ EI, EA + I ⇌ EAI, EQ + I ⇌ EIQ)
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
@@ -4821,21 +4809,20 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: EqualAI
         end
     end
     kept = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, onlya,
@@ -4850,9 +4837,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: EqualAI
         end
     end
     @test isempty(_testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
@@ -4875,21 +4862,20 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: OnlyA
         end
     end
     kept = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: OnlyA
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: OnlyA
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
@@ -4918,49 +4904,45 @@ end
     kept = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     relaxed_p = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: NonequalAI
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: NonequalAI
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     relaxed_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: NonequalAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: NonequalAI
         end
     end
     relaxed_s = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: NonequalAI
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: NonequalAI
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, kept)
@@ -4994,9 +4976,9 @@ end
         products: P
         steps: begin
             E ⇌ Estar
-            Estar + S ⇌ Estar(S)
-            Estar(S) <--> E(P)
-            E + P ⇌ E(P)
+            Estar + S ⇌ EstarS
+            EstarS <--> EP
+            E + P ⇌ EP
         end
     end
     @test isempty(
@@ -5004,13 +4986,12 @@ end
     absent = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         steps: begin
-            (E ⇌ Estar, E(S::Mod) ⇌ Estar(S::Mod))
-            Estar + S ⇌ Estar(S)
-            Estar(S) <--> E(P)
-            E + P ⇌ E(P)
-            (E + S::Mod ⇌ E(S::Mod), Estar + S::Mod ⇌ Estar(S::Mod))
+            (E ⇌ Estar, ESmod ⇌ EstarSmod)
+            Estar + S ⇌ EstarS
+            EstarS <--> EP
+            E + P ⇌ EP
+            (E + S ⇌ ESmod, Estar + S ⇌ EstarSmod)
         end
     end
     @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
@@ -5026,9 +5007,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
     end
     _testhelper_assert_mechanism_invariants(am)
@@ -5064,8 +5045,8 @@ end
     # 4. property: exactly one new catalytic group; its tag is
     # :EqualAI. Pre-existing tags are unchanged.
     for r in result
-        @test length(r.catalytic.groups) ==
-              length(am.catalytic.groups) + 1
+        @test length(_testhelper_group_members(r.catalytic)) ==
+              length(_testhelper_group_members(am.catalytic)) + 1
         @test length(r.allosteric.allosteric_states) ==
               length(am.allosteric.allosteric_states) + 1
         # The new group's tag is :EqualAI (appended at the end by the dead-end
@@ -5094,9 +5075,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
     end
     @test isempty(_testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
@@ -5108,9 +5089,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     rxn = @enzyme_reaction begin
@@ -5139,9 +5120,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     c = _testhelper_candidate(plain)
@@ -5162,9 +5143,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E + P ⇌ E(P)     :: EqualAI
+            E + S ⇌ ES     :: EqualAI
+            ES <--> EP   :: OnlyA
+            E + P ⇌ EP     :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end
@@ -5190,11 +5171,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E + Q ⇌ E(Q)
-            E(Q) + P ⇌ E(P, Q)
-            E(A, B) <--> E(P, Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            E + Q ⇌ EQ
+            EQ + P ⇌ EPQ
+            EAB <--> EPQ
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -5210,7 +5191,7 @@ end
     # 1. count: every non-empty subset of the 4 binding groups is set
     # :OnlyA, each with the chemical step also :OnlyA (a catalytically-dead
     # inactive conformation). 2^4 - 1 = 15 subsets, all admitted.
-    n_groups = length(m.catalytic.groups)
+    n_groups = length(_testhelper_group_members(m.catalytic))
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(result) == 15
@@ -5244,12 +5225,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E + Q ⇌ E(Q)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(A) <--> E(P; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
+            E + A ⇌ EA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            E + Q ⇌ EQ
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            EA <--> EP_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -5261,199 +5242,199 @@ end
     a_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                          :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E + Q ⇌ E(Q)                                          :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-            E(A) <--> E(P; residual = A - P)                      :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                         :: EqualAI
+            E + A ⇌ EA                                          :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP    :: EqualAI
+            E + Q ⇌ EQ                                          :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+            EA <--> EP_res_plusA_minusP                      :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                         :: EqualAI
         end
     end
     p_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                          :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E + Q ⇌ E(Q)                                          :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: OnlyA
-            E(A) <--> E(P; residual = A - P)                      :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                         :: EqualAI
+            E + A ⇌ EA                                          :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP    :: EqualAI
+            E + Q ⇌ EQ                                          :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: OnlyA
+            EA <--> EP_res_plusA_minusP                      :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                         :: EqualAI
         end
     end
     ap_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                          :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E + Q ⇌ E(Q)                                          :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: OnlyA
-            E(A) <--> E(P; residual = A - P)                      :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                         :: EqualAI
+            E + A ⇌ EA                                          :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP    :: EqualAI
+            E + Q ⇌ EQ                                          :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: OnlyA
+            EA <--> EP_res_plusA_minusP                      :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                         :: EqualAI
         end
     end
     a_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     q_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     aq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     b_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     ab_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     bq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     abq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     p_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     ap_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     pq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     apq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     bp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     abp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     bpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     abpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                       :: OnlyA
-            E + Q ⇌ E(Q)                                       :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: OnlyA
+            E + Q ⇌ EQ                                       :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     result = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m,
@@ -5498,12 +5479,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))
-            E + Q ⇌ E(Q)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P), E(A) + P ⇌ E(A, P))
-            E(A) <--> E(P; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
+            (E + A ⇌ EA, EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)
+            E + Q ⇌ EQ
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP, EA + P ⇌ EAP)
+            EA <--> EP_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -5514,234 +5495,234 @@ end
     a_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))   :: OnlyA
-            E + Q ⇌ E(Q)                                               :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)         :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                       :: EqualAI
-            E(A) <--> E(P; residual = A - P)                           :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)   :: OnlyA
+            E + Q ⇌ EQ                                               :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP         :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                       :: EqualAI
+            EA <--> EP_res_plusA_minusP                           :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                              :: EqualAI
         end
     end
     p_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))   :: EqualAI
-            E + Q ⇌ E(Q)                                               :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)         :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                       :: OnlyA
-            E(A) <--> E(P; residual = A - P)                           :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)   :: EqualAI
+            E + Q ⇌ EQ                                               :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP         :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                       :: OnlyA
+            EA <--> EP_res_plusA_minusP                           :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                              :: EqualAI
         end
     end
     ap_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))   :: OnlyA
-            E + Q ⇌ E(Q)                                               :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)         :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                       :: OnlyA
-            E(A) <--> E(P; residual = A - P)                           :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)   :: OnlyA
+            E + Q ⇌ EQ                                               :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP         :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                       :: OnlyA
+            EA <--> EP_res_plusA_minusP                           :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                              :: EqualAI
         end
     end
     a_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     q_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     aq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     b_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     ab_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     bq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     abq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: EqualAI
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: EqualAI
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     p_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     ap_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     pq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     apq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     bp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     abp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     bpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: EqualAI
-            E + Q ⇌ E(Q)                                             :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                            :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: EqualAI
+            E + Q ⇌ EQ                                             :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                            :: OnlyA
         end
     end
     abpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P)) :: OnlyA
-            E + Q ⇌ E(Q)                                                           :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)                     :: OnlyA
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                                   :: OnlyA
-            E(A) <--> E(P; residual = A - P)                                       :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                                          :: OnlyA
+            (E + A ⇌ EA, EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP) :: OnlyA
+            E + Q ⇌ EQ                                                           :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP                     :: OnlyA
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                                   :: OnlyA
+            EA <--> EP_res_plusA_minusP                                       :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                                          :: OnlyA
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -5777,11 +5758,11 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S <--> E(P, Q)
-            E(P) + Q <--> E(P, Q)
-            E(Q) + P <--> E(P, Q)
-            E + P ⇌ E(P)
-            E + Q ⇌ E(Q)
+            E + S <--> EPQ
+            EP + Q <--> EPQ
+            EQ + P <--> EPQ
+            E + P ⇌ EP
+            E + Q ⇌ EQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -5792,151 +5773,151 @@ end
     k_pe = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_qe = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_pe_qe = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_pe_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_pe_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_qe_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_qe_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_pe_qe_q_ep = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: EqualAI
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_pe_qe_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: EqualAI
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_pe_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: EqualAI
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
         end
     end
     k_qe_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: EqualAI
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: EqualAI
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     k_pe_qe_q_ep_p_eq = @enzyme_mechanism begin
         substrates: S ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + S <--> E(P, Q)       :: OnlyA
-            E(P) + Q <--> E(P, Q)    :: OnlyA
-            E(Q) + P <--> E(P, Q)    :: OnlyA
-            E + P ⇌ E(P)             :: OnlyA
-            E + Q ⇌ E(Q)             :: OnlyA
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: OnlyA
+            EQ + P <--> EPQ    :: OnlyA
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: OnlyA
         end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(m))
@@ -5947,7 +5928,7 @@ end
                             k_pe_q_ep_p_eq, k_qe_q_ep_p_eq, k_pe_qe_q_ep_p_eq])
     @test all(EnzymeRates.Enumeration._hyperbolic_where_required,
               _testhelper_candidate.(kids))
-    for (dropped, step) in ((k_pe, "E + P ⇌ E(P)"), (k_qe, "E + Q ⇌ E(Q)"))
+    for (dropped, step) in ((k_pe, "E + P ⇌ EP"), (k_qe, "E + Q ⇌ EQ"))
         @test dropped ∉ kids
         @test EnzymeRates.Enumeration._hyperbolic_catalysis(
             _testhelper_candidate(m),
@@ -5973,9 +5954,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     only_s = @enzyme_mechanism begin
@@ -5983,9 +5964,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: EqualAI
         end
     end
     only_p = @enzyme_mechanism begin
@@ -5993,9 +5974,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: OnlyA
         end
     end
     both = @enzyme_mechanism begin
@@ -6003,9 +5984,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: OnlyA
         end
     end
 
@@ -6031,9 +6012,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     allo = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -6045,9 +6026,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
         (@enzyme_mechanism begin
@@ -6055,9 +6036,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
@@ -6065,9 +6046,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
         (@enzyme_mechanism begin
@@ -6075,9 +6056,9 @@ end
             products: P
             oligomeric_state: 4
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
         (@enzyme_mechanism begin
@@ -6085,9 +6066,9 @@ end
             products: P
             oligomeric_state: 4
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
@@ -6095,9 +6076,9 @@ end
             products: P
             oligomeric_state: 4
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
     ]
@@ -6108,7 +6089,7 @@ end
 
     # No regulator declared → the binding-completion variant set (see the
     # uni-uni case: 3 variants) is emitted once per multiplicity.
-    n_groups = length(m.catalytic.groups)
+    n_groups = length(_testhelper_group_members(m.catalytic))
     n_cat = count(g -> _testhelper_is_catalytic_group(m, g), 1:n_groups)
     @test n_cat == 1
     @test length(allo) == 2 * 3
@@ -6146,9 +6127,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     base = _testhelper_fitted(seed)
@@ -6161,27 +6142,27 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
         end)]
     vtypes_expected = [
@@ -6189,9 +6170,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(2): R1::OnlyA
         end),
@@ -6199,9 +6180,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(2): R1::OnlyI
         end),
@@ -6209,9 +6190,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(2): R2::OnlyA
         end),
@@ -6219,9 +6200,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(2): R2::OnlyI
         end)]
@@ -6231,7 +6212,7 @@ end
     @test all(am -> Δ(am) == 1, ktypes_expected)
     # Every V-type has its catalytic group :OnlyA.
     @test all(vtypes_expected) do am
-        cat_group = only(g for g in 1:length(am.catalytic.groups)
+        cat_group = only(g for g in 1:length(_testhelper_group_members(am.catalytic))
                          if _testhelper_is_catalytic_group(am, g))
         am.allosteric.allosteric_states[cat_group] == :OnlyA
     end
@@ -6244,10 +6225,10 @@ end
         substrates: S; products: P
         modifiers: R1
         steps: begin
-            E + P ⇌ E(P)
-            E + R1 ⇌ E(R1)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + R1 ⇌ ER1
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     @test seed_ci in _testhelper_children(
@@ -6265,10 +6246,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + R1 ⇌ E(R1)  :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + R1 ⇌ ER1  :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6276,10 +6257,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + R1 ⇌ E(R1)  :: OnlyA
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + R1 ⇌ ER1  :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6287,10 +6268,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + R1 ⇌ E(R1)  :: OnlyA
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + R1 ⇌ ER1  :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6298,10 +6279,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + R1 ⇌ E(R1)  :: EqualAI
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + R1 ⇌ ER1  :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6309,10 +6290,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + R1 ⇌ E(R1)  :: EqualAI
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + R1 ⇌ ER1  :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6320,10 +6301,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + R1 ⇌ E(R1)  :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + R1 ⇌ ER1  :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6331,10 +6312,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + R1 ⇌ E(R1)  :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + R1 ⇌ ER1  :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
         end),
         @enzyme_mechanism(begin
@@ -6342,10 +6323,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + R1 ⇌ E(R1)  :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + R1 ⇌ ER1  :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(2): R2::OnlyA
         end),
@@ -6354,10 +6335,10 @@ end
             modifiers: R1
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + R1 ⇌ E(R1)  :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: EqualAI
+                E + R1 ⇌ ER1  :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(2): R2::OnlyI
         end)]
@@ -6377,9 +6358,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     # The K-types: the S binding, the P binding, or both :OnlyA with the chemistry.
@@ -6389,9 +6370,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
         (@enzyme_mechanism begin
@@ -6399,9 +6380,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
@@ -6409,9 +6390,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
     ]
@@ -6422,9 +6403,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
             regulatory_site(2): R::OnlyA
         end),
@@ -6433,9 +6414,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
             regulatory_site(2): R::OnlyI
         end),
@@ -6466,10 +6447,10 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+            E + S ⇌ ES
+            ES <--> EPQ
+            (E + P <--> EP, EQ + P <--> EPQ)
+            (E + Q <--> EQ, EP + Q <--> EPQ)
         end
     end
     rxn = @enzyme_reaction begin
@@ -6492,10 +6473,10 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+            E + S ⇌ ES
+            ES <--> EPQ
+            (E + P <--> EP, EQ + P <--> EPQ)
+            (E + Q <--> EQ, EP + Q <--> EPQ)
         end
     end
     rxn_1_2 = @enzyme_reaction begin
@@ -6524,12 +6505,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E + Q <--> E(Q)
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
-            E(Q) + A ⇌ E(A, Q)
+            E + A <--> EA
+            EA + B <--> EAB
+            E + Q <--> EQ
+            EQ + P <--> EPQ
+            EAB <--> EPQ
+            EQ + A ⇌ EAQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -6552,14 +6533,13 @@ end
     parent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            (E + Q <--> E(Q), E(A::Mod) + Q <--> E(A::Mod, Q))
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A <--> EA
+            EA + B <--> EAB
+            (E + Q <--> EQ, EAmod + Q <--> EAmodQ)
+            EQ + P <--> EPQ
+            EAB <--> EPQ
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     rxn = @enzyme_reaction begin
@@ -6597,9 +6577,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
     end
     _testhelper_assert_mechanism_invariants(am)
@@ -6618,9 +6598,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): R::OnlyA
             end),
@@ -6628,9 +6608,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): R::OnlyI
             end),
@@ -6638,9 +6618,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): R::NonequalAI
             end),
@@ -6657,9 +6637,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): S::OnlyA
             end),
@@ -6667,9 +6647,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): S::OnlyI
             end),
@@ -6677,9 +6657,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): S::NonequalAI
             end),
@@ -6695,9 +6675,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): P::OnlyA
             end),
@@ -6705,9 +6685,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): P::OnlyI
             end),
@@ -6715,9 +6695,9 @@ end
                 substrates: S; products: P
                 oligomeric_state: 2
                 steps: begin
-                    E + P ⇌ E(P)    :: EqualAI
-                    E + S ⇌ E(S)    :: EqualAI
-                    E(S) <--> E(P)  :: EqualAI
+                    E + P ⇌ EP    :: EqualAI
+                    E + S ⇌ ES    :: EqualAI
+                    ES <--> EP  :: EqualAI
                 end
                 regulatory_site(2): P::NonequalAI
             end),
@@ -6776,10 +6756,10 @@ end
         modifiers: I
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: OnlyA
-            E(P) ⇌ E + P    :: EqualAI
-            E + I ⇌ E(I)    :: OnlyA
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: OnlyA
+            EP ⇌ E + P    :: EqualAI
+            E + I ⇌ EI    :: OnlyA
         end
     end
     _testhelper_assert_mechanism_invariants(am)
@@ -6796,9 +6776,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): R1::OnlyA
     end
@@ -6814,9 +6794,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
             regulatory_site(2): R1::OnlyA
             regulatory_site(2): R2::OnlyA
@@ -6825,9 +6805,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
             regulatory_site(2): R1::OnlyA
             regulatory_site(2): R2::OnlyI
@@ -6836,9 +6816,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
             regulatory_site(2): R1::OnlyA
             regulatory_site(2): R2::NonequalAI
@@ -6847,9 +6827,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
             regulatory_site(2): R1::OnlyA, R2::OnlyA
         end),
@@ -6857,9 +6837,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
             regulatory_site(2): R1::OnlyA, R2::NonequalAI
         end),
@@ -6867,9 +6847,9 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
             regulatory_site(2): R1::OnlyA, R2::EqualAI
         end)]
@@ -6937,9 +6917,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)      :: EqualAI
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
         end
         regulatory_site(2): R1::OnlyI
     end
@@ -6989,9 +6969,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)      :: EqualAI
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -7017,15 +6997,16 @@ end
         modifiers: ATP
         oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
-            E + ATP ⇌ E(ATP)  :: OnlyA
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: OnlyA
+            EP ⇌ E + P      :: EqualAI
+            E + ATP ⇌ EATP  :: OnlyA
         end
     end
     # am already binds ATP as a competitive dead-end inhibitor step.
-    @test any(s -> _testhelper_is_binding(s) && only(s.consumed) === :ATP &&
-                   only(s.consumed_modifier), _testhelper_graph(am).steps)
+    @test any(k -> _testhelper_binds_copy(_testhelper_candidate(am), k) &&
+                   am.catalytic.metabolites[only(am.catalytic.steps[k].taken_up)] === :ATP,
+              eachindex(am.catalytic.steps))
 
     result = _testhelper_move(EnzymeRates.Enumeration._expand_add_allosteric_regulator, am,
                               rxn)
@@ -7037,10 +7018,10 @@ end
                     modifiers: ATP
                     oligomeric_state: 1
                     steps: begin
-                        E + S ⇌ E(S)      :: EqualAI
-                        E(S) <--> E(P)    :: OnlyA
-                        E(P) ⇌ E + P      :: EqualAI
-                        E + ATP ⇌ E(ATP)  :: OnlyA
+                        E + S ⇌ ES      :: EqualAI
+                        ES <--> EP    :: OnlyA
+                        EP ⇌ E + P      :: EqualAI
+                        E + ATP ⇌ EATP  :: OnlyA
                     end
                     regulatory_site(1): ATP::OnlyA
                 end),
@@ -7050,10 +7031,10 @@ end
                     modifiers: ATP
                     oligomeric_state: 1
                     steps: begin
-                        E + S ⇌ E(S)      :: EqualAI
-                        E(S) <--> E(P)    :: OnlyA
-                        E(P) ⇌ E + P      :: EqualAI
-                        E + ATP ⇌ E(ATP)  :: OnlyA
+                        E + S ⇌ ES      :: EqualAI
+                        ES <--> EP    :: OnlyA
+                        EP ⇌ E + P      :: EqualAI
+                        E + ATP ⇌ EATP  :: OnlyA
                     end
                     regulatory_site(1): ATP::OnlyI
                 end),
@@ -7063,10 +7044,10 @@ end
                     modifiers: ATP
                     oligomeric_state: 1
                     steps: begin
-                        E + S ⇌ E(S)      :: EqualAI
-                        E(S) <--> E(P)    :: OnlyA
-                        E(P) ⇌ E + P      :: EqualAI
-                        E + ATP ⇌ E(ATP)  :: OnlyA
+                        E + S ⇌ ES      :: EqualAI
+                        ES <--> EP    :: OnlyA
+                        EP ⇌ E + P      :: EqualAI
+                        E + ATP ⇌ EATP  :: OnlyA
                     end
                     regulatory_site(1): ATP::NonequalAI
                 end]
@@ -7092,10 +7073,10 @@ end
         modifiers: ATP
         oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)            :: EqualAI
-            E(S) <--> E(P)          :: OnlyA
-            E + P ⇌ E(P)            :: EqualAI
-            E + ATP ⇌ E(ATP)        :: OnlyA
+            E + S ⇌ ES            :: EqualAI
+            ES <--> EP          :: OnlyA
+            E + P ⇌ EP            :: EqualAI
+            E + ATP ⇌ EATP        :: OnlyA
         end
         regulatory_site(1): ATP::NonequalAI
     end
@@ -7121,9 +7102,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): ATP::OnlyI
     end
@@ -7135,16 +7116,16 @@ end
             modifiers: I
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)            :: EqualAI
-                E + S ⇌ E(S)            :: EqualAI
-                E(S) <--> E(P)          :: EqualAI
-                E + I ⇌ E(I)  :: EqualAI
+                E + P ⇌ EP            :: EqualAI
+                E + S ⇌ ES            :: EqualAI
+                ES <--> EP          :: EqualAI
+                E + I ⇌ EI  :: EqualAI
             end
             regulatory_site(2): ATP::OnlyI
         end]
     @test length(children) == 1
     @test Set(children) == Set(expected)
-    @test all(c -> !(:ATP in c.catalytic.modifiers), children)
+    @test all(c -> :ATP ∉ _testhelper_modifier_names(c), children)
 end
 
 @testset "skips redundant OnlyI-onto-OnlyA-site append (disjoint states)" begin
@@ -7162,9 +7143,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A::OnlyA
     end
@@ -7177,9 +7158,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::OnlyA
@@ -7188,9 +7169,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::OnlyI
@@ -7199,9 +7180,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::NonequalAI
@@ -7210,9 +7191,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, I::OnlyA
         end),
@@ -7220,9 +7201,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, I::NonequalAI
         end),
@@ -7230,9 +7211,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, I::EqualAI
         end]
@@ -7274,9 +7255,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA
     end
@@ -7284,9 +7265,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): Y::NonequalAI
     end
@@ -7295,9 +7276,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA, Y::NonequalAI
     end
@@ -7306,9 +7287,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA
         regulatory_site(2): Y::NonequalAI
@@ -7321,9 +7302,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA
         regulatory_site(2): Y::OnlyA
@@ -7332,9 +7313,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA, Y::OnlyA
     end
@@ -7342,9 +7323,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA
         regulatory_site(2): Y::OnlyI
@@ -7353,9 +7334,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyA, Y::EqualAI
     end
@@ -7371,9 +7352,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyI
         regulatory_site(2): Y::NonequalAI
@@ -7382,9 +7363,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::OnlyI, Y::NonequalAI
     end
@@ -7392,9 +7373,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::NonequalAI
         regulatory_site(2): Y::NonequalAI
@@ -7403,9 +7384,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::NonequalAI, Y::NonequalAI
     end
@@ -7413,9 +7394,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): X::EqualAI, Y::NonequalAI
     end
@@ -7450,9 +7431,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: OnlyA
-            E(P) ⇌ E + P    :: OnlyA
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: OnlyA
+            EP ⇌ E + P    :: OnlyA
         end
     end
     added = _testhelper_move(EnzymeRates.Enumeration._expand_add_allosteric_regulator, am,
@@ -7464,9 +7445,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
             regulatory_site(2): R2::OnlyA
         end),
@@ -7475,9 +7456,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
             regulatory_site(2): R2::OnlyI
         end),
@@ -7486,9 +7467,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
             regulatory_site(2): R2::NonequalAI
         end),
@@ -7506,9 +7487,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     added = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, seed,
@@ -7519,13 +7500,13 @@ end
         products: P
         modifiers: R1
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E + R1 ⇌ E(R1)
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+            E + R1 ⇌ ER1
         end
     end]
-    de_regs = Set(x for m in added for x in m.catalytic.modifiers)
+    de_regs = Set(x for m in added for x in _testhelper_modifier_names(m))
     @test de_regs == Set([:R1])
 end
 end
@@ -7540,9 +7521,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -7585,9 +7566,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)      :: EqualAI
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end
@@ -7631,9 +7612,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)      :: EqualAI
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
         end
         regulatory_site(2): R1::OnlyA
         regulatory_site(2): R2::OnlyI
@@ -7691,9 +7672,9 @@ end
         products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)      :: EqualAI
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -7725,9 +7706,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
     end
     @test all(t -> t == :EqualAI, am.allosteric.allosteric_states)
@@ -7740,27 +7721,27 @@ end
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: NonequalAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: NonequalAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: NonequalAI
-                E(S) <--> E(P)  :: EqualAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: NonequalAI
+                ES <--> EP  :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
             substrates: S; products: P
             oligomeric_state: 2
             steps: begin
-                E + P ⇌ E(P)    :: EqualAI
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: NonequalAI
+                E + P ⇌ EP    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: NonequalAI
             end
         end),
     ]
@@ -7792,9 +7773,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: NonequalAI
-            E(P) ⇌ E + P      :: NonequalAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: NonequalAI
+            EP ⇌ E + P      :: NonequalAI
         end
     end
     @test isempty(
@@ -7814,92 +7795,92 @@ end
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     a_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: NonequalAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: NonequalAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: NonequalAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     b_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: NonequalAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: NonequalAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: NonequalAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: NonequalAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     abortive_a_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: NonequalAI
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     abortive_p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: NonequalAI
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: NonequalAI
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am)
@@ -7948,9 +7929,9 @@ parent = @enzyme_mechanism begin
     substrates: S; products: P
     oligomeric_state: 4
     steps: begin
-        E + P ⇌ E(P)    :: OnlyA
-        E + S ⇌ E(S)    :: OnlyA
-        E(S) <--> E(P)  :: OnlyA
+        E + P ⇌ EP    :: OnlyA
+        E + S ⇌ ES    :: OnlyA
+        ES <--> EP  :: OnlyA
     end
     regulatory_site(4): A::OnlyA
     regulatory_site(4): I::OnlyI
@@ -7986,9 +7967,9 @@ _testhelper_single_site_names(child) = Set(
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::EqualAI, I::OnlyI
         end),
@@ -7996,9 +7977,9 @@ _testhelper_single_site_names(child) = Set(
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, I::EqualAI
         end]
@@ -8042,9 +8023,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A1::OnlyA
         regulatory_site(4): A2::OnlyA
@@ -8055,9 +8036,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A1::OnlyA, A2::OnlyA
         end),
@@ -8065,9 +8046,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A1::EqualAI, A2::OnlyA
         end),
@@ -8075,9 +8056,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A1::OnlyA, A2::EqualAI
         end]
@@ -8102,9 +8083,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A::OnlyA, B::OnlyA
         regulatory_site(4): C::OnlyA
@@ -8114,9 +8095,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A::OnlyA, C::OnlyA
         regulatory_site(4): B::OnlyA
@@ -8128,9 +8109,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, B::OnlyA, C::OnlyA
         end),
@@ -8138,9 +8119,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::EqualAI, B::OnlyA, C::OnlyA
         end),
@@ -8148,9 +8129,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, B::EqualAI, C::OnlyA
         end),
@@ -8158,9 +8139,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, B::OnlyA, C::EqualAI
         end]
@@ -8199,9 +8180,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A::OnlyA, C::OnlyI
         regulatory_site(4): B::OnlyA
@@ -8212,9 +8193,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, B::OnlyA, C::OnlyI
         end),
@@ -8222,9 +8203,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::EqualAI, B::OnlyA, C::OnlyI
         end),
@@ -8232,9 +8213,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, B::EqualAI, C::OnlyI
         end),
@@ -8242,9 +8223,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, B::OnlyA, C::EqualAI
         end]
@@ -8264,9 +8245,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A::OnlyA
     end
@@ -8282,9 +8263,9 @@ separate = @enzyme_mechanism begin
     substrates: S; products: P
     oligomeric_state: 4
     steps: begin
-        E + P ⇌ E(P)    :: OnlyA
-        E + S ⇌ E(S)    :: OnlyA
-        E(S) <--> E(P)  :: OnlyA
+        E + P ⇌ EP    :: OnlyA
+        E + S ⇌ ES    :: OnlyA
+        ES <--> EP  :: OnlyA
     end
     regulatory_site(4): A::OnlyA
     regulatory_site(4): I::OnlyI
@@ -8293,9 +8274,9 @@ merged = @enzyme_mechanism begin
     substrates: S; products: P
     oligomeric_state: 4
     steps: begin
-        E + P ⇌ E(P)    :: OnlyA
-        E + S ⇌ E(S)    :: OnlyA
-        E(S) <--> E(P)  :: OnlyA
+        E + P ⇌ EP    :: OnlyA
+        E + S ⇌ ES    :: OnlyA
+        ES <--> EP  :: OnlyA
     end
     regulatory_site(4): A::OnlyA, I::OnlyI
 end
@@ -8332,9 +8313,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)   :: EqualAI
-            E + P ⇌ E(P)   :: EqualAI
-            E(S) <--> E(P) :: EqualAI
+            E + S ⇌ ES   :: EqualAI
+            E + P ⇌ EP   :: EqualAI
+            ES <--> EP :: EqualAI
         end
     end
     # Whether `core` with one site holding `ligs` at `states` respects the types `r`
@@ -8392,9 +8373,9 @@ end
     m_seed = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     # The activator R as :OnlyI, against its type, and as :OnlyA.
@@ -8402,9 +8383,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end
@@ -8412,9 +8393,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -8444,9 +8425,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): A1::EqualAI, A2::EqualAI
     end
@@ -8465,9 +8446,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): A::EqualAI, I::OnlyI
     end
@@ -8489,9 +8470,9 @@ am_ab = @enzyme_mechanism begin
     substrates: S; products: P
     oligomeric_state: 2
     steps: begin
-        E + P ⇌ E(P)    :: EqualAI
-        E + S ⇌ E(S)    :: EqualAI
-        E(S) <--> E(P)  :: EqualAI
+        E + P ⇌ EP    :: EqualAI
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: EqualAI
     end
     regulatory_site(2): A::OnlyA
     regulatory_site(4): B::OnlyI
@@ -8500,9 +8481,9 @@ am_ba = @enzyme_mechanism begin   # sites swapped
     substrates: S; products: P
     oligomeric_state: 2
     steps: begin
-        E + P ⇌ E(P)    :: EqualAI
-        E + S ⇌ E(S)    :: EqualAI
-        E(S) <--> E(P)  :: EqualAI
+        E + P ⇌ EP    :: EqualAI
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: EqualAI
     end
     regulatory_site(4): B::OnlyI
     regulatory_site(2): A::OnlyA
@@ -8526,9 +8507,9 @@ am_m2 = @enzyme_mechanism begin
     substrates: S; products: P
     oligomeric_state: 2
     steps: begin
-        E + P ⇌ E(P)    :: EqualAI
-        E + S ⇌ E(S)    :: EqualAI
-        E(S) <--> E(P)  :: EqualAI
+        E + P ⇌ EP    :: EqualAI
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: EqualAI
     end
     regulatory_site(2): A::OnlyA
 end
@@ -8536,9 +8517,9 @@ am_m4 = @enzyme_mechanism begin   # different multiplicity
     substrates: S; products: P
     oligomeric_state: 2
     steps: begin
-        E + P ⇌ E(P)    :: EqualAI
-        E + S ⇌ E(S)    :: EqualAI
-        E(S) <--> E(P)  :: EqualAI
+        E + P ⇌ EP    :: EqualAI
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: EqualAI
     end
     regulatory_site(4): A::OnlyA
 end
@@ -8578,23 +8559,24 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E + Q ⇌ E(Q)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            (E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            E + A ⇌ EA
+            E + Q ⇌ EQ
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            (EA + P ⇌ EAP, EQ + P ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     _testhelper_assert_mechanism_invariants(m_seed)
-    n_groups = length(m_seed.catalytic.groups)
+    n_groups = length(_testhelper_group_members(m_seed.catalytic))
     @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
         "to exercise a non-trivial permutation"
     # Cyclic rotation by one, [g1, g2, …, gN] → [g2, …, gN, g1]: group g written as group
     # g - 1 and group 1 last, the steps written group by group in that order.
-    label = [mod1(e.group - 1, n_groups) for e in m_seed.catalytic.steps]
+    label = [mod1(e.kinetic_group - 1, n_groups) for e in m_seed.catalytic.steps]
     order = sortperm(label)
     m_rotated = _testhelper_plain_mechanism(
-        m_seed.catalytic.substrates, m_seed.catalytic.products, m_seed.catalytic.nodes,
+        m_seed.catalytic.metabolites, m_seed.catalytic.enzyme_forms,
+        m_seed.catalytic.substrates, m_seed.catalytic.products,
         [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
                                      e.rapid_equilibrium, label[k])
          for (k, e) in enumerate(m_seed.catalytic.steps)][order])
@@ -8612,18 +8594,18 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     flipped = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S <--> ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     start = EnzymeRates.Enumeration.candidate_mechanisms(uni_uni_rxn)
@@ -8653,15 +8635,15 @@ end
         substrates: S1, S2
         products:   P1, P2
         steps: begin
-            E + S1 <--> E(S1)
-            E + S2 <--> E(S2)
-            E(S1) + S2 <--> E(S1, S2)
-            E(S2) + S1 <--> E(S1, S2)
-            E(S1, S2) <--> E(P1, P2)
-            E(P1, P2) <--> E(P1) + P2
-            E(P1, P2) <--> E(P2) + P1
-            E(P1) <--> E + P1
-            E(P2) <--> E + P2
+            E + S1 <--> ES1
+            E + S2 <--> ES2
+            ES1 + S2 <--> ES1S2
+            ES2 + S1 <--> ES1S2
+            ES1S2 <--> EP1P2
+            EP1P2 <--> EP1 + P2
+            EP1P2 <--> EP2 + P1
+            EP1 <--> E + P1
+            EP2 <--> E + P2
         end
     end
     # The enumerator returns a mechanism only within identify's limits
@@ -8689,15 +8671,15 @@ end
         products: P1, P2
         oligomeric_state: 1
         steps: begin
-            E + P1 <--> E(P1) :: OnlyA
-            E + P2 <--> E(P2) :: OnlyA
-            E + S1 <--> E(S1) :: EqualAI
-            E + S2 <--> E(S2) :: EqualAI
-            E(P1) + P2 <--> E(P1, P2) :: EqualAI
-            E(P2) + P1 <--> E(P1, P2) :: EqualAI
-            E(S1) + S2 <--> E(S1, S2) :: EqualAI
-            E(S1, S2) <--> E(P1, P2) :: OnlyA
-            E(S2) + S1 <--> E(S1, S2) :: EqualAI
+            E + P1 <--> EP1 :: OnlyA
+            E + P2 <--> EP2 :: OnlyA
+            E + S1 <--> ES1 :: EqualAI
+            E + S2 <--> ES2 :: EqualAI
+            EP1 + P2 <--> EP1P2 :: EqualAI
+            EP2 + P1 <--> EP1P2 :: EqualAI
+            ES1 + S2 <--> ES1S2 :: EqualAI
+            ES1S2 <--> EP1P2 :: OnlyA
+            ES2 + S1 <--> ES1S2 :: EqualAI
         end
     end
     cm = ktype.catalytic
@@ -8726,24 +8708,24 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)
-            E + P ⇌ E(P)
+            E + S <--> EP
+            E + P ⇌ EP
         end
     end
     flipped = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)
-            E + P <--> E(P)
+            E + S <--> EP
+            E + P <--> EP
         end
     end
     k_type = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     children = EnzymeRates.Enumeration.candidate_mechanisms(
@@ -8819,8 +8801,7 @@ end
 @testset "_check_decodable_names: a reaction's names spell each name one way" begin
     # The enumerator names a form by joining the names of the metabolites it binds, so
     # `candidate_mechanisms` refuses a reaction whose names spell one string two ways; a
-    # reactant also declared a competitive inhibitor binds as its copy, spelled X::Mod,
-    # named Xmod.
+    # reactant also declared a competitive inhibitor binds as its copy, named Xmod.
     _testhelper_two_ways(a, b, x) = ErrorException(
         "candidate_mechanisms: $a and $b both spell $x: enzyme forms and their " *
         "constants join the names of the metabolites they bind without a separator, so " *
@@ -8842,14 +8823,14 @@ end
             substrates: X[C], YZ[N]
             products:   XY[C], Z[N]
         end)
-    # A reactant's modifier copy is named Xmod.
-    @test_throws _testhelper_two_ways("P::Mod", "Pmod", "Pmod") check(
+    # A reactant's modifier copy is named Xmod, and the error says which name is the copy.
+    @test_throws _testhelper_two_ways("Pmod (P's modifier copy)", "Pmod", "Pmod") check(
         @enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             competitive_inhibitors: P, Pmod
         end)
-    @test_throws _testhelper_two_ways("X + mod", "X::Mod", "Xmod") check(
+    @test_throws _testhelper_two_ways("X + mod", "Xmod (X's modifier copy)", "Xmod") check(
         @enzyme_reaction begin
             substrates: X[C]
             products:   mod[C]
@@ -8883,9 +8864,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -8903,9 +8884,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -8935,9 +8916,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     _testhelper_assert_mechanism_invariants(m)
@@ -8956,9 +8937,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
     end
     result = _testhelper_children(uni_uni_allo, [am])
@@ -8985,9 +8966,9 @@ end
         substrates: S; products: P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)    :: EqualAI
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: EqualAI
+            E + P ⇌ EP    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -9027,9 +9008,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
 
@@ -9048,9 +9029,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
         (@enzyme_mechanism begin
@@ -9058,9 +9039,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
         end),
         (@enzyme_mechanism begin
@@ -9068,9 +9049,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: OnlyA
             end
         end),
         (@enzyme_mechanism begin
@@ -9078,9 +9059,9 @@ end
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: OnlyA
-                E(P) ⇌ E + P    :: EqualAI
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: OnlyA
+                EP ⇌ E + P    :: EqualAI
             end
             regulatory_site(2): R::OnlyA
         end),
@@ -9090,9 +9071,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)    :: EqualAI
-            E(S) <--> E(P)  :: OnlyA
-            E(P) ⇌ E + P    :: EqualAI
+            E + S ⇌ ES    :: EqualAI
+            ES <--> EP  :: OnlyA
+            EP ⇌ E + P    :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end
@@ -9129,9 +9110,9 @@ end
         substrates: S; products: P
         oligomeric_state: 4
         steps: begin
-            E + P ⇌ E(P)    :: OnlyA
-            E + S ⇌ E(S)    :: OnlyA
-            E(S) <--> E(P)  :: OnlyA
+            E + P ⇌ EP    :: OnlyA
+            E + S ⇌ ES    :: OnlyA
+            ES <--> EP  :: OnlyA
         end
         regulatory_site(4): A::OnlyA
         regulatory_site(4): I::OnlyI
@@ -9143,9 +9124,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::EqualAI, I::OnlyI
         end),
@@ -9153,9 +9134,9 @@ end
             substrates: S; products: P
             oligomeric_state: 4
             steps: begin
-                E + P ⇌ E(P)    :: OnlyA
-                E + S ⇌ E(S)    :: OnlyA
-                E(S) <--> E(P)  :: OnlyA
+                E + P ⇌ EP    :: OnlyA
+                E + S ⇌ ES    :: OnlyA
+                ES <--> EP  :: OnlyA
             end
             regulatory_site(4): A::OnlyA, I::EqualAI
         end]
@@ -9180,9 +9161,9 @@ end
     m = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + P ⇌ E(P)
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
         end
     end
     raw = _testhelper_plain_moves(m, uni_uni_rxn)
@@ -9200,8 +9181,8 @@ end
 
     # #distinct metabolites bound by an :OnlyA catalytic group (iso → skip)
     _testhelper_onlya_mets(am) = (cm = am.catalytic;
-        Set(only(cm.steps[first(ks)].taken_up).name
-            for (g, ks) in enumerate(cm.groups)
+        Set(cm.metabolites[only(cm.steps[first(ks)].taken_up)]
+            for (g, ks) in enumerate(_testhelper_group_members(cm))
             if am.allosteric.allosteric_states[g] === :OnlyA &&
                !EnzymeRates.Mechanisms._is_iso(cm.steps[first(ks)])))
 
@@ -9264,12 +9245,12 @@ end
                           n_ss(m) == 2 ? :merged_two_groups : :merged_three_groups
     # The groups whose every step binds into a form that has no other step.
     function _testhelper_dead_end_groups(m)
-        degree = zeros(Int, length(m.catalytic.nodes))
+        degree = zeros(Int, length(m.catalytic.enzyme_forms))
         for e in m.catalytic.steps
             degree[e.from] += 1; degree[e.to] += 1
         end
         count(ks -> all(k -> degree[m.catalytic.steps[k].to] == 1, ks),
-              m.catalytic.groups)
+              _testhelper_group_members(m.catalytic))
     end
     counts = Set{Int}()
     tally = Dict{Tuple{Symbol, Int}, Int}()
@@ -9336,13 +9317,13 @@ am = @enzyme_mechanism begin
     products: P
     oligomeric_state: 2
     steps: begin
-        E + S ⇌ E(S)    :: EqualAI
-        E(S) <--> E(P)  :: OnlyA
-        E(P) ⇌ E + P    :: OnlyA
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: OnlyA
+        EP ⇌ E + P    :: OnlyA
     end
 end
 # The kinetic group of `am` that holds the edge written `text`.
-_testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].group
+_testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].kinetic_group
 
 # The :OnlyA group g of am has no inactive-state constant (`K_I_…`/`k_I_…`, rendered
 # through the naming chokepoint) among the parameters. With every :OnlyA group of am
@@ -9350,7 +9331,8 @@ _testhelper_group_of(text) = am.catalytic.steps[_testhelper_edge(am, text)].grou
 function _testhelper_test_no_inactive_constants(am, g)
     cm = am.catalytic
     i_names = EnzymeRates.Derivation._name.(
-        _testhelper_step_parameters(am, first(cm.groups[g]), true), Ref(am))
+        _testhelper_step_parameters(am, first(_testhelper_group_members(cm)[g]), true),
+        Ref(am))
     @test isempty(intersect(i_names, parameters(am)))
     nonequal = EnzymeRates.Mechanism(
         cm, EnzymeRates.Mechanisms.Allostery(
@@ -9382,9 +9364,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E + P ⇌ E(P)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
+            E + S ⇌ ES      :: NonequalAI
+            E + P ⇌ EP      :: NonequalAI
+            ES <--> EP    :: OnlyA
         end
     end
     @test iszero(EnzymeRates.Derivation._law(m).inactive.Q)
@@ -9444,9 +9426,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(m.catalytic,
@@ -9457,16 +9439,16 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-            E(P) + S ⇌ E(P, S)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
+            EP + S ⇌ EPS
         end
     end
     fc = EnzymeRates.Enumeration._flux_carrying_groups(leaf.catalytic,
                                                        _testhelper_all_ss(leaf))
     # The leaf group is the one whose step forms the doubly-bound E(P, S).
-    @test !fc[leaf.catalytic.steps[_testhelper_edge(leaf, "EP + S ⇌ EPS")].group]
+    @test !fc[leaf.catalytic.steps[_testhelper_edge(leaf, "EP + S ⇌ EPS")].kinetic_group]
     @test count(!, fc) == 1
 
     # Ping-pong: the second chemistry step starts at rapid equilibrium and lies
@@ -9475,12 +9457,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            Estar + B ⇌ Estar(B)
-            E + Q ⇌ E(Q)
-            Estar + P ⇌ Estar(P)
-            E(A) <--> Estar(P)
-            Estar(B) ⇌ E(Q)
+            E + A ⇌ EA
+            Estar + B ⇌ EstarB
+            E + Q ⇌ EQ
+            Estar + P ⇌ EstarP
+            EA <--> EstarP
+            EstarB ⇌ EQ
         end
     end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(pingpong.catalytic,
@@ -9496,12 +9478,12 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)          :: EqualAI
-            E(S) <--> E(P)        :: EqualAI
-            E + P ⇌ E(P)          :: EqualAI
-            E + I ⇌ E(I)          :: EqualAI
-            E(I) + S ⇌ E(I, S)    :: EqualAI
-            E(S) + I ⇌ E(I, S)    :: EqualAI
+            E + S ⇌ ES          :: EqualAI
+            ES <--> EP        :: EqualAI
+            E + P ⇌ EP          :: EqualAI
+            E + I ⇌ EI          :: EqualAI
+            EI + S ⇌ EIS    :: EqualAI
+            ES + I ⇌ EIS    :: EqualAI
         end
     end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(
@@ -9515,21 +9497,21 @@ end
         products: P
         modifiers: I, J
         steps: begin
-            E + S ⇌ E(S)          :: EqualAI
-            E(S) <--> E(P)        :: EqualAI
-            E + P ⇌ E(P)          :: EqualAI
-            E + I ⇌ E(I)          :: EqualAI
-            E + J ⇌ E(J)          :: EqualAI
-            E(I) + J ⇌ E(I, J)    :: EqualAI
-            E(J) + I ⇌ E(I, J)    :: EqualAI
+            E + S ⇌ ES          :: EqualAI
+            ES <--> EP        :: EqualAI
+            E + P ⇌ EP          :: EqualAI
+            E + I ⇌ EI          :: EqualAI
+            E + J ⇌ EJ          :: EqualAI
+            EI + J ⇌ EIJ    :: EqualAI
+            EJ + I ⇌ EIJ    :: EqualAI
         end
     end
     cp = pendant.catalytic
     pfc = EnzymeRates.Enumeration._flux_carrying_groups(cp, _testhelper_all_ss(cp))
     inhibitor_groups =
-        unique(e.group for e in cp.steps
-               if EnzymeRates.Mechanisms._is_binding(e) &&
-                   only(e.taken_up).name in (:I, :J))
+        unique(e.kinetic_group for e in cp.steps
+               if EnzymeRates.Enumeration._is_binding(e) &&
+                   cp.metabolites[only(e.taken_up)] in (:I, :J))
     @test length(inhibitor_groups) == 4
     @test !any(pfc[g] for g in inhibitor_groups)
     @test all(pfc[g] for g in eachindex(pfc) if !(g in inhibitor_groups))
@@ -9540,12 +9522,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
         end
     end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(pp.catalytic,
@@ -9558,9 +9540,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EQ + P
+            E + Q ⇌ EQ
         end
     end
     @test all(EnzymeRates.Enumeration._flux_carrying_groups(tc.catalytic,
@@ -9576,10 +9558,10 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(P, Q)
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EPQ
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     @test all(
@@ -9598,24 +9580,24 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(Q) + A ⇌ E(A, Q)
-            E + Q <--> E(Q)
-            E(A) + Q ⇌ E(A, Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
+            E + A <--> EA
+            EQ + A ⇌ EAQ
+            E + Q <--> EQ
+            EA + Q ⇌ EAQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
         end
     end
     # Each group's first edge.
     _testhelper_firsts(m) =
-        [m.catalytic.steps[first(ks)] for ks in m.catalytic.groups]
-    ss_binding(e) = EnzymeRates.Mechanisms._is_binding(e) && !e.rapid_equilibrium
+        [m.catalytic.steps[first(ks)] for ks in _testhelper_group_members(m.catalytic)]
+    ss_binding(e) = EnzymeRates.Enumeration._is_binding(e) && !e.rapid_equilibrium
     flags = EnzymeRates.Enumeration._flux_carrying_groups(
         shunt.catalytic, _testhelper_flags(shunt))
     for (g, e) in enumerate(_testhelper_firsts(shunt))
         if ss_binding(e)
-            @test EnzymeRates.Mechanisms._form_name(shunt.catalytic, e.from) == "E" &&
+            @test String(shunt.catalytic.enzyme_forms[e.from]) == "E" &&
                   !flags[g]
         elseif EnzymeRates.Mechanisms._is_iso(e)
             @test flags[g]
@@ -9636,12 +9618,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(Q) + A ⇌ E(A, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
+            E + A <--> EA
+            EQ + A ⇌ EAQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
         end
     end
     # At zero products its segment's steady state depends on how fast the
@@ -9649,7 +9631,7 @@ end
     v = EnzymeRates.Derivation._guard(loop)
     @test (v.fault, v.limit, v.face) ===
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms.step_text(loop.catalytic, v.edge) == "E + Q ⇌ E(Q)"
+    @test EnzymeRates.Mechanisms.step_text(loop.catalytic, v.edge) == "E + Q ⇌ EQ"
     @test _testhelper_respeed_verdicts(loop; rng = Random.MersenneTwister(92),
                                        law = :limit)[2] === :pattern
     lflags = EnzymeRates.Enumeration._flux_carrying_groups(
@@ -9671,11 +9653,11 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     # Each name's uptake sign: the names are A, B, P, Q.
@@ -9689,10 +9671,10 @@ end
     @test base == @_testhelper_unguarded(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end)
     # The merged cycle E → E(A) → E(P, Q) → E(Q) → E takes up A and B and gives off P and
@@ -9730,31 +9712,33 @@ end
     @test all(x -> !_testhelper_clean(base, _testhelper_variant([x])), (:A, :B, :P, :Q))
     # ELIM of the merged complex: one step E(A) + B → E(Q) + P, written from the binding
     # of a substrate, in a group of its own after the others; all three SS is clean.
-    # The seed's node holding `xs`.
-    at(xs...) = only(findall(n -> [x.name for x in n.bound] == [xs...],
-                             seed.catalytic.nodes))
+    # The seed's form holding `xs`, by its record; the metabolite named `x`.
+    at(xs...) = only(findall(f -> _testhelper_bound(f) == [xs...],
+                             _testhelper_candidate(seed).forms))
+    metabolite(x) = _testhelper_metabolite(seed.catalytic, x)
     tc_steps = ER.Enumeration._eliminate_form(merged, iso.to, seed.catalytic.substrates)
     # Labelled 6, after the merged groups 1, 2, 3 and 5 (the isomerization's group 4
     # went with it).
     @test last(tc_steps) ==
-          ER.Mechanisms.Step(at(:A), at(:Q), [ER.Mechanisms.Metabolite(:B, false)],
-                             [ER.Mechanisms.Metabolite(:P, false)], true, 6)
-    @test [e.group for e in tc_steps] == [1, 2, 6]
+          ER.Mechanisms.Step(at(:A), at(:Q), [metabolite(:B)], [metabolite(:P)], true, 6)
+    @test [e.kinetic_group for e in tc_steps] == [1, 2, 6]
     tc = _testhelper_base(seed, tc_steps)
     @test tc == @_testhelper_unguarded(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(Q) + P
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EQ + P
+            E + Q ⇌ EQ
         end
     end)
-    group_of(pred) = tc.catalytic.steps[only(findall(pred, tc.catalytic.steps))].group
+    group_of(pred) =
+        tc.catalytic.steps[only(findall(pred, tc.catalytic.steps))].kinetic_group
     gA, gQ = group_of(_testhelper_binds(tc, :A)), group_of(_testhelper_binds(tc, :Q))
     gTC = group_of(_testhelper_is_tc)
     # E → E(A) → E(Q) → E, all RE
     @test ER.Mechanisms.has_turnover_cycle(tc.catalytic, _testhelper_flags(tc))
-    _testhelper_ss(which) = BitVector([!(e.group in which) for e in tc.catalytic.steps])
+    _testhelper_ss(which) =
+        BitVector([!(e.kinetic_group in which) for e in tc.catalytic.steps])
     # The Theorell–Chance step takes up B and gives off P, so V turns it RE for either
     # side. {A, Q, TC}: V for substrates leaves Q steady state, V for products leaves A,
     # and no RE step is left for C. {A, Q}: the RE Theorell–Chance step gives B off one
@@ -9794,28 +9778,23 @@ end
 
 @testset "a reactant's modifier copy counts as its reactant in the seed tests" begin
     ER = EnzymeRates
-    # Ordered bi-bi with A also bound as a modifier copy at E(Q). The copy shares A's
-    # concentration, so its binding takes A's uptake sign and exchanges a substrate: the
-    # table is A, A::Mod, B, P, Q, the names A, B, P, Q.
+    # Ordered bi-bi with A also bound as a modifier copy at EQ, where it does not react.
+    # That binding takes A up, so it takes A's uptake sign and exchanges a substrate: the
+    # metabolites are A, B, P, Q.
     m = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E(Q) + A::Mod ⇌ E(A::Mod, Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            EQ + A ⇌ EAmodQ
         end
     end
-    @test ER.Mechanisms._table(m.catalytic) ==
-          [ER.Mechanisms.Metabolite(:A, false), ER.Mechanisms.Metabolite(:A, true),
-           ER.Mechanisms.Metabolite(:B, false), ER.Mechanisms.Metabolite(:P, false),
-           ER.Mechanisms.Metabolite(:Q, false)]
+    @test m.catalytic.metabolites == [:A, :B, :P, :Q]
     @test ER.Enumeration._name_signs(m.catalytic) == [1, 1, -1, -1]
-    copy_binding = only(k for k in eachindex(m.catalytic.steps)
-                        if any(x -> x.modifier, m.catalytic.steps[k].taken_up))
+    copy_binding = _testhelper_edge(m, "EQ + A ⇌ EAmodQ")
     @test ER.Enumeration._uptake_weight(m.catalytic, copy_binding) == 1
     @test ER.Enumeration._exchanges(m.catalytic, copy_binding, m.catalytic.substrates)
     @test !ER.Enumeration._exchanges(m.catalytic, copy_binding, m.catalytic.products)
@@ -9826,9 +9805,9 @@ end
     seed = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     iso = only(filter(EnzymeRates.Enumeration._is_iso, seed.catalytic.steps))
@@ -9839,8 +9818,8 @@ end
     @test _testhelper_base(seed, merged) == @_testhelper_unguarded(@enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + S ⇌ E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ EP
+            E + P ⇌ EP
         end
     end)
     # Both of E(P)'s steps start at E, so a Theorell–Chance step E + S → E + P would join
@@ -9858,13 +9837,13 @@ end
     m = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E + B ⇌ E(B)
-            E(A) + B ⇌ E(A, B)
-            E(B) + A ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            E + B ⇌ EB
+            EA + B ⇌ EAB
+            EB + A ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     @test !ER.Mechanisms.has_turnover_cycle(m.catalytic, _testhelper_flags(m))
@@ -9876,12 +9855,12 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            E + Q ⇌ EQ
         end
     end
     # The steady-state isomerization E(A) → E(P; res) cuts the one catalytic cycle, and
@@ -9920,12 +9899,12 @@ end
     am = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                          :: EqualAI
-            E(A) <--> E(P; residual = A - P)                      :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
-            E + Q ⇌ E(Q)                                          :: EqualAI
+            E + A ⇌ EA                                          :: EqualAI
+            EA <--> EP_res_plusA_minusP                      :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP    :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                         :: OnlyA
+            E + Q ⇌ EQ                                          :: EqualAI
         end
     end
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(9624),
@@ -9944,9 +9923,9 @@ end
     seed = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     # The merged base holds S (E + S → E(P), fused) and P (E + P ⇌ E(P)), both units.
@@ -9959,22 +9938,22 @@ end
     only_s = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + S <--> E(P)
-            E + P ⇌ E(P)
+            E + S <--> EP
+            E + P ⇌ EP
         end
     end
     only_p = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + S ⇌ E(P)
-            E + P <--> E(P)
+            E + S ⇌ EP
+            E + P <--> EP
         end
     end
     twin = @enzyme_mechanism begin
         substrates: S; products: P
         steps: begin
-            E + S <--> E(P)
-            E + P <--> E(P)
+            E + S <--> EP
+            E + P <--> EP
         end
     end
     @test !ER.Enumeration._has_vmax(only_s.catalytic, _testhelper_flags(only_s),
@@ -9992,11 +9971,11 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     # The merged base holds A (E + A ⇌ E(A)), Bˣ (E(A) + B → E(P, Q)), Pˣ
@@ -10011,27 +9990,27 @@ end
     a_p = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(P, Q)
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            EA + B ⇌ EPQ
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     b_q = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EA
+            EA + B <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q <--> EQ
         end
     end
     tc = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q <--> E(Q)
+            E + A <--> EA
+            EA + B <--> EQ + P
+            E + Q <--> EQ
         end
     end
     variants = _testhelper_move(ER._seed_variants, seed, bi_bi_rxn)
@@ -10049,11 +10028,11 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     # The merged base holds A, Bˣ (E(A) + B → E(P, Q) with the abortive E(Q) + B ⇌ E(B, Q)),
@@ -10070,37 +10049,37 @@ end
     b_p = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B <--> EPQ, EQ + B <--> EBQ)
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     a_p = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     b_q = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B <--> E(P, Q), E(Q) + B <--> E(B, Q))
-            E(Q) + P ⇌ E(P, Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EA
+            (EA + B <--> EPQ, EQ + B <--> EBQ)
+            EQ + P ⇌ EPQ
+            E + Q <--> EQ
         end
     end
     tc = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(Q) + B ⇌ E(B, Q)
-            E(A) + B <--> E(Q) + P
-            E + Q <--> E(Q)
+            E + A <--> EA
+            EQ + B ⇌ EBQ
+            EA + B <--> EQ + P
+            E + Q <--> EQ
         end
     end
     variants = _testhelper_move(ER._seed_variants, seed, bi_bi_rxn)
@@ -10132,12 +10111,12 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            E + Q ⇌ EQ
         end
     end
     # Merging both isomerizations gives A (E + A → E(P; res), fused), P, B
@@ -10156,35 +10135,35 @@ end
     pp_aq = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(Q)
-            E + Q <--> E(Q)
+            E + A <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EQ
+            E + Q <--> EQ
         end
     end
     pp_bp = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + P <--> E(P; residual = A - P)
-            E(; residual = A - P) + B <--> E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + P <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + B <--> EQ
+            E + Q ⇌ EQ
         end
     end
     half_tc1 = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B <--> E(Q)
-            E + Q <--> E(Q)
+            E + A <--> E_res_plusA_minusP + P
+            E_res_plusA_minusP + B <--> EQ
+            E + Q <--> EQ
         end
     end
     half_tc2 = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(P; residual = A - P)
-            E(; residual = A - P) + P <--> E(P; residual = A - P)
-            E(; residual = A - P) + B <--> E + Q
+            E + A <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + B <--> E + Q
         end
     end
     variants = _testhelper_move(ER.Enumeration._seed_variants, seed, bi_bi_pp_rxn)
@@ -10200,8 +10179,8 @@ end
     # A Theorell–Chance base holds its TC step and the bindings of the other half's two
     # metabolites, x and y.
     function _testhelper_tc_rejected(g)
-        x, y = [only(e.taken_up).name for e in g.catalytic.steps
-                if ER.Mechanisms._is_binding(e)]
+        x, y = [g.catalytic.metabolites[only(e.taken_up)] for e in g.catalytic.steps
+                if EnzymeRates.Enumeration._is_binding(e)]
         bx, by = _testhelper_binds(g, x), _testhelper_binds(g, y)
         [_testhelper_flip_matching(g, ps...)
          for ps in ([_testhelper_is_tc], [bx], [by], [_testhelper_is_tc, bx],
@@ -10224,11 +10203,11 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
-            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            (EQ + P ⇌ EPQ, E + P ⇌ EP)
+            (EP + Q ⇌ EPQ, E + Q ⇌ EQ)
         end
     end
     # The merged base holds A, Bˣ (E(A) + B → E(P, Q)), Pˣ (E(Q) + P → E(P, Q),
@@ -10247,28 +10226,28 @@ end
     b_p = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(P, Q)
-            (E(Q) + P <--> E(P, Q), E + P <--> E(P))
-            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+            E + A ⇌ EA
+            EA + B <--> EPQ
+            (EQ + P <--> EPQ, E + P <--> EP)
+            (EP + Q ⇌ EPQ, E + Q ⇌ EQ)
         end
     end
     b_q = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(P, Q)
-            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
-            (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
+            E + A ⇌ EA
+            EA + B <--> EPQ
+            (EQ + P ⇌ EPQ, E + P ⇌ EP)
+            (EP + Q <--> EPQ, E + Q <--> EQ)
         end
     end
     a_p_q = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(P, Q)
-            (E(Q) + P <--> E(P, Q), E + P <--> E(P))
-            (E(P) + Q <--> E(P, Q), E + Q <--> E(Q))
+            E + A <--> EA
+            EA + B ⇌ EPQ
+            (EQ + P <--> EPQ, E + P <--> EP)
+            (EP + Q <--> EPQ, E + Q <--> EQ)
         end
     end
     variants = _testhelper_move(ER.Enumeration._seed_variants, seed, bi_bi_rxn)
@@ -10292,10 +10271,10 @@ end
     @test base == @_testhelper_unguarded(@enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(P, Q)
-            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
-            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+            E + A ⇌ EA
+            EA + B ⇌ EPQ
+            (EQ + P ⇌ EPQ, E + P ⇌ EP)
+            (EP + Q ⇌ EPQ, E + Q ⇌ EQ)
         end
     end)
     # The rejected candidates, each degenerate by the probe as well.
@@ -10319,116 +10298,116 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B, D; products: P, Q, R
         steps: begin
-            E + B ⇌ E(B)
-            E + R ⇌ E(R)
-            E(A, B) + D ⇌ E(A, B, D)
-            (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P), E(Q, R) + P ⇌ E(P, Q, R))
-            E(A, B, D) <--> E(P, Q, R)
-            (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-            E(R) + Q ⇌ E(Q, R)
+            E + B ⇌ EB
+            E + R ⇌ ER
+            EAB + D ⇌ EABD
+            (EAB + P ⇌ EABP, EB + P ⇌ EBP, EQR + P ⇌ EPQR)
+            EABD <--> EPQR
+            (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+            ER + Q ⇌ EQR
         end
     end
     expected = [
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B <--> E(B)
-                E + R ⇌ E(R)
-                E(A, B) + D ⇌ E(P, Q, R)
-                (E(A, B) + P <--> E(A, B, P), E(B) + P <--> E(B, P),
-                 E(Q, R) + P <--> E(P, Q, R))
-                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-                E(R) + Q ⇌ E(Q, R)
+                E + B <--> EB
+                E + R ⇌ ER
+                EAB + D ⇌ EPQR
+                (EAB + P <--> EABP, EB + P <--> EBP,
+                 EQR + P <--> EPQR)
+                (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+                ER + Q ⇌ EQR
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B ⇌ E(B)
-                E + R <--> E(R)
-                E(A, B) + D <--> E(P, Q, R)
-                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P), E(Q, R) + P ⇌ E(P, Q, R))
-                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-                E(R) + Q ⇌ E(Q, R)
+                E + B ⇌ EB
+                E + R <--> ER
+                EAB + D <--> EPQR
+                (EAB + P ⇌ EABP, EB + P ⇌ EBP, EQR + P ⇌ EPQR)
+                (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+                ER + Q ⇌ EQR
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B ⇌ E(B)
-                E + R ⇌ E(R)
-                E(A, B) + D <--> E(P, Q, R)
-                (E(A, B) + P <--> E(A, B, P), E(B) + P <--> E(B, P),
-                 E(Q, R) + P <--> E(P, Q, R))
-                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-                E(R) + Q ⇌ E(Q, R)
+                E + B ⇌ EB
+                E + R ⇌ ER
+                EAB + D <--> EPQR
+                (EAB + P <--> EABP, EB + P <--> EBP,
+                 EQR + P <--> EPQR)
+                (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+                ER + Q ⇌ EQR
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B ⇌ E(B)
-                E + R ⇌ E(R)
-                E(A, B) + D ⇌ E(P, Q, R)
-                (E(A, B) + P <--> E(A, B, P), E(B) + P <--> E(B, P),
-                 E(Q, R) + P <--> E(P, Q, R))
-                (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))
-                E(R) + Q ⇌ E(Q, R)
+                E + B ⇌ EB
+                E + R ⇌ ER
+                EAB + D ⇌ EPQR
+                (EAB + P <--> EABP, EB + P <--> EBP,
+                 EQR + P <--> EPQR)
+                (EB + A <--> EAB, EBP + A <--> EABP)
+                ER + Q ⇌ EQR
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B ⇌ E(B)
-                E + R ⇌ E(R)
-                E(A, B) + D <--> E(P, Q, R)
-                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P), E(Q, R) + P ⇌ E(P, Q, R))
-                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-                E(R) + Q <--> E(Q, R)
+                E + B ⇌ EB
+                E + R ⇌ ER
+                EAB + D <--> EPQR
+                (EAB + P ⇌ EABP, EB + P ⇌ EBP, EQR + P ⇌ EPQR)
+                (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+                ER + Q <--> EQR
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B <--> E(B)
-                E + R <--> E(R)
-                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
-                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-                E(R) + Q ⇌ E(Q, R)
-                E(A, B) + D <--> E(Q, R) + P
+                E + B <--> EB
+                E + R <--> ER
+                (EAB + P ⇌ EABP, EB + P ⇌ EBP)
+                (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+                ER + Q ⇌ EQR
+                EAB + D <--> EQR + P
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B <--> E(B)
-                E + R ⇌ E(R)
-                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
-                (E(B) + A ⇌ E(A, B), E(B, P) + A ⇌ E(A, B, P))
-                E(R) + Q <--> E(Q, R)
-                E(A, B) + D <--> E(Q, R) + P
+                E + B <--> EB
+                E + R ⇌ ER
+                (EAB + P ⇌ EABP, EB + P ⇌ EBP)
+                (EB + A ⇌ EAB, EBP + A ⇌ EABP)
+                ER + Q <--> EQR
+                EAB + D <--> EQR + P
             end
         end),
         (@enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B ⇌ E(B)
-                E + R <--> E(R)
-                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
-                (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))
-                E(R) + Q ⇌ E(Q, R)
-                E(A, B) + D <--> E(Q, R) + P
+                E + B ⇌ EB
+                E + R <--> ER
+                (EAB + P ⇌ EABP, EB + P ⇌ EBP)
+                (EB + A <--> EAB, EBP + A <--> EABP)
+                ER + Q ⇌ EQR
+                EAB + D <--> EQR + P
             end
         end),
         @enzyme_mechanism begin
             substrates: A, B, D; products: P, Q, R
             steps: begin
-                E + B ⇌ E(B)
-                E + R ⇌ E(R)
-                (E(A, B) + P ⇌ E(A, B, P), E(B) + P ⇌ E(B, P))
-                (E(B) + A <--> E(A, B), E(B, P) + A <--> E(A, B, P))
-                E(R) + Q <--> E(Q, R)
-                E(A, B) + D <--> E(Q, R) + P
+                E + B ⇌ EB
+                E + R ⇌ ER
+                (EAB + P ⇌ EABP, EB + P ⇌ EBP)
+                (EB + A <--> EAB, EBP + A <--> EABP)
+                ER + Q <--> EQR
+                EAB + D <--> EQR + P
             end
         end
     ]
@@ -10444,58 +10423,58 @@ end
     ordered = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     shared_b = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     ordered_random = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            (E(Q) + P ⇌ E(P, Q), E + P ⇌ E(P))
-            (E(P) + Q ⇌ E(P, Q), E + Q ⇌ E(Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            (EQ + P ⇌ EPQ, E + P ⇌ EP)
+            (EP + Q ⇌ EPQ, E + Q ⇌ EQ)
         end
     end
     ping_pong = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            E + Q ⇌ EQ
         end
     end
     # Bases: merged and Theorell–Chance for the two ordered seeds, merged only for the
     # ordered/random seed, merged and both halves for the ping-pong seed.
     all_bases = [b for seed in (ordered, shared_b, ordered_random, ping_pong)
                  for b in _testhelper_bases(seed)]
-    @test length.(getfield.(getfield.(all_bases, :catalytic), :groups)) ==
+    @test [length(_testhelper_group_members(b.catalytic)) for b in all_bases] ==
           [4, 3, 4, 4, 4, 4, 3, 3]
     # The screen's verdict and the predicates' verdict on every subset of the groups of the
     # base `m`, every edge of which is at rapid equilibrium.
     function _testhelper_sweep(m)
         screen = ER.Enumeration._seed_candidate_screen(_testhelper_candidate(m))
-        map(0:(2^length(m.catalytic.groups) - 1)) do bits
+        map(0:(2^length(_testhelper_group_members(m.catalytic)) - 1)) do bits
             ss = BitVector([isodd(bits >> (g - 1))
-                            for g in 1:length(m.catalytic.groups)])
-            re = BitVector([!ss[e.group] for e in m.catalytic.steps])
+                            for g in 1:length(_testhelper_group_members(m.catalytic))])
+            re = BitVector([!ss[e.kinetic_group] for e in m.catalytic.steps])
             expected = !ER.Mechanisms.has_turnover_cycle(m.catalytic, re) &&
                 ER.Enumeration._has_vmax(m.catalytic, re, m.catalytic.substrates) &&
                 ER.Enumeration._has_vmax(m.catalytic, re, m.catalytic.products) &&
@@ -10521,10 +10500,13 @@ end
     pp_seeds = filter(_testhelper_holds_iso,
                       _testhelper_mechanisms(ER.Enumeration.init_mechanisms(bi_bi_pp_rxn)))
     pp_bases = [b for seed in pp_seeds for b in _testhelper_bases(seed)]
-    # The fused bindings of base `b` that bind one of `names`, not as a modifier copy.
-    _testhelper_fused(b, names) = [e for (k, e) in enumerate(b.catalytic.steps)
-        if b.catalytic.step_kinds[k] === :fused_binding &&
-           (x = only(e.taken_up); !x.modifier && x.name in names)]
+    # The fused bindings of base `b` that bind one of the metabolites `ms`, not as a
+    # modifier copy.
+    _testhelper_fused(b, ms) =
+        (c = _testhelper_candidate(b);
+         [e for (k, e) in enumerate(b.catalytic.steps)
+          if _testhelper_is_fused(c, e) && !_testhelper_binds_copy(c, k) &&
+             only(e.taken_up) in ms])
     # Whether a fused binding of a substrate enters a form of three or more edges.
     _testhelper_three_step_complex(b) =
         any(_testhelper_fused(b, b.catalytic.substrates)) do e
@@ -10549,9 +10531,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     @test_throws(ErrorException("_seed_candidate_screen: the seed base holds an " *
@@ -10564,8 +10546,8 @@ end
     ER = EnzymeRates
     # The form of graph `m` whose name (`_form_name`) is `nm`.
     _testhelper_form_called(m, nm) =
-        only(f for f in eachindex(m.catalytic.nodes)
-             if ER.Mechanisms._form_name(m.catalytic, f) == "$nm")
+        only(f for f in eachindex(m.catalytic.enzyme_forms)
+             if String(m.catalytic.enzyme_forms[f]) == "$nm")
     # A twin is asked for a modifier copy by its name, and 0 means none.
 
     # Ordered bi-bi. A copy of A at E has the composition of E(A), its twin; at E(Q)
@@ -10574,11 +10556,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     twin = _testhelper_twin(ordered)
@@ -10594,11 +10576,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
         end
     end
     @test _testhelper_twin(abortive)(_testhelper_form_called(abortive, :EQ), :A) ==
@@ -10608,14 +10590,13 @@ end
     with_copy = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     twin_c = _testhelper_twin(with_copy)
@@ -10632,9 +10613,9 @@ end
         products: P
         steps: begin
             E ⇌ Estar
-            Estar + S ⇌ Estar(S)
-            Estar(S) <--> E(P)
-            E + P ⇌ E(P)
+            Estar + S ⇌ EstarS
+            EstarS <--> EP
+            E + P ⇌ EP
         end
     end
     estar_s = _testhelper_form_called(iso, :EstarS)
@@ -10642,9 +10623,9 @@ end
     # Twins are found by offsets; composition only breaks a tie between forms with the
     # complex's offsets. This twin differs from the complex in conformation or residual,
     # so no form has the complex's composition.
-    _testhelper_label_residual(f) = (iso.catalytic.nodes[f].conformation,
-                                     iso.catalytic.nodes[f].added,
-                                     iso.catalytic.nodes[f].subtracted)
+    records = _testhelper_candidate(iso).forms
+    _testhelper_label_residual(f) =
+        (records[f].label, records[f].adds, records[f].subtracts)
     @test _testhelper_label_residual(estar_s) !=
           _testhelper_label_residual(_testhelper_form_called(iso, :E))
     iso_ss = @enzyme_mechanism begin
@@ -10652,31 +10633,30 @@ end
         products: P
         steps: begin
             E <--> Estar
-            Estar + S ⇌ Estar(S)
-            Estar(S) <--> E(P)
-            E + P ⇌ E(P)
+            Estar + S ⇌ EstarS
+            EstarS <--> EP
+            E + P ⇌ EP
         end
     end
     @test _testhelper_twin(iso_ss)(_testhelper_form_called(iso_ss, :E), :S) == 0
 
-    # Several forms can tie as twins. E ⇌ F and E ⇌ F2 put F(S) and F2(S) at the
-    # offsets of a copy of S at E, and no form holds the copy's composition, S at E.
-    # The twin is then the first of them in form order, F(S), though its name, FS, sorts
-    # after F2S.
+    # Several forms can tie as twins. E ⇌ F and E ⇌ F2 put FS and F2S at the offsets of
+    # a copy of S at E, and no form holds the copy's composition, S at E. The twin is then
+    # the first of them in form order, F2S, by name.
     tied = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E ⇌ F
             E ⇌ F2
-            F + S ⇌ F(S)
-            F2 + S ⇌ F2(S)
-            F(S) <--> E(P)
-            E + P ⇌ E(P)
+            F + S ⇌ FS
+            F2 + S ⇌ F2S
+            FS <--> EP
+            E + P ⇌ EP
         end
     end
     @test _testhelper_twin(tied)(_testhelper_form_called(tied, :E), :S) ==
-          _testhelper_form_called(tied, :FS)
+          _testhelper_form_called(tied, :F2S)
 
     # A form of the complex's composition outside the site's segment is no twin. With
     # A bound at steady state, E(A) has the composition of E·A* but sits in another
@@ -10686,11 +10666,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
         end
     end
     @test _testhelper_twin(ss_bound)(_testhelper_form_called(ss_bound, :E), :A) == 0
@@ -10703,16 +10683,15 @@ end
     pp = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: P
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E(Q) ⇌ E + Q
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            E + P::Mod ⇌ E(P::Mod)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            EQ ⇌ E + Q
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            E + P ⇌ EPmod
         end
     end
     twin_pp = _testhelper_twin(pp)
@@ -10730,15 +10709,14 @@ end
     two_copies = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q::Mod) + A ⇌ E(A, Q::Mod))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + Q::Mod ⇌ E(Q::Mod), E(A) + Q::Mod ⇌ E(A, Q::Mod))
-            (E(A) + A::Mod ⇌ E(A, A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQmod + A ⇌ EAQmod)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + Q ⇌ EQmod, EA + Q ⇌ EAQmod)
+            (EA + A ⇌ EAAmod, EQ + A ⇌ EAmodQ)
         end
     end
     twin_two = _testhelper_twin(two_copies)
@@ -10763,13 +10741,12 @@ end
     onlya_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(
@@ -10781,13 +10758,12 @@ end
     onlya_with_onlya_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: OnlyA
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: OnlyA
         end
     end
     @test !isempty(
@@ -10799,13 +10775,12 @@ end
     nonequal_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: NonequalAI
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: NonequalAI
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     @test !isempty(ER.Enumeration._redundant_copy_groups(
@@ -10818,13 +10793,12 @@ end
     all_onlya_with_equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: OnlyA
-            E + S::Mod ⇌ E(S::Mod)      :: EqualAI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: OnlyA
+            E + S ⇌ ESmod      :: EqualAI
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(
@@ -10834,13 +10808,12 @@ end
     all_onlya_with_onlya_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: OnlyA
-            E + S::Mod ⇌ E(S::Mod)      :: OnlyA
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: OnlyA
+            E + S ⇌ ESmod      :: OnlyA
         end
     end
     @test !isempty(ER.Enumeration._redundant_copy_groups(
@@ -10859,20 +10832,17 @@ end
     copy_beyond = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S, J
+        modifiers: J
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: NonequalAI
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E(S) + J ⇌ E(S, J)          :: OnlyA
-            (E + S::Mod ⇌ E(S::Mod), E(S, J) + S::Mod ⇌ E(S, J, S::Mod)) :: OnlyI
+            E + S ⇌ ES                :: NonequalAI
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            ES + J ⇌ EJS          :: OnlyA
+            (E + S ⇌ ESmod, EJS + S ⇌ EJSSmod) :: OnlyI
         end
     end
-    cm = copy_beyond.catalytic
-    g = only(unique(e.group for e in cm.steps
-                    if ER.Mechanisms._is_binding(e) &&
-                        only(e.taken_up) == ER.Mechanisms.Metabolite(:S, true)))
+    g = only(_testhelper_groups_binding_copy(copy_beyond, :S))
     @test ER.Enumeration._redundant_copy_groups(_testhelper_candidate(copy_beyond)) == [g]
     @test _testhelper_fitted(copy_beyond) == _testhelper_identifiable_rank(copy_beyond) + 1
     # Tagged :EqualAI, the copy also binds the active conformation, at E and at E(S, J),
@@ -10880,14 +10850,14 @@ end
     equalai_copy = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S, J
+        modifiers: J
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: NonequalAI
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: EqualAI
-            E(S) + J ⇌ E(S, J)          :: OnlyA
-            (E + S::Mod ⇌ E(S::Mod), E(S, J) + S::Mod ⇌ E(S, J, S::Mod)) :: EqualAI
+            E + S ⇌ ES                :: NonequalAI
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: EqualAI
+            ES + J ⇌ EJS          :: OnlyA
+            (E + S ⇌ ESmod, EJS + S ⇌ EJSSmod) :: EqualAI
         end
     end
     @test isempty(
@@ -10902,10 +10872,10 @@ end
         modifiers: I
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                :: OnlyA
-            E(S) <--> E(P)              :: OnlyA
-            E + P ⇌ E(P)                :: OnlyA
-            E(S) + I ⇌ E(S, I)          :: OnlyI
+            E + S ⇌ ES                :: OnlyA
+            ES <--> EP              :: OnlyA
+            E + P ⇌ EP                :: OnlyA
+            ES + I ⇌ EIS          :: OnlyI
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(neither)))
@@ -10923,14 +10893,11 @@ end
     # holds all its complexes at one factor, and a complex's weight moves opposite to
     # its twin's, so no complex takes its twin's factor.
     ER = EnzymeRates
-    # The kinetic groups of graph `m` whose bindings take up the entry `x`.
-    _testhelper_groups_binding_entry(m, x) =
-        unique(e.group for e in m.catalytic.steps
-               if ER.Mechanisms._is_binding(e) && only(e.taken_up) == x)
     # The one group of `m` that binds a modifier copy.
     _testhelper_copy_group(m) =
-        only(unique(e.group for e in m.catalytic.steps
-                    if ER.Mechanisms._is_binding(e) && only(e.taken_up).modifier))
+        (c = _testhelper_candidate(m);
+         only(unique(e.kinetic_group for (k, e) in enumerate(m.catalytic.steps)
+                     if _testhelper_binds_copy(c, k))))
 
     # B1: ordered bi-bi with A* at E. The twin E(A) is formed
     # by E + A ⇌ E(A), alone in its group, so the A group's ratio is 1/ρ, the B group's
@@ -10939,14 +10906,13 @@ end
     b1 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + A::Mod ⇌ E(A::Mod)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + A ⇌ EAmod
         end
     end
     @test ER.Enumeration._redundant_copy_groups(
@@ -10960,18 +10926,18 @@ end
     case3 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E + A::Mod ⇌ E(A::Mod)
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            E + A ⇌ EAmod
         end
     end
     g3 = _testhelper_copy_group(case3)
-    @test ER.Enumeration._all_twin(_testhelper_candidate(case3), case3.catalytic.groups[g3],
+    @test ER.Enumeration._all_twin(_testhelper_candidate(case3),
+                                   _testhelper_group_members(case3.catalytic)[g3],
                                    _testhelper_twin(case3))
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(case3)))
     @test _testhelper_fitted(case3) == 6 && _testhelper_identifiable_rank(case3) == 6
@@ -10984,14 +10950,13 @@ end
     b14 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     @test ER.Enumeration._redundant_copy_groups(
@@ -11005,20 +10970,20 @@ end
     h1 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(B) + A ⇌ E(A, B)
-            (E + B ⇌ E(B), E(A::Mod) + B ⇌ E(A::Mod, B))
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + A::Mod ⇌ E(A::Mod), E(B) + A::Mod ⇌ E(A::Mod, B))
+            E + A ⇌ EA
+            EB + A ⇌ EAB
+            (E + B ⇌ EB, EAmod + B ⇌ EAmodB)
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + A ⇌ EAmod, EB + A ⇌ EAmodB)
         end
     end
     gh = _testhelper_copy_group(h1)
-    @test ER.Enumeration._all_twin(_testhelper_candidate(h1), h1.catalytic.groups[gh],
+    @test ER.Enumeration._all_twin(_testhelper_candidate(h1),
+                                   _testhelper_group_members(h1.catalytic)[gh],
                                    _testhelper_twin(h1))
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(h1)))
     @test _testhelper_fitted(h1) == 7 && _testhelper_identifiable_rank(h1) == 7
@@ -11031,15 +10996,14 @@ end
     p_at_twin = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, P
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod), E(A, Q) + P::Mod ⇌ E(A, P::Mod, Q))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (EAmod + P ⇌ EAmodPmod, EAQ + P ⇌ EAPmodQ)
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(p_at_twin)))
@@ -11053,15 +11017,14 @@ end
     p_at_own_twin = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, P
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod), E(A) + P::Mod ⇌ E(A, P::Mod))
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (EAmod + P ⇌ EAmodPmod, EA + P ⇌ EAPmod)
         end
     end
     @test isempty(
@@ -11076,16 +11039,15 @@ end
     two_classes = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(B) + A ⇌ E(A, B)
-            (E + B ⇌ E(B), E(A::Mod) + B ⇌ E(A::Mod, B))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            (E + A::Mod ⇌ E(A::Mod), E(B) + A::Mod ⇌ E(A::Mod, B))
+            E + A ⇌ EA
+            EB + A ⇌ EAB
+            (E + B ⇌ EB, EAmod + B ⇌ EAmodB)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            (E + A ⇌ EAmod, EB + A ⇌ EAmodB)
         end
     end
     @test ER.Enumeration._redundant_copy_groups(_testhelper_candidate(two_classes)) ==
@@ -11100,31 +11062,29 @@ end
     split_b14 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(Q) + A ⇌ E(A, Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            E(A) + Q ⇌ E(A, Q)
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EQ + A ⇌ EAQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            EA + Q ⇌ EAQ
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     ss_mirror = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(Q) + A ⇌ E(A, Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q <--> E(Q), E(A::Mod) + Q <--> E(A::Mod, Q))
-            E(A) + Q ⇌ E(A, Q)
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EQ + A ⇌ EAQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q <--> EQ, EAmod + Q <--> EAmodQ)
+            EA + Q ⇌ EAQ
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     @test ER.Enumeration._redundant_copy_groups(_testhelper_candidate(split_b14)) ==
@@ -11138,7 +11098,7 @@ end
     v = ER.Derivation._guard(ss_mirror)
     @test (v.fault, v.limit, v.face) ===
           (ER.Derivation._SPLIT, ER.Derivation._LIMIT_SPEED, 3)
-    @test ER.Mechanisms.step_text(ss_mirror.catalytic, v.edge) == "E + A ⇌ E(A)"
+    @test ER.Mechanisms.step_text(ss_mirror.catalytic, v.edge) == "E + A ⇌ EA"
     @test _testhelper_respeed_verdicts(ss_mirror; rng = Random.MersenneTwister(94),
                                        law = :limit)[3] === :pattern
     @test ER.Derivation.fitted_parameter_count(ss_mirror) == 8 &&
@@ -11150,24 +11110,22 @@ end
     p_at_complexes = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A, P
         steps: begin
-            E + A ⇌ E(A)
-            E(Q) + A ⇌ E(A, Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q),
-             E(A::Mod, P::Mod) + Q ⇌ E(A::Mod, P::Mod, Q))
-            E(A) + Q ⇌ E(A, Q)
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
-            (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod),
-             E(A::Mod, Q) + P::Mod ⇌ E(A::Mod, P::Mod, Q))
+            E + A ⇌ EA
+            EQ + A ⇌ EAQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ,
+             EAmodPmod + Q ⇌ EAmodPmodQ)
+            EA + Q ⇌ EAQ
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
+            (EAmod + P ⇌ EAmodPmod,
+             EAmodQ + P ⇌ EAmodPmodQ)
         end
     end
     @test ER.Enumeration._redundant_copy_groups(_testhelper_candidate(p_at_complexes)) ==
-          _testhelper_groups_binding_entry(p_at_complexes,
-                                           ER.Mechanisms.Metabolite(:A, true))
+          _testhelper_groups_binding_copy(p_at_complexes, :A)
     @test _testhelper_fitted(p_at_complexes) == 8 &&
           _testhelper_identifiable_rank(p_at_complexes) == 7
 
@@ -11176,12 +11134,11 @@ end
     uni = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
-            E + S::Mod ⇌ E(S::Mod)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
+            E + S ⇌ ESmod
         end
     end
     @test ER.Enumeration._redundant_copy_groups(
@@ -11199,26 +11156,26 @@ end
     fused_re = @enzyme_mechanism begin
         substrates: A
         products: P
-        modifiers: A
         steps: begin
-            E + A ⇌ E(P)
-            E + P <--> E(P)
-            E + A::Mod ⇌ E(A::Mod)
+            E + A ⇌ EP
+            E + P <--> EP
+            E + A ⇌ EAmod
         end
     end
     fused_parent = @enzyme_mechanism begin
         substrates: A
         products: P
         steps: begin
-            E + A ⇌ E(P)
-            E + P <--> E(P)
+            E + A ⇌ EP
+            E + P <--> EP
         end
     end
-    members = fused_re.catalytic.groups
+    members = _testhelper_group_members(fused_re.catalytic)
     copy_g = _testhelper_copy_group(fused_re)
     fused_k = _testhelper_edge(fused_re, "E + A ⇌ EP")
-    fused_g = fused_re.catalytic.steps[fused_k].group
-    p_g = fused_re.catalytic.steps[_testhelper_edge(fused_re, "E + P <--> EP")].group
+    fused_g = fused_re.catalytic.steps[fused_k].kinetic_group
+    p_g =
+        fused_re.catalytic.steps[_testhelper_edge(fused_re, "E + P <--> EP")].kinetic_group
     twin = _testhelper_twin(fused_re)
     @test twin(fused_re.catalytic.steps[only(members[copy_g])].from, :A) ==
           fused_re.catalytic.steps[fused_k].to
@@ -11242,37 +11199,35 @@ end
     pp = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: P
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E(Q) ⇌ E + Q
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            E + P::Mod ⇌ E(P::Mod)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            EQ ⇌ E + Q
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            E + P ⇌ EPmod
         end
     end
     pp_q = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E(Q) ⇌ E + Q
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            E + P::Mod ⇌ E(P::Mod)
-            E(P::Mod) + Q::Mod ⇌ E(P::Mod, Q::Mod)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            EQ ⇌ E + Q
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            E + P ⇌ EPmod
+            EPmod + Q ⇌ EPmodQmod
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(pp)))
     @test ER.Enumeration._redundant_copy_groups(_testhelper_candidate(pp_q)) ==
-          _testhelper_groups_binding_entry(pp_q, ER.Mechanisms.Metabolite(:Q, true))
+          _testhelper_groups_binding_copy(pp_q, :Q)
     @test _testhelper_fitted(pp) == 8 && _testhelper_identifiable_rank(pp) == 7
     @test _testhelper_fitted(pp_q) == 9 && _testhelper_identifiable_rank(pp_q) == 7
 
@@ -11283,25 +11238,24 @@ end
     ss_twin = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A <--> E(A)
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E + A::Mod ⇌ E(A::Mod)
+            E + A <--> EA
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            E + A ⇌ EAmod
         end
     end
     ss_parent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
+            E + A <--> EA
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(ss_twin)))
@@ -11318,15 +11272,14 @@ end
     tied = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                :: NonequalAI
-            E(A) + B ⇌ E(A, B)          :: EqualAI
-            E(A, B) <--> E(P, Q)        :: NonequalAI
-            E(Q) + P ⇌ E(P, Q)          :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
-            E + A::Mod ⇌ E(A::Mod)      :: EqualAI
+            E + A ⇌ EA                :: NonequalAI
+            EA + B ⇌ EAB          :: EqualAI
+            EAB <--> EPQ        :: NonequalAI
+            EQ + P ⇌ EPQ          :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
+            E + A ⇌ EAmod      :: EqualAI
         end
     end
     tied_parent = @enzyme_mechanism begin
@@ -11334,11 +11287,11 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                :: NonequalAI
-            E(A) + B ⇌ E(A, B)          :: EqualAI
-            E(A, B) <--> E(P, Q)        :: NonequalAI
-            E(Q) + P ⇌ E(P, Q)          :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A ⇌ EA                :: NonequalAI
+            EA + B ⇌ EAB          :: EqualAI
+            EAB <--> EPQ        :: NonequalAI
+            EQ + P ⇌ EPQ          :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     @test isempty(ER.Enumeration._redundant_copy_groups(_testhelper_candidate(tied)))
@@ -11357,21 +11310,20 @@ end
     m = @enzyme_mechanism begin
         substrates: A
         products: P
-        modifiers: A, P
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P)
-            E + P ⇌ E(P)
+            E + A ⇌ EA
+            EA <--> EP
+            E + P ⇌ EP
             E ⇌ Estar
-            (E + A::Mod ⇌ E(A::Mod), Estar + A::Mod ⇌ Estar(A::Mod))
-            (E(A::Mod) + P::Mod ⇌ E(A::Mod, P::Mod), E(A) + P::Mod ⇌ E(A, P::Mod))
+            (E + A ⇌ EAmod, Estar + A ⇌ EstarAmod)
+            (EAmod + P ⇌ EAmodPmod, EA + P ⇌ EAPmod)
         end
     end
-    members = m.catalytic.groups
-    copy_g = m.catalytic.steps[_testhelper_edge(m, "E + Amod ⇌ EAmod")].group
+    members = _testhelper_group_members(m.catalytic)
+    copy_g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EAmod")].kinetic_group
     twin = _testhelper_twin(m)
     @test copy_g == 2
-    @test ER.Mechanisms._form_name(m.catalytic, 2) == "EA"
+    @test String(m.catalytic.enzyme_forms[2]) == "EA"
     @test [twin(m.catalytic.steps[k].from, :A) for k in members[copy_g]] == [2, 2]
     @test ER.Enumeration._GaugeClass(2, 0, 1) != ER.Enumeration._GaugeClass(0, 2, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(m), members, copy_g, twin,
@@ -11389,11 +11341,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E + Q <--> E(Q)
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
+            E + A <--> EA
+            EA + B <--> EAB
+            E + Q <--> EQ
+            EQ + P <--> EPQ
+            EAB <--> EPQ
         end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(ordered))
@@ -11404,11 +11356,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(A, B))
-            (E + B <--> E(B), E(A) + B <--> E(A, B))
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A <--> EA, EB + A <--> EAB)
+            (E + B <--> EB, EA + B <--> EAB)
+            (E + P <--> EP, EQ + P <--> EPQ)
+            (E + Q <--> EQ, EP + Q <--> EPQ)
+            EAB <--> EPQ
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(random_ss))
@@ -11419,11 +11371,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(random_re))
@@ -11435,11 +11387,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A <--> EA, EB + A <--> EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
@@ -11453,12 +11405,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E + Q <--> E(Q)
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
-            E(Q) + A ⇌ E(A, Q)
+            E + A <--> EA
+            EA + B <--> EAB
+            E + Q <--> EQ
+            EQ + P <--> EPQ
+            EAB <--> EPQ
+            EQ + A ⇌ EAQ
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(dead_end))
@@ -11469,10 +11421,10 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-            (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+            E + S ⇌ ES
+            ES <--> EPQ
+            (E + P <--> EP, EQ + P <--> EPQ)
+            (E + Q <--> EQ, EP + Q <--> EPQ)
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(unibi_ss))
@@ -11483,12 +11435,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
         end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(pingpong))
@@ -11501,10 +11453,10 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                                        :: NonequalAI
-            E(S) <--> E(P, Q)                                   :: NonequalAI
-            (E + P <--> E(P), E(Q) + P <--> E(P, Q))            :: NonequalAI
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                  :: NonequalAI
+            E + S ⇌ ES                                        :: NonequalAI
+            ES <--> EPQ                                   :: NonequalAI
+            (E + P <--> EP, EQ + P <--> EPQ)            :: NonequalAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                  :: NonequalAI
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
@@ -11518,11 +11470,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(Q) + A <--> E(A, Q))
-            E(A) + B <--> E(A, B)
-            E + Q <--> E(Q)
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
+            (E + A <--> EA, EQ + A <--> EAQ)
+            EA + B <--> EAB
+            E + Q <--> EQ
+            EQ + P <--> EPQ
+            EAB <--> EPQ
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
@@ -11536,12 +11488,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            (E(; residual = A - P) + B ⇌ E(B; residual = A - P), E(Q) + B ⇌ E(B, Q))
-            E(B; residual = A - P) ⇌ E(Q)
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            (E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP, EQ + B ⇌ EBQ)
+            EB_res_plusA_minusP ⇌ EQ
+            EQ ⇌ E + Q
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
@@ -11555,11 +11507,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(Q) + A <--> E(A, Q))
-            E(A) + B <--> E(A, B)
-            (E + Q <--> E(Q), E(A) + Q <--> E(A, Q))
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
+            (E + A <--> EA, EQ + A <--> EAQ)
+            EA + B <--> EAB
+            (E + Q <--> EQ, EA + Q <--> EAQ)
+            EQ + P <--> EPQ
+            EAB <--> EPQ
         end
     end
     @test !EnzymeRates.Enumeration._hyperbolic_catalysis(
@@ -11578,11 +11530,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E + Q <--> E(Q)
-            E(Q) + P <--> E(P, Q)
-            E(A, B) <--> E(P, Q)
+            E + A <--> EA
+            EA + B <--> EAB
+            E + Q <--> EQ
+            EQ + P <--> EPQ
+            EAB <--> EPQ
         end
     end
     with_i = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
@@ -11604,10 +11556,9 @@ end
     end
     # The forms (`_form_name`) where a step binds the copy A::Mod.
     _testhelper_copy_sites(k) =
-        Set(Symbol(EnzymeRates.Mechanisms._form_name(k.catalytic, e.from))
-            for e in k.catalytic.steps
-            if EnzymeRates.Mechanisms._is_binding(e) &&
-                only(e.taken_up).modifier)
+        (c = _testhelper_candidate(k);
+         Set(k.catalytic.enzyme_forms[e.from] for (j, e) in enumerate(k.catalytic.steps)
+             if _testhelper_binds_copy(c, j)))
     with_a =
         _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, ordered_ss,
                          rxn_a_inhibits)
@@ -11658,14 +11609,14 @@ end
     merged_abortive = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))   :: EqualAI
-            E + Q ⇌ E(Q)                                               :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)         :: EqualAI
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(A) + P ⇌ E(A, P))                                       :: EqualAI
-            E(A) <--> E(P; residual = A - P)                           :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                              :: OnlyA
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)   :: EqualAI
+            E + Q ⇌ EQ                                               :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP         :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                       :: EqualAI
+            EA <--> EP_res_plusA_minusP                           :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                              :: OnlyA
         end
     end
     @test EnzymeRates.Derivation._guard(merged_abortive).fault ===
@@ -11687,14 +11638,14 @@ end
     split_abortive = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                           :: EqualAI
-            E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P) :: OnlyA
-            E + Q ⇌ E(Q)                                           :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)     :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)     :: EqualAI
-            E(A) + P ⇌ E(A, P)                                     :: OnlyA
-            E(A) <--> E(P; residual = A - P)                       :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                          :: OnlyA
+            E + A ⇌ EA                                           :: EqualAI
+            EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP :: OnlyA
+            E + Q ⇌ EQ                                           :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            EA + P ⇌ EAP                                     :: OnlyA
+            EA <--> EP_res_plusA_minusP                       :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
     @test EnzymeRates.Derivation._guard(split_abortive).fault ===
@@ -11714,10 +11665,10 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                E + S ⇌ E(S)                                        :: NonequalAI
-                E(S) <--> E(P, Q)                                   :: NonequalAI
-                (E + P <--> E(P), E(Q) + P <--> E(P, Q))            :: NonequalAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))                  :: NonequalAI
+                E + S ⇌ ES                                        :: NonequalAI
+                ES <--> EPQ                                   :: NonequalAI
+                (E + P <--> EP, EQ + P <--> EPQ)            :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)                  :: NonequalAI
             end
         end
     @test !EnzymeRates.Enumeration._requires_hyperbolic_catalysis(
@@ -11824,9 +11775,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     # Flipping E + S ⇌ E(S) cuts the one segment in two.
@@ -11842,9 +11793,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)   :: EqualAI
-            E(S) <--> E(P) :: EqualAI
-            E + P ⇌ E(P)   :: EqualAI
+            E + S ⇌ ES   :: EqualAI
+            ES <--> EP :: EqualAI
+            E + P ⇌ EP   :: EqualAI
         end
     end
     @test _testhelper_segment_count(am) == 1
@@ -11858,18 +11809,18 @@ end
     flips = [(seed, g)
              for seed in _testhelper_mechanisms(
                  EnzymeRates.Enumeration.init_mechanisms(bi_bi_rxn))
-             for (g, ks) in enumerate(seed.catalytic.groups)
+             for (g, ks) in enumerate(_testhelper_group_members(seed.catalytic))
              if all(k -> seed.catalytic.steps[k].rapid_equilibrium, ks)]
     @test length(flips) == 508
     @test all(flips) do (seed, g)
         re = _testhelper_flags(seed)
-        re[[e.group == g for e in seed.catalytic.steps]] .= false
-        flipped = _testhelper_plain_of(EnzymeRates.Mechanisms._canonicalize(
-            seed.catalytic.substrates, seed.catalytic.products, seed.catalytic.nodes,
+        re[[e.kinetic_group == g for e in seed.catalytic.steps]] .= false
+        cm = seed.catalytic
+        flipped = _testhelper_plain_of(EnzymeRates.Mechanisms._canonical(
+            cm.metabolites, cm.enzyme_forms, cm.substrates, cm.products,
             [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off, re[k],
-                                         e.group)
-             for (k, e) in enumerate(seed.catalytic.steps)]
-        ).scheme)
+                                         e.kinetic_group)
+             for (k, e) in enumerate(cm.steps)]))
         EnzymeRates.Enumeration._re_segment_count(seed.catalytic, re) ==
             length(first(_testhelper_re_segments(_testhelper_graph(flipped))))
     end
@@ -11892,7 +11843,7 @@ end
 "Whole-group flip of groups `gs` of `m` to steady state (test helper)."
 function _testhelper_flip_groups(m, gs)
     re = _testhelper_flags(m)
-    re[[e.group in gs for e in m.catalytic.steps]] .= false
+    re[[e.kinetic_group in gs for e in m.catalytic.steps]] .= false
     EnzymeRates.Enumeration._with_flags(_testhelper_candidate(m), re).mechanism
 end
 
@@ -11902,22 +11853,22 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     # The names of the forms the edges of `part`, a part of graph `ctx`, start from.
     _testhelper_src_forms(part, ctx) =
-        Set(Symbol(EnzymeRates.Mechanisms._form_name(ctx.catalytic,
-                                                     ctx.catalytic.steps[k].from))
+        Set(ctx.catalytic.enzyme_forms[ctx.catalytic.steps[k].from]
             for k in part)
     # The kinetic group of the edge of `ctx` whose text is `text`.
-    _testhelper_group_of(ctx, text) = ctx.catalytic.steps[_testhelper_edge(ctx, text)].group
+    _testhelper_group_of(ctx, text) =
+        ctx.catalytic.steps[_testhelper_edge(ctx, text)].kinetic_group
     ga = _testhelper_group_of(m, "E + A ⇌ EA")
-    a_group = findall(e -> e.group == ga, m.catalytic.steps)
+    a_group = findall(e -> e.kinetic_group == ga, m.catalytic.steps)
     @test length(a_group) == 3
     bps = EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), ga)
     @test length(bps) == 2
@@ -11948,16 +11899,16 @@ end
         substrates: A
         products: P
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> F + P
+            E + A ⇌ EA
+            EA <--> F + P
             F <--> E
         end
     end
     segel_k = _testhelper_edge(segel, "F + P <--> EA")
     @test EnzymeRates.Enumeration._context_form(segel.catalytic, segel_k) ==
           segel.catalytic.steps[segel_k].from ==
-          only(f for f in eachindex(segel.catalytic.nodes)
-               if EnzymeRates.Mechanisms._form_name(segel.catalytic, f) == "F")
+          only(f for f in eachindex(segel.catalytic.enzyme_forms)
+               if String(segel.catalytic.enzyme_forms[f]) == "F")
     # A two-step group with one context has one bipartition; a group whose
     # source forms carry no other ligand has none.
     @test length(EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m),
@@ -11973,16 +11924,16 @@ end
         substrates: A, B, C
         products: P, Q, R
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-             E(B, C) + A ⇌ E(A, B, C))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-             E(A, C) + B ⇌ E(A, B, C))
-            (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-             E(A, B) + C ⇌ E(A, B, C))
-            E(A, B, C) <--> E(P, Q, R)
-            E(Q, R) + P ⇌ E(P, Q, R)
-            E(R) + Q ⇌ E(Q, R)
-            E + R ⇌ E(R)
+            (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+             EBC + A ⇌ EABC)
+            (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+             EAC + B ⇌ EABC)
+            (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+             EAB + C ⇌ EABC)
+            EABC <--> EPQR
+            EQR + P ⇌ EPQR
+            ER + Q ⇌ EQR
+            E + R ⇌ ER
         end
     end
     cube_bps = EnzymeRates.Enumeration._context_bipartitions(
@@ -12003,13 +11954,13 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
-             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
+            (E + Q ⇌ EQ, E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP,
+             EB_res_plusA_minusP + Q ⇌ EBQ_res_plusA_minusP)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
         end
     end
     rbps = EnzymeRates.Enumeration._context_bipartitions(
@@ -12030,21 +11981,22 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
-             E(; residual = A + B - P) + Q ⇌ E(Q; residual = A + B - P))
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(; residual = A + B - P)
-            E(; residual = A + B - P) <--> E(Q)
+            (E + Q ⇌ EQ, E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP,
+             E_res_plusA_plusB_minusP + Q ⇌ EQ_res_plusA_plusB_minusP)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> E_res_plusA_plusB_minusP
+            E_res_plusA_plusB_minusP <--> EQ
         end
     end
     none, a_p, ab_p = [_testhelper_edge(residues, t) for t in (
         "E + Q ⇌ EQ", "E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP",
         "E_res_plusA_plusB_minusP + Q ⇌ EQ_res_plusA_plusB_minusP")]
     @test EnzymeRates.Enumeration._context_bipartitions(
-              _testhelper_candidate(residues), residues.catalytic.steps[none].group) ==
+              _testhelper_candidate(residues),
+              residues.catalytic.steps[none].kinetic_group) ==
           [([none], [a_p, ab_p]), ([none, ab_p], [a_p]), ([none, a_p], [ab_p])]
 
     # Conformation as a context: A binds E, Estar, and Estar(B), which B's binding to
@@ -12053,12 +12005,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), Estar + A ⇌ Estar(A), Estar(B) + A ⇌ Estar(A, B))
-            Estar + B ⇌ Estar(B)
-            E(A) <--> Estar(A)
-            Estar(A, B) <--> Estar(P, Q)
-            Estar(P, Q) ⇌ Estar(P) + Q
-            Estar(P) ⇌ E + P
+            (E + A ⇌ EA, Estar + A ⇌ EstarA, EstarB + A ⇌ EstarAB)
+            Estar + B ⇌ EstarB
+            EA <--> EstarA
+            EstarAB <--> EstarPQ
+            EstarPQ ⇌ EstarP + Q
+            EstarP ⇌ E + P
         end
     end
     cbps = EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(conf),
@@ -12078,15 +12030,16 @@ end
         products: P
         modifiers: I
         steps: begin
-            (E + S ⇌ E(S), E(I) + S ⇌ E(I, S))   :: EqualAI
-            E(S) <--> E(P)                        :: EqualAI
-            E + P ⇌ E(P)                          :: EqualAI
-            E + I ⇌ E(I)                          :: EqualAI
+            (E + S ⇌ ES, EI + S ⇌ EIS)   :: EqualAI
+            ES <--> EP                        :: EqualAI
+            E + P ⇌ EP                          :: EqualAI
+            E + I ⇌ EI                          :: EqualAI
         end
     end
     cm = am.catalytic
     bps = EnzymeRates.Enumeration._context_bipartitions(
-        _testhelper_candidate(cm), cm.steps[_testhelper_edge(cm, "E + S ⇌ ES")].group)
+        _testhelper_candidate(cm),
+        cm.steps[_testhelper_edge(cm, "E + S ⇌ ES")].kinetic_group)
     @test bps == [([_testhelper_edge(cm, "E + S ⇌ ES")],
                    [_testhelper_edge(cm, "EI + S ⇌ EIS")])]
 end
@@ -12096,9 +12049,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     # Canonical form stores the steps E + P → E(P), E + S → E(S), E(S) → E(P).
@@ -12108,9 +12061,9 @@ end
               substrates: S
               products: P
               steps: begin
-                  E + S <--> E(S)
-                  E(S) <--> E(P)
-                  E(P) ⇌ E + P
+                  E + S <--> ES
+                  ES <--> EP
+                  EP ⇌ E + P
               end
           end
     @test EnzymeRates.Enumeration._with_flags(_testhelper_candidate(m),
@@ -12120,9 +12073,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: OnlyA
+            EP ⇌ E + P      :: EqualAI
         end
     end
     @test EnzymeRates.Enumeration._with_flags(_testhelper_candidate(am),
@@ -12131,9 +12084,9 @@ end
               substrates: S
               products: P
               steps: begin
-                  E + S <--> E(S)   :: NonequalAI
-                  E(S) <--> E(P)    :: OnlyA
-                  E(P) ⇌ E + P      :: EqualAI
+                  E + S <--> ES   :: NonequalAI
+                  ES <--> EP    :: OnlyA
+                  EP ⇌ E + P      :: EqualAI
               end
           end
 end
@@ -12144,11 +12097,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            E(A, B) <--> E(P, Q)
-            E(P, Q) <--> E(Q) + P
-            E(Q) <--> E + Q
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            EAB <--> EPQ
+            EPQ <--> EQ + P
+            EQ <--> E + Q
         end
     end
     # Canonical form stores the steps E + A → E(A), E + B → E(B), E + Q → E(Q),
@@ -12161,12 +12114,12 @@ end
               substrates: A, B
               products: P, Q
               steps: begin
-                  E + A ⇌ E(A)
-                  E(B) + A ⇌ E(A, B)
-                  (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                  E(A, B) <--> E(P, Q)
-                  E(P, Q) <--> E(Q) + P
-                  E(Q) <--> E + Q
+                  E + A ⇌ EA
+                  EB + A ⇌ EAB
+                  (E + B ⇌ EB, EA + B ⇌ EAB)
+                  EAB <--> EPQ
+                  EPQ <--> EQ + P
+                  EQ <--> E + Q
               end
           end
     # New groups and new flags at once: E(B) + A also turns steady state.
@@ -12176,16 +12129,16 @@ end
               substrates: A, B
               products: P, Q
               steps: begin
-                  E + A ⇌ E(A)
-                  E(B) + A <--> E(A, B)
-                  (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                  E(A, B) <--> E(P, Q)
-                  E(P, Q) <--> E(Q) + P
-                  E(Q) <--> E + Q
+                  E + A ⇌ EA
+                  EB + A <--> EAB
+                  (E + B ⇌ EB, EA + B ⇌ EAB)
+                  EAB <--> EPQ
+                  EPQ <--> EQ + P
+                  EQ <--> E + Q
               end
           end
     @test EnzymeRates.Enumeration._regrouped(
-        _testhelper_candidate(m), [e.group for e in m.catalytic.steps],
+        _testhelper_candidate(m), [e.kinetic_group for e in m.catalytic.steps],
         flags(m)).mechanism == m
 
     # Each new group of an allosteric mechanism takes the tag of its first step's group.
@@ -12193,11 +12146,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))  :: NonequalAI
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))  :: EqualAI
-            E(A, B) <--> E(P, Q)                :: OnlyA
-            E(P, Q) <--> E(Q) + P               :: EqualAI
-            E(Q) <--> E + Q                     :: EqualAI
+            (E + A ⇌ EA, EB + A ⇌ EAB)  :: NonequalAI
+            (E + B ⇌ EB, EA + B ⇌ EAB)  :: EqualAI
+            EAB <--> EPQ                :: OnlyA
+            EPQ <--> EQ + P               :: EqualAI
+            EQ <--> E + Q                     :: EqualAI
         end
     end
     @test EnzymeRates.Enumeration._regrouped(_testhelper_candidate(am), split,
@@ -12206,12 +12159,12 @@ end
               substrates: A, B
               products: P, Q
               steps: begin
-                  E + A ⇌ E(A)                        :: NonequalAI
-                  E(B) + A ⇌ E(A, B)                  :: NonequalAI
-                  (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))  :: EqualAI
-                  E(A, B) <--> E(P, Q)                :: OnlyA
-                  E(P, Q) <--> E(Q) + P               :: EqualAI
-                  E(Q) <--> E + Q                     :: EqualAI
+                  E + A ⇌ EA                        :: NonequalAI
+                  EB + A ⇌ EAB                  :: NonequalAI
+                  (E + B ⇌ EB, EA + B ⇌ EAB)  :: EqualAI
+                  EAB <--> EPQ                :: OnlyA
+                  EPQ <--> EQ + P               :: EqualAI
+                  EQ <--> E + Q                     :: EqualAI
               end
           end
 end
@@ -12221,24 +12174,25 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-            (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-            (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
-    g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
+    g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].kinetic_group
     bp = only(EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), g))
     child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
                                                         [(g, bp)]).mechanism
     # The steps stay; only the group of the second part is new.
-    @test length(child.catalytic.groups) ==
-          length(m.catalytic.groups) + 1
-    @test child.catalytic.nodes == m.catalytic.nodes &&
+    @test length(_testhelper_group_members(child.catalytic)) ==
+          length(_testhelper_group_members(m.catalytic)) + 1
+    @test child.catalytic.enzyme_forms == m.catalytic.enzyme_forms &&
           _testhelper_ungrouped(child) == _testhelper_ungrouped(m)
     _testhelper_members(c, k) =
-        findall(e -> e.group == c.catalytic.steps[k].group, c.catalytic.steps)
+        findall(e -> e.kinetic_group == c.catalytic.steps[k].kinetic_group,
+                c.catalytic.steps)
     @test _testhelper_members(child, first(bp[1])) == bp[1]
     @test _testhelper_members(child, first(bp[2])) == bp[2]
 
@@ -12247,22 +12201,23 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))    :: NonequalAI
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))    :: EqualAI
-            E + P ⇌ E(P)             :: EqualAI
-            E(P) + Q ⇌ E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)             :: EqualAI
-            E(Q) + P ⇌ E(P, Q)       :: EqualAI
-            E(A, B) <--> E(P, Q)     :: EqualAI
+            (E + A ⇌ EA, EB + A ⇌ EAB)    :: NonequalAI
+            (E + B ⇌ EB, EA + B ⇌ EAB)    :: EqualAI
+            E + P ⇌ EP             :: EqualAI
+            EP + Q ⇌ EPQ       :: EqualAI
+            E + Q ⇌ EQ             :: EqualAI
+            EQ + P ⇌ EPQ       :: EqualAI
+            EAB <--> EPQ     :: EqualAI
         end
     end
     cm = am.catalytic
-    ga = cm.steps[_testhelper_edge(cm, "E + A ⇌ EA")].group
+    ga = cm.steps[_testhelper_edge(cm, "E + A ⇌ EA")].kinetic_group
     bpa = only(EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(cm), ga))
     achild = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(am),
                                                          [(ga, bpa)]).mechanism
     @test _testhelper_ungrouped(achild.catalytic) == _testhelper_ungrouped(cm)
-    @test [achild.allosteric.allosteric_states[achild.catalytic.steps[first(part)].group]
+    @test [achild.allosteric.allosteric_states[
+               achild.catalytic.steps[first(part)].kinetic_group]
            for part in bpa] == [:NonequalAI, :NonequalAI]
     @test achild.allosteric.oligomeric_state == 2
     @test achild.allosteric.regulatory_sites ==
@@ -12278,20 +12233,20 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E(P) + Q ⇌ E(P, Q)
-            E + P ⇌ E(P)
-            E + Q ⇌ E(Q)
-            (E(Q) + B <--> E(B, Q), E(P) + B <--> E(B, P))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            EP + Q ⇌ EPQ
+            E + P ⇌ EP
+            E + Q ⇌ EQ
+            (EQ + B <--> EBQ, EP + B <--> EBP)
         end
     end
     abortive = [_testhelper_edge(m, "EQ + B <--> EBQ"),
                 _testhelper_edge(m, "EP + B <--> EBP")]
-    g = only(unique(m.catalytic.steps[k].group for k in abortive))
-    @test sort(findall(e -> e.group == g, m.catalytic.steps)) == sort(abortive)
+    g = only(unique(m.catalytic.steps[k].kinetic_group for k in abortive))
+    @test sort(findall(e -> e.kinetic_group == g, m.catalytic.steps)) == sort(abortive)
     @test !any(k -> m.catalytic.steps[k].rapid_equilibrium, abortive)
     @test EnzymeRates.Enumeration._flux_carrying_edges(
         m.catalytic, _testhelper_flags(m))[abortive] == falses(2)
@@ -12361,23 +12316,23 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E + P ⇌ E(P)
+                E + S ⇌ ES
+                ES <--> EP
+                E + P ⇌ EP
             end
         end
         absent = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P)
-                E + P ⇌ E(P)
+                E + S <--> ES
+                ES <--> EP
+                E + P ⇌ EP
             end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
         @test EnzymeRates.Enumeration._chain_flank_groups(m) ==
-              Set(g for (g, ks) in enumerate(m.catalytic.groups)
+              Set(g for (g, ks) in enumerate(_testhelper_group_members(m.catalytic))
                   if !EnzymeRates.Mechanisms._is_iso(m.catalytic.steps[only(ks)]))
         @test isempty(kids)
         @test _testhelper_identifiable_rank(absent) == _testhelper_identifiable_rank(m)
@@ -12391,55 +12346,55 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipA = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A <--> EA, EB + A <--> EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipB = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B <--> E(B), E(A) + B <--> E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B <--> EB, EA + B <--> EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipP = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P <--> EP, EQ + P <--> EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipQ = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q <--> EQ, EP + Q <--> EPQ)
+                EAB <--> EPQ
             end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
@@ -12455,10 +12410,10 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E + P ⇌ E(P)
-                E(P) + S ⇌ E(P, S)
+                E + S ⇌ ES
+                ES <--> EP
+                E + P ⇌ EP
+                EP + S ⇌ EPS
             end
         end
         expected = [
@@ -12466,20 +12421,20 @@ end
                 substrates: S
                 products: P
                 steps: begin
-                    E + S <--> E(S)
-                    E(S) <--> E(P)
-                    E + P ⇌ E(P)
-                    E(P) + S ⇌ E(P, S)
+                    E + S <--> ES
+                    ES <--> EP
+                    E + P ⇌ EP
+                    EP + S ⇌ EPS
                 end
             end),
             (@enzyme_mechanism begin
                 substrates: S
                 products: P
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E + P <--> E(P)
-                    E(P) + S ⇌ E(P, S)
+                    E + S ⇌ ES
+                    ES <--> EP
+                    E + P <--> EP
+                    EP + S ⇌ EPS
                 end
             end),
         ]
@@ -12498,60 +12453,60 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A ⇌ EA
+                EB + A ⇌ EAB
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipA = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(A)
-                E(B) + A <--> E(A, B)
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A <--> EA
+                EB + A <--> EAB
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipB = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                (E + B <--> E(B), E(A) + B <--> E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A ⇌ EA
+                EB + A ⇌ EAB
+                (E + B <--> EB, EA + B <--> EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipP = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A ⇌ EA
+                EB + A ⇌ EAB
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P <--> EP, EQ + P <--> EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         flipQ = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A ⇌ EA
+                EB + A ⇌ EAB
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q <--> EQ, EP + Q <--> EPQ)
+                EAB <--> EPQ
             end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
@@ -12565,19 +12520,19 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(A)
-                E(B) + A ⇌ E(A, B)
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A <--> EA
+                EB + A ⇌ EAB
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         v = EnzymeRates.Derivation._guard(single_A)
         @test (v.fault, v.limit, v.face) ===
               (EnzymeRates.Derivation._TRAP, EnzymeRates.Derivation._LIMIT_SPEED, 3)
         @test EnzymeRates.Mechanisms.step_text(single_A.catalytic, v.edge) ==
-              "E(A) + B ⇌ E(A, B)"
+              "EA + B ⇌ EAB"
         @test _testhelper_respeed_verdicts(single_A; rng = Random.MersenneTwister(93),
                                            law = :limit)[3] === :pattern
         for single in (
@@ -12586,12 +12541,12 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(B) + A <--> E(A, B)
-                    (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                    (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
+                    E + A ⇌ EA
+                    EB + A <--> EAB
+                    (E + B ⇌ EB, EA + B ⇌ EAB)
+                    (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    EAB <--> EPQ
                 end
             end)
             @test !(single in kids)
@@ -12608,112 +12563,112 @@ end
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         flipA = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(A, B),
-                 E(C) + A <--> E(A, C), E(B, C) + A <--> E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A <--> EA, EB + A <--> EAB,
+                 EC + A <--> EAC, EBC + A <--> EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         flipB = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B <--> E(B), E(A) + B <--> E(A, B),
-                 E(C) + B <--> E(B, C), E(A, C) + B <--> E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B <--> EB, EA + B <--> EAB,
+                 EC + B <--> EBC, EAC + B <--> EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         flipC = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C <--> E(C), E(A) + C <--> E(A, C),
-                 E(B) + C <--> E(B, C), E(A, B) + C <--> E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C <--> EC, EA + C <--> EAC,
+                 EB + C <--> EBC, EAB + C <--> EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         flipP = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P <--> E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P <--> EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         flipQ = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q <--> E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q <--> EQR
+                E + R ⇌ ER
             end
         end
         flipR = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R <--> E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R <--> ER
             end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
@@ -12741,26 +12696,25 @@ end
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(C) + A ⇌ E(A, C))
-                (E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(C) + B ⇌ E(B, C))
-                (E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EC + A ⇌ EAC)
+                (EB + A ⇌ EAB, EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EC + B ⇌ EBC)
+                (EA + B ⇌ EAB, EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         # A group of graph `x`, edges `ks`, by the metabolite its first step binds (`:iso`
         # for none) and the forms (`_form_name`) its steps bind to.
         _testhelper_group_key(x, ks) =
             (e = x.catalytic.steps[first(ks)];
-             (EnzymeRates.Mechanisms._is_binding(e) ?
-              only(e.taken_up).name : :iso,
-              Set(Symbol(
-                  EnzymeRates.Mechanisms._form_name(x.catalytic, x.catalytic.steps[k].from))
+             (EnzymeRates.Enumeration._is_binding(e) ?
+              x.catalytic.metabolites[only(e.taken_up)] : :iso,
+              Set(x.catalytic.enzyme_forms[x.catalytic.steps[k].from]
                 for k in ks)))
         # Each group is pinned by the metabolite it binds and the forms it binds to.
         A1, A2 = (:A, Set([:E, :EC])), (:A, Set([:EB, :EBC]))
@@ -12768,7 +12722,7 @@ end
         C = (:C, Set([:E, :EA, :EB, :EAB]))
         P, Q, R = (:P, Set([:EQR])), (:Q, Set([:ER])), (:R, Set([:E]))
         _testhelper_group_of(key) =
-            only(g for (g, ks) in enumerate(m.catalytic.groups)
+            only(g for (g, ks) in enumerate(_testhelper_group_members(m.catalytic))
                  if _testhelper_group_key(m, ks) == key)
         flip(keys...) = _testhelper_flip_groups(m, [_testhelper_group_of(k) for k in keys])
         expected = [
@@ -12785,7 +12739,7 @@ end
         @test Set(kids) == Set(expected)
         for c in kids
             ss = count((A1, A2, B1, B2)) do key
-                ks = only(ks for ks in c.catalytic.groups
+                ks = only(ks for ks in _testhelper_group_members(c.catalytic)
                           if _testhelper_group_key(c, ks) == key)
                 !any(k -> c.catalytic.steps[k].rapid_equilibrium, ks)
             end
@@ -12815,24 +12769,24 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) <--> E(Q)
-                E(Q) ⇌ E + Q
+                E + A ⇌ EA
+                EA <--> EP_res_plusA_minusP
+                EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+                E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+                EB_res_plusA_minusP <--> EQ
+                EQ ⇌ E + Q
             end
         end
         flipA = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(A)
-                E(A) <--> E(P; residual = A - P)
-                E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-                E(B; residual = A - P) <--> E(Q)
-                E(Q) ⇌ E + Q
+                E + A <--> EA
+                EA <--> EP_res_plusA_minusP
+                EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+                E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+                EB_res_plusA_minusP <--> EQ
+                EQ ⇌ E + Q
             end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, m)
@@ -12851,40 +12805,40 @@ end
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P, Q)
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E + S ⇌ ES
+                ES <--> EPQ
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
             end
         end
         flipS = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P, Q)
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E + S <--> ES
+                ES <--> EPQ
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
             end
         end
         flipP = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P, Q)
-                (E + P <--> E(P), E(Q) + P <--> E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
+                E + S ⇌ ES
+                ES <--> EPQ
+                (E + P <--> EP, EQ + P <--> EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
             end
         end
         flipQ = @enzyme_mechanism begin
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P, Q)
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))
+                E + S ⇌ ES
+                ES <--> EPQ
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q <--> EQ, EP + Q <--> EPQ)
             end
         end
         kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, plain)
@@ -12896,10 +12850,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)                                :: NonequalAI
-                E(S) <--> E(P, Q)                           :: NonequalAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+                E + S ⇌ ES                                :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
             end
         end
         allo_flipS = @enzyme_mechanism begin
@@ -12907,10 +12861,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + S <--> E(S)                             :: NonequalAI
-                E(S) <--> E(P, Q)                           :: NonequalAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+                E + S <--> ES                             :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
             end
         end
         allo_kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, allo)
@@ -12928,10 +12882,10 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                E + S ⇌ E(S)                                :: NonequalAI
-                E(S) <--> E(P, Q)                           :: NonequalAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+                E + S ⇌ ES                                :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
             end
         end
         flipS_one = @enzyme_mechanism begin
@@ -12939,10 +12893,10 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                E + S <--> E(S)                             :: NonequalAI
-                E(S) <--> E(P, Q)                           :: NonequalAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+                E + S <--> ES                             :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
             end
         end
         flipP_one = @enzyme_mechanism begin
@@ -12950,10 +12904,10 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                E + S ⇌ E(S)                                :: NonequalAI
-                E(S) <--> E(P, Q)                           :: NonequalAI
-                (E + P <--> E(P), E(Q) + P <--> E(P, Q))    :: NonequalAI
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))          :: NonequalAI
+                E + S ⇌ ES                                :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P <--> EP, EQ + P <--> EPQ)    :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
             end
         end
         flipQ_one = @enzyme_mechanism begin
@@ -12961,10 +12915,10 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                E + S ⇌ E(S)                                :: NonequalAI
-                E(S) <--> E(P, Q)                           :: NonequalAI
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))          :: NonequalAI
-                (E + Q <--> E(Q), E(P) + Q <--> E(P, Q))    :: NonequalAI
+                E + S ⇌ ES                                :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: NonequalAI
+                (E + Q <--> EQ, EP + Q <--> EPQ)    :: NonequalAI
             end
         end
         kids_one = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, allo_one)
@@ -12994,13 +12948,13 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(Q) + A ⇌ E(A, Q)
-                E + Q ⇌ E(Q)
-                E(A) + Q ⇌ E(A, Q)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
+                E + A ⇌ EA
+                EQ + A ⇌ EAQ
+                E + Q ⇌ EQ
+                EA + Q ⇌ EAQ
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EQ + P ⇌ EPQ
             end
         end
         expected = [
@@ -13008,52 +12962,52 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A <--> E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q <--> E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A <--> EA
+                    EQ + A ⇌ EAQ
+                    E + Q ⇌ EQ
+                    EA + Q <--> EAQ
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
             (@enzyme_mechanism begin      # {E + A, E(Q) + A}
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A <--> E(A)
-                    E(Q) + A <--> E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A <--> EA
+                    EQ + A <--> EAQ
+                    E + Q ⇌ EQ
+                    EA + Q ⇌ EAQ
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
             (@enzyme_mechanism begin      # {E + Q, E(A) + Q}
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q <--> E(Q)
-                    E(A) + Q <--> E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A ⇌ EA
+                    EQ + A ⇌ EAQ
+                    E + Q <--> EQ
+                    EA + Q <--> EAQ
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
             (@enzyme_mechanism begin      # {E + Q, E(Q) + A}
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A <--> E(A, Q)
-                    E + Q <--> E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A ⇌ EA
+                    EQ + A <--> EAQ
+                    E + Q <--> EQ
+                    EA + Q ⇌ EAQ
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
         ]
@@ -13069,39 +13023,39 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B <--> E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A ⇌ EA
+                    EQ + A ⇌ EAQ
+                    E + Q ⇌ EQ
+                    EA + Q ⇌ EAQ
+                    EA + B <--> EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
             (@enzyme_mechanism begin  # {E + A, E + Q}
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A <--> E(A)
-                    E(Q) + A ⇌ E(A, Q)
-                    E + Q <--> E(Q)
-                    E(A) + Q ⇌ E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A <--> EA
+                    EQ + A ⇌ EAQ
+                    E + Q <--> EQ
+                    EA + Q ⇌ EAQ
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
             @enzyme_mechanism begin  # {E(A) + Q, E(Q) + A}
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(Q) + A <--> E(A, Q)
-                    E + Q ⇌ E(Q)
-                    E(A) + Q <--> E(A, Q)
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A ⇌ EA
+                    EQ + A <--> EAQ
+                    E + Q ⇌ EQ
+                    EA + Q <--> EAQ
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end)
             @test !(absent in kids)
@@ -13118,9 +13072,9 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B <--> E(Q) + P
-                E + Q ⇌ E(Q)
+                E + A ⇌ EA
+                EA + B <--> EQ + P
+                E + Q ⇌ EQ
             end
         end
         expected = [
@@ -13128,18 +13082,18 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A <--> E(A)
-                    E(A) + B <--> E(Q) + P
-                    E + Q ⇌ E(Q)
+                    E + A <--> EA
+                    EA + B <--> EQ + P
+                    E + Q ⇌ EQ
                 end
             end),
             (@enzyme_mechanism begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E(A) + B <--> E(Q) + P
-                    E + Q <--> E(Q)
+                    E + A ⇌ EA
+                    EA + B <--> EQ + P
+                    E + Q <--> EQ
                 end
             end),
         ]
@@ -13158,18 +13112,18 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EB + Q ⇌ EBQ)
+                EAB <--> EPQ
             end
         end
         @test EnzymeRates.Derivation.fitted_parameter_count(m) == 5
         cl = _testhelper_closure(
             m, p -> _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group,
                                      p))
-        @test maximum(length(m.catalytic.groups) for m in cl) == 13
+        @test maximum(length(_testhelper_group_members(m.catalytic)) for m in cl) == 13
         @test maximum(EnzymeRates.Derivation.fitted_parameter_count(m) for m in cl) == 9
         @test length(cl) == 16
     end
@@ -13182,37 +13136,37 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         splitAB = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(B) + A ⇌ E(A, B)
-                E + B ⇌ E(B)
-                E(A) + B ⇌ E(A, B)
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                E + A ⇌ EA
+                EB + A ⇌ EAB
+                E + B ⇌ EB
+                EA + B ⇌ EAB
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
         splitPQ = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                E + P ⇌ E(P)
-                E(Q) + P ⇌ E(P, Q)
-                E + Q ⇌ E(Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                E + P ⇌ EP
+                EQ + P ⇌ EPQ
+                E + Q ⇌ EQ
+                EP + Q ⇌ EPQ
+                EAB <--> EPQ
             end
         end
         @test EnzymeRates.Derivation.fitted_parameter_count(m) == 5
@@ -13232,63 +13186,63 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EB + Q ⇌ EBQ)
+                EAB <--> EPQ
             end
         end
         splitAP = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                E(P) + A ⇌ E(A, P)
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q))
-                E(A) + P ⇌ E(A, P)
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                EP + A ⇌ EAP
+                (E + B ⇌ EB, EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                EA + P ⇌ EAP
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EB + Q ⇌ EBQ)
+                EAB <--> EPQ
             end
         end
         splitAB = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
-                E(B) + A ⇌ E(A, B)
-                (E + B ⇌ E(B), E(Q) + B ⇌ E(B, Q))
-                E(A) + B ⇌ E(A, B)
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EP + A ⇌ EAP)
+                EB + A ⇌ EAB
+                (E + B ⇌ EB, EQ + B ⇌ EBQ)
+                EA + B ⇌ EAB
+                (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EB + Q ⇌ EBQ)
+                EAB <--> EPQ
             end
         end
         splitBQ = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                E(Q) + B ⇌ E(B, Q)
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(B) + Q ⇌ E(B, Q)
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                EQ + B ⇌ EBQ
+                (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EB + Q ⇌ EBQ
+                EAB <--> EPQ
             end
         end
         splitPQ = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))
-                E(Q) + P ⇌ E(P, Q)
-                (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q))
-                E(P) + Q ⇌ E(P, Q)
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                (E + P ⇌ EP, EA + P ⇌ EAP)
+                EQ + P ⇌ EPQ
+                (E + Q ⇌ EQ, EB + Q ⇌ EBQ)
+                EP + Q ⇌ EPQ
+                EAB <--> EPQ
             end
         end
         @test EnzymeRates.Derivation.fitted_parameter_count(m) == 5
@@ -13308,64 +13262,64 @@ end
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         splitAB = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(C) + A ⇌ E(A, C))
-                (E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(C) + B ⇌ E(B, C))
-                (E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(B) + C ⇌ E(B, C),
-                 E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EC + A ⇌ EAC)
+                (EB + A ⇌ EAB, EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EC + B ⇌ EBC)
+                (EA + B ⇌ EAB, EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC, EB + C ⇌ EBC,
+                 EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         splitAC = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E(C) + A ⇌ E(A, C), E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(C) + B ⇌ E(B, C),
-                 E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(B) + C ⇌ E(B, C))
-                (E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (EC + A ⇌ EAC, EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EC + B ⇌ EBC,
+                 EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EB + C ⇌ EBC)
+                (EA + C ⇌ EAC, EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         splitBC = @enzyme_mechanism begin
             substrates: A, B, C
             products: P, Q, R
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(C) + A ⇌ E(A, C),
-                 E(B, C) + A ⇌ E(A, B, C))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                (E(C) + B ⇌ E(B, C), E(A, C) + B ⇌ E(A, B, C))
-                (E + C ⇌ E(C), E(A) + C ⇌ E(A, C))
-                (E(B) + C ⇌ E(B, C), E(A, B) + C ⇌ E(A, B, C))
-                E(A, B, C) <--> E(P, Q, R)
-                E(Q, R) + P ⇌ E(P, Q, R)
-                E(R) + Q ⇌ E(Q, R)
-                E + R ⇌ E(R)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EC + A ⇌ EAC,
+                 EBC + A ⇌ EABC)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                (EC + B ⇌ EBC, EAC + B ⇌ EABC)
+                (E + C ⇌ EC, EA + C ⇌ EAC)
+                (EB + C ⇌ EBC, EAB + C ⇌ EABC)
+                EABC <--> EPQR
+                EQR + P ⇌ EPQR
+                ER + Q ⇌ EQR
+                E + R ⇌ ER
             end
         end
         @test EnzymeRates.Derivation.fitted_parameter_count(m) == 7
@@ -13400,18 +13354,18 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q), E(B) + Q ⇌ E(B, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EB + Q ⇌ EBQ)
+                EAB <--> EPQ
             end
         end
         base = EnzymeRates.Derivation.fitted_parameter_count(m)
         r0 = _testhelper_identifiable_rank(m)
         @test r0 == base
         rejected = 0
-        g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
+        g = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].kinetic_group
         for bp in EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), g)
             child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
                                                                 [(g, bp)]).mechanism
@@ -13427,18 +13381,18 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(P) + A ⇌ E(A, P),
-                 E(B, P) + A ⇌ E(A, B, P))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(P) + B ⇌ E(B, P),
-                 E(A, P) + B ⇌ E(A, B, P))
-                (E + P ⇌ E(P), E(Q) + P ⇌ E(P, Q), E(A) + P ⇌ E(A, P),
-                 E(B) + P ⇌ E(B, P), E(A, B) + P ⇌ E(A, B, P))
-                (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                E(A, B) <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EAB, EP + A ⇌ EAP,
+                 EBP + A ⇌ EABP)
+                (E + B ⇌ EB, EA + B ⇌ EAB, EP + B ⇌ EBP,
+                 EAP + B ⇌ EABP)
+                (E + P ⇌ EP, EQ + P ⇌ EPQ, EA + P ⇌ EAP,
+                 EB + P ⇌ EBP, EAB + P ⇌ EABP)
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                EAB <--> EPQ
             end
         end
-        gi = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].group
-        a_group = findall(e -> e.group == gi, m.catalytic.steps)
+        gi = m.catalytic.steps[_testhelper_edge(m, "E + A ⇌ EA")].kinetic_group
+        a_group = findall(e -> e.kinetic_group == gi, m.catalytic.steps)
         @test length(a_group) == 4
         bps = EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(m), gi)
         # Context B and context P each divide the four A steps two and two, a
@@ -13447,7 +13401,7 @@ end
         even_bp = first(bp for bp in bps if length(bp[1]) == 2)
         child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
                                                             [(gi, even_bp)]).mechanism
-        @test Set(findall(e -> e.group == child.catalytic.steps[k].group,
+        @test Set(findall(e -> e.kinetic_group == child.catalytic.steps[k].kinetic_group,
                           child.catalytic.steps)
                   for k in a_group) ==
               Set(even_bp)
@@ -13466,33 +13420,34 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E(P)
-            E(P) <--> E + P
-            D + S <--> D(S)
-            (D <--> E, D(S) <--> E(S))
+            E + S <--> ES
+            ES <--> EP
+            EP <--> E + P
+            D + S <--> DS
+            (D <--> E, DS <--> ES)
         end
     end
-    @test m.catalytic.steps[_testhelper_edge(m, "ES <--> DS")].group ==
-          m.catalytic.steps[_testhelper_edge(m, "E <--> D")].group
+    @test m.catalytic.steps[_testhelper_edge(m, "ES <--> DS")].kinetic_group ==
+          m.catalytic.steps[_testhelper_edge(m, "E <--> D")].kinetic_group
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m)
     expected = [@enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E(P)
-            E(P) <--> E + P
-            D + S <--> D(S)
+            E + S <--> ES
+            ES <--> EP
+            EP <--> E + P
+            D + S <--> DS
             D <--> E
-            D(S) <--> E(S)
+            DS <--> ES
         end
     end]
     @test length(kids) == 1
     @test Set(kids) == Set(expected)
     child = only(kids)
     @test _testhelper_edge(child, "DS <--> ES") isa Int
-    @test !any(_testhelper_canonicalize(_testhelper_written(child)).flipped)
+    # Written back as stored, the child turns no step.
+    @test _testhelper_scheme(_testhelper_written(child)).steps == child.catalytic.steps
 end
 
 @testset "_expand_split_kinetic_group: by conformation" begin
@@ -13503,9 +13458,9 @@ end
         substrates: S
         products: P
         steps: begin
-            (E + S ⇌ E(S), Estar + S ⇌ Estar(S))
-            E(S) <--> Estar(P)
-            Estar(P) ⇌ Estar + P
+            (E + S ⇌ ES, Estar + S ⇌ EstarS)
+            ES <--> EstarP
+            EstarP ⇌ Estar + P
             Estar <--> E
         end
     end
@@ -13513,10 +13468,10 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            Estar + S ⇌ Estar(S)
-            E(S) <--> Estar(P)
-            Estar(P) ⇌ Estar + P
+            E + S ⇌ ES
+            Estar + S ⇌ EstarS
+            ES <--> EstarP
+            EstarP ⇌ Estar + P
             Estar <--> E
         end
     end
@@ -13534,40 +13489,40 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
-             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
+            (E + Q ⇌ EQ, E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP,
+             EB_res_plusA_minusP + Q ⇌ EBQ_res_plusA_minusP)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
         end
     end
     by_B = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + Q ⇌ E(Q), E(; residual = A - P) + Q ⇌ E(Q; residual = A - P))
-            E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P)
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
+            (E + Q ⇌ EQ, E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP)
+            EB_res_plusA_minusP + Q ⇌ EBQ_res_plusA_minusP
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
         end
     end
     by_residual = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + Q ⇌ E(Q)
-            (E(; residual = A - P) + Q ⇌ E(Q; residual = A - P),
-             E(B; residual = A - P) + Q ⇌ E(B, Q; residual = A - P))
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
+            E + Q ⇌ EQ
+            (E_res_plusA_minusP + Q ⇌ EQ_res_plusA_minusP,
+             EB_res_plusA_minusP + Q ⇌ EBQ_res_plusA_minusP)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_split_kinetic_group, m)
@@ -13591,25 +13546,25 @@ end
         substrates: A, B, C
         products: P, Q, R
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(B, C) + A ⇌ E(A, B, C),
-             E(B, P) + A ⇌ E(A, B, P), E(C) + A ⇌ E(A, C), E(C, Q) + A ⇌ E(A, C, Q),
-             E(P) + A ⇌ E(A, P), E(P, Q) + A ⇌ E(A, P, Q), E(Q) + A ⇌ E(A, Q))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(A, C) + B ⇌ E(A, B, C),
-             E(A, P) + B ⇌ E(A, B, P), E(C) + B ⇌ E(B, C), E(C, R) + B ⇌ E(B, C, R),
-             E(P) + B ⇌ E(B, P), E(P, R) + B ⇌ E(B, P, R), E(R) + B ⇌ E(B, R))
-            (E + C ⇌ E(C), E(A) + C ⇌ E(A, C), E(A, B) + C ⇌ E(A, B, C),
-             E(A, Q) + C ⇌ E(A, C, Q), E(B) + C ⇌ E(B, C), E(B, R) + C ⇌ E(B, C, R),
-             E(Q) + C ⇌ E(C, Q), E(Q, R) + C ⇌ E(C, Q, R), E(R) + C ⇌ E(C, R))
-            (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(A, B) + P ⇌ E(A, B, P),
-             E(A, Q) + P ⇌ E(A, P, Q), E(B) + P ⇌ E(B, P), E(B, R) + P ⇌ E(B, P, R),
-             E(Q) + P ⇌ E(P, Q), E(Q, R) + P ⇌ E(P, Q, R), E(R) + P ⇌ E(P, R))
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q), E(A, C) + Q ⇌ E(A, C, Q),
-             E(A, P) + Q ⇌ E(A, P, Q), E(C) + Q ⇌ E(C, Q), E(C, R) + Q ⇌ E(C, Q, R),
-             E(P) + Q ⇌ E(P, Q), E(P, R) + Q ⇌ E(P, Q, R), E(R) + Q ⇌ E(Q, R))
-            (E + R ⇌ E(R), E(B) + R ⇌ E(B, R), E(B, C) + R ⇌ E(B, C, R),
-             E(B, P) + R ⇌ E(B, P, R), E(C) + R ⇌ E(C, R), E(C, Q) + R ⇌ E(C, Q, R),
-             E(P) + R ⇌ E(P, R), E(P, Q) + R ⇌ E(P, Q, R), E(Q) + R ⇌ E(Q, R))
-            E(A, B, C) <--> E(P, Q, R)
+            (E + A ⇌ EA, EB + A ⇌ EAB, EBC + A ⇌ EABC,
+             EBP + A ⇌ EABP, EC + A ⇌ EAC, ECQ + A ⇌ EACQ,
+             EP + A ⇌ EAP, EPQ + A ⇌ EAPQ, EQ + A ⇌ EAQ)
+            (E + B ⇌ EB, EA + B ⇌ EAB, EAC + B ⇌ EABC,
+             EAP + B ⇌ EABP, EC + B ⇌ EBC, ECR + B ⇌ EBCR,
+             EP + B ⇌ EBP, EPR + B ⇌ EBPR, ER + B ⇌ EBR)
+            (E + C ⇌ EC, EA + C ⇌ EAC, EAB + C ⇌ EABC,
+             EAQ + C ⇌ EACQ, EB + C ⇌ EBC, EBR + C ⇌ EBCR,
+             EQ + C ⇌ ECQ, EQR + C ⇌ ECQR, ER + C ⇌ ECR)
+            (E + P ⇌ EP, EA + P ⇌ EAP, EAB + P ⇌ EABP,
+             EAQ + P ⇌ EAPQ, EB + P ⇌ EBP, EBR + P ⇌ EBPR,
+             EQ + P ⇌ EPQ, EQR + P ⇌ EPQR, ER + P ⇌ EPR)
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ, EAC + Q ⇌ EACQ,
+             EAP + Q ⇌ EAPQ, EC + Q ⇌ ECQ, ECR + Q ⇌ ECQR,
+             EP + Q ⇌ EPQ, EPR + Q ⇌ EPQR, ER + Q ⇌ EQR)
+            (E + R ⇌ ER, EB + R ⇌ EBR, EBC + R ⇌ EBCR,
+             EBP + R ⇌ EBPR, EC + R ⇌ ECR, ECQ + R ⇌ ECQR,
+             EP + R ⇌ EPR, EPQ + R ⇌ EPQR, EQ + R ⇌ EQR)
+            EABC <--> EPQR
         end
     end
     worst = seed
@@ -13741,24 +13696,24 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)
-            E + P ⇌ E(P)
+            E + S <--> EP
+            E + P ⇌ EP
         end
     end
     flipped = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)
-            E + P <--> E(P)
+            E + S <--> EP
+            E + P <--> EP
         end
     end
     k_type = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     kids = _testhelper_children(rxn, [m])
@@ -13792,8 +13747,8 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: OnlyA
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: OnlyA
         end
     end
     p_relaxed = @enzyme_mechanism begin
@@ -13801,8 +13756,8 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + S <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)       :: NonequalAI
+            E + S <--> EP    :: OnlyA
+            E + P ⇌ EP       :: NonequalAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, k_type)
@@ -13826,9 +13781,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(Q) + P
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EQ + P
+            E + Q ⇌ EQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -13838,25 +13793,25 @@ end
     only_a = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B <--> E(Q) + P      :: OnlyA
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B <--> EQ + P      :: OnlyA
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: EqualAI
-            E(A) + B <--> E(Q) + P      :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A ⇌ EA                :: EqualAI
+            EA + B <--> EQ + P      :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     a_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B <--> E(Q) + P      :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A ⇌ EA                :: OnlyA
+            EA + B <--> EQ + P      :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -13901,10 +13856,10 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(P, Q)
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            EA + B ⇌ EPQ
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     rxn2 = @enzyme_reaction begin
@@ -13915,64 +13870,64 @@ end
     only_a = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: OnlyA
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A <--> EA             :: OnlyA
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: EqualAI
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     only_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: EqualAI
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: OnlyA
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A <--> EA             :: EqualAI
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: OnlyA
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: EqualAI
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A <--> EA             :: EqualAI
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: EqualAI
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     a_and_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: OnlyA
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: OnlyA
-            E + Q ⇌ E(Q)                :: EqualAI
+            E + A <--> EA             :: OnlyA
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: OnlyA
+            E + Q ⇌ EQ                :: EqualAI
         end
     end
     a_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: OnlyA
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: EqualAI
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A <--> EA             :: OnlyA
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: EqualAI
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     p_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: EqualAI
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A <--> EA             :: EqualAI
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     all_three = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)             :: OnlyA
-            E(A) + B ⇌ E(P, Q)          :: OnlyA
-            E(Q) + P <--> E(P, Q)       :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A <--> EA             :: OnlyA
+            EA + B ⇌ EPQ          :: OnlyA
+            EQ + P <--> EPQ       :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(m2))
@@ -13983,7 +13938,7 @@ end
                             all_three])
     v = EnzymeRates.Derivation._guard(only_a)
     @test (v.fault, EnzymeRates.Mechanisms.step_text(only_a.catalytic, v.edge)) ==
-          (EnzymeRates.Derivation._FILLED, "E(A) + B ⇌ E(P, Q)")
+          (EnzymeRates.Derivation._FILLED, "EA + B ⇌ EPQ")
     # The parent has 5 fitted constants, all identifiable. Each child the guard admits
     # adds L; at multiplicity 2 each conformation's binding polynomial enters squared, so
     # dividing by 1 + L no longer folds L into the other constants: 6 fitted, rank 6.
@@ -14011,10 +13966,10 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))
-            E(Q) + P <--> E(P, Q)
-            E + Q ⇌ E(Q)
+            E + A <--> EA
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)
+            EQ + P <--> EPQ
+            E + Q ⇌ EQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -14024,64 +13979,64 @@ end
     only_a = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: OnlyA
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: EqualAI
-            E + Q ⇌ E(Q)                                 :: EqualAI
+            E + A <--> EA                              :: OnlyA
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: EqualAI
+            E + Q ⇌ EQ                                 :: EqualAI
         end
     end
     only_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: EqualAI
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: OnlyA
-            E + Q ⇌ E(Q)                                 :: EqualAI
+            E + A <--> EA                              :: EqualAI
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: OnlyA
+            E + Q ⇌ EQ                                 :: EqualAI
         end
     end
     only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: EqualAI
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: EqualAI
-            E + Q ⇌ E(Q)                                 :: OnlyA
+            E + A <--> EA                              :: EqualAI
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: EqualAI
+            E + Q ⇌ EQ                                 :: OnlyA
         end
     end
     a_and_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: OnlyA
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: OnlyA
-            E + Q ⇌ E(Q)                                 :: EqualAI
+            E + A <--> EA                              :: OnlyA
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: OnlyA
+            E + Q ⇌ EQ                                 :: EqualAI
         end
     end
     a_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: OnlyA
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: EqualAI
-            E + Q ⇌ E(Q)                                 :: OnlyA
+            E + A <--> EA                              :: OnlyA
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: EqualAI
+            E + Q ⇌ EQ                                 :: OnlyA
         end
     end
     p_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: EqualAI
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: OnlyA
-            E + Q ⇌ E(Q)                                 :: OnlyA
+            E + A <--> EA                              :: EqualAI
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: OnlyA
+            E + Q ⇌ EQ                                 :: OnlyA
         end
     end
     all_three = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                              :: OnlyA
-            (E(A) + B ⇌ E(P, Q), E(Q) + B ⇌ E(B, Q))     :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: OnlyA
-            E + Q ⇌ E(Q)                                 :: OnlyA
+            E + A <--> EA                              :: OnlyA
+            (EA + B ⇌ EPQ, EQ + B ⇌ EBQ)     :: OnlyA
+            EQ + P <--> EPQ                        :: OnlyA
+            E + Q ⇌ EQ                                 :: OnlyA
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -14090,7 +14045,7 @@ end
                             all_three])
     v = EnzymeRates.Derivation._guard(only_a)
     @test (v.fault, EnzymeRates.Mechanisms.step_text(only_a.catalytic, v.edge)) ==
-          (EnzymeRates.Derivation._FILLED, "E(A) + B ⇌ E(P, Q)")
+          (EnzymeRates.Derivation._FILLED, "EA + B ⇌ EPQ")
     # The parent has 5 fitted constants, all identifiable. Each child the guard admits
     # adds L, and its dead inactive conformation keeps the bindings it reaches from the
     # free enzyme through :EqualAI groups: A's where A is :EqualAI; Q's where Q is, then
@@ -14135,45 +14090,47 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))
-            E + Q ⇌ E(Q)
-            E(Q) + P <--> E(P, Q)
+            (E + A <--> EA, EB + A <--> EPQ)
+            (E + B ⇌ EB, EA + B ⇌ EPQ)
+            E + Q ⇌ EQ
+            EQ + P <--> EPQ
         end
     end
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    chemistry = [ks for ks in m.catalytic.groups
-                 if any(k -> m.catalytic.step_kinds[k] !== :binding, ks)]
+    c = _testhelper_candidate(m)
+    plain(k) = (e = m.catalytic.steps[k];
+                EnzymeRates.Enumeration._is_binding(e) && !_testhelper_is_fused(c, e))
+    chemistry = [ks for ks in _testhelper_group_members(m.catalytic) if !all(plain, ks)]
     @test length(chemistry) == 2
-    @test all(ks -> m.catalytic.step_kinds[first(ks)] === :binding, chemistry)
+    @test all(ks -> plain(first(ks)), chemistry)
     only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))           :: OnlyA
-            E + Q ⇌ E(Q)                                 :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: EqualAI
+            (E + A <--> EA, EB + A <--> EPQ)     :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)           :: OnlyA
+            E + Q ⇌ EQ                                 :: OnlyA
+            EQ + P <--> EPQ                        :: EqualAI
         end
     end
     only_p = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))           :: OnlyA
-            E + Q ⇌ E(Q)                                 :: EqualAI
-            E(Q) + P <--> E(P, Q)                        :: OnlyA
+            (E + A <--> EA, EB + A <--> EPQ)     :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)           :: OnlyA
+            E + Q ⇌ EQ                                 :: EqualAI
+            EQ + P <--> EPQ                        :: OnlyA
         end
     end
     p_and_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))     :: OnlyA
-            (E + B ⇌ E(B), E(A) + B ⇌ E(P, Q))           :: OnlyA
-            E + Q ⇌ E(Q)                                 :: OnlyA
-            E(Q) + P <--> E(P, Q)                        :: OnlyA
+            (E + A <--> EA, EB + A <--> EPQ)     :: OnlyA
+            (E + B ⇌ EB, EA + B ⇌ EPQ)           :: OnlyA
+            E + Q ⇌ EQ                                 :: OnlyA
+            EQ + P <--> EPQ                        :: OnlyA
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -14217,11 +14174,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q))
-            E(Q) + B <--> E(B, Q)
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)
+            (E + B <--> EB, EA + B <--> EPQ)
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ)
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ)
+            EQ + B <--> EBQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -14231,71 +14188,71 @@ end
     q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: EqualAI
         end
     end
     b_at_eq_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: EqualAI
-            E(Q) + B <--> E(B, Q)                                           :: OnlyA
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: EqualAI
+            EQ + B <--> EBQ                                           :: OnlyA
         end
     end
     p_q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: OnlyA
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: OnlyA
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: EqualAI
         end
     end
     p_b_at_eq_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: OnlyA
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: EqualAI
-            E(Q) + B <--> E(B, Q)                                           :: OnlyA
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: OnlyA
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: EqualAI
+            EQ + B <--> EBQ                                           :: OnlyA
         end
     end
     q_b_at_eq_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: OnlyA
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: OnlyA
         end
     end
     all_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: OnlyA
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: OnlyA
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: OnlyA
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: OnlyA
         end
     end
     p_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: OnlyA
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: EqualAI
-            E(Q) + B <--> E(B, Q)                                           :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: OnlyA
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: EqualAI
+            EQ + B <--> EBQ                                           :: EqualAI
         end
     end
     function _testhelper_admission_fault(t)
@@ -14336,13 +14293,13 @@ end
         substrates: A, B, D
         products: P, Q
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))
-            (E + D ⇌ E(D), E(B) + D ⇌ E(Q; residual = B + D - Q))
-            E + P <--> E(P)
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q))
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(P) + Q <--> E(A, Q; residual = B + D - Q))
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)
+            E + P <--> EP
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ)
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)
         end
     end
     rxn = @enzyme_reaction begin
@@ -14352,49 +14309,49 @@ end
     base_q = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D ⇌ E(D), E(B) + D ⇌ E(Q; residual = B + D - Q))            :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: OnlyA
         end
     end
     b_alone = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(Q; residual = B + D - Q))            :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: EqualAI
         end
     end
     p_on_q = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D ⇌ E(D), E(B) + D ⇌ E(Q; residual = B + D - Q))            :: EqualAI
-            E + P <--> E(P)                                                  :: OnlyA
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: EqualAI
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: OnlyA
         end
     end
     p_on_every = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(Q; residual = B + D - Q))            :: OnlyA
-            E + P <--> E(P)                                                  :: OnlyA
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: OnlyA
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(P) + Q <--> E(A, Q; residual = B + D - Q))                    :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: OnlyA
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: OnlyA
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: OnlyA
         end
     end
     D = EnzymeRates.Derivation
@@ -14409,7 +14366,7 @@ end
         m.catalytic,
         EnzymeRates.Mechanisms.Allostery(vt, 1, EnzymeRates.Mechanisms.RegulatorySite[])))
     @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
-          (D._FILLED, "E(; residual = B + D - Q) + A ⇌ E(P)")
+          (D._FILLED, "E_res_plusB_plusD_minusQ + A ⇌ EP")
     @test _testhelper_is_valid(b_alone) &&
           !EnzymeRates.Enumeration._kept_forms_keep_a_binding(b_alone)
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -14436,41 +14393,41 @@ end
     q_tagged = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: EqualAI
         end
     end
     p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: NonequalAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: NonequalAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: EqualAI
         end
     end
     b_at_eq_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: OnlyA
-            E(Q) + B <--> E(B, Q)                                           :: NonequalAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: OnlyA
+            EQ + B <--> EBQ                                           :: NonequalAI
         end
     end
     q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(P) + A ⇌ E(A, P), E(B) + A ⇌ E(P, Q))          :: OnlyA
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))                        :: OnlyA
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q)) :: EqualAI
-            (E + Q <--> E(Q), E(B) + Q <--> E(B, Q), E(P) + Q <--> E(P, Q)) :: NonequalAI
-            E(Q) + B <--> E(B, Q)                                           :: EqualAI
+            (E + A ⇌ EA, EP + A ⇌ EAP, EB + A ⇌ EPQ)          :: OnlyA
+            (E + B <--> EB, EA + B <--> EPQ)                        :: OnlyA
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ) :: EqualAI
+            (E + Q <--> EQ, EB + Q <--> EBQ, EP + Q <--> EPQ) :: NonequalAI
+            EQ + B <--> EBQ                                           :: EqualAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, q_tagged)
@@ -14491,11 +14448,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ Estar(A)
-            Estar(A) + B ⇌ Estar(A, B)
-            Estar(A, B) <--> Estar(P, Q)
-            Estar(P, Q) ⇌ Estar(P) + Q
-            Estar(P) ⇌ E + P
+            E + A ⇌ EstarA
+            EstarA + B ⇌ EstarAB
+            EstarAB <--> EstarPQ
+            EstarPQ ⇌ EstarP + Q
+            EstarP ⇌ E + P
         end
     end
     @test _testhelper_children(rxn, [conf]) isa Vector
@@ -14514,13 +14471,13 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(Q) + A ⇌ E(A, Q)
-            E + Q <--> E(Q)
-            E(A) + Q ⇌ E(A, Q)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
+            E + A <--> EA
+            EQ + A ⇌ EAQ
+            E + Q <--> EQ
+            EA + Q ⇌ EAQ
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
         end
     end
     err = try
@@ -14530,7 +14487,7 @@ end
     end
     @test err isa ErrorException
     @test occursin("carries net flux", err.msg)
-    @test occursin("{E + A <--> E(A)}", err.msg)
+    @test occursin("{E + A <--> EA}", err.msg)
 end
 
 @testset "candidate_mechanisms rejects a parent whose copy group is redundant" begin
@@ -14546,14 +14503,13 @@ end
     twin_only = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + Q ⇌ E(Q)
-            E + A::Mod ⇌ E(A::Mod)
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            E + Q ⇌ EQ
+            E + A ⇌ EAmod
         end
     end
     err = try
@@ -14568,14 +14524,13 @@ end
     kept = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A::Mod) + Q ⇌ E(A::Mod, Q))
-            (E + A::Mod ⇌ E(A::Mod), E(Q) + A::Mod ⇌ E(A::Mod, Q))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)
+            (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)
         end
     end
     @test !isempty(_testhelper_children(rxn, [kept]))
@@ -14587,14 +14542,13 @@ end
     no_gauge = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
-        modifiers: A
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E + A::Mod ⇌ E(A::Mod)
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EQ + P ⇌ EPQ
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            E + A ⇌ EAmod
         end
     end
     @test EnzymeRates.Enumeration._assert_emission_rules(
@@ -14617,12 +14571,12 @@ end
         substrates: S
         products: P, Q
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P, Q)
-            E(P, Q) ⇌ E(Q) + P
-            E(P, Q) ⇌ E(P) + Q
-            E(P) <--> E + P
-            E(Q) <--> E + Q
+            E + S ⇌ ES
+            ES <--> EPQ
+            EPQ ⇌ EQ + P
+            EPQ ⇌ EP + Q
+            EP <--> E + P
+            EQ <--> E + Q
         end
     end)))
     @test !isempty(_testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
@@ -14633,24 +14587,24 @@ end
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P, Q)
-                E(P, Q) ⇌ E(Q) + P
-                E(P, Q) <--> E(P) + Q
-                E(P) <--> E + P
-                E(Q) <--> E + Q
+                E + S ⇌ ES
+                ES <--> EPQ
+                EPQ ⇌ EQ + P
+                EPQ <--> EP + Q
+                EP <--> E + P
+                EQ <--> E + Q
             end
         end),
         (@enzyme_mechanism begin
             substrates: S
             products: P, Q
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(P, Q) ⇌ E(P) + Q
-                E(P) <--> E + P
-                E(Q) <--> E + Q
+                E + S ⇌ ES
+                ES <--> EPQ
+                EPQ <--> EQ + P
+                EPQ ⇌ EP + Q
+                EP <--> E + P
+                EQ <--> E + Q
             end
         end)]
     kids = _testhelper_children(rxn, [parent])
@@ -14672,9 +14626,9 @@ end
         substrates: Iinh
         products: P
         steps: begin
-            E + Iinh ⇌ E(Iinh)
-            E(Iinh) <--> E(P)
-            E(P) ⇌ E + P
+            E + Iinh ⇌ EIinh
+            EIinh <--> EP
+            EP ⇌ E + P
         end
     end
     @test _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)) == [seed]
@@ -14684,10 +14638,10 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + Iinh ⇌ E(Iinh)
-            E(Iinh) <--> E(P)
-            E(P) ⇌ E + P
-            E + I ⇌ E(I)
+            E + Iinh ⇌ EIinh
+            EIinh <--> EP
+            EP ⇌ E + P
+            E + I ⇌ EI
         end
     end
     iinh_only_a = @enzyme_mechanism begin
@@ -14695,9 +14649,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + Iinh ⇌ E(Iinh)      :: OnlyA
-            E(Iinh) <--> E(P)       :: OnlyA
-            E(P) ⇌ E + P            :: EqualAI
+            E + Iinh ⇌ EIinh      :: OnlyA
+            EIinh <--> EP       :: OnlyA
+            EP ⇌ E + P            :: EqualAI
         end
     end
     p_only_a = @enzyme_mechanism begin
@@ -14705,9 +14659,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + Iinh ⇌ E(Iinh)      :: EqualAI
-            E(Iinh) <--> E(P)       :: OnlyA
-            E(P) ⇌ E + P            :: OnlyA
+            E + Iinh ⇌ EIinh      :: EqualAI
+            EIinh <--> EP       :: OnlyA
+            EP ⇌ E + P            :: OnlyA
         end
     end
     both_only_a = @enzyme_mechanism begin
@@ -14715,9 +14669,9 @@ end
         products: P
         oligomeric_state: 1
         steps: begin
-            E + Iinh ⇌ E(Iinh)      :: OnlyA
-            E(Iinh) <--> E(P)       :: OnlyA
-            E(P) ⇌ E + P            :: OnlyA
+            E + Iinh ⇌ EIinh      :: OnlyA
+            EIinh <--> EP       :: OnlyA
+            EP ⇌ E + P            :: OnlyA
         end
     end
     @test length(children) == 4
@@ -14741,14 +14695,14 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
         end
     end
     second_half = @enzyme_mechanism begin      # I competes with A and P
@@ -14756,19 +14710,19 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            (E(; residual = A - P) + B ⇌ E(B; residual = A - P),
-             E(I; residual = A - P) + B ⇌ E(B, I; residual = A - P))
-            (E(B; residual = A - P) <--> E(Q),
-             E(B, I; residual = A - P) <--> E(I, Q))
-            (E(Q) ⇌ E + Q, E(I, Q) ⇌ E(I) + Q)
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q),
-             E(; residual = A - P) + I ⇌ E(I; residual = A - P),
-             E(B; residual = A - P) + I ⇌ E(B, I; residual = A - P))
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            (E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP,
+             EI_res_plusA_minusP + B ⇌ EBI_res_plusA_minusP)
+            (EB_res_plusA_minusP <--> EQ,
+             EBI_res_plusA_minusP <--> EIQ)
+            (EQ ⇌ E + Q, EIQ ⇌ EI + Q)
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            (E + I ⇌ EI, EQ + I ⇌ EIQ,
+             E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP,
+             EB_res_plusA_minusP + I ⇌ EBI_res_plusA_minusP)
         end
     end
     only_E = @enzyme_mechanism begin           # I competes with A and Q
@@ -14776,15 +14730,15 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            E + I ⇌ E(I)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            E + I ⇌ EI
         end
     end
     B_binding = @enzyme_mechanism begin        # I competes with A, P and Q
@@ -14792,18 +14746,18 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            (E(; residual = A - P) + B ⇌ E(B; residual = A - P),
-             E(I; residual = A - P) + B ⇌ E(B, I; residual = A - P))
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            (E + I ⇌ E(I),
-             E(; residual = A - P) + I ⇌ E(I; residual = A - P),
-             E(B; residual = A - P) + I ⇌ E(B, I; residual = A - P))
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            (E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP,
+             EI_res_plusA_minusP + B ⇌ EBI_res_plusA_minusP)
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            (E + I ⇌ EI,
+             E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP,
+             EB_res_plusA_minusP + I ⇌ EBI_res_plusA_minusP)
         end
     end
     only_Eres = @enzyme_mechanism begin        # I competes with B and P
@@ -14811,15 +14765,15 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            E(; residual = A - P) + I ⇌ E(I; residual = A - P)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP
         end
     end
     E_and_Eres = @enzyme_mechanism begin       # I competes with B and Q
@@ -14827,15 +14781,15 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            (E + I ⇌ E(I), E(; residual = A - P) + I ⇌ E(I; residual = A - P))
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            (E + I ⇌ EI, E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP)
         end
     end
     Q_release = @enzyme_mechanism begin        # I competes with A, B and P
@@ -14843,16 +14797,16 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            (E(Q) ⇌ E + Q, E(I, Q) ⇌ E(I) + Q)
-            E(Q) + A ⇌ E(A, Q)
-            E(B; residual = A - P) + P ⇌ E(B, P; residual = A - P)
-            (E + I ⇌ E(I), E(Q) + I ⇌ E(I, Q),
-             E(; residual = A - P) + I ⇌ E(I; residual = A - P))
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            (EQ ⇌ E + Q, EIQ ⇌ EI + Q)
+            EQ + A ⇌ EAQ
+            EB_res_plusA_minusP + P ⇌ EBP_res_plusA_minusP
+            (E + I ⇌ EI, EQ + I ⇌ EIQ,
+             E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP)
         end
     end
     expected = [second_half, only_E, B_binding, only_Eres, E_and_Eres, Q_release]
@@ -14860,7 +14814,7 @@ end
     @test length(kids) == 6
     @test Set(kids) == Set(expected)
     @test all(c -> _testhelper_keeps_reaction(c, m) &&
-              :I in c.catalytic.modifiers,
+              :I in _testhelper_modifier_names(c),
               kids)
 end
 
@@ -14876,17 +14830,16 @@ end
         products: P[C], Q[NX]
         competitive_inhibitors: I
     end
-    # Whether form `f` of graph `c` carries a modifier.
-    _testhelper_inhibitor_bound(c, f) =
-        any(x -> x.modifier, c.catalytic.nodes[f].bound)
+    # Whether form `f` of graph `c` carries a modifier, read off its record.
+    _testhelper_inhibitor_bound(c, f) = !isempty(_testhelper_candidate(c).forms[f].copies)
     n_children = 0; n_half = 0
     seeds = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     for m in seeds, c in _testhelper_move(
         EnzymeRates.Enumeration._expand_add_dead_end_regulator, m, rxn)
         branch = [e for e in c.catalytic.steps if _testhelper_inhibitor_bound(c, e.from) &&
                                         _testhelper_inhibitor_bound(c, e.to)]
-        bound_in_branch = Set(only(e.taken_up).name
-                              for e in branch if EnzymeRates.Mechanisms._is_binding(e))
+        bound_in_branch = Set(c.catalytic.metabolites[only(e.taken_up)]
+                              for e in branch if EnzymeRates.Enumeration._is_binding(e))
         @test !(Set([:A, :B]) ⊆ bound_in_branch)
         n_children += 1
         any(EnzymeRates.Mechanisms._is_iso, branch) && (n_half += 1)
@@ -14909,22 +14862,22 @@ end
             substrates: A, B
             products: P
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P)
-                E + P ⇌ E(P)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EP
+                E + P ⇌ EP
             end
         end
         m_random = @enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
-                E + A ⇌ E(A)
-                E + B ⇌ E(B)
-                E(A) + B ⇌ E(A, B)
-                E(B) + A ⇌ E(A, B)
-                E(A, B) <--> E(P)
-                E + P ⇌ E(P)
+                E + A ⇌ EA
+                E + B ⇌ EB
+                EA + B ⇌ EAB
+                EB + A ⇌ EAB
+                EAB <--> EP
+                E + P ⇌ EP
             end
         end
         key(m) = EnzymeRates.Derivation._canonical(
@@ -14945,11 +14898,13 @@ end
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             steps: begin
-                (E + Lactate ⇌ E(Lactate), E(NADH) + Lactate ⇌ E(Lactate, NADH))
-                (E + NAD ⇌ E(NAD), E(Lactate) + NAD ⇌ E(Lactate, NAD), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))
-                (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
-                (E + Pyruvate ⇌ E(Pyruvate), E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate), E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
-                E(NADH, Pyruvate) <--> E(Lactate, NAD)
+                (E + Lactate ⇌ ELactate, ENADH + Lactate ⇌ ELactateNADH)
+                (E + NAD ⇌ ENAD, ELactate + NAD ⇌ ELactateNAD,
+                 EPyruvate + NAD ⇌ ENADPyruvate)
+                (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+                (E + Pyruvate ⇌ EPyruvate, ENAD + Pyruvate ⇌ ENADPyruvate,
+                 ENADH + Pyruvate ⇌ ENADHPyruvate)
+                ENADHPyruvate <--> ELactateNAD
             end
         end
 
@@ -14957,11 +14912,13 @@ end
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             steps: begin
-                (E + Lactate ⇌ E(Lactate), E(NAD) + Lactate ⇌ E(Lactate, NAD), E(NADH) + Lactate ⇌ E(Lactate, NADH))
-                (E + NAD ⇌ E(NAD), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))
-                (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
-                (E + Pyruvate ⇌ E(Pyruvate), E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate), E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
-                E(NADH, Pyruvate) <--> E(Lactate, NAD)
+                (E + Lactate ⇌ ELactate, ENAD + Lactate ⇌ ELactateNAD,
+                 ENADH + Lactate ⇌ ELactateNADH)
+                (E + NAD ⇌ ENAD, EPyruvate + NAD ⇌ ENADPyruvate)
+                (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+                (E + Pyruvate ⇌ EPyruvate, ENAD + Pyruvate ⇌ ENADPyruvate,
+                 ENADH + Pyruvate ⇌ ENADHPyruvate)
+                ENADHPyruvate <--> ELactateNAD
             end
         end
 
@@ -14982,12 +14939,13 @@ end
             substrates: NADH, Pyruvate
             products: Lactate, NAD
             steps: begin
-                (E + Lactate ⇌ E(Lactate), E(NADH) + Lactate ⇌ E(Lactate, NADH))
-                (E + NAD ⇌ E(NAD), E(Pyruvate) + NAD ⇌ E(NAD, Pyruvate))
-                (E + NADH ⇌ E(NADH), E(Lactate) + NADH ⇌ E(Lactate, NADH))
-                (E + Pyruvate ⇌ E(Pyruvate), E(NAD) + Pyruvate ⇌ E(NAD, Pyruvate), E(NADH) + Pyruvate ⇌ E(NADH, Pyruvate))
-                E(NAD) + Lactate ⇌ E(Lactate, NAD)
-                E(NADH, Pyruvate) <--> E(Lactate, NAD)
+                (E + Lactate ⇌ ELactate, ENADH + Lactate ⇌ ELactateNADH)
+                (E + NAD ⇌ ENAD, EPyruvate + NAD ⇌ ENADPyruvate)
+                (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+                (E + Pyruvate ⇌ EPyruvate, ENAD + Pyruvate ⇌ ENADPyruvate,
+                 ENADH + Pyruvate ⇌ ENADHPyruvate)
+                ENAD + Lactate ⇌ ELactateNAD
+                ENADHPyruvate <--> ELactateNAD
             end
         end
         @test key_a != EnzymeRates.Derivation._canonical(
@@ -15000,9 +14958,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E + P ⇌ E(P)
+                E + S ⇌ ES
+                ES <--> EP
+                E + P ⇌ EP
             end
         end
 
@@ -15012,10 +14970,10 @@ end
             substrates: A, B
             products: P
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(A, B))
-                (E + B ⇌ E(B), E(A) + B ⇌ E(A, B))
-                E(A, B) <--> E(P)
-                E + P ⇌ E(P)
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                EAB <--> EP
+                E + P ⇌ EP
             end
         end
 
@@ -15041,15 +14999,15 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E + B ⇌ E(B)
-                E(A) + B ⇌ E(A, B)
-                E(B) + A ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P) + Q ⇌ E(P, Q)
-                E(Q) + P ⇌ E(P, Q)
-                E + P ⇌ E(P)
-                E + Q ⇌ E(Q)
+                E + A ⇌ EA
+                E + B ⇌ EB
+                EA + B ⇌ EAB
+                EB + A ⇌ EAB
+                EAB <--> EPQ
+                EP + Q ⇌ EPQ
+                EQ + P ⇌ EPQ
+                E + P ⇌ EP
+                E + Q ⇌ EQ
             end
         end
         s_weg = rate_equation_string(m_weg)
@@ -15132,20 +15090,21 @@ end
     # A mechanism exercises the path only when a downstream kinetic group lumps
     # binding to ≥2 bound complexes (no free-E member) — the split the `:OnlyA`
     # orphaning would otherwise break.
+    # A form's record holds nothing bound.
+    _testhelper_empty(m, f) = isempty(_testhelper_bound(_testhelper_candidate(m).forms[f]))
     _testhelper_has_lumped_bound_group(m) =
-        any(m.catalytic.groups) do ks
-        length(ks) ≥ 2 &&
-            all(k -> !isempty(m.catalytic.nodes[m.catalytic.steps[k].from].bound), ks)
+        any(_testhelper_group_members(m.catalytic)) do ks
+        length(ks) ≥ 2 && all(k -> !_testhelper_empty(m, m.catalytic.steps[k].from), ks)
     end
     # Whether the first step of a group, edges `ks` of `m`, binds into a form that holds
     # nothing bound.
     _testhelper_is_free_e_binding(m, ks) = (e = m.catalytic.steps[first(ks)];
-        isempty(m.catalytic.nodes[e.from].bound) && EnzymeRates.Mechanisms._is_binding(e))
+        _testhelper_empty(m, e.from) && EnzymeRates.Enumeration._is_binding(e))
     n_reproducers = 0
     for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
         _testhelper_has_lumped_bound_group(m) || continue
         pn = _testhelper_fitted(m)
-        free_e = Set(g for (g, ks) in enumerate(m.catalytic.groups)
+        free_e = Set(g for (g, ks) in enumerate(_testhelper_group_members(m.catalytic))
                      if _testhelper_is_free_e_binding(m, ks))
         iso = Set(_testhelper_iso_groups(m))
         children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
@@ -15358,8 +15317,8 @@ end
     seeds = _testhelper_mechanisms(
         ER.Enumeration.seed_mechanisms(rxn, Set{Symbol}(), Set([:I])))
     _testhelper_fused(m) =
-        (cm = m.catalytic;
-         any(k -> cm.step_kinds[k] === :fused_binding, eachindex(cm.steps)))
+        (c = _testhelper_candidate(m);
+         any(e -> _testhelper_is_fused(c, e), m.catalytic.steps))
     @test all(m -> :I in ER.Enumeration._bound_comp_inhibitors(_testhelper_candidate(m)),
               seeds)
     @test any(_testhelper_fused, seeds)
@@ -15440,12 +15399,12 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                        :: EqualAI
-            E(A) <--> E(P; residual = A - P)                    :: OnlyA
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                       :: EqualAI
-            E(Q) ⇌ E + Q                                        :: EqualAI
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: OnlyA
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: EqualAI
+            EQ ⇌ E + Q                                        :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -15460,12 +15419,12 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                        :: EqualAI
-            E(A) <--> E(P; residual = A - P)                    :: EqualAI
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                       :: OnlyA
-            E(Q) ⇌ E + Q                                        :: EqualAI
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: EqualAI
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EQ ⇌ E + Q                                        :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -15476,12 +15435,12 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A ⇌ E(A)                                        :: EqualAI
-            E(A) <--> E(P; residual = A - P)                    :: OnlyA
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                       :: OnlyA
-            E(Q) ⇌ E + Q                                        :: EqualAI
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: OnlyA
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EQ ⇌ E + Q                                        :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -15509,9 +15468,9 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: EqualAI
         end
     end
 
@@ -15537,9 +15496,9 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: OnlyA
         end
     end
     kids = _testhelper_move(ER.Enumeration._expand_change_allo_state, balanced)
@@ -15557,9 +15516,9 @@ _testhelper_tags_by_bound_metabolite(x) = Dict(
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: OnlyA
+            E + P ⇌ EP      :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
@@ -15583,9 +15542,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(; residual = A - P) + P
-            E + Q <--> E(Q)
-            E(; residual = A - P) + B <--> E(Q)
+            E + A <--> E_res_plusA_minusP + P
+            E + Q <--> EQ
+            E_res_plusA_minusP + B <--> EQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -15596,50 +15555,50 @@ end
     half1 = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: OnlyA
-            E + Q <--> E(Q)                      :: EqualAI
-            E(; residual = A - P) + B <--> E(Q)  :: EqualAI
+            E + A <--> E_res_plusA_minusP + P :: OnlyA
+            E + Q <--> EQ                      :: EqualAI
+            E_res_plusA_minusP + B <--> EQ  :: EqualAI
         end
     end
     half2 = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: EqualAI
-            E + Q <--> E(Q)                      :: EqualAI
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: EqualAI
+            E + Q <--> EQ                      :: EqualAI
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
     end
     every = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: OnlyA
-            E + Q <--> E(Q)                      :: EqualAI
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: OnlyA
+            E + Q <--> EQ                      :: EqualAI
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
     end
     k_q_every = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: OnlyA
-            E + Q <--> E(Q)                      :: OnlyA
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: OnlyA
+            E + Q <--> EQ                      :: OnlyA
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
     end
     v_every_a = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: OnlyA
-            E + Q <--> E(Q)                      :: EqualAI
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: OnlyA
+            E + Q <--> EQ                      :: EqualAI
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     v_every_i = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: OnlyA
-            E + Q <--> E(Q)                      :: EqualAI
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: OnlyA
+            E + Q <--> EQ                      :: EqualAI
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
         regulatory_site(1): R::OnlyI
     end
@@ -15676,12 +15635,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(A) <--> E(P; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            EA <--> EP_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
         end
     end
     rxn = @enzyme_reaction begin
@@ -15692,23 +15651,23 @@ end
     half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: EqualAI
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: EqualAI
         end
     end
     every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     D = EnzymeRates.Derivation
@@ -15724,189 +15683,189 @@ end
     a_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     q_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     aq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     b_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     ab_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     bq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     abq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     p_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     ap_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     pq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     apq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     bp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     abp_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     bpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     abpq_every = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: OnlyA
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: OnlyA
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: OnlyA
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: OnlyA
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: OnlyA
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: OnlyA
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
     v_a = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     v_i = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A), E(Q) + A ⇌ E(A, Q))                 :: EqualAI
-            (E + Q ⇌ E(Q), E(A) + Q ⇌ E(A, Q))                 :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyI
     end
@@ -15945,13 +15904,13 @@ end
         substrates: A, B, D
         products: P, Q
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))
-            E + P <--> E(P)
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q))
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)
+            E + P <--> EP
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ)
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)
         end
     end
     rxn = @enzyme_reaction begin
@@ -15962,226 +15921,227 @@ end
     base_bd = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
     end
     base_bq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
     end
     base_dq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
     end
     q_alone = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
     end
     b_alone = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
     end
     d_alone = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
     end
     a_alone = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: OnlyA
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: OnlyA
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
     end
     p_on_bd = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: OnlyA
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
     end
     p_on_bq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: OnlyA
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
     end
     p_on_dq = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: OnlyA
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
     end
     p_on_every = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: OnlyA
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: OnlyA
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: OnlyA
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
     end
     r_on_bd_a = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
         regulatory_site(1): R::OnlyA
     end
     r_on_bd_i = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: EqualAI
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
         regulatory_site(1): R::OnlyI
     end
     r_on_bq_a = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     r_on_bq_i = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: EqualAI
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
         regulatory_site(1): R::OnlyI
     end
     r_on_dq_a = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     r_on_dq_i = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(Q; residual = B + D - Q))      :: EqualAI
-            (E + D <--> E(D), E(B) + D <--> E(Q; residual = B + D - Q))      :: OnlyA
-            E + P <--> E(P)                                                  :: EqualAI
-            (E(; residual = B + D - Q) + A ⇌ E(P),
-             E(Q; residual = B + D - Q) + A ⇌ E(A, Q; residual = B + D - Q)) :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(P) + Q ⇌ E(A, Q; residual = B + D - Q))                       :: OnlyA
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
         end
         regulatory_site(1): R::OnlyI
     end
 
     D = EnzymeRates.Derivation
+    # The guard names the group's first step in step order.
     v = D._guard(q_alone)
     @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
-          (D._FAST_STEP_PINNED,
-           "E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q)")
+          (D._FAST_STEP_PINNED, "EP + Q ⇌ EAQ_res_plusB_plusD_minusQ")
     @test _testhelper_is_valid(b_alone)
     @test !EnzymeRates.Enumeration._kept_forms_keep_a_binding(b_alone)
     @test _testhelper_is_valid(d_alone)
     @test !EnzymeRates.Enumeration._kept_forms_keep_a_binding(d_alone)
     v = D._guard(a_alone)
     @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
-          (D._FAST_STEP_PINNED, "E(; residual = B + D - Q) + A ⇌ E(P)")
+          (D._FAST_STEP_PINNED,
+           "EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ")
     # Each single group stops the inactive conformation's catalysis, so each is a
     # candidate the search tries before the pairs.
     @test all(c -> c.catalytic == m.catalytic &&
@@ -16211,17 +16171,17 @@ end
     k_type = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: EqualAI
-            E + Q <--> E(Q)                      :: OnlyA
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: EqualAI
+            E + Q <--> EQ                      :: OnlyA
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
     end
     q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: EqualAI
-            E + Q <--> E(Q)                      :: NonequalAI
-            E(; residual = A - P) + B <--> E(Q)  :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: EqualAI
+            E + Q <--> EQ                      :: NonequalAI
+            E_res_plusA_minusP + B <--> EQ  :: OnlyA
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, k_type)
@@ -16249,84 +16209,84 @@ end
     v_type = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     a_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: NonequalAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     b_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: NonequalAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     q_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E + Q ⇌ E(Q)                                       :: NonequalAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: NonequalAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     p_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: NonequalAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: NonequalAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::OnlyA
     end
     chemistry_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: NonequalAI
-            E(B; residual = A - P) ⇌ E(Q)                      :: NonequalAI
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: NonequalAI
+            EB_res_plusA_minusP ⇌ EQ                      :: NonequalAI
         end
         regulatory_site(1): R::OnlyA
     end
     site_relaxed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                       :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P) :: EqualAI
-            E + Q ⇌ E(Q)                                       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P) :: EqualAI
-            E(A) <--> E(P; residual = A - P)                   :: OnlyA
-            E(B; residual = A - P) ⇌ E(Q)                      :: OnlyA
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
         regulatory_site(1): R::NonequalAI
     end
@@ -16365,51 +16325,51 @@ end
     partial = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: OnlyA
-            E(A, B) <--> E(P, Q)        :: EqualAI
-            E(Q) + P ⇌ E(P, Q)          :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: OnlyA
+            EAB <--> EPQ        :: EqualAI
+            EQ + P ⇌ EPQ          :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     a_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: NonequalAI
-            E(A) + B ⇌ E(A, B)          :: OnlyA
-            E(A, B) <--> E(P, Q)        :: EqualAI
-            E(Q) + P ⇌ E(P, Q)          :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A ⇌ EA                :: NonequalAI
+            EA + B ⇌ EAB          :: OnlyA
+            EAB <--> EPQ        :: EqualAI
+            EQ + P ⇌ EPQ          :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     b_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: NonequalAI
-            E(A, B) <--> E(P, Q)        :: EqualAI
-            E(Q) + P ⇌ E(P, Q)          :: OnlyA
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: NonequalAI
+            EAB <--> EPQ        :: EqualAI
+            EQ + P ⇌ EPQ          :: OnlyA
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     p_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: OnlyA
-            E(A, B) <--> E(P, Q)        :: EqualAI
-            E(Q) + P ⇌ E(P, Q)          :: NonequalAI
-            E + Q ⇌ E(Q)                :: OnlyA
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: OnlyA
+            EAB <--> EPQ        :: EqualAI
+            EQ + P ⇌ EPQ          :: NonequalAI
+            E + Q ⇌ EQ                :: OnlyA
         end
     end
     q_relaxed = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                :: OnlyA
-            E(A) + B ⇌ E(A, B)          :: OnlyA
-            E(A, B) <--> E(P, Q)        :: EqualAI
-            E(Q) + P ⇌ E(P, Q)          :: OnlyA
-            E + Q ⇌ E(Q)                :: NonequalAI
+            E + A ⇌ EA                :: OnlyA
+            EA + B ⇌ EAB          :: OnlyA
+            EAB <--> EPQ        :: EqualAI
+            EQ + P ⇌ EPQ          :: OnlyA
+            E + Q ⇌ EQ                :: NonequalAI
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, partial)
@@ -16444,20 +16404,20 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + P <--> E(P; residual = A - P)
-            E(; residual = A - P) + B <--> E(Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + P <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + B <--> EQ
+            E + Q <--> EQ
         end
     end
     flip = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(P; residual = A - P)
-            E(; residual = A - P) + P <--> E(P; residual = A - P)
-            E(; residual = A - P) + B <--> E(Q)
-            E + Q <--> E(Q)
+            E + A <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + B <--> EQ
+            E + Q <--> EQ
         end
     end
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
@@ -16467,10 +16427,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(P; residual = A - P)                        :: OnlyA
-                E(; residual = A - P) + P <--> E(P; residual = A - P) :: EqualAI
-                E(; residual = A - P) + B <--> E(Q)                   :: OnlyA
-                E + Q <--> E(Q)                                       :: OnlyA
+                E + A ⇌ EP_res_plusA_minusP                        :: OnlyA
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP :: EqualAI
+                E_res_plusA_minusP + B <--> EQ                   :: OnlyA
+                E + Q <--> EQ                                       :: OnlyA
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
@@ -16478,10 +16438,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(P; residual = A - P)                        :: OnlyA
-                E(; residual = A - P) + P <--> E(P; residual = A - P) :: OnlyA
-                E(; residual = A - P) + B <--> E(Q)                   :: OnlyA
-                E + Q <--> E(Q)                                       :: EqualAI
+                E + A ⇌ EP_res_plusA_minusP                        :: OnlyA
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP :: OnlyA
+                E_res_plusA_minusP + B <--> EQ                   :: OnlyA
+                E + Q <--> EQ                                       :: EqualAI
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
@@ -16489,10 +16449,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(P; residual = A - P)                        :: OnlyA
-                E(; residual = A - P) + P <--> E(P; residual = A - P) :: OnlyA
-                E(; residual = A - P) + B <--> E(Q)                   :: OnlyA
-                E + Q <--> E(Q)                                       :: OnlyA
+                E + A ⇌ EP_res_plusA_minusP                        :: OnlyA
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP :: OnlyA
+                E_res_plusA_minusP + B <--> EQ                   :: OnlyA
+                E + Q <--> EQ                                       :: OnlyA
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
@@ -16500,10 +16460,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(P; residual = A - P)                        :: OnlyA
-                E(; residual = A - P) + P <--> E(P; residual = A - P) :: EqualAI
-                E(; residual = A - P) + B <--> E(Q)                   :: OnlyA
-                E + Q <--> E(Q)                                       :: EqualAI
+                E + A ⇌ EP_res_plusA_minusP                        :: OnlyA
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP :: EqualAI
+                E_res_plusA_minusP + B <--> EQ                   :: OnlyA
+                E + Q <--> EQ                                       :: EqualAI
             end
             regulatory_site(2): R::OnlyA
         end),
@@ -16512,10 +16472,10 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(P; residual = A - P)                        :: OnlyA
-                E(; residual = A - P) + P <--> E(P; residual = A - P) :: EqualAI
-                E(; residual = A - P) + B <--> E(Q)                   :: OnlyA
-                E + Q <--> E(Q)                                       :: EqualAI
+                E + A ⇌ EP_res_plusA_minusP                        :: OnlyA
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP :: EqualAI
+                E_res_plusA_minusP + B <--> EQ                   :: OnlyA
+                E + Q <--> EQ                                       :: EqualAI
             end
             regulatory_site(2): R::OnlyI
         end)]
@@ -16533,10 +16493,10 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(Q)
-            E + Q <--> E(Q)
+            E + A <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EQ
+            E + Q <--> EQ
         end
     end
     second_flips = [
@@ -16544,20 +16504,20 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(P; residual = A - P)
-                E(; residual = A - P) + P <--> E(P; residual = A - P)
-                E(; residual = A - P) + B ⇌ E(Q)
-                E + Q <--> E(Q)
+                E + A <--> EP_res_plusA_minusP
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP
+                E_res_plusA_minusP + B ⇌ EQ
+                E + Q <--> EQ
             end
         end),
         @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(P; residual = A - P)
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-                E(; residual = A - P) + B <--> E(Q)
-                E + Q <--> E(Q)
+                E + A <--> EP_res_plusA_minusP
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+                E_res_plusA_minusP + B <--> EQ
+                E + Q <--> EQ
             end
         end]
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
@@ -16565,75 +16525,75 @@ end
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-                E(; residual = A - P) + B ⇌ E(Q)                      :: EqualAI
-                E + Q <--> E(Q)                                       :: OnlyA
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+                E_res_plusA_minusP + B ⇌ EQ                      :: EqualAI
+                E + Q <--> EQ                                       :: OnlyA
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: OnlyA
-                E(; residual = A - P) + B ⇌ E(Q)                      :: EqualAI
-                E + Q <--> E(Q)                                       :: EqualAI
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: OnlyA
+                E_res_plusA_minusP + B ⇌ EQ                      :: EqualAI
+                E + Q <--> EQ                                       :: EqualAI
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: OnlyA
-                E(; residual = A - P) + B ⇌ E(Q)                      :: EqualAI
-                E + Q <--> E(Q)                                       :: OnlyA
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: OnlyA
+                E_res_plusA_minusP + B ⇌ EQ                      :: EqualAI
+                E + Q <--> EQ                                       :: OnlyA
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-                E(; residual = A - P) + B ⇌ E(Q)                      :: OnlyA
-                E + Q <--> E(Q)                                       :: OnlyA
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+                E_res_plusA_minusP + B ⇌ EQ                      :: OnlyA
+                E + Q <--> EQ                                       :: OnlyA
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: OnlyA
-                E(; residual = A - P) + B ⇌ E(Q)                      :: OnlyA
-                E + Q <--> E(Q)                                       :: OnlyA
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: OnlyA
+                E_res_plusA_minusP + B ⇌ EQ                      :: OnlyA
+                E + Q <--> EQ                                       :: OnlyA
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-                E(; residual = A - P) + B ⇌ E(Q)                      :: EqualAI
-                E + Q <--> E(Q)                                       :: EqualAI
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+                E_res_plusA_minusP + B ⇌ EQ                      :: EqualAI
+                E + Q <--> EQ                                       :: EqualAI
             end
             regulatory_site(2): R::OnlyA
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: A, B ; products: P, Q ; oligomeric_state: 2
             steps: begin
-                E + A <--> E(P; residual = A - P)                     :: OnlyA
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-                E(; residual = A - P) + B ⇌ E(Q)                      :: EqualAI
-                E + Q <--> E(Q)                                       :: EqualAI
+                E + A <--> EP_res_plusA_minusP                     :: OnlyA
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+                E_res_plusA_minusP + B ⇌ EQ                      :: EqualAI
+                E + Q <--> EQ                                       :: EqualAI
             end
             regulatory_site(2): R::OnlyI
         end)]
     second_rejected = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
-            E + A <--> E(P; residual = A - P)                     :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: OnlyA
-            E(; residual = A - P) + B ⇌ E(Q)                      :: OnlyA
-            E + Q <--> E(Q)                                       :: EqualAI
+            E + A <--> EP_res_plusA_minusP                     :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: OnlyA
+            E_res_plusA_minusP + B ⇌ EQ                      :: OnlyA
+            E + Q <--> EQ                                       :: EqualAI
         end
     end
     second_moved = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, second,
@@ -16643,7 +16603,7 @@ end
     @test all(_testhelper_is_valid, second_admitted)
     v = EnzymeRates.Derivation._guard(second_rejected)
     @test (v.fault, EnzymeRates.Mechanisms.step_text(second.catalytic, v.edge)) ==
-          (EnzymeRates.Derivation._FILLED, "E(; residual = A - P) + B ⇌ E(Q)")
+          (EnzymeRates.Derivation._FILLED, "E_res_plusA_minusP + B ⇌ EQ")
     @test all(_testhelper_admission_agreement(second_rejected;
                                               rng = Random.MersenneTwister(82),
                                               corners = true))
@@ -16662,9 +16622,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)     :: OnlyA
-            E(S) <--> E(P)      :: EqualAI
-            E + P ⇌ E(P)        :: EqualAI
+            E + S <--> ES     :: OnlyA
+            ES <--> EP      :: EqualAI
+            E + P ⇌ EP        :: EqualAI
         end
     end
     @test EnzymeRates.Derivation.check_valid_rate_equation(Bool, shut_door)
@@ -16675,9 +16635,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)     :: OnlyA
-            E(S) <--> E(P)      :: OnlyA
-            E + P ⇌ E(P)        :: EqualAI
+            E + S <--> ES     :: OnlyA
+            ES <--> EP      :: OnlyA
+            E + P ⇌ EP        :: EqualAI
         end
     end
     @test En._kept_forms_keep_a_binding(k_type) && En._enumerator_keeps(k_type)
@@ -16686,10 +16646,10 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)               :: EqualAI
-            E(A) + B <--> E(P, Q)      :: OnlyA
-            E(Q) + P ⇌ E(P, Q)         :: EqualAI
-            E + Q ⇌ E(Q)               :: EqualAI
+            E + A ⇌ EA               :: EqualAI
+            EA + B <--> EPQ      :: OnlyA
+            EQ + P ⇌ EPQ         :: EqualAI
+            E + Q ⇌ EQ               :: EqualAI
         end
     end
     @test En._kept_forms_keep_a_binding(merged_v_type)
@@ -16700,9 +16660,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)     :: OnlyI
-            E(S) <--> E(P)      :: EqualAI
-            E + P ⇌ E(P)        :: EqualAI
+            E + S <--> ES     :: OnlyI
+            ES <--> EP      :: EqualAI
+            E + P ⇌ EP        :: EqualAI
         end
     end
     @test !En._kept_forms_keep_a_binding(shut_door_active)
@@ -16710,9 +16670,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E + P ⇌ E(P)
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
         end
     end
     @test En._kept_forms_keep_a_binding(plain_uni_uni)
@@ -16731,30 +16691,30 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A ⇌ E(A), E(B) + A ⇌ E(P, Q))
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))
-            E + P ⇌ E(P)
-            E(A) + P ⇌ E(A, P)
-            E(P) + A ⇌ E(A, P)
-            E(P) + Q <--> E(P, Q)
+            (E + A ⇌ EA, EB + A ⇌ EPQ)
+            (E + B <--> EB, EA + B <--> EPQ)
+            E + P ⇌ EP
+            EA + P ⇌ EAP
+            EP + A ⇌ EAP
+            EP + Q <--> EPQ
         end
     end
     a_alone = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(P, Q))
-            (E + B <--> E(B), E(A) + B <--> E(P, Q))
-            E + P ⇌ E(P)
-            E(A) + P ⇌ E(A, P)
-            E(P) + A ⇌ E(A, P)
-            E(P) + Q <--> E(P, Q)
+            (E + A <--> EA, EB + A <--> EPQ)
+            (E + B <--> EB, EA + B <--> EPQ)
+            E + P ⇌ EP
+            EA + P ⇌ EAP
+            EP + A ⇌ EAP
+            EP + Q <--> EPQ
         end
     end
     v = EnzymeRates.Derivation._guard(a_alone)
     @test (v.fault, v.limit, v.face) ===
           (EnzymeRates.Derivation._SPLIT, EnzymeRates.Derivation._LIMIT_SPEED, 2)
-    @test EnzymeRates.Mechanisms.step_text(a_alone.catalytic, v.edge) == "E + P ⇌ E(P)"
+    @test EnzymeRates.Mechanisms.step_text(a_alone.catalytic, v.edge) == "E + P ⇌ EP"
     @test _testhelper_respeed_verdicts(a_alone; rng = Random.MersenneTwister(91),
                                        law = :limit)[v.face] === :pattern
     flags = _testhelper_flags(parent)
@@ -16768,60 +16728,60 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(P, Q))
-                (E + B <--> E(B), E(A) + B <--> E(P, Q))
-                E + P <--> E(P)
-                E(A) + P ⇌ E(A, P)
-                E(P) + A ⇌ E(A, P)
-                E(P) + Q <--> E(P, Q)
+                (E + A <--> EA, EB + A <--> EPQ)
+                (E + B <--> EB, EA + B <--> EPQ)
+                E + P <--> EP
+                EA + P ⇌ EAP
+                EP + A ⇌ EAP
+                EP + Q <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # A and P@E(A)
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(P, Q))
-                (E + B <--> E(B), E(A) + B <--> E(P, Q))
-                E + P ⇌ E(P)
-                E(A) + P <--> E(A, P)
-                E(P) + A ⇌ E(A, P)
-                E(P) + Q <--> E(P, Q)
+                (E + A <--> EA, EB + A <--> EPQ)
+                (E + B <--> EB, EA + B <--> EPQ)
+                E + P ⇌ EP
+                EA + P <--> EAP
+                EP + A ⇌ EAP
+                EP + Q <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # A and A@E(P)
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A <--> E(A), E(B) + A <--> E(P, Q))
-                (E + B <--> E(B), E(A) + B <--> E(P, Q))
-                E + P ⇌ E(P)
-                E(A) + P ⇌ E(A, P)
-                E(P) + A <--> E(A, P)
-                E(P) + Q <--> E(P, Q)
+                (E + A <--> EA, EB + A <--> EPQ)
+                (E + B <--> EB, EA + B <--> EPQ)
+                E + P ⇌ EP
+                EA + P ⇌ EAP
+                EP + A <--> EAP
+                EP + Q <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # P@E and P@E(A)
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(P, Q))
-                (E + B <--> E(B), E(A) + B <--> E(P, Q))
-                E + P <--> E(P)
-                E(A) + P <--> E(A, P)
-                E(P) + A ⇌ E(A, P)
-                E(P) + Q <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EPQ)
+                (E + B <--> EB, EA + B <--> EPQ)
+                E + P <--> EP
+                EA + P <--> EAP
+                EP + A ⇌ EAP
+                EP + Q <--> EPQ
             end
         end),
         (@enzyme_mechanism begin      # P@E and A@E(P)
             substrates: A, B
             products: P, Q
             steps: begin
-                (E + A ⇌ E(A), E(B) + A ⇌ E(P, Q))
-                (E + B <--> E(B), E(A) + B <--> E(P, Q))
-                E + P <--> E(P)
-                E(A) + P ⇌ E(A, P)
-                E(P) + A <--> E(A, P)
-                E(P) + Q <--> E(P, Q)
+                (E + A ⇌ EA, EB + A ⇌ EPQ)
+                (E + B <--> EB, EA + B <--> EPQ)
+                E + P <--> EP
+                EA + P ⇌ EAP
+                EP + A <--> EAP
+                EP + Q <--> EPQ
             end
         end)]
     children = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, parent)
@@ -16844,14 +16804,14 @@ end
         products: P, Q
         oligomeric_state: 1
         steps: begin
-            (E + A ⇌ E(A),
-             E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))  :: EqualAI
-            E + Q ⇌ E(Q)                                             :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)       :: EqualAI
-            E(A) + P ⇌ E(A, P)                                       :: OnlyA
-            E(A) <--> E(P; residual = A - P)                         :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)  :: EqualAI
+            E + Q ⇌ EQ                                             :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP       :: EqualAI
+            EA + P ⇌ EAP                                       :: OnlyA
+            EA <--> EP_res_plusA_minusP                         :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                            :: EqualAI
         end
     end
     a_flip = @_testhelper_unguarded @enzyme_mechanism begin
@@ -16859,14 +16819,14 @@ end
         products: P, Q
         oligomeric_state: 1
         steps: begin
-            (E + A <--> E(A),
-             E(P; residual = A - P) + A <--> E(A, P; residual = A - P))  :: EqualAI
-            E + Q ⇌ E(Q)                                               :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)         :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)         :: EqualAI
-            E(A) + P ⇌ E(A, P)                                         :: OnlyA
-            E(A) <--> E(P; residual = A - P)                           :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                              :: EqualAI
+            (E + A <--> EA,
+             EP_res_plusA_minusP + A <--> EAP_res_plusA_minusP)  :: EqualAI
+            E + Q ⇌ EQ                                               :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP         :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP         :: EqualAI
+            EA + P ⇌ EAP                                         :: OnlyA
+            EA <--> EP_res_plusA_minusP                           :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                              :: EqualAI
         end
     end
     v = EnzymeRates.Derivation._guard(a_flip)
@@ -16876,8 +16836,8 @@ end
                                        law = :limit)[v.face] === :pattern
     cm = parent.catalytic
     flags = _testhelper_flags(cm)
-    a = cm.steps[_testhelper_edge(parent, "E + A ⇌ EA")].group
-    flags[[e.group == a for e in cm.steps]] .= false
+    a = cm.steps[_testhelper_edge(parent, "E + A ⇌ EA")].kinetic_group
+    flags[[e.kinetic_group == a for e in cm.steps]] .= false
     @test EnzymeRates.Enumeration._with_flags(_testhelper_candidate(parent),
                                               flags).mechanism ==
           a_flip
@@ -16889,14 +16849,14 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                (E + A ⇌ E(A),
-                 E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))  :: EqualAI
-                E + Q <--> E(Q)                                          :: EqualAI
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)       :: EqualAI
-                E(A) + P ⇌ E(A, P)                                       :: OnlyA
-                E(A) <--> E(P; residual = A - P)                         :: EqualAI
-                E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
+                (E + A ⇌ EA,
+                 EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)  :: EqualAI
+                E + Q <--> EQ                                          :: EqualAI
+                E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP       :: EqualAI
+                EA + P ⇌ EAP                                       :: OnlyA
+                EA <--> EP_res_plusA_minusP                         :: EqualAI
+                EB_res_plusA_minusP ⇌ EQ                            :: EqualAI
             end
         end),
         (@enzyme_mechanism begin      # B@F
@@ -16904,14 +16864,14 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                (E + A ⇌ E(A),
-                 E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))  :: EqualAI
-                E + Q ⇌ E(Q)                                             :: EqualAI
-                E(; residual = A - P) + B <--> E(B; residual = A - P)    :: EqualAI
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)       :: EqualAI
-                E(A) + P ⇌ E(A, P)                                       :: OnlyA
-                E(A) <--> E(P; residual = A - P)                         :: EqualAI
-                E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
+                (E + A ⇌ EA,
+                 EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)  :: EqualAI
+                E + Q ⇌ EQ                                             :: EqualAI
+                E_res_plusA_minusP + B <--> EB_res_plusA_minusP    :: EqualAI
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP       :: EqualAI
+                EA + P ⇌ EAP                                       :: OnlyA
+                EA <--> EP_res_plusA_minusP                         :: EqualAI
+                EB_res_plusA_minusP ⇌ EQ                            :: EqualAI
             end
         end),
         (@enzyme_mechanism begin      # P@F
@@ -16919,14 +16879,14 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                (E + A ⇌ E(A),
-                 E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))  :: EqualAI
-                E + Q ⇌ E(Q)                                             :: EqualAI
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-                E(; residual = A - P) + P <--> E(P; residual = A - P)    :: EqualAI
-                E(A) + P ⇌ E(A, P)                                       :: OnlyA
-                E(A) <--> E(P; residual = A - P)                         :: EqualAI
-                E(B; residual = A - P) ⇌ E(Q)                            :: EqualAI
+                (E + A ⇌ EA,
+                 EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)  :: EqualAI
+                E + Q ⇌ EQ                                             :: EqualAI
+                E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+                E_res_plusA_minusP + P <--> EP_res_plusA_minusP    :: EqualAI
+                EA + P ⇌ EAP                                       :: OnlyA
+                EA <--> EP_res_plusA_minusP                         :: EqualAI
+                EB_res_plusA_minusP ⇌ EQ                            :: EqualAI
             end
         end),
         (@enzyme_mechanism begin      # the second half's chemistry
@@ -16934,14 +16894,14 @@ end
             products: P, Q
             oligomeric_state: 1
             steps: begin
-                (E + A ⇌ E(A),
-                 E(P; residual = A - P) + A ⇌ E(A, P; residual = A - P))  :: EqualAI
-                E + Q ⇌ E(Q)                                             :: EqualAI
-                E(; residual = A - P) + B ⇌ E(B; residual = A - P)       :: EqualAI
-                E(; residual = A - P) + P ⇌ E(P; residual = A - P)       :: EqualAI
-                E(A) + P ⇌ E(A, P)                                       :: OnlyA
-                E(A) <--> E(P; residual = A - P)                         :: EqualAI
-                E(B; residual = A - P) <--> E(Q)                         :: EqualAI
+                (E + A ⇌ EA,
+                 EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)  :: EqualAI
+                E + Q ⇌ EQ                                             :: EqualAI
+                E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP       :: EqualAI
+                E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP       :: EqualAI
+                EA + P ⇌ EAP                                       :: OnlyA
+                EA <--> EP_res_plusA_minusP                         :: EqualAI
+                EB_res_plusA_minusP <--> EQ                         :: EqualAI
             end
         end)]
     children = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, parent)
@@ -17016,45 +16976,45 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            E + Q ⇌ EQ
         end
     end
     chemistry_flipped = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            E + Q ⇌ EQ
         end
     end
     b_flipped = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B <--> E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B <--> EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            E + Q ⇌ EQ
         end
     end
     q_flipped = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) ⇌ E(Q)
-            E + Q <--> E(Q)
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+            E + Q <--> EQ
         end
     end
     @test ER.Enumeration._degenerate(_testhelper_candidate(seed))
@@ -17078,10 +17038,10 @@ end
         substrates: S, T
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) ⇌ E(P)
-            E + P <--> E(P)
-            E + T ⇌ E(T)
+            E + S ⇌ ES
+            ES ⇌ EP
+            E + P <--> EP
+            E + T ⇌ ET
         end
     end
     @test EnzymeRates.Enumeration._degenerate(_testhelper_candidate(m_bad))
@@ -17093,7 +17053,7 @@ end
     end
     @test err isa ErrorException
     # The error is the assertion's: the chemistry step E(S) → E(P) makes an N.
-    @test occursin("atom-non-conserving step E(S) → E(P)", err.msg)
+    @test occursin("atom-non-conserving step ES → EP", err.msg)
     @test occursin("= Dict(:N => 1)", err.msg)
 end
 
@@ -17115,14 +17075,14 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)        :: OnlyA
-            E(S) ⇌ E(P)         :: EqualAI
-            F + P ⇌ E(P)        :: EqualAI
+            E + S ⇌ ES        :: OnlyA
+            ES ⇌ EP         :: EqualAI
+            F + P ⇌ EP        :: EqualAI
             F <--> E            :: OnlyA
-            F + S ⇌ F(S)        :: EqualAI
-            F(S) <--> F(P)      :: EqualAI
-            F + P ⇌ F(P)        :: EqualAI
-            F(P) ⇌ E(P)         :: EqualAI
+            F + S ⇌ FS        :: EqualAI
+            FS <--> FP      :: EqualAI
+            F + P ⇌ FP        :: EqualAI
+            FP ⇌ EP         :: EqualAI
         end
     end
     # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
@@ -17131,56 +17091,56 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)     :: OnlyA
-                E(S) ⇌ E(P)         :: EqualAI
-                F + P ⇌ E(P)        :: EqualAI
+                E + S <--> ES     :: OnlyA
+                ES ⇌ EP         :: EqualAI
+                F + P ⇌ EP        :: EqualAI
                 F <--> E            :: OnlyA
-                F + S ⇌ F(S)        :: EqualAI
-                F(S) <--> F(P)      :: EqualAI
-                F + P ⇌ F(P)        :: EqualAI
-                F(P) ⇌ E(P)         :: EqualAI
+                F + S ⇌ FS        :: EqualAI
+                FS <--> FP      :: EqualAI
+                F + P ⇌ FP        :: EqualAI
+                FP ⇌ EP         :: EqualAI
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)        :: OnlyA
-                E(S) <--> E(P)      :: EqualAI
-                F + P ⇌ E(P)        :: EqualAI
+                E + S ⇌ ES        :: OnlyA
+                ES <--> EP      :: EqualAI
+                F + P ⇌ EP        :: EqualAI
                 F <--> E            :: OnlyA
-                F + S ⇌ F(S)        :: EqualAI
-                F(S) <--> F(P)      :: EqualAI
-                F + P ⇌ F(P)        :: EqualAI
-                F(P) ⇌ E(P)         :: EqualAI
+                F + S ⇌ FS        :: EqualAI
+                FS <--> FP      :: EqualAI
+                F + P ⇌ FP        :: EqualAI
+                FP ⇌ EP         :: EqualAI
             end
         end),
         @_testhelper_unguarded(@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)        :: OnlyA
-                E(S) ⇌ E(P)         :: EqualAI
-                F + P <--> E(P)     :: EqualAI
+                E + S ⇌ ES        :: OnlyA
+                ES ⇌ EP         :: EqualAI
+                F + P <--> EP     :: EqualAI
                 F <--> E            :: OnlyA
-                F + S ⇌ F(S)        :: EqualAI
-                F(S) <--> F(P)      :: EqualAI
-                F + P ⇌ F(P)        :: EqualAI
-                F(P) <--> E(P)      :: EqualAI
+                F + S ⇌ FS        :: EqualAI
+                FS <--> FP      :: EqualAI
+                F + P ⇌ FP        :: EqualAI
+                FP <--> EP      :: EqualAI
             end
         end)]
     kept = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)        :: OnlyA
-            E(S) ⇌ E(P)         :: EqualAI
-            F + P <--> E(P)     :: EqualAI
+            E + S ⇌ ES        :: OnlyA
+            ES ⇌ EP         :: EqualAI
+            F + P <--> EP     :: EqualAI
             F <--> E            :: OnlyA
-            F + S ⇌ F(S)        :: EqualAI
-            F(S) <--> F(P)      :: EqualAI
-            F + P <--> F(P)     :: EqualAI
-            F(P) ⇌ E(P)         :: EqualAI
+            F + S ⇌ FS        :: EqualAI
+            FS <--> FP      :: EqualAI
+            F + P <--> FP     :: EqualAI
+            FP ⇌ EP         :: EqualAI
         end
     end
     expected = [
@@ -17188,28 +17148,28 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)        :: OnlyA
-                E(S) ⇌ E(P)         :: EqualAI
-                F + P ⇌ E(P)        :: EqualAI
+                E + S ⇌ ES        :: OnlyA
+                ES ⇌ EP         :: EqualAI
+                F + P ⇌ EP        :: EqualAI
                 F <--> E            :: OnlyA
-                F + S <--> F(S)     :: EqualAI
-                F(S) <--> F(P)      :: EqualAI
-                F + P ⇌ F(P)        :: EqualAI
-                F(P) ⇌ E(P)         :: EqualAI
+                F + S <--> FS     :: EqualAI
+                FS <--> FP      :: EqualAI
+                F + P ⇌ FP        :: EqualAI
+                FP ⇌ EP         :: EqualAI
             end
         end),
         (@enzyme_mechanism begin    # F + P ⇌ F(P), F(P) ⇌ E(P)
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)        :: OnlyA
-                E(S) ⇌ E(P)         :: EqualAI
-                F + P ⇌ E(P)        :: EqualAI
+                E + S ⇌ ES        :: OnlyA
+                ES ⇌ EP         :: EqualAI
+                F + P ⇌ EP        :: EqualAI
                 F <--> E            :: OnlyA
-                F + S ⇌ F(S)        :: EqualAI
-                F(S) <--> F(P)      :: EqualAI
-                F + P <--> F(P)     :: EqualAI
-                F(P) <--> E(P)      :: EqualAI
+                F + S ⇌ FS        :: EqualAI
+                FS <--> FP      :: EqualAI
+                F + P <--> FP     :: EqualAI
+                FP <--> EP      :: EqualAI
             end
         end),
         kept]
@@ -17255,132 +17215,132 @@ end
     seed = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(B, D), E(B, Q) + D ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + D ⇌ E(D, Q; residual = B + D - Q))  :: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(B) + Q ⇌ E(B, Q), E(B, D) + Q ⇌ E(B, D, Q),
-             E(D) + Q ⇌ E(D, Q))                                              :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
+             ED + Q ⇌ EDQ)                                              :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
     b_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B <--> E(B), E(D) + B <--> E(B, D),
-             E(D, Q) + B <--> E(B, D, Q),
-             E(Q; residual = B + D - Q) + B <--> E(B, Q; residual = B + D - Q)):: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(B, D), E(B, Q) + D ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + D ⇌ E(D, Q; residual = B + D - Q))  :: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(B) + Q ⇌ E(B, Q), E(B, D) + Q ⇌ E(B, D, Q),
-             E(D) + Q ⇌ E(D, Q))                                              :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B <--> EB, ED + B <--> EBD,
+             EDQ + B <--> EBDQ,
+             EQ_res_plusB_plusD_minusQ + B <--> EBQ_res_plusB_plusD_minusQ):: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
+             ED + Q ⇌ EDQ)                                              :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
     p_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(B, D), E(B, Q) + D ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + D ⇌ E(D, Q; residual = B + D - Q))  :: EqualAI
-            E + P <--> E(P)                                                   :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(B) + Q ⇌ E(B, Q), E(B, D) + Q ⇌ E(B, D, Q),
-             E(D) + Q ⇌ E(D, Q))                                              :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
+            E + P <--> EP                                                   :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
+             ED + Q ⇌ EDQ)                                              :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
     a_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(B, D), E(B, Q) + D ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + D ⇌ E(D, Q; residual = B + D - Q))  :: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A <--> E(A; residual = B + D - Q)     :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(B) + Q ⇌ E(B, Q), E(B, D) + Q ⇌ E(B, D, Q),
-             E(D) + Q ⇌ E(D, Q))                                              :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A <--> EA_res_plusB_plusD_minusQ     :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
+             ED + Q ⇌ EDQ)                                              :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
     chemistry_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(B, D), E(B, Q) + D ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + D ⇌ E(D, Q; residual = B + D - Q))  :: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(B) + Q ⇌ E(B, Q), E(B, D) + Q ⇌ E(B, D, Q),
-             E(D) + Q ⇌ E(D, Q))                                              :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) <--> E(Q; residual = B + D - Q)                           :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
+             ED + Q ⇌ EDQ)                                              :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD <--> EQ_res_plusB_plusD_minusQ                           :: OnlyA
         end
     end
     dq_flip = @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(B, D),
-             E(B, Q) + D <--> E(B, D, Q),
-             E(Q; residual = B + D - Q) + D <--> E(D, Q; residual = B + D - Q)):: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(B) + Q <--> E(B, Q), E(B, D) + Q <--> E(B, D, Q),
-             E(D) + Q <--> E(D, Q))                                           :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D <--> ED, EB + D <--> EBD,
+             EBQ + D <--> EBDQ,
+             EQ_res_plusB_plusD_minusQ + D <--> EDQ_res_plusB_plusD_minusQ):: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EB + Q <--> EBQ, EBD + Q <--> EBDQ,
+             ED + Q <--> EDQ)                                           :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
     d_flip = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D <--> E(D), E(B) + D <--> E(B, D),
-             E(B, Q) + D <--> E(B, D, Q),
-             E(Q; residual = B + D - Q) + D <--> E(D, Q; residual = B + D - Q)):: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q ⇌ E(Q; residual = B + D - Q),
-             E(B) + Q ⇌ E(B, Q), E(B, D) + Q ⇌ E(B, D, Q),
-             E(D) + Q ⇌ E(D, Q))                                              :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D <--> ED, EB + D <--> EBD,
+             EBQ + D <--> EBDQ,
+             EQ_res_plusB_plusD_minusQ + D <--> EDQ_res_plusB_plusD_minusQ):: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
+             ED + Q ⇌ EDQ)                                              :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
     q_flip = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            (E + B ⇌ E(B), E(D) + B ⇌ E(B, D), E(D, Q) + B ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + B ⇌ E(B, Q; residual = B + D - Q))  :: OnlyA
-            (E + D ⇌ E(D), E(B) + D ⇌ E(B, D), E(B, Q) + D ⇌ E(B, D, Q),
-             E(Q; residual = B + D - Q) + D ⇌ E(D, Q; residual = B + D - Q))  :: EqualAI
-            E + P ⇌ E(P)                                                      :: OnlyA
-            E(; residual = B + D - Q) + A ⇌ E(A; residual = B + D - Q)        :: EqualAI
-            (E(; residual = B + D - Q) + Q <--> E(Q; residual = B + D - Q),
-             E(B) + Q <--> E(B, Q), E(B, D) + Q <--> E(B, D, Q),
-             E(D) + Q <--> E(D, Q))                                           :: EqualAI
-            E(A; residual = B + D - Q) <--> E(P)                              :: OnlyA
-            E(B, D) ⇌ E(Q; residual = B + D - Q)                              :: OnlyA
+            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
+             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
+            E + P ⇌ EP                                                      :: OnlyA
+            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EB + Q <--> EBQ, EBD + Q <--> EBDQ,
+             ED + Q <--> EDQ)                                           :: EqualAI
+            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
+            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
         end
     end
 
@@ -17392,13 +17352,14 @@ end
         @test (v.fault, D._face_names(c.catalytic, D._faces(c.catalytic)[v.face])) ==
               (D._PUMPED, [:P, :Q])
     end
+    # The message names the first feed in step order.
     @test D._guard_message(d_flip) ==
-          "Mechanism: at zero P and Q, E(; residual = B + D - Q) + Q ⇌ " *
-          "E(Q; residual = B + D - Q) feeds the forms E_res_plusB_plusD_minusQ, " *
-          "EA_res_plusB_plusD_minusQ of the inactive conformation, which leave only " *
-          "through the vanishing step E(A; residual = B + D - Q) <--> E(P) while " *
-          "nothing runs back the way it came, so admission cannot show that their " *
-          "weight does not depend on how fast that step vanishes."
+          "Mechanism: at zero P and Q, EA_res_plusB_plusD_minusQ <--> EP feeds the " *
+          "forms EA_res_plusB_plusD_minusQ, E_res_plusB_plusD_minusQ of the inactive " *
+          "conformation, which leave only through the vanishing step " *
+          "EA_res_plusB_plusD_minusQ <--> EP while nothing runs back the way it came, " *
+          "so admission cannot show that their weight does not depend on how fast that " *
+          "step vanishes."
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, seed)
     @test length(kids) == 5
     @test Set(kids) == Set([b_flip, p_flip, a_flip, chemistry_flip, dq_flip])
@@ -17425,9 +17386,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) ⇌ E(P)       :: EqualAI
-            E(P) ⇌ F + P      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES ⇌ EP       :: EqualAI
+            EP ⇌ F + P      :: EqualAI
             F ⇌ E             :: EqualAI
         end
     end
@@ -17437,9 +17398,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)   :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ F + P      :: EqualAI
+                E + S <--> ES   :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ F + P      :: EqualAI
                 F ⇌ E             :: EqualAI
             end
         end),
@@ -17447,9 +17408,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)   :: EqualAI
-                E(S) ⇌ E(P)       :: EqualAI
-                E(P) <--> F + P   :: EqualAI
+                E + S <--> ES   :: EqualAI
+                ES ⇌ EP       :: EqualAI
+                EP <--> F + P   :: EqualAI
                 F ⇌ E             :: EqualAI
             end
         end),
@@ -17457,9 +17418,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) <--> F + P   :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP <--> F + P   :: EqualAI
                 F ⇌ E             :: EqualAI
             end
         end),
@@ -17467,9 +17428,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)   :: EqualAI
-                E(S) ⇌ E(P)       :: EqualAI
-                E(P) ⇌ F + P      :: EqualAI
+                E + S <--> ES   :: EqualAI
+                ES ⇌ EP       :: EqualAI
+                EP ⇌ F + P      :: EqualAI
                 F <--> E          :: EqualAI
             end
         end),
@@ -17477,9 +17438,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ F + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ F + P      :: EqualAI
                 F <--> E          :: EqualAI
             end
         end),
@@ -17487,9 +17448,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) ⇌ E(P)       :: EqualAI
-                E(P) <--> F + P   :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES ⇌ EP       :: EqualAI
+                EP <--> F + P   :: EqualAI
                 F <--> E          :: EqualAI
             end
         end]

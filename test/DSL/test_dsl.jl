@@ -12,9 +12,9 @@ using DataFrames
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end))
         @test !_testhelper_is_allosteric(m)
@@ -52,20 +52,19 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E(S) <--> E(P)      :: OnlyA
-            E + S ⇌ E(S)        :: EqualAI
-            E(P) ⇌ E + P        :: EqualAI
+            ES <--> EP      :: OnlyA
+            E + S ⇌ ES        :: EqualAI
+            EP ⇌ E + P        :: EqualAI
         end
         regulatory_site(2): X::OnlyA
     end
-    E, ES, EP = (M.EnzymeForm(:E, M.Metabolite.(bound, false), Symbol[], Symbol[])
-                 for bound in (Symbol[], [:S], [:P]))
-    none = M.Metabolite[]
-    # The steps in written order, each labelled by its statement, as the macro reads them.
-    scheme = M.CatalyticScheme([:S], [:P], [E, ES, EP],
+    none = Int[]
+    # The steps in written order, each labelled by its statement, as the macro reads them,
+    # between the forms E, ES and EP over the metabolites S and P.
+    scheme = M.CatalyticScheme([:S, :P], [:E, :ES, :EP], [1], [2],
                                [M.Step(2, 3, none, none, false, 1),
-                                M.Step(1, 2, [M.Metabolite(:S, false)], none, true, 2),
-                                M.Step(3, 1, none, [M.Metabolite(:P, false)], true, 3)])
+                                M.Step(1, 2, [1], none, true, 2),
+                                M.Step(3, 1, none, [2], true, 3)])
     sites = [M.RegulatorySite([:X], 2, [:OnlyA])]
     built = EnzymeRates.Mechanism(scheme,
                                   M.Allostery([:OnlyA, :EqualAI, :EqualAI], 2, sites))
@@ -74,9 +73,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E(S) <--> E(P)
-            E + S ⇌ E(S)
-            E(P) ⇌ E + P
+            ES <--> EP
+            E + S ⇌ ES
+            EP ⇌ E + P
         end
     end
     @test plain ==
@@ -94,17 +93,17 @@ end
     # the macro and from the parser, that names the keyword or the statement.
     uniuni = """
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     """
     allosteric_only(keyword) =
         "@enzyme_mechanism: `$keyword` is read only for an allosteric mechanism, whose " *
         "statements each carry an allosteric state (`:: EqualAI`, `:: NonequalAI`, " *
         "`:: OnlyA` or `:: OnlyI`); no statement carries one."
-    mixed = "@enzyme_mechanism: the statement `E(P) ⇌ E + P` carries no allosteric " *
-            "state, while `E + S ⇌ E(S)::EqualAI` carries one; a mechanism is allosteric " *
+    mixed = "@enzyme_mechanism: the statement `EP ⇌ E + P` carries no allosteric " *
+            "state, while `E + S ⇌ ES::EqualAI` carries one; a mechanism is allosteric " *
             "when every statement ends in its state (`:: EqualAI`, `:: NonequalAI`, " *
             "`:: OnlyA` or `:: OnlyI`), and plain when none does."
     for (text, message) in (
@@ -113,9 +112,9 @@ end
              allosteric_only("regulatory_site(n):")),
             ("""
              steps: begin
-                 E + S ⇌ E(S)        :: EqualAI
-                 E(S) <--> E(P)      :: OnlyA
-                 E(P) ⇌ E + P
+                 E + S ⇌ ES        :: EqualAI
+                 ES <--> EP      :: OnlyA
+                 EP ⇌ E + P
              end
              """, mixed))
         block = "@enzyme_mechanism begin\nsubstrates: S\nproducts: P\n" * text * "end"
@@ -124,36 +123,27 @@ end
     end
 end
 
-"""The role metabolite entry `t` of mechanism `x` binds in: `:modifier` for a modifier-only
-name or a reactant's copy, else `:substrate` or `:product` as `x` declares it."""
-_testhelper_role(x, t) =
-    t.modifier ? :modifier : t.name in x.catalytic.substrates ? :substrate : :product
+"""The step of mechanism `x` that binds the metabolite named `name`: it takes up that
+metabolite and gives off nothing."""
+_testhelper_binding_of(x, name) =
+    only(e for e in x.catalytic.steps
+         if isempty(e.given_off) && x.catalytic.metabolites[e.taken_up] == [name])
 
-"""Form `f` of mechanism `x` as the macros wrote it: its conformation label, and each bound
-metabolite's name with its role (`_testhelper_role`)."""
-_testhelper_form_roles(x, f) = (x.catalytic.nodes[f].conformation,
-    [(t.name, _testhelper_role(x, t)) for t in x.catalytic.nodes[f].bound])
-
-"""Whether a step of mechanism `x` binds metabolite entry `t`."""
-_testhelper_binds_entry(x, t) = e -> EnzymeRates.Mechanisms._is_binding(e) &&
-    only(e.taken_up) == t
-
-"""The step of mechanism `x` that binds metabolite entry `t`."""
-_testhelper_binding_of(x, t) =
-    only(filter(_testhelper_binds_entry(x, t), x.catalytic.steps))
+"""The names of the two forms step `e` of mechanism `x` joins, in its stored direction."""
+_testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
 
 @testset "DSL" begin
-    @testset "DSL: call-form notation parses each form's label and bound metabolites" begin
-        # Call-form notation on every step: the parser reads each form as its
-        # conformation label and the metabolites it holds, each in its declared role.
-        # The form E(S) of `E + S ⇌ E(S)` has conformation E and holds S as a substrate.
+    @testset "DSL: a name on a step side is a declared metabolite or a form" begin
+        # The parser reads each name on a step side that is no declared metabolite as an
+        # enzyme form, used as written: in `E + S ⇌ ES`, E and ES are forms and S the
+        # substrate.
         mech = @_testhelper_unguarded @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) ⇌ E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES ⇌ EP
+                EP ⇌ E + P
             end
         end
         # Every step at rapid equilibrium closes a fast cycle that turns the reaction
@@ -161,44 +151,37 @@ _testhelper_binding_of(x, t) =
         # unchecked.
         @test EnzymeRates.Derivation._guard(mech).fault ===
               EnzymeRates.Derivation._RE_TURNOVER
-        @test length(mech.catalytic.groups) == 3
+        @test length(_testhelper_group_members(mech.catalytic)) == 3
+        @test mech.catalytic.metabolites == [:S, :P]
+        @test mech.catalytic.enzyme_forms == [:E, :EP, :ES]
         # Steps are canonicalized; pick each by content, not position.
-        # E + S ⇌ E(S)
-        es_step = _testhelper_binding_of(mech, EnzymeRates.Mechanisms.Metabolite(:S, false))
-        @test _testhelper_form_roles(mech, es_step.to) == (:E, [(:S, :substrate)])
-        # The E + S side has conformation :E with no bound metabolite.
-        @test _testhelper_form_roles(mech, es_step.from) == (:E, [])
+        es_step = _testhelper_binding_of(mech, :S)
+        @test _testhelper_ends(mech, es_step) == [:E, :ES]
 
-        # Second step: E(S) ⇌ E(P) — RE iso. The Mechanism constructor
-        # stores an isomerization the way the reaction turns over through it
-        # (`_orientation`), so E(S) is its `from` form and E(P) its `to` form.
+        # ES ⇌ EP, an RE isomerization. The Mechanism constructor stores an isomerization
+        # the way the reaction turns over through it (`_orientation`), so ES is its `from`
+        # form and EP its `to` form.
         iso_step = only(filter(EnzymeRates.Mechanisms._is_iso, mech.catalytic.steps))
-        @test _testhelper_form_roles(mech, iso_step.from) == (:E, [(:S, :substrate)])
-        @test _testhelper_form_roles(mech, iso_step.to) == (:E, [(:P, :product)])
+        @test _testhelper_ends(mech, iso_step) == [:ES, :EP]
 
-        # Multi-bound: E(A, B) → bound [:A, :B]
-        # (sorted by name). Mixed substrate/product/regulator roles
-        # resolved from the declared metabolite blocks.
+        # Substrates, products and modifiers by their declared roles.
         m_multi = @enzyme_mechanism begin
             substrates: A, B
             products:   P
             modifiers: I
             steps: begin
-                E + A <--> E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P)
-                E(P) <--> E + P
-                E + I <--> E(I)
+                E + A <--> EA
+                EA + B <--> EAB
+                EAB <--> EP
+                EP <--> E + P
+                E + I <--> EI
             end
         end
-        eab = only(f for (f, x) in enumerate(m_multi.catalytic.nodes)   # E(A, B)
-                   if Set(y.name for y in x.bound) == Set([:A, :B]))
-        @test _testhelper_form_roles(m_multi, eab) ==
-              (:E, [(:A, :substrate), (:B, :substrate)])
-        # The modifier-only name I binds as a modifier.
-        ei = _testhelper_binding_of(m_multi,                               # E(I)
-                                    EnzymeRates.Mechanisms.Metabolite(:I, true)).to
-        @test _testhelper_form_roles(m_multi, ei) == (:E, [(:I, :modifier)])
+        @test m_multi.catalytic.metabolites == [:A, :B, :P, :I]
+        @test (m_multi.catalytic.substrates, m_multi.catalytic.products) == ([1, 2], [3])
+        @test m_multi.catalytic.enzyme_forms == [:E, :EA, :EAB, :EI, :EP]
+        # The modifier I binds E.
+        @test _testhelper_ends(m_multi, _testhelper_binding_of(m_multi, :I)) == [:E, :EI]
     end
 
     @testset "@enzyme_mechanism call-form grammar" begin
@@ -208,10 +191,10 @@ _testhelper_binding_of(x, t) =
             modifiers: I
 
             steps: begin
-                (E + S ⇌ E(S), E(P) + S ⇌ E(P, S))
-                E(S) + I ⇌ E(S, I)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                (E + S ⇌ ES, EP + S ⇌ EPS)
+                ES + I ⇌ EIS
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         @test _testhelper_substrates(m) == [:S]
@@ -219,19 +202,19 @@ _testhelper_binding_of(x, t) =
         @test _testhelper_regulators(m) == [:I]
         # One shared 2-step kinetic group (the S-binding pair) + 3 singletons →
         # 5 steps, 4 groups (order-independent: canonicalization reorders steps).
-        @test length(m.catalytic.groups) == 4
+        @test length(_testhelper_group_members(m.catalytic)) == 4
 
         # Residual notation: Estar(; residual = A - P).
         m_res = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> E(A)
-                E(A) <--> Estar(; residual = A - P)
-                Estar(; residual = A - P) <--> Estar(Q; residual = A - P)
-                Estar(Q; residual = A - P) <--> Estar(; residual = A - P) + Q
-                Estar(; residual = A - P) + B <--> Estar(B; residual = A - P)
-                Estar(B; residual = A - P) <--> E + P
+                E + A <--> EA
+                EA <--> Estar_res_plusA_minusP
+                Estar_res_plusA_minusP <--> EstarQ_res_plusA_minusP
+                EstarQ_res_plusA_minusP <--> Estar_res_plusA_minusP + Q
+                Estar_res_plusA_minusP + B <--> EstarB_res_plusA_minusP
+                EstarB_res_plusA_minusP <--> E + P
             end
         end
         @test length(m_res.catalytic.steps) == 6
@@ -241,9 +224,9 @@ _testhelper_binding_of(x, t) =
             substrates: S[C]
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end))
 
@@ -254,9 +237,9 @@ _testhelper_binding_of(x, t) =
                 products:   P
                 regulatory_site(2): A::OnlyA
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
                 end
             end))
     end
@@ -268,31 +251,31 @@ _testhelper_binding_of(x, t) =
             products:   F16BP
             oligomeric_state: 2
             steps: begin
-                E + F6P ⇌ E(F6P) :: EqualAI
-                E(F6P) <--> E(F16BP)
-                E(F16BP) ⇌ E + F16BP :: EqualAI
+                E + F6P ⇌ EF6P :: EqualAI
+                EF6P <--> EF16BP
+                EF16BP ⇌ E + F16BP :: EqualAI
             end
         end))
 
         # Reject :OnlyI on the only catalytic step: the active conformation must catalyze.
-        @test_throws ("Mechanism: without its :OnlyI steps E(F6P) <--> " *
-                      "E(F16BP) the active conformation turns no substrate into " *
+        @test_throws ("Mechanism: without its :OnlyI steps EF6P <--> " *
+                      "EF16BP the active conformation turns no substrate into " *
                       "product") eval(
             :(@enzyme_mechanism begin
                 substrates: F6P
                 products:   F16BP
                 oligomeric_state: 2
                 steps: begin
-                    E + F6P ⇌ E(F6P) :: EqualAI
-                    E(F6P) <--> E(F16BP) :: OnlyI
-                    E(F16BP) ⇌ E + F16BP :: EqualAI
+                    E + F6P ⇌ EF6P :: EqualAI
+                    EF6P <--> EF16BP :: OnlyI
+                    EF16BP ⇌ E + F16BP :: EqualAI
                 end
             end))
 
         # Reject a parenthesized step group without a tag beside tagged statements.
         @test_throws("@enzyme_mechanism: the statement " *
-                     "`(E + S ⇌ E(S), E(A) + S ⇌ E(A, S))` carries no allosteric state, " *
-                     "while `E(A, S) <--> E(P)::EqualAI` carries one; a mechanism is " *
+                     "`(E + S ⇌ ES, EA + S ⇌ EAS)` carries no allosteric state, " *
+                     "while `EAS <--> EP::EqualAI` carries one; a mechanism is " *
                      "allosteric when every statement ends in its state (`:: EqualAI`, " *
                      "`:: NonequalAI`, `:: OnlyA` or `:: OnlyI`), and plain when none " *
                      "does.", eval(:(@enzyme_mechanism begin
@@ -300,9 +283,9 @@ _testhelper_binding_of(x, t) =
             products:   P
             oligomeric_state: 2
             steps: begin
-                (E + S ⇌ E(S), E(A) + S ⇌ E(A, S))
-                E(A, S) <--> E(P)   :: EqualAI
-                E(P) ⇌ E + P        :: EqualAI
+                (E + S ⇌ ES, EA + S ⇌ EAS)
+                EAS <--> EP   :: EqualAI
+                EP ⇌ E + P        :: EqualAI
             end
         end)))
     end
@@ -314,9 +297,9 @@ _testhelper_binding_of(x, t) =
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
             end
             regulatory_site(1): X::Bogus
         end))
@@ -327,24 +310,24 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P     :: $state
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P     :: $state
                 end
             end))
         end
         # The guard rejects a rapid-equilibrium :OnlyI binding whose two sides the active
         # conformation's other steps still join.
         joined = "Mechanism: in the active conformation the rapid-equilibrium " *
-                 "step E + P ⇌ E(P) is tagged :OnlyI, but the steps that conformation " *
+                 "step E + P ⇌ EP is tagged :OnlyI, but the steps that conformation " *
                  "keeps still join its two sides."
         @test_throws joined eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: OnlyI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: OnlyI
             end
         end))
 
@@ -357,9 +340,9 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
                 regulatory_site(2): A::OnlyA
                 regulatory_site(4): A::OnlyA
@@ -372,14 +355,14 @@ _testhelper_binding_of(x, t) =
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end))
         @test_throws "`oligomeric_state:` given more than once" eval(
@@ -389,9 +372,9 @@ _testhelper_binding_of(x, t) =
                 oligomeric_state: 2
                 oligomeric_state: 4
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
             end))
     end
@@ -407,26 +390,26 @@ _testhelper_binding_of(x, t) =
             products:   Q
             modifiers: J
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) ⇌ E(Q) + P
-                E(Q) ⇌ E + Q
-                E + I ⇌ E(I)
-                E + J ⇌ E(J)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EPQ ⇌ EQ + P
+                EQ ⇌ E + Q
+                E + I ⇌ EI
+                E + J ⇌ EJ
             end
         end) == @enzyme_mechanism(begin
             substrates: A, B
             products:   P, Q
             modifiers: I, J
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B ⇌ E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) ⇌ E(Q) + P
-                E(Q) ⇌ E + Q
-                E + I ⇌ E(I)
-                E + J ⇌ E(J)
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EPQ
+                EPQ ⇌ EQ + P
+                EQ ⇌ E + Q
+                E + I ⇌ EI
+                E + J ⇌ EJ
             end
         end)
         @test @enzyme_mechanism(begin
@@ -434,9 +417,9 @@ _testhelper_binding_of(x, t) =
             products:   P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
             end
             regulatory_site(2): X::OnlyA, Y::OnlyI
         end) == @enzyme_mechanism(begin
@@ -444,9 +427,9 @@ _testhelper_binding_of(x, t) =
             products:   P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
             end
             regulatory_site(2): X::OnlyA, Y::OnlyI
         end)
@@ -470,42 +453,41 @@ _testhelper_binding_of(x, t) =
     end
 
     @testset "a mechanism macro's list labels take bare names" begin
-        # An atom bracket and a role tag each get a hint where they go; another value
-        # gets none.
+        # An atom bracket gets a hint where it goes, and a tagged name the hint to list it
+        # bare; another value gets none.
         @test_throws("`substrates:` expects bare names; got S[C]. Atom brackets belong " *
                      "in @enzyme_reaction.", eval(:(@enzyme_mechanism begin
             substrates: S[C]
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end)))
-        @test_throws("`modifiers:` expects bare names; got P::Mod. List `P` bare; a role " *
-                     "tag goes on the metabolite in a step.", eval(:(@enzyme_mechanism begin
+        @test_throws("`modifiers:` expects bare names; got P::Mod. List `P` bare.",
+                     eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             modifiers: P::Mod
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + P::Mod ⇌ E(P::Mod)
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                E + P ⇌ EPmod
             end
         end)))
         # Under nested tags the hint still names the metabolite alone.
-        @test_throws("`modifiers:` expects bare names; got (P::Mod)::Mod. List `P` bare; " *
-                     "a role tag goes on the metabolite in a step.",
+        @test_throws("`modifiers:` expects bare names; got (P::Mod)::Mod. List `P` bare.",
                      eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             modifiers: P::Mod::Mod
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + P::Mod ⇌ E(P::Mod)
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                E + P ⇌ EPmod
             end
         end)))
         # A multiplicity call (`P(2)`, `X(1, 2)`) under the tag leaves the metabolite's
@@ -513,12 +495,10 @@ _testhelper_binding_of(x, t) =
         # pinned).
         @test_throws(
             ErrorException("`modifiers:` expects bare names; got P(2)::Mod. " *
-                           "List `P` bare; a role tag goes on the metabolite " *
-                           "in a step."),
+                           "List `P` bare."),
             EnzymeRates.DSL._bare_symbols_from_values(Any[:(P(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got X(1, 2)::Mod. " *
-                                    "List `X` bare; a role tag goes on the metabolite " *
-                                    "in a step."),
+                                    "List `X` bare."),
                      EnzymeRates.DSL._bare_symbols_from_values(Any[:(X(1, 2)::Mod)],
                                                                       :modifiers))
         @test_throws(
@@ -549,8 +529,7 @@ _testhelper_binding_of(x, t) =
                      EnzymeRates.DSL._bare_symbols_from_values(
                          Any[:((A isa B)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (in)(2)::Mod. " *
-                                    "List `in` bare; a role tag goes on the metabolite " *
-                                    "in a step."),
+                                    "List `in` bare."),
                      EnzymeRates.DSL._bare_symbols_from_values(
                          Any[:(in(2)::Mod)], :modifiers))
         @test_throws(ErrorException("`modifiers:` expects bare names; got (-2)::Mod."),
@@ -569,9 +548,9 @@ _testhelper_binding_of(x, t) =
                 products:   P
                 $line
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
                 end
             end))
         end
@@ -599,14 +578,14 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
             end))
     end
@@ -626,9 +605,9 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
                 $site: A::OnlyA
             end)))
@@ -644,9 +623,9 @@ _testhelper_binding_of(x, t) =
             oligomeric_state: 2
 
             steps: begin
-                E + F6P ⇌ E(F6P)        :: EqualAI
-                E(F6P) <--> E(F16BP)    :: EqualAI
-                (E(F16BP) ⇌ E + F16BP,) :: EqualAI
+                E + F6P ⇌ EF6P        :: EqualAI
+                EF6P <--> EF16BP    :: EqualAI
+                (EF16BP ⇌ E + F16BP,) :: EqualAI
             end
 
             regulatory_site(4): A::OnlyA
@@ -658,28 +637,27 @@ _testhelper_binding_of(x, t) =
             oligomeric_state: 2
 
             steps: begin
-                E + F6P ⇌ E(F6P)        :: EqualAI
-                E(F6P) <--> E(F16BP)    :: EqualAI
-                E(F16BP) ⇌ E + F16BP    :: EqualAI
+                E + F6P ⇌ EF6P        :: EqualAI
+                EF6P <--> EF16BP    :: EqualAI
+                EF16BP ⇌ E + F16BP    :: EqualAI
             end
 
             regulatory_site(4): A::OnlyA
             regulatory_site(4): I::OnlyI
         end
         @test one_tuple == bare
-        @test length(
-            one_tuple.catalytic.groups) == 3
+        @test length(_testhelper_group_members(one_tuple.catalytic)) == 3
 
         # A parenthesized step is no tuple: its tag goes after its right-hand side.
         @test_throws("@enzyme_mechanism: a single step carries its tag after its " *
-                     "right-hand side, as in `E + S ⇌ E(S) :: EqualAI`. Got " *
-                     "`(E(P) ⇌ E + P)::EqualAI`.", eval(:(@enzyme_mechanism begin
+                     "right-hand side, as in `E + S ⇌ ES :: EqualAI`. Got " *
+                     "`(EP ⇌ E + P)::EqualAI`.", eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                (E(P) ⇌ E + P) :: EqualAI
+                E + S ⇌ ES
+                ES <--> EP
+                (EP ⇌ E + P) :: EqualAI
             end
         end)))
     end
@@ -708,18 +686,18 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products: P
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
                 end
             end),
             :(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 steps: begin
-                    E + S ⇌ E(S)     :: EqualAI
-                    E(S) <--> E(P)   :: OnlyA
-                    E(P) ⇌ E + P     :: EqualAI
+                    E + S ⇌ ES     :: EqualAI
+                    ES <--> EP   :: OnlyA
+                    EP ⇌ E + P     :: EqualAI
                 end
                 regulatory_site(2): X::OnlyI
             end)]
@@ -816,9 +794,9 @@ _testhelper_binding_of(x, t) =
                 products:   P
                 oligomeric_state: 2.0
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
             end))
         @test_throws "`regulatory_site` multiplicity must be a positive Int, got 0." eval(
@@ -826,9 +804,9 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
                 regulatory_site(0): A::OnlyA
             end))
@@ -845,9 +823,9 @@ _testhelper_binding_of(x, t) =
                 products:   P
                 oligomeric_state: true
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
             end))
         @test_throws("`regulatory_site` multiplicity must be a positive Int, got true.",
@@ -855,9 +833,9 @@ _testhelper_binding_of(x, t) =
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
-                    E(S) <--> E(P)    :: EqualAI
-                    E(P) ⇌ E + P      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
+                    ES <--> EP    :: EqualAI
+                    EP ⇌ E + P      :: EqualAI
                 end
                 regulatory_site(true): A::OnlyA
             end)))
@@ -981,88 +959,31 @@ _testhelper_binding_of(x, t) =
         end
     end
 
-    @testset "opaque bound-form names are rejected" begin
-        @test_throws "opaque bound-form name" eval(:(@enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + S <--> ES
-                ES <--> E + P
-            end
-        end))
-    end
-
-    @testset "every conformation label is conformation-shaped" begin
-        # A call head is a conformation label like a bare name: `ES(P)` is an opaque
-        # bound-form name written as a call.
-        @test_throws "`ES` looks like an opaque bound-form name" eval(
+    @testset "an undeclared metabolite on a step side reads as a second form" begin
+        # A name on a step side that is no declared metabolite names an enzyme form, so an
+        # undeclared `ATP` beside the form E is a second form on its side.
+        two_forms = "step side has more than one enzyme-form term (E, ATP)"
+        @test_throws two_forms eval(
             :(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 steps: begin
-                    E + S <--> E(S)
-                    E(S) <--> ES(P)
-                    ES(P) <--> E + P
+                    E + ATP ⇌ EATP
+                    ES <--> EP
+                    EP ⇌ E + P
                 end
             end))
-        # A bare `ER` is no more acceptable for also heading a call elsewhere.
-        @test_throws "`ER` looks like an opaque bound-form name" eval(
+        @test_throws two_forms eval(
             :(@enzyme_mechanism begin
                 substrates: S
                 products: P
                 steps: begin
-                    E + S <--> ER(S)
-                    ER(S) <--> ER
-                    ER <--> E + P
+                    E + ATP ⇌ EATP    :: EqualAI
+                    E + S ⇌ ES        :: EqualAI
+                    ES <--> EP      :: EqualAI
+                    EP ⇌ E + P        :: EqualAI
                 end
             end))
-    end
-
-    @testset "an undeclared metabolite is reported ahead of the opaque-name check" begin
-        # `ATP` is undeclared: it is a misspelled metabolite, not a bound-form name.
-        @test_throws "bound metabolite `ATP` in species `E(ATP)` is not declared" eval(
-            :(@enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + ATP ⇌ E(ATP)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
-                end
-            end))
-        @test_throws "bound metabolite `ATP` in species `E(ATP)` is not declared" eval(
-            :(@enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + ATP ⇌ E(ATP)    :: EqualAI
-                    E + S ⇌ E(S)        :: EqualAI
-                    E(S) <--> E(P)      :: EqualAI
-                    E(P) ⇌ E + P        :: EqualAI
-                end
-            end))
-    end
-
-    @testset "an allosteric mechanism's opaque rejection names the macro" begin
-        err = try
-            eval(:(@enzyme_mechanism begin
-                substrates: S
-                products: P
-                steps: begin
-                    E + S <--> ES :: EqualAI
-                    ES <--> E + P :: EqualAI
-                end
-                regulatory_site(1): I::OnlyI
-            end))
-            nothing
-        catch e
-            e
-        end
-        @test err !== nothing
-        msg = err isa LoadError ? sprint(showerror, err.error) :
-              sprint(showerror, err)
-        @test occursin("opaque bound-form name", msg)
-        @test occursin("@enzyme_mechanism", msg)
     end
 
     @testset "@enzyme_reaction with oligomeric_state" begin
@@ -1237,8 +1158,8 @@ _testhelper_binding_of(x, t) =
             substrates: S
             products:   P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
+                E + S <--> ES
+                ES <--> E + P
             end
         end
         @test length(m.catalytic.steps) == 2
@@ -1247,15 +1168,14 @@ _testhelper_binding_of(x, t) =
     end
 
     @testset "Elementary steps" begin
-        # The decomposed grammar's parser requires an enzyme form on each
-        # step side at macro-expansion time. Wrap in `eval(:(...))` so the
-        # macro expansion happens at runtime where `@test_throws` can catch
-        # the LoadError that wraps the parser's exception.
+        # The parser requires an enzyme form on each step side at macro-expansion time.
+        # Wrap in `eval(:(...))` so the macro expansion happens at runtime where
+        # `@test_throws` can catch the LoadError that wraps the parser's exception.
         @test_throws "no enzyme-form term" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                S <--> E(S)
+                S <--> ES
             end
         end))
     end
@@ -1269,23 +1189,22 @@ _testhelper_binding_of(x, t) =
                     substrates: S
                     products:   P
                     steps: begin
-                        E + S ⇌ E(S)
+                        E + S ⇌ ES
                         $line
                     end
                 end))
         end
     end
 
-    @testset "::Mod role tag: product that also competitively inhibits" begin
+    @testset "a product bound as a modifier names its form apart" begin
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E(P)
-                E(P) <--> E + P
-                E + P::Mod <--> E(P::Mod)
+                E + S <--> ES
+                ES <--> EP
+                EP <--> E + P
+                E + P <--> EPmod
             end
         end
         forms = _testhelper_graph(m).forms
@@ -1301,29 +1220,29 @@ _testhelper_binding_of(x, t) =
         _testhelper_check_law_against_oracle(m)
     end
 
-    @testset "dual-role names bind by their catalytic role unless tagged ::Mod" begin
-        # The role each binding of `m` binds its metabolite in, by the name of the form
+    @testset "a dual-role name binds in its catalytic role" begin
+        # The role of the metabolite each binding of `m` takes up, by the name of the form
         # it binds into.
         _testhelper_bound_roles(m) = (cm = m.catalytic;
-            Dict(EnzymeRates.Mechanisms._form_name(cm, e.to) =>
-                     _testhelper_role(m, only(e.taken_up))
-                 for e in cm.steps if EnzymeRates.Mechanisms._is_binding(e)))
-        # A substrate also declared a modifier binds as the substrate in a bare
-        # catalytic step; `E(A::Mod)` writes its modifier form.
+            Dict(String(cm.enzyme_forms[e.to]) =>
+                     (only(e.taken_up) in cm.substrates ? :substrate :
+                      only(e.taken_up) in cm.products ? :product : :modifier)
+                 for e in cm.steps if EnzymeRates.Enumeration._is_binding(e)))
+        # A substrate that also binds as a modifier is taken up as the substrate; the
+        # form it makes, EAmod, tells the two bindings apart.
         m = @enzyme_mechanism begin
             substrates: A
             products:   P
-            modifiers: A
             steps: begin
-                E + A ⇌ E(A)
-                E(A) <--> E(P)
-                E(P) ⇌ E + P
-                E + A::Mod ⇌ E(A::Mod)
+                E + A ⇌ EA
+                EA <--> EP
+                EP ⇌ E + P
+                E + A ⇌ EAmod
             end
         end
         roles = _testhelper_bound_roles(m)
         @test roles["EA"] === :substrate
-        @test roles["EAmod"] === :modifier
+        @test roles["EAmod"] === :substrate
         @test roles["EP"] === :product
 
         # A substrate and a product also declared as allosteric regulators bind
@@ -1334,9 +1253,9 @@ _testhelper_binding_of(x, t) =
             products:   P
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(A)          :: EqualAI
-                E(A) <--> E(P)        :: NonequalAI
-                E(P) ⇌ E + P          :: EqualAI
+                E + A ⇌ EA          :: EqualAI
+                EA <--> EP        :: NonequalAI
+                EP ⇌ E + P          :: EqualAI
             end
             regulatory_site(2): A::OnlyI, P::OnlyA
         end
@@ -1348,56 +1267,19 @@ _testhelper_binding_of(x, t) =
     end
 
     @testset "an allosteric regulator binds only at its regulatory site" begin
-        # R is only a ligand of a regulatory site: a free term, a bound metabolite or a
-        # residual entry of a catalytic step names it in error.
+        # R is only a ligand of a regulatory site: a free term of a catalytic step names
+        # it in error.
         @test_throws "`R` is an allosteric regulator" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
-                E + R ⇌ E(R)      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
+                E + R ⇌ ER      :: EqualAI
             end
             regulatory_site(1): R::OnlyA
         end))
-        @test_throws "`R` is an allosteric regulator" eval(:(@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)        :: EqualAI
-                E(S) <--> E(P, R)   :: EqualAI
-                E(P, R) ⇌ E + P     :: EqualAI
-            end
-            regulatory_site(1): R::OnlyA
-        end))
-        @test_throws "got `R`" eval(:(@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)                       :: EqualAI
-                E(S) <--> Estar(; residual = S - R) :: EqualAI
-                Estar(; residual = S - R) ⇌ E + P   :: EqualAI
-            end
-            regulatory_site(1): R::OnlyA
-        end))
-        # Tagged `R::Mod`, it is neither a substrate nor a product to bind as a modifier.
-        # The macro raises the error while it expands, so `eval` wraps it in a LoadError:
-        # match the text.
-        @test_throws(
-            "@enzyme_mechanism: `R::Mod` marks a substrate or product bound as a " *
-            "modifier, and `R` is neither; write a name under `modifiers:` bare.",
-            eval(:(@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)              :: EqualAI
-                E(S) <--> E(P)            :: EqualAI
-                E(P) ⇌ E + P              :: EqualAI
-                E + R::Mod ⇌ E(R::Mod)    :: EqualAI
-            end
-            regulatory_site(1): R::OnlyA
-        end)))
         # Listed in both, R binds its regulatory site and, as a modifier, the catalytic
         # site.
         dual = @enzyme_mechanism begin
@@ -1405,50 +1287,48 @@ _testhelper_binding_of(x, t) =
             products:   P
             modifiers: R
             steps: begin
-                E + S ⇌ E(S)              :: EqualAI
-                E(S) <--> E(P)            :: EqualAI
-                E(P) ⇌ E + P              :: EqualAI
-                E + R ⇌ E(R)    :: EqualAI
+                E + S ⇌ ES              :: EqualAI
+                ES <--> EP            :: EqualAI
+                EP ⇌ E + P              :: EqualAI
+                E + R ⇌ ER    :: EqualAI
             end
             regulatory_site(1): R::OnlyA
         end
-        @test count(
-            _testhelper_binds_entry(dual.catalytic,
-                                    EnzymeRates.Mechanisms.Metabolite(:R, true)),
-            dual.catalytic.steps) == 1
+        r = _testhelper_metabolite(dual.catalytic, :R)
+        @test count(e -> e.taken_up == [r] && isempty(e.given_off),
+                    dual.catalytic.steps) == 1
         @test :R in only(dual.allosteric.regulatory_sites).ligands
     end
 
-    @testset "X::Mod names a declared modifier" begin
-        # A substrate or a product written `X::Mod` must also be listed under
-        # `modifiers:`; the mechanism then names it among its modifiers.
-        for x in (:S, :P)
+    @testset "X::Mod is an error that says to take X up" begin
+        # A step that binds a reactant, or a regulator, as a modifier takes the metabolite
+        # itself up; a tag `::Mod` asks to write the bare name.
+        for x in (:S, :P, :R)
             @test_throws(
-                "@enzyme_mechanism: `$x::Mod` names `$x`, which `modifiers:` does " *
-                "not declare; add `$x` to `modifiers:` to let it bind the catalytic " *
-                "site as a modifier.", eval(:(@enzyme_mechanism begin
+                "@enzyme_mechanism: `$x::Mod` writes a modifier copy, which a mechanism " *
+                "does not hold: a step that binds $x as a modifier takes $x up; write " *
+                "`$x`.", eval(:(@enzyme_mechanism begin
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
-                    E + $x::Mod ⇌ E($x::Mod)
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
+                    E + $x::Mod ⇌ $(Symbol(:E, x, :mod))
                 end
             end)))
         end
         declared = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + P::Mod ⇌ E(P::Mod)
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                E + P ⇌ EPmod
             end
         end
-        @test declared.catalytic.modifiers == [:P]
+        @test declared.catalytic.metabolites == [:S, :P]
     end
 
     @testset "a step side holds one enzyme form" begin
@@ -1457,97 +1337,72 @@ _testhelper_binding_of(x, t) =
             substrates: A, B
             products:   P
             steps: begin
-                E(A) + E(B) <--> E(A, B)
-                E(A, B) <--> E + P
+                EA + EB <--> EAB
+                EAB <--> E + P
             end
         end))
     end
 
-    @testset "a residual adds substrates and subtracts products" begin
-        # `P - S` adds a product and subtracts a substrate; `P` and `-S` each do one of
-        # the two; `S - I` subtracts a modifier.
-        for residual in (:(P - S), :P, :(-S), :(S - I))
-            @test_throws "adds substrates and subtracts products" eval(
-                :(@enzyme_mechanism begin
-                    substrates: S
-                    products:   P
-                    modifiers: I
-                    steps: begin
-                        E + S ⇌ E(S)
-                        E(S) <--> Estar(; residual = $residual)
-                        Estar(; residual = $residual) ⇌ E + P
-                    end
-                end))
-        end
-    end
-
-    @testset "::Mod is never a step tag" begin
-        # `E(S::Mod) ⇌ E + S::Mod :: EqualAI` parses as `(S::Mod)::EqualAI`: the state
-        # after `::Mod` is the step's tag, and the step reads like its binding direction.
+    @testset "a binding written as its release is one step, its state at the end" begin
+        # `ESmod ⇌ E + S :: EqualAI` parses as `S :: EqualAI` on its last term: the state
+        # is the step's tag, and the step reads like its binding direction.
         bind_mod = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: S
             steps: begin
-                E + S ⇌ E(S)             :: EqualAI
-                E(S) <--> E(P)           :: EqualAI
-                E(P) ⇌ E + P             :: EqualAI
-                E + S::Mod ⇌ E(S::Mod)   :: EqualAI
+                E + S ⇌ ES             :: EqualAI
+                ES <--> EP           :: EqualAI
+                EP ⇌ E + P             :: EqualAI
+                E + S ⇌ ESmod   :: EqualAI
             end
         end
         release_mod = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: S
             steps: begin
-                E + S ⇌ E(S)             :: EqualAI
-                E(S) <--> E(P)           :: EqualAI
-                E(P) ⇌ E + P             :: EqualAI
-                E(S::Mod) ⇌ E + S::Mod   :: EqualAI
+                E + S ⇌ ES             :: EqualAI
+                ES <--> EP           :: EqualAI
+                EP ⇌ E + P             :: EqualAI
+                ESmod ⇌ E + S   :: EqualAI
             end
         end
         @test release_mod == bind_mod
 
-        # Without a state the step is missing its tag: the role tag that ends it is no
-        # state.
-        @test_throws("@enzyme_mechanism: the statement `E(S::Mod) ⇌ E + S::Mod` " *
-                     "carries no allosteric state, while `E + S ⇌ E(S)::EqualAI` carries " *
+        # Without a state the step is missing its tag.
+        @test_throws("@enzyme_mechanism: the statement `ESmod ⇌ E + S` " *
+                     "carries no allosteric state, while `E + S ⇌ ES::EqualAI` carries " *
                      "one; a mechanism is allosteric when every statement ends in its " *
                      "state (`:: EqualAI`, `:: NonequalAI`, `:: OnlyA` or `:: OnlyI`), " *
                      "and plain when none does.", eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: S
             steps: begin
-                E + S ⇌ E(S)           :: EqualAI
-                E(S) <--> E(P)         :: EqualAI
-                E(P) ⇌ E + P           :: EqualAI
-                E(S::Mod) ⇌ E + S::Mod
+                E + S ⇌ ES           :: EqualAI
+                ES <--> EP         :: EqualAI
+                EP ⇌ E + P           :: EqualAI
+                ESmod ⇌ E + S
             end
         end)))
 
-        # A plain mechanism may release a modifier copy as well as bind it: the role tag
-        # that ends the release is no step tag.
+        # A plain mechanism may write the second binding of S as its release.
         bind_plain = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: S
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + S::Mod ⇌ E(S::Mod)
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                E + S ⇌ ESmod
             end
         end
         release_plain = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers: S
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E(S::Mod) ⇌ E + S::Mod
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                ESmod ⇌ E + S
             end
         end
         @test release_plain == bind_plain
@@ -1557,9 +1412,9 @@ _testhelper_binding_of(x, t) =
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)    :: EqualAI
-                E(S) <--> E(P)  :: EqualAI
-                E(P) ⇌ E + P    :: 3
+                E + S ⇌ ES    :: EqualAI
+                ES <--> EP  :: EqualAI
+                EP ⇌ E + P    :: 3
             end
         end))
     end
@@ -1572,28 +1427,30 @@ _testhelper_binding_of(x, t) =
             modifiers: I
             steps: begin
                 $step
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + I ⇌ E(I)
+                ES <--> EP
+                EP ⇌ E + P
+                E + I ⇌ EI
             end
         end)
         for (step, text) in (
-                (:(E + S → E(S)), "expected ⇌ or <--> step operator; got →"),
-                (:(E + 2 ⇌ E(S)),
-                 "expected metabolite Symbol or species expression on step side; got 2"),
-                (:(E + S ⇌ E(S, f(I))), "invalid entry in species `E(S, f(I))`: f(I)"),
-                (:(E + S ⇌ E(S; residual = 2S)), "invalid residual expression: 2S"),
-                (:(E + S ⇌ E(S; foo = P)),
-                 "unknown keyword in species `E(S; foo = P)`: foo = P. Only " *
-                 "`residual = ...` is allowed."),
-                (:(E + S ⇌ E(S; foo)),
-                 "unknown keyword in species `E(S; foo)`: foo. Only `residual = ...` is " *
-                 "allowed."),
-                (:(E + S ⇌ E((I + S)::Mod)),
-                 "expected `name::Mod` in species `E((I + S)::Mod)`; got (I + S)::Mod"),
-                (:(E + 2::Mod ⇌ E(S)), "expected `name::Mod`; got 2::Mod"))
+                (:(E + S → ES), "expected ⇌ or <--> step operator; got →"),
+                (:(E + 2 ⇌ ES),
+                 "expected a metabolite or an enzyme form's name on a step side; got `2`."),
+                (:(E + 2::Mod ⇌ ES),
+                 "expected a metabolite or an enzyme form's name on a step side; got " *
+                 "`2::Mod`."))
             # A syntax error throws at expansion, so `eval` wraps it in a LoadError.
             @test_throws "@enzyme_mechanism: " * text eval(_testhelper_block_with(step))
+        end
+
+        # Call notation is an error; where its arguments name no form, the error asks for
+        # a name.
+        for step in (:(E + S ⇌ E(S, f(I))), :(E + S ⇌ E(S; residual = 2S)),
+                     :(E + S ⇌ E(S; foo = P)), :(E + S ⇌ E((I + S)::Mod)))
+            @test_throws("@enzyme_mechanism: `$(step.args[3])` is call notation; an " *
+                         "enzyme form is a name, so write one, such as `EAB` for " *
+                         "`E(A, B)`.",
+                         eval(_testhelper_block_with(step)))
         end
 
         # A step group's tag is a name.
@@ -1602,8 +1459,8 @@ _testhelper_binding_of(x, t) =
             substrates: S
             products:   P
             steps: begin
-                (E + S ⇌ E(S), E(S) <--> E(P)) :: 1
-                E(P) ⇌ E + P                   :: EqualAI
+                (E + S ⇌ ES, ES <--> EP) :: 1
+                EP ⇌ E + P                   :: EqualAI
             end
         end)))
     end
@@ -1613,8 +1470,8 @@ _testhelper_binding_of(x, t) =
         # complex, and a Theorell–Chance step that takes up a modifier and gives off a
         # product. The active conformation cannot switch off the rapid-equilibrium S
         # binding, whose two sides the product release still joins. The guard's built
-        # readings stop the isomerization, which leaves F(I) an island; the search lets
-        # it lose its rate into F(I) instead and admits the mechanism. The Theorell–Chance
+        # readings stop the isomerization, which leaves FI an island; the search lets
+        # it lose its rate into FI instead and admits the mechanism. The Theorell–Chance
         # step is stopped. Each admitted shape has a law equal to the limit on every face,
         # and each group tagged :NonequalAI passes the guard.
         D = EnzymeRates.Derivation
@@ -1622,20 +1479,20 @@ _testhelper_binding_of(x, t) =
         _testhelper_block(steps; guarded = true) = Meta.parse(
             (guarded ? "" : "@_testhelper_unguarded ") * "@enzyme_mechanism begin\n" *
             "substrates: S\nproducts: P\nmodifiers: I\nsteps: begin\n$steps\nend\nend")
-        rest = "E(S) <--> E + P :: EqualAI\nE + I ⇌ E(I) :: EqualAI"
-        binding = "E + S ⇌ E(S) :: OnlyI\n$rest"
-        isomerization = "E + S ⇌ E(S) :: EqualAI\n$rest\nE(I) <--> F(I) :: OnlyI"
-        exchange = "E + S ⇌ E(S) :: EqualAI\n$rest\nE(S) + I <--> E(I) + P :: OnlyI"
+        rest = "ES <--> E + P :: EqualAI\nE + I ⇌ EI :: EqualAI"
+        binding = "E + S ⇌ ES :: OnlyI\n$rest"
+        isomerization = "E + S ⇌ ES :: EqualAI\n$rest\nEI <--> FI :: OnlyI"
+        exchange = "E + S ⇌ ES :: EqualAI\n$rest\nES + I <--> EI + P :: OnlyI"
         am = eval(_testhelper_block(binding; guarded = false))
         v = D._guard(am)
         @test (v.fault, v.conformation) == (D._FAST_STEP_PINNED, 1)
-        @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E + S ⇌ E(S)"
+        @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E + S ⇌ ES"
         @test_throws(ErrorException(D._guard_message(am)),
                      eval(_testhelper_block(binding)))
         am = eval(_testhelper_block(isomerization; guarded = false))
         v = D._admission_interior(am, D._built_reading(am))
         @test (v.fault, v.conformation) == (D._ISLAND, 1)
-        @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "E(I) <--> F(I)"
+        @test EnzymeRates.Mechanisms.step_text(am.catalytic, v.edge) == "EI <--> FI"
         @test eval(_testhelper_block(isomerization)) == am
         @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(32),
                                                   corners = true))
@@ -1650,19 +1507,20 @@ _testhelper_binding_of(x, t) =
     end
 end
 
-@testset "DSL: modifiers, ::Mod and regulatory_site(n)" begin
-    @testset "a modifier binds bare, a reactant's modifier copy as X::Mod" begin
-        # I binds only as a modifier; P is a product that also binds as a modifier.
+@testset "DSL: modifiers and regulatory_site(n)" begin
+    @testset "a modifier binds bare, and a reactant binds as a modifier by its name" begin
+        # I binds only as a modifier; P is a product that also binds as a modifier, into
+        # the form EPmod.
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
-            modifiers:  I, P
+            modifiers:  I
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E(S) + I ⇌ E(S, I)
-                E + P::Mod ⇌ E(P::Mod)
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                ES + I ⇌ EIS
+                E + P ⇌ EPmod
             end
         end
         @test parameters(m) == (:K_EIS_to_ES_I, :K_EP_to_E_P,
@@ -1675,16 +1533,16 @@ end
         am = @enzyme_mechanism begin
             substrates: A, B
             products:   P, Q
-            modifiers:  I, P
+            modifiers:  I
             oligomeric_state: 2
             steps: begin
-                E + A ⇌ E(A)                              :: EqualAI
-                E(A) + B ⇌ E(A, B)                        :: NonequalAI
-                E(A, B) <--> E(P, Q)                      :: OnlyA
-                E(P, Q) ⇌ E(Q) + P                        :: EqualAI
-                E(Q) ⇌ E + Q                              :: EqualAI
-                (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))        :: EqualAI
-                E(Q) + P::Mod ⇌ E(P::Mod, Q)              :: EqualAI
+                E + A ⇌ EA                              :: EqualAI
+                EA + B ⇌ EAB                        :: NonequalAI
+                EAB <--> EPQ                      :: OnlyA
+                EPQ ⇌ EQ + P                        :: EqualAI
+                EQ ⇌ E + Q                              :: EqualAI
+                (E + I ⇌ EI, EA + I ⇌ EAI)        :: EqualAI
+                EQ + P ⇌ EPmodQ              :: EqualAI
             end
             regulatory_site(2): X::OnlyA, Y::OnlyI
         end
@@ -1702,9 +1560,9 @@ end
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: OnlyA
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: OnlyA
+                EP ⇌ E + P      :: EqualAI
             end
             regulatory_site(1): X::OnlyI
         end
@@ -1721,10 +1579,10 @@ end
             products:   P
             modifiers:  R
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
-                E + R ⇌ E(R)      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
+                E + R ⇌ ER      :: EqualAI
             end
             regulatory_site(1): R::OnlyA
         end
@@ -1736,31 +1594,27 @@ end
 
     @testset "the walker returns each block as written" begin
         # Steps keep their written order and direction, each joining its two written
-        # ends, nodes 2j - 1 and 2j; each statement is one kinetic group label, and a
-        # metabolite is a modifier when written bare under `modifiers:` or as a
-        # reactant's X::Mod.
-        M, St = EnzymeRates.Mechanisms.Metabolite, EnzymeRates.Mechanisms.Step
-        F(c, bound, added = Symbol[], subtracted = Symbol[]) =
-            EnzymeRates.Mechanisms.EnzymeForm(c, bound, added, subtracted)
-        s, p, i, smod = M(:S, false), M(:P, false), M(:I, true), M(:S, true)
+        # forms, named in the order the sides first write them, and taking up and giving
+        # off metabolites by their place among the declared names; each statement is one
+        # kinetic group label.
+        St = EnzymeRates.Mechanisms.Step
+        none = Int[]
         raw = EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
             products:   P
-            modifiers:  I, S
+            modifiers:  I
             steps: begin
-                E(S) ⇌ E + S
-                (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))
-                E(S) <--> Estar(; residual = S - P) + P
-                E + S::Mod ⇌ E(S::Mod)
+                ES ⇌ E + S
+                (E + I ⇌ EI, ES + I ⇌ EIS)
+                ES <--> Estar_res_plusS_minusP + P
+                E + S ⇌ ESmod
             end
         end)
-        @test raw == (; substrates = [:S], products = [:P], modifiers = [:I, :S],
-            nodes = [F(:E, [s]), F(:E, M[]), F(:E, M[]), F(:E, [i]), F(:E, [s]),
-                     F(:E, [i, s]), F(:E, [s]), F(:Estar, M[], [:S], [:P]), F(:E, M[]),
-                     F(:E, [smod])],
-            steps = [St(1, 2, M[], [s], true, 1), St(3, 4, [i], M[], true, 2),
-                     St(5, 6, [i], M[], true, 2), St(7, 8, M[], [p], false, 3),
-                     St(9, 10, [smod], M[], true, 4)],
+        @test raw == (; substrates = [:S], products = [:P], modifiers = [:I],
+            forms = [:ES, :E, :EI, :EIS, :Estar_res_plusS_minusP, :ESmod],
+            steps = [St(1, 2, none, [1], true, 1), St(2, 3, [3], none, true, 2),
+                     St(1, 4, [3], none, true, 2), St(1, 5, none, [2], false, 3),
+                     St(2, 6, [1], none, true, 4)],
             allosteric_states = Symbol[], oligomeric_state = 1,
             regulatory_sites = EnzymeRates.DSL._WrittenSite[])
         # An allosteric block adds a tag per group label, the oligomeric state
@@ -1769,78 +1623,74 @@ end
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)              :: EqualAI
-                E(S) <--> E(P)            :: OnlyA
-                (E(P) ⇌ E + P,)           :: NonequalAI
+                E + S ⇌ ES              :: EqualAI
+                ES <--> EP            :: OnlyA
+                (EP ⇌ E + P,)           :: NonequalAI
             end
             regulatory_site(2): Y::OnlyI, X::OnlyA
         end)
         @test allo == (; substrates = [:S], products = [:P], modifiers = Symbol[],
-            nodes = [F(:E, M[]), F(:E, [s]), F(:E, [s]), F(:E, [p]), F(:E, [p]),
-                     F(:E, M[])],
-            steps = [St(1, 2, [s], M[], true, 1), St(3, 4, M[], M[], false, 2),
-                     St(5, 6, M[], [p], true, 3)],
+            forms = [:E, :ES, :EP],
+            steps = [St(1, 2, [1], none, true, 1), St(2, 3, none, none, false, 2),
+                     St(3, 1, none, [2], true, 3)],
             allosteric_states = [:EqualAI, :OnlyA, :NonequalAI], oligomeric_state = 1,
             regulatory_sites = [(; ligands = [:Y, :X], multiplicity = 2,
                                  allosteric_states = [:OnlyI, :OnlyA])])
     end
 
-    @testset "::Mod marks a substrate or product under modifiers: only" begin
-        # A modifier-only name binds bare, so ::Mod on it is an error.
-        @test_throws("@enzyme_mechanism: `I::Mod` marks a substrate or product bound " *
-                     "as a modifier, and `I` is neither; write a name under " *
-                     "`modifiers:` bare.", eval(:(@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            modifiers:  I
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + I::Mod ⇌ E(I::Mod)
-            end
-        end)))
-        # A reactant written X::Mod must be listed under modifiers:.
-        @test_throws("@enzyme_mechanism: `P::Mod` names `P`, which `modifiers:` does " *
-                     "not declare; add `P` to `modifiers:` to let it bind the catalytic " *
-                     "site as a modifier.", eval(:(@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
-                E + P::Mod ⇌ E(P::Mod)
-            end
-        end)))
-        # An allosteric regulator binds only at its site, bare or tagged.
+    @testset "a tag on a metabolite is an error that says what to write" begin
+        # A modifier, a reactant: `::Mod` asks to write the bare name.
+        for (x, declared) in ((:I, :(modifiers: I)), (:P, :(modifiers: J)))
+            @test_throws("@enzyme_mechanism: `$x::Mod` writes a modifier copy, which a " *
+                         "mechanism does not hold: a step that binds $x as a modifier " *
+                         "takes $x up; write `$x`.", eval(:(@enzyme_mechanism begin
+                substrates: S
+                products:   P
+                $declared
+                steps: begin
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
+                    E + $x::Mod ⇌ $(Symbol(:E, x, :mod))
+                end
+            end)))
+        end
+        # An allosteric regulator binds only at its site.
         @test_throws "`R` is an allosteric regulator" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
-                E + R ⇌ E(R)      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
+                E + R ⇌ ER      :: EqualAI
             end
             regulatory_site(1): R::OnlyA
         end))
-        # ::Mod is the one role tag, also where a role tag ends a step.
-        for line in (:(E + P::Inh ⇌ E(P::Inh)), :(E(P) ⇌ E + P::Inh))
-            @test_throws("@enzyme_mechanism: unknown role tag ::Inh on P; the one role " *
-                         "tag is ::Mod, which marks a substrate or product bound as a " *
-                         "modifier.", eval(:(@enzyme_mechanism begin
-                substrates: S
-                products:   P
-                modifiers:  P
-                steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
-                    $line
-                end
-            end)))
-        end
+        # Another tag on a left-hand metabolite is unknown; on the last right-hand term it
+        # is the step's state, so one statement carries a state and the others none.
+        @test_throws("@enzyme_mechanism: unknown tag ::Inh on P; a step ends in its " *
+                     "allosteric state, written after its right-hand side.",
+                     eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+                E + P::Inh ⇌ EPInh
+            end
+        end)))
+        @test_throws("carries no allosteric state, while `EP ⇌ E + P::Inh` carries one",
+                     eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P::Inh
+            end
+        end)))
     end
 
     @testset "every allosteric regulator sits at exactly one regulatory site" begin
@@ -1850,9 +1700,9 @@ end
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: OnlyA
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: OnlyA
+                EP ⇌ E + P      :: EqualAI
             end
         end
         _testhelper_sites(sites...) = eval(:(@enzyme_mechanism $(
@@ -1885,56 +1735,54 @@ end
             "while `$with` carries one; a mechanism is allosteric when every statement " *
             "ends in its state (`:: EqualAI`, `:: NonequalAI`, `:: OnlyA` or " *
             "`:: OnlyI`), and plain when none does."
-        @test_throws(mixed("E(S) <--> E(P)", "E + S ⇌ E(S)::EqualAI"),
+        @test_throws(mixed("ES <--> EP", "E + S ⇌ ES::EqualAI"),
                      eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP
+                EP ⇌ E + P      :: EqualAI
             end
         end)))
-        @test_throws(mixed("E + S ⇌ E(S)", "E(S) <--> E(P)::EqualAI"),
+        @test_throws(mixed("E + S ⇌ ES", "ES <--> EP::EqualAI"),
                      eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P
             end
         end)))
         # A single step carries its tag after its right-hand side; a parenthesized group
         # is a tuple of steps, `(step,)` for one.
         @test_throws("@enzyme_mechanism: a single step carries its tag after its " *
-                     "right-hand side, as in `E + S ⇌ E(S) :: EqualAI`. Got " *
-                     "`(E(P) ⇌ E + P)::EqualAI`.", eval(:(@enzyme_mechanism begin
+                     "right-hand side, as in `E + S ⇌ ES :: EqualAI`. Got " *
+                     "`(EP ⇌ E + P)::EqualAI`.", eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)              :: EqualAI
-                E(S) <--> E(P)            :: EqualAI
-                (E(P) ⇌ E + P)            :: EqualAI
+                E + S ⇌ ES              :: EqualAI
+                ES <--> EP            :: EqualAI
+                (EP ⇌ E + P)            :: EqualAI
             end
         end)))
         # A tag after a parenthesized right-hand side tags the step, as after a bare one.
-        M, St = EnzymeRates.Mechanisms.Metabolite, EnzymeRates.Mechanisms.Step
-        F(c, bound) = EnzymeRates.Mechanisms.EnzymeForm(c, bound, Symbol[], Symbol[])
-        s, p = M(:S, false), M(:P, false)
+        St = EnzymeRates.Mechanisms.Step
+        none = Int[]
         @test EnzymeRates.DSL.raw_mechanism(quote
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)        :: EqualAI
-                E(S) <--> E(P)      :: OnlyA
-                E(P) ⇌ (E + P)      :: EqualAI
+                E + S ⇌ ES        :: EqualAI
+                ES <--> EP      :: OnlyA
+                EP ⇌ (E + P)      :: EqualAI
             end
         end) == (; substrates = [:S], products = [:P], modifiers = Symbol[],
-            nodes = [F(:E, M[]), F(:E, [s]), F(:E, [s]), F(:E, [p]), F(:E, [p]),
-                     F(:E, M[])],
-            steps = [St(1, 2, [s], M[], true, 1), St(3, 4, M[], M[], false, 2),
-                     St(5, 6, M[], [p], true, 3)],
+            forms = [:E, :ES, :EP],
+            steps = [St(1, 2, [1], none, true, 1), St(2, 3, none, none, false, 2),
+                     St(3, 1, none, [2], true, 3)],
             allosteric_states = [:EqualAI, :OnlyA, :EqualAI], oligomeric_state = 1,
             regulatory_sites = EnzymeRates.DSL._WrittenSite[])
         @test_throws "@enzyme_mechanism: a parenthesized group holds no step" eval(
@@ -1942,7 +1790,7 @@ end
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)
+                    E + S ⇌ ES
                     ()
                 end
             end))
@@ -1958,7 +1806,7 @@ end
                 products:   P
                 $label: I
                 steps: begin
-                    E + S ⇌ E(S)
+                    E + S ⇌ ES
                 end
             end)))
         end
@@ -1969,7 +1817,7 @@ end
                 products:   P
                 $label: I
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
                 end
             end)))
         end
@@ -1980,7 +1828,7 @@ end
                 products:   P
                 oligomeric_state: 2, 4
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
                 end
             end""")))
         @test_throws("@enzyme_mechanism: `steps:` takes a `begin ... end` block of " *
@@ -1995,17 +1843,17 @@ end
                 substrates: S
                 products:   P
                 steps: begin
-                    E + S ⇌ E(S)
+                    E + S ⇌ ES
                 end, S
             end""")))
         @test_throws "`steps:` given more than once" eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
+                E + S ⇌ ES
             end
             steps: begin
-                E(S) <--> E + P
+                ES <--> E + P
             end
         end))
         @test_throws "`oligomeric_state:` given more than once" eval(
@@ -2015,30 +1863,19 @@ end
                 oligomeric_state: 2
                 oligomeric_state: 2
                 steps: begin
-                    E + S ⇌ E(S)      :: EqualAI
+                    E + S ⇌ ES      :: EqualAI
                 end
             end))
     end
 
-    @testset "a conformation label: a capital, then lowercase letters and digits" begin
-        @test_throws("@enzyme_mechanism: `E_c` is not a conformation label: a " *
-                     "conformation label is a capital letter followed by lowercase " *
-                     "letters and digits, such as `E`, `Estar` or `F2`.",
-                     eval(:(@enzyme_mechanism begin
-            substrates: S
-            products:   P
-            steps: begin
-                E_c + S ⇌ E_c(S)
-                E_c(S) <--> E_c + P
-            end
-        end)))
+    @testset "a form's name is opaque: capitals, lowercase letters and digits" begin
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> Estar2(P)
-                Estar2(P) ⇌ Estar2 + P
+                E + S ⇌ ES
+                ES <--> Estar2P
+                Estar2P ⇌ Estar2 + P
                 Estar2 <--> E
             end
         end
@@ -2047,57 +1884,56 @@ end
         _testhelper_check_law_against_oracle(m)
     end
 
-    @testset "a conformation label that names a declared metabolite or a ligand" begin
-        # A form's text starts with its label, so a DSL text would read the label as the
-        # metabolite; the constructors reject the label.
-        @test_throws("Mechanism: conformation label `S` collides with declared " *
-                     "metabolite `S`; choose a different conformation label.",
+    @testset "a name on a step side is a metabolite before it is a form" begin
+        # A declared metabolite's name on a side is the metabolite, so a side of two
+        # metabolites names no form; a ligand's name on a side is the ligand, which binds
+        # only at its regulatory site.
+        @test_throws("@enzyme_mechanism: step side has no enzyme-form term (terms: S)",
                      eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> S(P)
-                S(P) ⇌ E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> S
+                ES ⇌ E + P
             end
         end)))
-        @test_throws("Mechanism: conformation label `F` collides with ligand " *
-                     "`F`; choose a different conformation label.",
+        @test_throws("@enzyme_mechanism: `FP` is an allosteric regulator; it binds only " *
+                     "at its regulatory site, unless `modifiers:` lists it too.",
                      eval(:(@enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> F(P)    :: EqualAI
-                F(P) ⇌ E(P)       :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> FP    :: EqualAI
+                FP ⇌ EP       :: EqualAI
+                EP ⇌ E + P      :: EqualAI
             end
-            regulatory_site(1): F::OnlyI
+            regulatory_site(1): FP::OnlyI
         end)))
     end
 
     @testset "constructor errors throw when the expanded code runs" begin
         # The walker reads the block at expansion; the constructors and the guard check
         # the mechanism when the macro's code runs, so these throw outside `eval`.
-        no_turnover = "Mechanism: without its :OnlyI steps E(S) <--> E(P) the " *
+        no_turnover = "Mechanism: without its :OnlyI steps ES <--> EP the " *
                       "active conformation turns no substrate into product"
         @test_throws no_turnover @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: OnlyI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: OnlyI
+                EP ⇌ E + P      :: EqualAI
             end
         end
         @test_throws "allosteric state Bogus must be one of" @enzyme_mechanism begin
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)      :: EqualAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: EqualAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: EqualAI
             end
             regulatory_site(2): X::Bogus
         end
@@ -2105,7 +1941,7 @@ end
             substrates: S
             products:   S
             steps: begin
-                E + S ⇌ E(S)
+                E + S ⇌ ES
             end
         end
     end
@@ -2113,28 +1949,27 @@ end
 
 @testset "DSL text: parse_mechanism reads a mechanism back from its text" begin
     @testset "every mechanism the macros accept reads back" begin
-        # Names a block may use and labels at the edge of the shape rule, each through
-        # the macro, then printed and read back: contextual keywords, Greek letters and a
-        # subscript as names; conformation labels with digits, one letter, or the names
-        # of the role tag and of a removed role tag; residuals with and without bound
-        # metabolites, one that only subtracts; two copies of a modifier copy; a name that
-        # is both a modifier and an allosteric regulator, a substrate that is also an
-        # allosteric regulator; an allosteric mechanism without sites; multiplicities of
-        # two digits.
+        # Names a block may use, each through the macro, then printed and read back:
+        # contextual keywords, Greek letters and a subscript as names; form names with
+        # digits, of one letter, or that once named tags (`ModP`, `Inh`); forms named
+        # after a residual, with and without bound metabolites, one that only subtracts;
+        # a reactant bound twice as a modifier; a name that is both a modifier and an
+        # allosteric regulator, a substrate that is also an allosteric regulator; an
+        # allosteric mechanism without sites; multiplicities of two digits.
         mechanisms = [
             @enzyme_mechanism(begin
                 substrates: abstract, mutable
                 products: outer, primitive
                 modifiers: public, type, var
                 steps: begin
-                    E + abstract ⇌ E(abstract)
-                    E(abstract) + mutable ⇌ E(abstract, mutable)
-                    E(abstract, mutable) <--> E(outer, primitive)
-                    E(outer, primitive) ⇌ E(primitive) + outer
-                    E(primitive) ⇌ E + primitive
-                    E + public ⇌ E(public)
-                    E + type ⇌ E(type)
-                    E + var ⇌ E(var)
+                    E + abstract ⇌ Eabstract
+                    Eabstract + mutable ⇌ Eabstractmutable
+                    Eabstractmutable <--> Eouterprimitive
+                    Eouterprimitive ⇌ Eprimitive + outer
+                    Eprimitive ⇌ E + primitive
+                    E + public ⇌ Epublic
+                    E + type ⇌ Etype
+                    E + var ⇌ Evar
                 end
             end),
             @enzyme_mechanism(begin
@@ -2142,20 +1977,20 @@ end
                 products: β₂
                 modifiers: Δ
                 steps: begin
-                    E + α ⇌ E(α)
-                    E(α) <--> E(β₂)
-                    E(β₂) ⇌ E + β₂
-                    E + Δ ⇌ E(Δ)
+                    E + α ⇌ Eα
+                    Eα <--> Eβ₂
+                    Eβ₂ ⇌ E + β₂
+                    E + Δ ⇌ EΔ
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: S
                 products: P
                 steps: begin
-                    E + S <--> E(S)
-                    E(S) <--> Z9(S)
-                    Z9(S) <--> Mod(P)
-                    Mod(P) <--> Inh + P
+                    E + S <--> ES
+                    ES <--> Z9S
+                    Z9S <--> ModP
+                    ModP <--> Inh + P
                     Inh <--> F
                     F <--> E
                 end
@@ -2164,24 +1999,23 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A <--> E(A)
-                    E(A) <--> F(; residual = A - P) + P
-                    F(; residual = A - P) + B <--> F(B; residual = A - P)
-                    F(B; residual = A - P) <--> E(Q)
-                    E(Q) <--> E + Q
-                    E(Q) <--> Estar(; residual = -Q)
+                    E + A <--> EA
+                    EA <--> F_res_plusA_minusP + P
+                    F_res_plusA_minusP + B <--> FB_res_plusA_minusP
+                    FB_res_plusA_minusP <--> EQ
+                    EQ <--> E + Q
+                    EQ <--> Estar_res_minusQ
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: S
                 products: P
-                modifiers: S
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
-                    E(S) + S::Mod ⇌ E(S, S::Mod)
-                    E(S, S::Mod) + S::Mod ⇌ E(S, S::Mod, S::Mod)
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
+                    ES + S ⇌ ESSmod
+                    ESSmod + S ⇌ ESSmodSmod
                 end
             end),
             @enzyme_mechanism(begin
@@ -2190,10 +2024,10 @@ end
                 modifiers: I
                 oligomeric_state: 12
                 steps: begin
-                    E + S ⇌ E(S)                         :: EqualAI
-                    E(S) <--> E(P)                       :: OnlyA
-                    E(P) ⇌ E + P                         :: EqualAI
-                    (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))   :: NonequalAI
+                    E + S ⇌ ES                         :: EqualAI
+                    ES <--> EP                       :: OnlyA
+                    EP ⇌ E + P                         :: EqualAI
+                    (E + I ⇌ EI, ES + I ⇌ EIS)   :: NonequalAI
                 end
                 regulatory_site(16): I::OnlyI, S::EqualAI
             end),
@@ -2201,17 +2035,17 @@ end
                 substrates: S
                 products: P
                 steps: begin
-                    E + S ⇌ E(S)     :: EqualAI
-                    E(S) <--> E(P)   :: OnlyA
-                    E(P) ⇌ E + P     :: EqualAI
+                    E + S ⇌ ES     :: EqualAI
+                    ES <--> EP   :: OnlyA
+                    EP ⇌ E + P     :: EqualAI
                 end
             end)]
         for m in mechanisms
             @test _testhelper_reads_back(m)
             @test EnzymeRates.DSL.parse_mechanism(sprint(show, m)) == m
         end
-        # A residual that only subtracts prints its first term as `- Q`.
-        @test contains(sprint(show, mechanisms[4]), "Estar(; residual = - Q)")
+        # A form prints by its name, as written.
+        @test contains(sprint(show, mechanisms[4]), "EQ <--> Estar_res_minusQ")
     end
 
     @testset "the text is one mechanism block, read without evaluation" begin
@@ -2220,9 +2054,9 @@ end
                 substrates: S
                 products: P
                 steps: begin
-                    E + P ⇌ E(P)
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
+                    E + P ⇌ EP
+                    E + S ⇌ ES
+                    ES <--> EP
                 end
             end"""
         @test EnzymeRates.DSL.parse_mechanism(text) ==
@@ -2230,9 +2064,9 @@ end
                 substrates: S
                 products: P
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
                 end
             end
         # Blank lines around the block, as a text copied from a CSV cell may hold, are
@@ -2272,17 +2106,16 @@ end
                 substrates: S
                 products: P
             end"""))
-        @test_throws(ErrorException("Mechanism: no free enzyme form E; every mechanism " *
-                                    "holds the free form E, with nothing bound and no " *
-                                    "residual"),
+        @test_throws(ArgumentError("Mechanism: no enzyme form is named `E`; the free " *
+                                   "enzyme is the form named `E`"),
                      EnzymeRates.DSL.parse_mechanism("""
             @enzyme_mechanism begin
                 substrates: S
                 products: P
                 steps: begin
-                    F + S ⇌ F(S)
-                    F(S) <--> F(P)
-                    F(P) ⇌ F + P
+                    F + S ⇌ FS
+                    FS <--> FP
+                    FP ⇌ F + P
                 end
             end"""))
         bottomless = """
@@ -2290,12 +2123,12 @@ end
                 substrates: S
                 products: P, Q
                 steps: begin
-                    E + S ⇌ E(S)
-                    E + P <--> E(P)
-                    E + Q <--> E(Q)
-                    E(P) + Q ⇌ E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
-                    E(S) <--> E(P, Q)
+                    E + S ⇌ ES
+                    E + P <--> EP
+                    E + Q <--> EQ
+                    EP + Q ⇌ EPQ
+                    EQ + P ⇌ EPQ
+                    ES <--> EPQ
                 end
             end"""
         macro_error = try
@@ -2307,22 +2140,6 @@ end
         @test macro_error isa ErrorException &&
               occursin("rapid-equilibrium segment", macro_error.msg)
         @test_throws macro_error EnzymeRates.DSL.parse_mechanism(bottomless)
-        @test_throws(ErrorException("Mechanism: the enzyme forms E(Ac, CoA) and " *
-                                    "E(AcCoA) both render the name EAcCoA; every " *
-                                    "constant is named after the forms its step joins, " *
-                                    "so rename a metabolite to tell the two forms apart"),
-                     EnzymeRates.DSL.parse_mechanism("""
-            @enzyme_mechanism begin
-                substrates: Ac, CoA
-                products: AcCoA
-                oligomeric_state: 1
-                steps: begin
-                    E + Ac ⇌ E(Ac) :: EqualAI
-                    E(Ac) + CoA ⇌ E(Ac, CoA) :: EqualAI
-                    E(Ac, CoA) <--> E(AcCoA) :: OnlyA
-                    E + AcCoA ⇌ E(AcCoA) :: EqualAI
-                end
-            end"""))
     end
 end
 
@@ -2341,24 +2158,21 @@ end
     end
 
     # A mechanism block as written: each step in written order and direction between its
-    # two written ends, one group label per statement.
-    S, P = M.Metabolite(:S, false), M.Metabolite(:P, false)
-    E, ES, EP = (M.EnzymeForm(:E, x, Symbol[], Symbol[])
-                 for x in (M.Metabolite[], [S], [P]))
+    # two written forms, one group label per statement.
+    none = Int[]
     plain = (; substrates = [:S], products = [:P], modifiers = Symbol[],
-             nodes = [E, ES, ES, EP, EP, E],
-             steps = [M.Step(1, 2, [S], M.Metabolite[], true, 1),
-                      M.Step(3, 4, M.Metabolite[], M.Metabolite[], false, 2),
-                      M.Step(5, 6, M.Metabolite[], [P], true, 3)],
+             forms = [:E, :ES, :EP],
+             steps = [M.Step(1, 2, [1], none, true, 1), M.Step(2, 3, none, none, false, 2),
+                      M.Step(3, 1, none, [2], true, 3)],
              allosteric_states = Symbol[], oligomeric_state = 1,
              regulatory_sites = DSL._WrittenSite[])
     @test DSL.raw_mechanism(:(begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end)) == plain
     allosteric = DSL.raw_mechanism(:(begin
@@ -2366,9 +2180,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: OnlyA
+            EP ⇌ E + P      :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end))
@@ -2378,16 +2192,16 @@ end
                                               allosteric_states = [:OnlyI])])
 
 
-    # The constructors build the value a block writes (`_construct`) from its nodes and
-    # steps; the reader checks the names under `modifiers:`, which the constructors take
-    # no list of: each is listed once, and some step binds each as a modifier.
+    # The constructors build the value a block writes (`_construct`) from its declared
+    # names, forms and steps, and check the names: each is listed once, and some step
+    # takes up or gives off each.
     @test DSL._construct(plain) == @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     @test_throws(ErrorException("Mechanism: duplicate modifier names"),
@@ -2396,33 +2210,37 @@ end
         products: P
         modifiers: I, I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E + I ⇌ E(I)
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+            E + I ⇌ EI
         end
     end)
     @test_throws(ErrorException("Mechanism: modifier I is declared, but no step binds it"),
                  DSL._construct(DSL.raw_mechanism(:(begin
         substrates: S
         products: P
-        modifiers: I, P
+        modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E + P::Mod ⇌ E(P::Mod)
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+            E + P ⇌ EPmod
         end
     end))))
-    @test_throws(ErrorException("Mechanism: modifier P is declared, but no step binds it"),
+    # A reactant declared again under `modifiers:`: a step that binds it as a modifier
+    # takes the reactant itself up.
+    @test_throws(ErrorException("Mechanism: P is declared both as a reactant and as a " *
+                                "modifier; a step that binds a reactant as a modifier " *
+                                "simply takes it up, as `ES + S ⇌ ESS` does"),
                  @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end)
 end

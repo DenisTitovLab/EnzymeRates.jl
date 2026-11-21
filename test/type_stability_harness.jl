@@ -149,9 +149,9 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     check = EnzymeRates.Derivation.check_valid_rate_equation

@@ -162,15 +162,13 @@ struct _Network
     takes::Vector{UInt64}
 end
 
-"""The metabolite names of `m`, sorted: the guard's name `n` (a row of a network's
-`change`, a bit of its `takes` and of a face) is the `n`th. A reactant's modifier copy
-reads as its reactant, as they share a concentration."""
-_guard_names(m::Mechanisms.CatalyticScheme) = sort!(Mechanisms.metabolites(m))
+"""The metabolite names of `m`: the guard's name `n` (a row of a network's `change`, a bit
+of its `takes` and of a face) is metabolite `n` of `m`."""
+_guard_names(m::Mechanisms.CatalyticScheme) = m.metabolites
 
 """The guard's name (`_guard_names`) of `m`'s first substrate, whose uptake counts
 turnover."""
-_turnover_name(m::Mechanisms.CatalyticScheme) =
-    searchsortedfirst(_guard_names(m), first(m.substrates))
+_turnover_name(m::Mechanisms.CatalyticScheme) = first(m.substrates)
 
 """The node of form `f` in copy `c` of `net`."""
 _node(net::_Network, f::Int, c::Int) = (c - 1) * net.nforms + f
@@ -236,10 +234,12 @@ function _network(m::Mechanisms.CatalyticScheme, present::BitVector, use::BitMat
             t += 1
             from[t], to[t], edge[t], conformation[t] = u, v, k, c
             forward[t], isfast[t], vanishing[t] = u == a, fast[k, c], gone
-            for (n, x) in enumerate(names)
-                taken = _copies(gain, x)
-                change[n, t] = taken - _copies(loss, x)
-                taken > 0 && (takes[t] |= UInt64(1) << (n - 1))
+            for n in gain
+                change[n, t] += 1
+                takes[t] |= UInt64(1) << (n - 1)
+            end
+            for n in loss
+                change[n, t] -= 1
             end
         end
     end
@@ -305,20 +305,19 @@ end
 The faces the guard checks (spec section 8) of `m`, each a mask of the metabolite names it
 zeroes (bit `n - 1` for name `n` of `_guard_names`), in order: the interior (0), every
 product, every substrate, each substrate and then each product alone on a side of two or
-more; then each of these with every modifier-only name too. A reactant's `::Mod` copy
-shares its reactant's name and so is zeroed with it; a regulatory-site ligand is zeroed
-only when it also binds the catalytic site. No face zeroes a substrate together with a
+more; then each of these with every modifier too. A regulatory-site ligand is zeroed only
+when it also binds the catalytic site. No face zeroes a substrate together with a
 product.
 """
 function _faces(m::Mechanisms.CatalyticScheme)
-    names = _guard_names(m)
     substrates, products = m.substrates, m.products
-    bit(x::Symbol) = UInt64(1) << (searchsortedfirst(names, x) - 1)
-    side(xs::Vector{Symbol}) = reduce(|, (bit(x) for x in xs); init = UInt64(0))
+    bit(n::Int) = UInt64(1) << (n - 1)
+    side(ns) = reduce(|, (bit(n) for n in ns); init = UInt64(0))
     base = UInt64[0, side(products), side(substrates)]
     length(substrates) >= 2 && append!(base, bit.(substrates))
     length(products) >= 2 && append!(base, bit.(products))
-    mods = side(filter(x -> !(insorted(x, substrates) || insorted(x, products)), names))
+    mods = side(n for n in eachindex(m.metabolites)
+                if !(n in substrates || n in products))
     mods == 0 ? base : [base; base .| mods]
 end
 
@@ -327,7 +326,7 @@ _zeroes(face::UInt64, n::Int) = (face >> (n - 1)) & 1 == 1
 
 """The metabolite names that face `face` of `m` zeroes (`_faces`), sorted."""
 _face_names(m::Mechanisms.CatalyticScheme, face::UInt64) =
-    [x for (n, x) in enumerate(_guard_names(m)) if _zeroes(face, n)]
+    sort!([x for (n, x) in enumerate(_guard_names(m)) if _zeroes(face, n)])
 
 """The tree transitions from node `x` up to its root in the forest `parent` (each node's
 tree transition, 0 at a root)."""

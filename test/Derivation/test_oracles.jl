@@ -41,100 +41,91 @@ const _testhelper_population_sample = let ms = _testhelper_population_one_round
     sorted[round.(Int, range(1, length(sorted); length = 120))]
 end
 
+"""Whether `m`, an enumerated mechanism, holds a covalent form: one the enumerator names
+with a residual, `_res` in its name."""
+_testhelper_covalent(m) = any(f -> occursin("_res", String(f)), m.catalytic.enzyme_forms)
+
 @testset "the test helpers read a mechanism's forms, steps, tags and sites" begin
-    # A plain mechanism: a two-step group binding the modifier I, and the product's
-    # modifier copy bound at E(S). Forms come free E first, then by content; steps and
-    # groups by content, each binding stored with its metabolite taken up.
+    # A plain mechanism: a two-step group binding the modifier I, and the product bound
+    # at ES as a modifier. Forms come free E first, then by name; steps and groups in
+    # canonical order, each binding stored with its metabolite taken up.
     plain = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: I, P
+        modifiers: I
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            (E + I ⇌ E(I), E(S) + I ⇌ E(I, S))
-            E(S) + P::Mod ⇌ E(P::Mod, S)
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+            (E + I ⇌ EI, ES + I ⇌ EIS)
+            ES + P ⇌ EPmodS
         end
     end
     g = _testhelper_graph(plain)
-    @test keys(g) == (:forms, :free, :steps, :tags, :inactive, :active,
+    @test keys(g) == (:forms, :steps, :tags, :inactive, :active,
                       :oligomeric_state, :sites, :substrates, :products, :modifiers)
-    @test keys(first(g.steps)) == (:from, :to, :consumed, :released, :consumed_modifier,
-                                   :released_modifier, :rapid_equilibrium, :group, :names,
-                                   :inactive_names)
+    @test keys(first(g.steps)) == (:from, :to, :consumed, :released, :rapid_equilibrium,
+                                   :group, :names, :inactive_names)
     @test g.forms == ["E", "EI", "EIS", "EP", "EPmodS", "ES"]
-    @test g.free == [true, false, false, false, false, false]
     @test g.steps == [
-        (from = 1, to = 2, consumed = [:I], released = Symbol[], consumed_modifier = [true],
-         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
-         names = [:K_EI_to_E_I], inactive_names = Symbol[]),
-        (from = 6, to = 3, consumed = [:I], released = Symbol[], consumed_modifier = [true],
-         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
-         names = [:K_EI_to_E_I], inactive_names = Symbol[]),
-        (from = 1, to = 4, consumed = [:P], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 2, consumed = [:I], released = Symbol[], rapid_equilibrium = true,
+         group = 1, names = [:K_EI_to_E_I], inactive_names = Symbol[]),
+        (from = 6, to = 3, consumed = [:I], released = Symbol[], rapid_equilibrium = true,
+         group = 1, names = [:K_EI_to_E_I], inactive_names = Symbol[]),
+        (from = 1, to = 4, consumed = [:P], released = Symbol[], rapid_equilibrium = true,
          group = 2, names = [:K_EP_to_E_P], inactive_names = Symbol[]),
-        (from = 1, to = 6, consumed = [:S], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 6, consumed = [:S], released = Symbol[], rapid_equilibrium = true,
          group = 3, names = [:K_ES_to_E_S], inactive_names = Symbol[]),
         (from = 6, to = 4, consumed = Symbol[], released = Symbol[],
-         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
-         group = 4, names = [:k_ES_to_EP, :k_EP_to_ES], inactive_names = Symbol[]),
-        (from = 6, to = 5, consumed = [:P], released = Symbol[], consumed_modifier = [true],
-         released_modifier = Bool[], rapid_equilibrium = true, group = 5,
-         names = [:K_EPmodS_to_ES_P], inactive_names = Symbol[])]
+         rapid_equilibrium = false, group = 4, names = [:k_ES_to_EP, :k_EP_to_ES],
+         inactive_names = Symbol[]),
+        (from = 6, to = 5, consumed = [:P], released = Symbol[], rapid_equilibrium = true,
+         group = 5, names = [:K_EPmodS_to_ES_P], inactive_names = Symbol[])]
     @test (g.tags, g.inactive, g.oligomeric_state, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test g.active == 1:6
-    @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I, :P])
-    # A step's text names each side's form and metabolites, a modifier copy by its
-    # reactant's name.
+    @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I])
+    # A step's text names each side's form and metabolites.
     @test _testhelper_step_text.(Ref(g), g.steps) ==
           ["E + I ⇌ EI", "ES + I ⇌ EIS", "E + P ⇌ EP", "E + S ⇌ ES", "ES <--> EP",
            "ES + P ⇌ EPmodS"]
     @test _testhelper_graph(plain) == g
 
-    # A ping-pong: the residual forms sort by their bound metabolites, the residual-only
-    # form before E(A), and each half-reaction's isomerization runs to the product side.
+    # A ping-pong: the forms by name, free E first, and each half-reaction's
+    # isomerization runs to the product side.
     pingpong = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) <--> E(P; residual = A - P)
-            E(P; residual = A - P) ⇌ E(; residual = A - P) + P
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)
-            E(B; residual = A - P) <--> E(Q)
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            EQ ⇌ E + Q
         end
     end
     g = _testhelper_graph(pingpong)
-    @test g.forms == ["E", "E_res_plusA_minusP", "EA", "EB_res_plusA_minusP",
-                      "EP_res_plusA_minusP", "EQ"]
-    @test g.free == [true, false, false, false, false, false]
+    @test g.forms == ["E", "EA", "EB_res_plusA_minusP", "EP_res_plusA_minusP", "EQ",
+                      "E_res_plusA_minusP"]
     @test g.steps == [
-        (from = 1, to = 3, consumed = [:A], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 2, consumed = [:A], released = Symbol[], rapid_equilibrium = true,
          group = 1, names = [:K_EA_to_E_A], inactive_names = Symbol[]),
-        (from = 1, to = 6, consumed = [:Q], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 5, consumed = [:Q], released = Symbol[], rapid_equilibrium = true,
          group = 2, names = [:K_EQ_to_E_Q], inactive_names = Symbol[]),
-        (from = 2, to = 4, consumed = [:B], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
-         group = 3, names = [:K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B],
-         inactive_names = Symbol[]),
-        (from = 2, to = 5, consumed = [:P], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
-         group = 4, names = [:K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P],
+        (from = 2, to = 4, consumed = Symbol[], released = Symbol[],
+         rapid_equilibrium = false, group = 3,
+         names = [:k_EA_to_EP_res_plusA_minusP, :k_EP_res_plusA_minusP_to_EA],
          inactive_names = Symbol[]),
         (from = 3, to = 5, consumed = Symbol[], released = Symbol[],
-         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
-         group = 5, names = [:k_EA_to_EP_res_plusA_minusP, :k_EP_res_plusA_minusP_to_EA],
+         rapid_equilibrium = false, group = 4,
+         names = [:k_EB_res_plusA_minusP_to_EQ, :k_EQ_to_EB_res_plusA_minusP],
          inactive_names = Symbol[]),
-        (from = 4, to = 6, consumed = Symbol[], released = Symbol[],
-         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
-         group = 6, names = [:k_EB_res_plusA_minusP_to_EQ, :k_EQ_to_EB_res_plusA_minusP],
+        (from = 6, to = 3, consumed = [:B], released = Symbol[], rapid_equilibrium = true,
+         group = 5, names = [:K_EB_res_plusA_minusP_to_E_res_plusA_minusP_B],
+         inactive_names = Symbol[]),
+        (from = 6, to = 4, consumed = [:P], released = Symbol[], rapid_equilibrium = true,
+         group = 6, names = [:K_EP_res_plusA_minusP_to_E_res_plusA_minusP_P],
          inactive_names = Symbol[])]
     @test (g.tags, g.inactive, g.oligomeric_state, g.sites) ==
           (Symbol[], Int[], nothing, [])
@@ -147,40 +138,37 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(Q) + P
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA + B <--> EQ + P
+            EQ ⇌ E + Q
         end
     end
     g = _testhelper_graph(theorell_chance)
     @test g.forms == ["E", "EA", "EQ"]
     @test g.steps == [
-        (from = 1, to = 2, consumed = [:A], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 2, consumed = [:A], released = Symbol[], rapid_equilibrium = true,
          group = 1, names = [:K_EA_to_E_A], inactive_names = Symbol[]),
-        (from = 1, to = 3, consumed = [:Q], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 3, consumed = [:Q], released = Symbol[], rapid_equilibrium = true,
          group = 2, names = [:K_EQ_to_E_Q], inactive_names = Symbol[]),
-        (from = 2, to = 3, consumed = [:B], released = [:P], consumed_modifier = [false],
-         released_modifier = [false], rapid_equilibrium = false, group = 3,
-         names = [:k_EA_B_to_EQ_P, :k_EQ_P_to_EA_B], inactive_names = Symbol[])]
+        (from = 2, to = 3, consumed = [:B], released = [:P], rapid_equilibrium = false,
+         group = 3, names = [:k_EA_B_to_EQ_P, :k_EQ_P_to_EA_B], inactive_names = Symbol[])]
     @test _testhelper_step_text.(Ref(g), g.steps) ==
           ["E + A ⇌ EA", "E + Q ⇌ EQ", "EA + B <--> EQ + P"]
 
-    # Two conformations, so two free forms: free E first, then F among the forms of F.
+    # Two conformations, so two free forms: free E first, then the others by name.
     two_free = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            (E(S) <--> F(S), E <--> F)
-            F(S) <--> E + P
-            F + S <--> E(S)
+            (ES <--> FS, E <--> F)
+            FS <--> E + P
+            F + S <--> ES
         end
     end
     g = _testhelper_graph(two_free)
-    @test (g.forms, g.free) == (["E", "ES", "F", "FS"], [true, false, true, false])
+    @test g.forms == ["E", "ES", "F", "FS"]
 
-    # An allosteric mechanism: the inactive conformation reaches neither E(P) nor E(I, P),
+    # An allosteric mechanism: the inactive conformation reaches neither EP nor EIP,
     # behind the :OnlyA binding of P and the :OnlyA chemistry, so its law keeps the I
     # binding at E and the S binding only. An :EqualAI group's constant takes one bare
     # name in both conformations; a step the inactive law does not keep has no inactive
@@ -191,33 +179,28 @@ end
         modifiers: I
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                          :: EqualAI
-            E(S) <--> E(P)                        :: OnlyA
-            E + P ⇌ E(P)                          :: OnlyA
-            (E + I ⇌ E(I), E(P) + I ⇌ E(I, P))    :: NonequalAI
+            E + S ⇌ ES                          :: EqualAI
+            ES <--> EP                        :: OnlyA
+            E + P ⇌ EP                          :: OnlyA
+            (E + I ⇌ EI, EP + I ⇌ EIP)    :: NonequalAI
         end
         regulatory_site(2): R1::OnlyI, R2::EqualAI
         regulatory_site(1): R3::NonequalAI
     end
     g = _testhelper_graph(allo)
     @test g.forms == ["E", "EI", "EIP", "EP", "ES"]
-    @test g.free == [true, false, false, false, false]
     @test g.steps == [
-        (from = 1, to = 2, consumed = [:I], released = Symbol[], consumed_modifier = [true],
-         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
-         names = [:K_A_EI_to_E_I], inactive_names = [:K_I_EI_to_E_I]),
-        (from = 4, to = 3, consumed = [:I], released = Symbol[], consumed_modifier = [true],
-         released_modifier = Bool[], rapid_equilibrium = true, group = 1,
-         names = [:K_A_EI_to_E_I], inactive_names = Symbol[]),
-        (from = 1, to = 4, consumed = [:P], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 2, consumed = [:I], released = Symbol[], rapid_equilibrium = true,
+         group = 1, names = [:K_A_EI_to_E_I], inactive_names = [:K_I_EI_to_E_I]),
+        (from = 4, to = 3, consumed = [:I], released = Symbol[], rapid_equilibrium = true,
+         group = 1, names = [:K_A_EI_to_E_I], inactive_names = Symbol[]),
+        (from = 1, to = 4, consumed = [:P], released = Symbol[], rapid_equilibrium = true,
          group = 2, names = [:K_A_EP_to_E_P], inactive_names = Symbol[]),
-        (from = 1, to = 5, consumed = [:S], released = Symbol[],
-         consumed_modifier = [false], released_modifier = Bool[], rapid_equilibrium = true,
+        (from = 1, to = 5, consumed = [:S], released = Symbol[], rapid_equilibrium = true,
          group = 3, names = [:K_ES_to_E_S], inactive_names = [:K_ES_to_E_S]),
         (from = 5, to = 4, consumed = Symbol[], released = Symbol[],
-         consumed_modifier = Bool[], released_modifier = Bool[], rapid_equilibrium = false,
-         group = 4, names = [:k_A_ES_to_EP, :k_A_EP_to_ES], inactive_names = Symbol[])]
+         rapid_equilibrium = false, group = 4, names = [:k_A_ES_to_EP, :k_A_EP_to_ES],
+         inactive_names = Symbol[])]
     @test g.tags == [:NonequalAI, :OnlyA, :EqualAI, :OnlyA]
     @test g.inactive == [1, 4]
     @test g.active == 1:5
@@ -235,8 +218,8 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
+                E + S <--> ES
+                ES <--> E + P
             end
         end
         point = setprecision(() -> _testhelper_consistent_point(
@@ -258,9 +241,9 @@ end
             substrates: S
             products: P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         rng = Random.MersenneTwister(3)
@@ -279,31 +262,32 @@ end
 
     @testset "rejects a disconnected network" begin
         # Two enzymes that never meet have no single steady state. The constructor
-        # rejects their network; the canonical graph of the walker's raw value, which no
-        # constructor check has read, holds it, and the oracle rejects it too.
+        # rejects their network; the canonical graph of the walker's raw value, built
+        # without the constructor's checks, holds it, and the oracle rejects it too.
         @test_throws(ErrorException("Mechanism: the steps do not form one connected " *
-                                    "graph; no steps lead from free E to F"),
+                                    "graph; no steps lead from free E to F, FS"),
                      @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-                F + S <--> F(S)
-                F(S) <--> F + P
+                E + S <--> ES
+                ES <--> E + P
+                F + S <--> FS
+                FS <--> F + P
             end
         end)
-        two_enzymes = _testhelper_plain_of(_testhelper_canonicalize(
-            EnzymeRates.DSL.raw_mechanism(:(begin
+        raw = EnzymeRates.DSL.raw_mechanism(:(begin
             substrates: S
             products: P
             steps: begin
-                E + S <--> E(S)
-                E(S) <--> E + P
-                F + S <--> F(S)
-                F(S) <--> F + P
+                E + S <--> ES
+                ES <--> E + P
+                F + S <--> FS
+                FS <--> F + P
             end
-        end))).scheme)
+        end))
+        two_enzymes = _testhelper_plain_of(EnzymeRates.Mechanisms._canonical(
+            [raw.substrates; raw.products], raw.forms, [1], [2], raw.steps))
         point = _testhelper_consistent_point(two_enzymes, Random.MersenneTwister(1))
         @test_throws(ErrorException("_testhelper_steady_state_rate: the network of " *
                                     "4 enzyme forms is disconnected, so its steady " *
@@ -321,9 +305,9 @@ end
             products: P
             oligomeric_state: 1
             steps: begin
-                E + S ⇌ E(S)      :: NonequalAI
-                E(S) <--> E(P)    :: NonequalAI
-                E(P) ⇌ E + P      :: EqualAI
+                E + S ⇌ ES      :: NonequalAI
+                ES <--> EP    :: NonequalAI
+                EP ⇌ E + P      :: EqualAI
             end
         end
         point = setprecision(() -> _testhelper_consistent_point(
@@ -352,9 +336,9 @@ end
             substrates: S
             products: P
             steps: begin
-                (E(S) <--> F(S), E <--> F)
-                F(S) <--> E + P
-                F + S <--> E(S)
+                (ES <--> FS, E <--> F)
+                FS <--> E + P
+                F + S <--> ES
             end
         end
         dep, _ = _testhelper_dependent_param_exprs(half)
@@ -434,7 +418,7 @@ function _testhelper_same_model_regroupings(m)
     n = EnzymeRates.Derivation.fitted_parameter_count(m)
     cm = m.catalytic
     kept = EnzymeRates.Mechanism[]
-    for g in 1:length(cm.groups),
+    for g in eachindex(_testhelper_group_members(cm)),
         bp in EnzymeRates.Enumeration._context_bipartitions(
             _testhelper_candidate(_testhelper_plain_of(m)), g)
         child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
@@ -508,10 +492,10 @@ const _testhelper_sample_regroupings =
             modifiers: I
             oligomeric_state: 1
             steps: begin
-                E + S <--> E(S)          :: OnlyA
-                E(S) <--> E(P)           :: OnlyA
-                E + P ⇌ E(P)             :: EqualAI
-                E(S) + I ⇌ E(I, S)       :: NonequalAI
+                E + S <--> ES          :: OnlyA
+                ES <--> EP           :: OnlyA
+                E + P ⇌ EP             :: EqualAI
+                ES + I ⇌ EIS       :: NonequalAI
             end
         end
         @test parameters(island) ==
@@ -530,9 +514,9 @@ const _testhelper_sample_regroupings =
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)      :: NonequalAI
-                E(S) <--> E(P)    :: EqualAI
-                E(P) ⇌ E + P      :: NonequalAI
+                E + S ⇌ ES      :: NonequalAI
+                ES <--> EP    :: EqualAI
+                EP ⇌ E + P      :: NonequalAI
             end
             regulatory_site(2): R::EqualAI
         end
@@ -554,9 +538,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
         end
     end
     @test _testhelper_is_allosteric(pinned)
@@ -565,18 +549,18 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
         end
     end)))
     @test_throws ErrorException @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
         end
     end
     # R2 (spec section 7): under the guard's built readings, which stop F <--> E, its
@@ -587,9 +571,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            F + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            F + P ⇌ EP      :: EqualAI
             F <--> E          :: OnlyA
         end
     end
@@ -601,16 +585,16 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
+            E + S ⇌ ES
+            ES <--> E + P
         end
     end
     @test mm == @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
+            E + S ⇌ ES
+            ES <--> E + P
         end
     end
 end
@@ -620,11 +604,11 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) ⇌ E(Q) + P
-            E(Q) ⇌ E + Q
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EPQ ⇌ EQ + P
+            EQ ⇌ E + Q
         end
     end
     @test _testhelper_faces(bibi) == [Set{Symbol}(), Set([:P, :Q]), Set([:A, :B]),
@@ -634,12 +618,12 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P, Q) ⇌ E(Q) + P
-            E(Q) ⇌ E + Q
-            (E + I ⇌ E(I), E(A) + I ⇌ E(A, I))
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EPQ ⇌ EQ + P
+            EQ ⇌ E + Q
+            (E + I ⇌ EI, EA + I ⇌ EAI)
         end
     end
     faces = _testhelper_faces(inhibited)
@@ -649,13 +633,13 @@ end
         substrates: A, B, C
         products: P, Q, R
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) + C ⇌ E(A, B, C)
-            E(A, B, C) <--> E(P, Q, R)
-            E(P, Q, R) ⇌ E(Q, R) + P
-            E(Q, R) ⇌ E(R) + Q
-            E(R) ⇌ E + R
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB + C ⇌ EABC
+            EABC <--> EPQR
+            EPQR ⇌ EQR + P
+            EQR ⇌ ER + Q
+            ER ⇌ E + R
         end
     end
     @test length(_testhelper_faces(terter)) == 9
@@ -663,12 +647,11 @@ end
     copy_P = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
-            E(S) + P::Mod ⇌ E(P::Mod, S)
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+            ES + P ⇌ EPmodS
         end
     end
     @test _testhelper_faces(copy_P) == [Set{Symbol}(), Set([:P]), Set([:S])]
@@ -677,9 +660,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: EqualAI
-            E(P) ⇌ E + P      :: EqualAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: EqualAI
+            EP ⇌ E + P      :: EqualAI
         end
         regulatory_site(1): R::OnlyA
     end
@@ -691,8 +674,8 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
+            E + S ⇌ ES
+            ES <--> E + P
         end
     end
     setprecision(BigFloat, 256) do
@@ -717,13 +700,13 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(P, Q)
-            E(P) + Q ⇌ E(P, Q)
-            E(Q) + P ⇌ E(P, Q)
-            E + P <--> E(P)
-            E + Q ⇌ E(Q)
+            E + A ⇌ EA
+            EA + B <--> EAB
+            EAB <--> EPQ
+            EP + Q ⇌ EPQ
+            EQ + P ⇌ EPQ
+            E + P <--> EP
+            E + Q ⇌ EQ
         end
     end
     @test _testhelper_respeed_verdicts(ldh; rng = Random.MersenneTwister(1)) ==
@@ -735,11 +718,11 @@ end
         modifiers: I
         steps: begin
             E ⇌ F
-            E + I ⇌ F(I)
-            (E + P <--> E(P), E(P) + P <--> E(P, P))
-            E + S <--> E(P)
-            E + S ⇌ F(S)
-            E(P, P) + S <--> F(P, P) + P
+            E + I ⇌ FI
+            (E + P <--> EP, EP + P <--> EPP)
+            E + S <--> EP
+            E + S ⇌ FS
+            EPP + S <--> FPP + P
         end
     end
     @test _testhelper_respeed_verdicts(fuzz5; rng = Random.MersenneTwister(2))[2] ===
@@ -751,11 +734,11 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) ⇌ E(P)
-            E + P ⇌ E(P)
-            E(S) <--> F(P)
-            F(P) <--> E + P
+            E + S ⇌ ES
+            ES ⇌ EP
+            E + P ⇌ EP
+            ES <--> FP
+            FP <--> E + P
         end
     end
     @test _testhelper_respeed_verdicts(beside; rng = Random.MersenneTwister(3))[1] ===
@@ -770,9 +753,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: OnlyA
+            EP ⇌ E + P      :: EqualAI
         end
         regulatory_site(2): R::NonequalAI
     end
@@ -796,20 +779,20 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
             E <--> F          :: OnlyA
-            F + I ⇌ F(I)      :: EqualAI
+            F + I ⇌ FI      :: EqualAI
         end
     end
     r4_ss = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: NonequalAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: NonequalAI
+            E + P ⇌ EP      :: EqualAI
             F <--> E          :: OnlyA
         end
     end
@@ -824,9 +807,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: NonequalAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: NonequalAI
+            E + P ⇌ EP      :: EqualAI
             F ⇌ E             :: OnlyA
         end
     end
@@ -842,9 +825,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            F + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            F + P ⇌ EP      :: EqualAI
             F <--> E          :: OnlyA
         end
     end
@@ -859,9 +842,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
         end
     end
     @test _testhelper_epath_verdict(no_path; rng = Random.MersenneTwister(36)) === :no_path
@@ -873,9 +856,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: OnlyA
+            EP ⇌ E + P      :: EqualAI
         end
     end
     @test _testhelper_in_epath_window(chem; rng = Random.MersenneTwister(41))
@@ -888,11 +871,11 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)      :: EqualAI
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: EqualAI
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: EqualAI
             E <--> F          :: OnlyA
-            F + I ⇌ F(I)      :: EqualAI
+            F + I ⇌ FI      :: EqualAI
         end
     end
     @test !_testhelper_in_epath_window(r3; rng = Random.MersenneTwister(41))
@@ -944,9 +927,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: NonequalAI
-            E(S) <--> E(P)    :: OnlyA
-            E(P) ⇌ E + P      :: EqualAI
+            E + S ⇌ ES      :: NonequalAI
+            ES <--> EP    :: OnlyA
+            EP ⇌ E + P      :: EqualAI
         end
         regulatory_site(2): R::NonequalAI
     end
@@ -976,8 +959,8 @@ end
     for m in plain
         flags = _testhelper_flags(m)
         for re in [[flags];
-                   [flags .| ([e.group for e in m.catalytic.steps] .== g)
-                    for g in 1:length(m.catalytic.groups)];
+                   [flags .| ([e.kinetic_group for e in m.catalytic.steps] .== g)
+                    for g in eachindex(_testhelper_group_members(m.catalytic))];
                    [trues(length(m.catalytic.steps))]]
             net = EnzymeRates.Derivation._eps_network(
                 m, re, EnzymeRates.Derivation._built_reading(m))
@@ -996,12 +979,12 @@ iso ordered Bi Bi (`:bibi`), the tags in step order, and `extra` steps appended.
 """
 function _testhelper_iso_text(family::Symbol, tags; n::Int = 1, extra::String = "")
     steps = family === :bibi ?
-        ["E + A ⇌ E(A)", "E(A) + B <--> E(A, B)", "E(A, B) <--> Eprime(P, Q)",
-         "Eprime(Q) + P <--> Eprime(P, Q)", "Eprime + Q <--> Eprime(Q)", "Eprime <--> E"] :
+        ["E + A ⇌ EA", "EA + B <--> EAB", "EAB <--> EprimePQ",
+         "EprimeQ + P <--> EprimePQ", "Eprime + Q <--> EprimeQ", "Eprime <--> E"] :
         family === :uu_ss ?
-        ["E + S <--> E(S)", "E(S) <--> Eprime(P)", "Eprime + P <--> Eprime(P)",
+        ["E + S <--> ES", "ES <--> EprimeP", "Eprime + P <--> EprimeP",
          "Eprime <--> E"] :
-        ["E + S ⇌ E(S)", "E(S) <--> Eprime(P)", "Eprime + P ⇌ Eprime(P)",
+        ["E + S ⇌ ES", "ES <--> EprimeP", "Eprime + P ⇌ EprimeP",
          "Eprime <--> E"]
     reactants = family === :bibi ? "substrates: A, B\nproducts: P, Q" :
                                    "substrates: S\nproducts: P"
@@ -1049,8 +1032,7 @@ end
     end
     # A flip at the other free form gives another law: the law tells the flip form.
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, N_))))
-    eprime = only(f for f in 2:length(m.catalytic.nodes)
-                  if EnzymeRates.Mechanisms._is_free(m.catalytic.nodes[f]))
+    eprime = findfirst(==(:Eprime), m.catalytic.enzyme_forms)
     fitted = _testhelper_dependent_param_exprs(m)[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
@@ -1067,9 +1049,7 @@ end
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, E_);
                                              extra = "D ⇌ E :: NonequalAI")))
     cm = m.catalytic
-    d = only(f for f in 2:length(cm.nodes)
-             if EnzymeRates.Mechanisms._is_free(cm.nodes[f]) &&
-                cm.nodes[f].conformation === :D)
+    d = findfirst(==(:D), cm.enzyme_forms)
     kd = only(j for (j, e) in enumerate(cm.steps) if Set((e.from, e.to)) == Set((1, d)))
     fitted = _testhelper_dependent_param_exprs(m)[2]
     rng = Random.MersenneTwister(202)
@@ -1131,11 +1111,11 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)                      :: EqualAI
-            E(S) ⇌ F + P                      :: OnlyA
+            E + S ⇌ ES                      :: EqualAI
+            ES ⇌ F + P                      :: OnlyA
             F <--> E                          :: EqualAI
-            (E + I ⇌ E(I), F + I ⇌ F(I))      :: OnlyI
-            F(I) ⇌ E(I)                       :: OnlyA
+            (E + I ⇌ EI, F + I ⇌ FI)      :: OnlyI
+            FI ⇌ EI                       :: OnlyA
         end
     end
     @test EnzymeRates.Derivation._guard(m).fault === EnzymeRates.Derivation._RE_TURNOVER
@@ -1149,11 +1129,11 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)                      :: EqualAI
-            E(S) <--> F + P                   :: OnlyA
+            E + S ⇌ ES                      :: EqualAI
+            ES <--> F + P                   :: OnlyA
             F <--> E                          :: EqualAI
-            (E + I ⇌ E(I), F + I ⇌ F(I))      :: OnlyI
-            F(I) <--> E(I)                    :: OnlyA
+            (E + I ⇌ EI, F + I ⇌ FI)      :: OnlyI
+            FI <--> EI                    :: OnlyA
         end
     end
     @test EnzymeRates.Derivation._guard(slow) == EnzymeRates.Derivation._WELL_POSED
@@ -1186,7 +1166,7 @@ end
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
     seeds = [m for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
-             if any(EnzymeRates.Mechanisms._has_residual, m.catalytic.nodes)]
+             if _testhelper_covalent(m)]
     @test length(seeds) == 18
     nbases, n_moved, n_kids, n_class3 = Dict{Int, Int}(), 0, 0, 0
     for m in seeds
@@ -1240,23 +1220,15 @@ end
 _testhelper_rebuilt(m, rewrite) = _testhelper_build(rewrite(_testhelper_written(m)))
 
 """`m` with every metabolite renamed by `rename`, built by the constructors from its
-written form (`_testhelper_written`), without the guard."""
+written form (`_testhelper_written`), without the guard. The forms keep their names."""
 function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
     r(xs::Vector{Symbol}) = Symbol[get(rename, x, x) for x in xs]
-    met(xs) = EnzymeRates.Mechanisms.Metabolite[
-        EnzymeRates.Mechanisms.Metabolite(get(rename, x.name, x.name), x.modifier)
-        for x in xs]
-    node(n) = EnzymeRates.Mechanisms.EnzymeForm(n.conformation, met(n.bound), r(n.added),
-                                          r(n.subtracted))
-    step(e) = EnzymeRates.Mechanisms.Step(e.from, e.to, met(e.taken_up), met(e.given_off),
-                                          e.rapid_equilibrium, e.group)
     site(s) = EnzymeRates.Mechanisms.RegulatorySite(r(s.ligands), s.multiplicity,
                                                     s.allosteric_states)
     sites(w) = hasproperty(w, :regulatory_sites) ?
         (; regulatory_sites = site.(w.regulatory_sites)) : (;)
     _testhelper_rebuilt(m, w -> (; w..., substrates = r(w.substrates),
                                  products = r(w.products), modifiers = r(w.modifiers),
-                                 nodes = node.(w.nodes), steps = step.(w.steps),
                                  sites(w)...))
 end
 
@@ -1264,7 +1236,7 @@ end
 the first substrate change. In sorted order the names become `Z`, `Y`, `X`, `W`, `U`, `T`,
 `R`, `M`, `H` and `G`, so `m` holds at most ten metabolites (with more, the slice throws a
 `BoundsError`). The letters descend, so the order reverses. None of them is a name no
-metabolite may take (`E`, `L`, `N`) or the conformation label `F`, and none is a metabolite
+metabolite may take (`E`, `L`, `N`) or a form's name (`F`), and none is a metabolite
 name of the population sample or of the fixtures below (`A`, `B`, `P`, `Q`, `S`, `ATP`,
 `F6P`, `ADP` and `F16BP`), so every name changes."""
 function _testhelper_reversing_rename(m)
@@ -1324,8 +1296,7 @@ end
 """60 children of `children` that bind I, spaced evenly through their content order
 (`_testhelper_content_text`); when fewer than 60 bind I, some repeat."""
 function _testhelper_i_binding_sample(children)
-    binds_i = unique!([c for c in children if any(x -> x.name === :I,
-        EnzymeRates.Mechanisms._table(c.catalytic))])
+    binds_i = unique!([c for c in children if :I in c.catalytic.metabolites])
     sorted = binds_i[sortperm(_testhelper_content_text.(binds_i))]
     sorted[round.(Int, range(1, length(sorted); length = 60))]
 end
@@ -1430,33 +1401,33 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(A), E(B) + A <--> E(A, B), E(P) + A <--> E(A, P))
-            (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-            (E + P <--> E(P), E(A) + P <--> E(A, P), E(Q) + P <--> E(P, Q))
-            (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q), E(P) + Q ⇌ E(P, Q))
-            E(A, B) <--> E(P, Q)
+            (E + A <--> EA, EB + A <--> EAB, EP + A <--> EAP)
+            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+            (E + P <--> EP, EA + P <--> EAP, EQ + P <--> EPQ)
+            (E + Q ⇌ EQ, EB + Q ⇌ EBQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
         end
     end
     unfed_trap = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A ⇌ E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> E(Q) + P
-            E + Q ⇌ E(Q)
-            E(Q) + P ⇌ E(P, Q)
-            E(P) + Q ⇌ E(P, Q)
-            E + P <--> E(P)
+            E + A ⇌ EA
+            EA + B <--> EAB
+            EAB <--> EQ + P
+            E + Q ⇌ EQ
+            EQ + P ⇌ EPQ
+            EP + Q ⇌ EPQ
+            E + P <--> EP
         end
     end
     r2 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            F + P ⇌ E(P)      :: EqualAI
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            F + P ⇌ EP      :: EqualAI
             F <--> E          :: OnlyA
         end
     end
@@ -1465,36 +1436,35 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)            :: OnlyA
-            E(A) + B ⇌ E(Q) + P        :: OnlyA
-            E(Q) <--> E + Q            :: EqualAI
+            E + A <--> EA            :: OnlyA
+            EA + B ⇌ EQ + P        :: OnlyA
+            EQ <--> E + Q            :: EqualAI
         end
     end
     s1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P
-        modifiers: A
         steps: begin
-            E + A <--> E(A)                 :: OnlyA
-            E(A) + B <--> E(A, B)           :: EqualAI
-            E(A, B) <--> E(P)               :: OnlyA
-            E(P) <--> E + P                 :: EqualAI
-            E + A::Mod ⇌ E(A::Mod)          :: OnlyA
-            E(A::Mod) + B ⇌ E(A::Mod, B)    :: EqualAI
-            E(B) + A::Mod ⇌ E(A::Mod, B)    :: EqualAI
-            F + B <--> E(B)                 :: EqualAI
+            E + A <--> EA                 :: OnlyA
+            EA + B <--> EAB           :: EqualAI
+            EAB <--> EP               :: OnlyA
+            EP <--> E + P                 :: EqualAI
+            E + A ⇌ EAmod          :: OnlyA
+            EAmod + B ⇌ EAmodB    :: EqualAI
+            EB + A ⇌ EAmodB    :: EqualAI
+            F + B <--> EB                 :: EqualAI
         end
     end
     dead = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: ATP, F6P
         products: ADP, F16BP
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: OnlyA
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     rejected = [lumpable_732, unfed_trap, tc, s1, dead]
@@ -1533,7 +1503,7 @@ end
         fault, n = EnzymeRates.Derivation._guard(m).fault,
             EnzymeRates.Derivation.fitted_parameter_count(m)
         cm = m.catalytic
-        for g in 1:length(cm.groups),
+        for g in eachindex(_testhelper_group_members(cm)),
             bp in EnzymeRates.Enumeration._context_bipartitions(_testhelper_candidate(cm),
                                                                 g)
             child = EnzymeRates.Enumeration._apply_bipartitions(_testhelper_candidate(m),
@@ -1646,7 +1616,7 @@ end
     # aggregate regression pins over the declaration's seed set (CLAUDE.md enumeration
     # rule 1's exception).
     rxn = _testhelper_phantom_pingpong_rxn
-    covalent(m) = any(EnzymeRates.Mechanisms._has_residual, m.catalytic.nodes)
+    covalent = _testhelper_covalent
     inits = filter(covalent, collect(
         _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))))
     flips = [c for m in inits

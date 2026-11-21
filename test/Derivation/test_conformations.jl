@@ -10,11 +10,11 @@ const ER = EnzymeRates
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)          :: EqualAI
-            E(S) <--> E(P)        :: OnlyA
-            E(P) ⇌ E + P          :: EqualAI
-            E + I ⇌ E(I)          :: OnlyI
-            E(I) + P ⇌ E(I, P)    :: EqualAI
+            E + S ⇌ ES          :: EqualAI
+            ES <--> EP        :: OnlyA
+            EP ⇌ E + P          :: EqualAI
+            E + I ⇌ EI          :: OnlyI
+            EI + P ⇌ EIP    :: EqualAI
         end
     end
     m = am.catalytic
@@ -35,11 +35,11 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)          :: EqualAI
-            E(S) <--> E(P)        :: OnlyA
-            E(P) ⇌ E + P          :: EqualAI
-            E + I ⇌ E(I)          :: OnlyI
-            E(I) + P ⇌ E(I, P)    :: EqualAI
+            E + S ⇌ ES          :: EqualAI
+            ES <--> EP        :: OnlyA
+            EP ⇌ E + P          :: EqualAI
+            E + I ⇌ EI          :: OnlyI
+            EI + P ⇌ EIP    :: EqualAI
         end
     end
     m = _testhelper_plain_of(am)
@@ -58,20 +58,19 @@ end
     am = @enzyme_mechanism begin
         substrates: S
         products: P
-        modifiers: S
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)                    :: EqualAI
-            E(S) + S::Mod ⇌ E(S, S::Mod)    :: OnlyA
-            E(S) <--> E(P)                  :: EqualAI
-            E(P) ⇌ E + P                    :: EqualAI
+            E + S ⇌ ES                    :: EqualAI
+            ES + S ⇌ ESSmod    :: OnlyA
+            ES <--> EP                  :: EqualAI
+            EP ⇌ E + P                    :: EqualAI
         end
     end
     m = am.catalytic
-    # Canonical form numbers the forms E, E(P), E(S), E(S, S::Mod) and stores the steps
-    # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod). The inactive
-    # conformation excludes the :OnlyA binding, which leaves E(S, S::Mod) alone.
-    @test M.step_text(m, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
+    # Canonical form numbers the forms E, EP, ES, ESSmod and stores the steps
+    # E + P → EP, E + S → ES, ES → EP, ES + S → ESSmod. The inactive
+    # conformation excludes the :OnlyA binding, which leaves ESSmod alone.
+    @test M.step_text(m, 4) == "ES + S ⇌ ESSmod"
     @test D._excluded_steps(am, 1) == [false, false, false, false]
     @test D._excluded_steps(am, 2) == [false, false, false, true]
     @test D.exclusion_components(am, :active) == [1, 1, 1, 1]
@@ -80,7 +79,7 @@ end
     # an :OnlyI step the active one; an :EqualAI or :NonequalAI step stays in both.
     tags = [:OnlyA, :OnlyI, :EqualAI, :NonequalAI]
     every_tag = ER.Mechanism(m, ER.Mechanisms.Allostery(tags, 2, M.RegulatorySite[]))
-    step_tags = [tags[e.group] for e in m.steps]
+    step_tags = [tags[e.kinetic_group] for e in m.steps]
     @test step_tags[D._excluded_steps(every_tag, 1)] == [:OnlyI]
     @test step_tags[D._excluded_steps(every_tag, 2)] == [:OnlyA]
     @test_throws ArgumentError D.exclusion_components(am, :both)

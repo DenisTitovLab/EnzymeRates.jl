@@ -168,9 +168,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             substrates: S
             products:   P
             steps: begin
-                E + S ⇌ E(S)
-                E(S) <--> E(P)
-                E(P) ⇌ E + P
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
             end
         end
         rate = compile_rate_equation(m)
@@ -207,11 +207,11 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         # fold of m add, their compile time, the show instances that PASS1 and then
         # printing the compiled rate law add, and the method instances PASS1 alone adds.
         function _testhelper_measure(m)
+            candidate = only(c for c in CANDIDATES if c.mechanism == m)
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
             s0 = _testhelper_instances(methods(show))
-            rec = ER._pass1_record(
-                ER.Enumeration.CandidateMechanism(m, ER.Enumeration._form_records(m)))
+            rec = ER._pass1_record(candidate)
             pass1 = _testhelper_all_instances() - n0
             rec isa ER._Pass1Record || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
@@ -226,7 +226,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             sprint(show, compile_rate_equation(m))
             (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2, pass1)
         end
-        ms = [c.mechanism for c in ER.Enumeration.init_mechanisms(rxn)]
+        const CANDIDATES = ER.Enumeration.init_mechanisms(rxn)
+        ms = [c.mechanism for c in CANDIDATES]
         # Encoding a Sig compiles once, whatever the mechanism, a cost a search pays early
         # and once; encoding every seed first keeps it out of the per-mechanism counts
         # and measures its total for this process.
@@ -241,55 +242,55 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E + Q ⇌ E(Q)
-                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                    (E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
-                    E(A, B) <--> E(P, Q)
+                    E + A ⇌ EA
+                    E + Q ⇌ EQ
+                    (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                    (EA + P ⇌ EAP, EQ + P ⇌ EPQ)
+                    EAB <--> EPQ
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A ⇌ E(A)
-                    E + Q ⇌ E(Q)
-                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                    E(A, B) <--> E(P, Q)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + A ⇌ EA
+                    E + Q ⇌ EQ
+                    (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                    EAB <--> EPQ
+                    EQ + P ⇌ EPQ
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
-                    (E + P ⇌ E(P), E(A) + P ⇌ E(A, P))
-                    E(A) + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(P) + Q ⇌ E(P, Q)
+                    (E + A ⇌ EA, EP + A ⇌ EAP)
+                    (E + P ⇌ EP, EA + P ⇌ EAP)
+                    EA + B ⇌ EAB
+                    EAB <--> EPQ
+                    EP + Q ⇌ EPQ
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    (E + A ⇌ E(A), E(P) + A ⇌ E(A, P))
-                    (E + P ⇌ E(P), E(A) + P ⇌ E(A, P), E(Q) + P ⇌ E(P, Q))
-                    (E + Q ⇌ E(Q), E(P) + Q ⇌ E(P, Q))
-                    (E(A) + B ⇌ E(A, B), E(Q) + B ⇌ E(B, Q))
-                    E(A, B) <--> E(P, Q)
+                    (E + A ⇌ EA, EP + A ⇌ EAP)
+                    (E + P ⇌ EP, EA + P ⇌ EAP, EQ + P ⇌ EPQ)
+                    (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                    (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
+                    EAB <--> EPQ
                 end
             end),
             @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + B ⇌ E(B)
-                    E + Q ⇌ E(Q)
-                    E(A, B) <--> E(P, Q)
-                    E(B) + A ⇌ E(A, B)
-                    E(Q) + P ⇌ E(P, Q)
+                    E + B ⇌ EB
+                    E + Q ⇌ EQ
+                    EAB <--> EPQ
+                    EB + A ⇌ EAB
+                    EQ + P ⇌ EPQ
                 end
             end)]
         Random.seed!(1)

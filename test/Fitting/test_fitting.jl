@@ -48,8 +48,8 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E + P
+            E + S <--> ES
+            ES <--> E + P
         end
     end
 
@@ -70,9 +70,9 @@ end
         products:   P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)     :: EqualAI
-            E(S) <--> E(P)   :: OnlyA
-            E(P) ⇌ E + P     :: EqualAI
+            E + S ⇌ ES     :: EqualAI
+            ES <--> EP   :: OnlyA
+            EP ⇌ E + P     :: EqualAI
         end
         regulatory_site(2): R::OnlyI
     end
@@ -312,10 +312,10 @@ end
             products: P
             oligomeric_state: 4
             steps: begin
-                E + A ⇌ E(A) :: EqualAI
-                E(A) + B <--> E(A, B) :: OnlyA
-                E(A, B) <--> E(P) :: OnlyA
-                E(P) ⇌ E + P :: EqualAI
+                E + A ⇌ EA :: EqualAI
+                EA + B <--> EAB :: OnlyA
+                EAB <--> EP :: OnlyA
+                EP ⇌ E + P :: EqualAI
             end
             regulatory_site(4): R::OnlyI
             regulatory_site(4): Q::NonequalAI
@@ -325,19 +325,19 @@ end
             products: P
             oligomeric_state: 1
             steps: begin
-                E + A ⇌ E(A) :: EqualAI
-                E(A) <--> E(P) :: OnlyA
-                E(P) ⇌ E + P :: EqualAI
+                E + A ⇌ EA :: EqualAI
+                EA <--> EP :: OnlyA
+                EP ⇌ E + P :: EqualAI
             end
         end
         plain = @enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P)
-                E(P) ⇌ E + P
+                E + A ⇌ EA
+                EA + B <--> EAB
+                EAB <--> EP
+                EP ⇌ E + P
             end
         end
         retype(table, T) = merge(table, (Rate = convert(Vector{T}, table.Rate),
@@ -424,11 +424,11 @@ end
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
+                E + A <--> EA
+                EA + B <--> EAB
+                EAB <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
             end
         end
 
@@ -485,11 +485,11 @@ end
             substrates: A, B
             products:   P, Q
             steps: begin
-                E + A <--> E(A)
-                E(A) + B <--> E(A, B)
-                E(A, B) <--> E(P, Q)
-                E(P, Q) <--> E(Q) + P
-                E(Q) <--> E + Q
+                E + A <--> EA
+                EA + B <--> EAB
+                EAB <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
             end
         end
         allosteric_bi_bi = @enzyme_mechanism begin
@@ -497,11 +497,11 @@ end
             products: P, Q
             oligomeric_state: 2
             steps: begin
-                E + A <--> E(A)            :: EqualAI
-                E(A) + B <--> E(A, B)      :: EqualAI
-                E(A, B) <--> E(P, Q)       :: OnlyA
-                E(P, Q) <--> E(Q) + P      :: EqualAI
-                E(Q) <--> E + Q            :: EqualAI
+                E + A <--> EA            :: EqualAI
+                EA + B <--> EAB      :: EqualAI
+                EAB <--> EPQ       :: OnlyA
+                EPQ <--> EQ + P      :: EqualAI
+                EQ <--> E + Q            :: EqualAI
             end
             regulatory_site(2): R::OnlyI
         end
@@ -721,8 +721,8 @@ end
             substrates: Sidx
             products:   Pidx
             steps: begin
-                E + Sidx <--> E(Sidx)
-                E(Sidx) <--> E + Pidx
+                E + Sidx <--> ESidx
+                ESidx <--> E + Pidx
             end
         end
         data_unseen = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
@@ -747,8 +747,8 @@ end
             substrates: Rate
             products:   P
             steps: begin
-                E + Rate <--> E(Rate)
-                E(Rate) <--> E + P
+                E + Rate <--> ERate
+                ERate <--> E + P
             end
         end
         @test_throws(

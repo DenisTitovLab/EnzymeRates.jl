@@ -248,7 +248,7 @@ Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the
 """
 function _retag_passes(am::Mechanisms.Mechanism, ks, tag::Symbol)
     states = copy(am.allosteric.allosteric_states)
-    states[[am.catalytic.steps[k].group for k in ks]] .= tag
+    states[[am.catalytic.steps[k].kinetic_group for k in ks]] .= tag
     retagged = Mechanisms.Mechanism(am.catalytic,
                                     Mechanisms.Allostery(states,
                                                          am.allosteric.oligomeric_state,
@@ -263,19 +263,21 @@ Whether `mech` with the kinetic group of edge `k` made steady-state passes the g
 """
 function _steady_state_passes(mech::Mechanisms.Mechanism, k::Int)
     m = mech.catalytic
-    g = m.steps[k].group
+    g = m.steps[k].kinetic_group
     steps = [Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off,
-                             s.rapid_equilibrium && s.group != g, s.group) for s in m.steps]
+                             s.rapid_equilibrium && s.kinetic_group != g, s.kinetic_group)
+             for s in m.steps]
     _guard(_with_steps(mech, steps)) === _WELL_POSED
 end
 
-"""`m` with the catalytic steps `steps`, each in the kinetic group of `m` its `group`
-labels, built by the constructors; it keeps the allostery of `m`."""
-_with_steps(m::Mechanisms.Mechanism, steps::Vector{Mechanisms.Step}) =
-    Mechanisms.Mechanism(Mechanisms.CatalyticScheme(m.catalytic.substrates,
-                                                    m.catalytic.products,
-                                                    m.catalytic.nodes, steps),
+"""`m` with the catalytic steps `steps`, each in the kinetic group of `m` its
+`kinetic_group` labels, built by the constructors; it keeps the allostery of `m`."""
+function _with_steps(m::Mechanisms.Mechanism, steps::Vector{Mechanisms.Step})
+    c = m.catalytic
+    Mechanisms.Mechanism(Mechanisms.CatalyticScheme(c.metabolites, c.enzyme_forms,
+                                                    c.substrates, c.products, steps),
                          m.allosteric)
+end
 
 """
 The message of admission's verdict `v` on `am`, judged with its excluded steps switched

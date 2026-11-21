@@ -111,8 +111,8 @@ function _bare_law(m::Mechanisms.CatalyticScheme, mask::BitVector,
         push!(cols, (k, slot))
         at[(k, slot)] = _var!(vars, Symbol("c", k, "_", slot))
     end
-    conc(held::Vector{Mechanisms.Metabolite}) =
-        _monomial((vars.index[x.name] => 1 for x in held)...)
+    conc(held::Vector{Int}) =
+        _monomial((vars.index[m.metabolites[i]] => 1 for i in held)...)
     bare(k, slot) = _monomial(at[(k, slot)] => 1)
     # The equilibrium ratio w(to)/w(from) of rapid-equilibrium edge k:
     # K·Π[taken up]/Π[given off] for a constant K named after the stored direction, the
@@ -149,7 +149,7 @@ function _bare_law(m::Mechanisms.CatalyticScheme, mask::BitVector,
     end
     pairs, W = Tuple{Int, Int}[], Dict{Tuple{Int, Int}, _Poly}()
     flux = Tuple{Int, Int, Int, _Mono, _Mono}[]
-    x = vars.index[first(m.substrates)]
+    x = vars.index[m.metabolites[first(m.substrates)]]
     for k in eachindex(m.steps)
         mask[k] && !m.steps[k].rapid_equilibrium || continue
         from, to = m.steps[k].from, m.steps[k].to
@@ -227,7 +227,7 @@ function _law(m::Mechanisms.CatalyticScheme, s::_Solve, mask::BitVector;
         sub(p) = _subst(v -> v <= nc ? nothing :
                              value[s.column[_StepParameter(b.cols[v - nc]..., inactive)]],
                       p)
-        side(xs) = _monomial((vars.index[x] => 1 for x in xs)...)
+        side(xs) = _monomial((vars.index[m.metabolites[x]] => 1 for x in xs)...)
         H = _term(side(m.substrates)) -
             _term(_mmul(side(m.products), _monomial(keq => -1)))
         Q, D = _divexact(sub(b.num), H), sub(b.den)

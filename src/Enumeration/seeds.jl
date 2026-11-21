@@ -15,7 +15,7 @@ function _numbered_groups(steps::Vector{Mechanisms.Step})
     number = Dict{Int, Int}()
     Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
                                     e.rapid_equilibrium,
-                                    get!(number, e.group, length(number) + 1))
+                                    get!(number, e.kinetic_group, length(number) + 1))
                     for e in steps]
 end
 
@@ -30,7 +30,8 @@ function _trimmed(forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step})
     at[used] = eachindex(used)
     (; forms = forms[used],
      steps = Mechanisms.Step[Mechanisms.Step(at[e.from], at[e.to], e.taken_up, e.given_off,
-                                             e.rapid_equilibrium, e.group) for e in steps])
+                                             e.rapid_equilibrium, e.kinetic_group)
+                             for e in steps])
 end
 
 """All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
@@ -58,12 +59,15 @@ end
 Build catalytic cycle topologies by constructive backtracking. Each topology is a written
 graph (`_trimmed`), each of its forms once: steps forming one or more complete catalytic
 cycles (E -> ... -> E), every release written as the binding it reverses, so every
-binding takes its metabolite up. Each step's group is 0, for `_seed_groups` to label.
-Errors when the reaction has none.
+binding takes its metabolite up. A step's lists index the reaction's substrates, then its
+products. Each step's group is 0, for `_seed_groups` to label. Errors when the reaction has
+none.
 """
 function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     sub_names = Symbol[s.name for s in reaction.substrates]
     prod_names = Symbol[p.name for p in reaction.products]
+    reactants = [sub_names; prod_names]
+    reactant_index(x::Symbol) = findfirst(==(x), reactants)::Int
     forms = _FormRecord[]
     index = Dict{_FormRecord, Int}()
 
@@ -99,28 +103,26 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
         # The step from `cur` to the form the arguments describe, taking up `takes_up`,
         # or, for a release, the binding into `cur` it reverses; then the walk on from
         # that form.
-        function step!(takes_up::Vector{Mechanisms.Metabolite}, release::Bool, con, rel,
-                       on_s, on_p)
+        function step!(takes_up::Vector{Int}, release::Bool, con, rel, on_s, on_p)
             to = form(con, rel, on_s, on_p)
             push!(path,
-                  release ?
-                  Mechanisms.Step(to, cur, takes_up, Mechanisms.Metabolite[], true, 0) :
-                  Mechanisms.Step(cur, to, takes_up, Mechanisms.Metabolite[], true, 0))
+                  release ? Mechanisms.Step(to, cur, takes_up, Int[], true, 0) :
+                            Mechanisms.Step(cur, to, takes_up, Int[], true, 0))
             self(self, to, con, rel, on_s, on_p, path)
             pop!(path)
         end
         if !isempty(on_prods)
             # Release a bound product; nothing binds until every bound product is gone.
             for p in on_prods
-                step!([Mechanisms.Metabolite(p, false)], true, consumed, [released; p],
-                      Symbol[], filter(!=(p), on_prods))
+                step!([reactant_index(p)], true, consumed, [released; p], Symbol[],
+                      filter(!=(p), on_prods))
             end
             return
         end
         remaining_subs = setdiff(sub_names, consumed)
         for s in remaining_subs
-            step!([Mechanisms.Metabolite(s, false)], false, [consumed; s], released,
-                  [on_subs; s], Symbol[])
+            step!([reactant_index(s)], false, [consumed; s], released, [on_subs; s],
+                  Symbol[])
         end
         # C7: only a substrate-bound form isomerizes. C6: at most three substrates react.
         (isempty(on_subs) || length(on_subs) > 3) && return
@@ -136,7 +138,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
             # C6: iso size limit, the residue counting as one product
             length(subset) + !isempty(residue) > 3 && continue
             # C8: product-only iso form
-            step!(Mechanisms.Metabolite[], false, consumed, released, Symbol[], subset)
+            step!(Int[], false, consumed, released, Symbol[], subset)
         end
     end
     # Start from free enzyme (:E, no bound metabolites).
@@ -162,19 +164,19 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     # releases every product once.
     #
     # Iterate iso_groups deterministically (smaller iso-step counts first, then by
-    # their iso steps' forms in the canonical form order) so topology output order is
-    # stable — a `Set`'s iteration order is not.
+    # their iso steps' forms in content order) so topology output order is stable — a
+    # `Set`'s iteration order is not.
     level_of(wo) = Dict{Symbol,Int}(m => i for (i, level) in enumerate(wo) for m in level)
     sub_levels = level_of.(_weak_orderings(sub_names))
     prod_levels = level_of.(_weak_orderings(prod_names))
     # The names a path binds, in order, among `names`: a release counts as the binding it
     # is written as.
     route_order(path, names) =
-        Symbol[s.taken_up[1].name for s in path
-               if !isempty(s.taken_up) && s.taken_up[1].name in names]
-    # A form's place in the canonical form order: free E first, then by label, bound
-    # metabolites, residual additions and residual subtractions. A topology binds no
-    # modifier, so its bound metabolites are its productive ones.
+        Symbol[reactants[s.taken_up[1]] for s in path
+               if !isempty(s.taken_up) && reactants[s.taken_up[1]] in names]
+    # A form's place in content order: free E first, then by label, bound metabolites,
+    # residual additions and residual subtractions. A topology binds no modifier, so its
+    # bound metabolites are its productive ones.
     key(x::Int) = (f = forms[x];
                    (!(isempty(f.productive) && isempty(f.adds) && isempty(f.subtracts) &&
                       f.label === :E),
@@ -252,7 +254,8 @@ substrate or product bound, subject to:
 Each competition pattern (`_competition_patterns`) keeps the dead-end forms that bind
 none of its (substrate, product) pairs, and each distinct set of kept forms gives one
 mechanism: the topology plus a rapid-equilibrium binding step between every two of its
-forms with the same conformation and residual that differ by one bound metabolite.
+forms with the same conformation and residual that differ by one bound metabolite. A
+step's lists index the reaction's substrates, then its products, as the topologies' do.
 
 Two preconditions hold for the topologies of `_catalytic_topologies`: every binding is
 rapid equilibrium, and every isomerization joins a substrate-only form to a
@@ -268,6 +271,8 @@ function _expand_substrate_product_dead_ends(
     sub_names = Set(s.name for s in reaction.substrates)
     prod_names = Set(p.name for p in reaction.products)
     mets = sort!(collect(union(sub_names, prod_names)))
+    reactants = Symbol[[s.name for s in reaction.substrates];
+                       [p.name for p in reaction.products]]
 
     # Competition patterns depend only on the reaction, so they are computed once.
     # A declared shared catalytic site forbids its (substrate, product) pair
@@ -329,8 +334,8 @@ function _expand_substrate_product_dead_ends(
                     length(hs[j]) == length(hs[i]) + 1 && issubset(hs[i], hs[j]) &&
                     !((x1, x2) in edges) || continue
                 met = only(setdiff(hs[j], hs[i]))
-                push!(steps, Mechanisms.Step(x1, x2, [Mechanisms.Metabolite(met, false)],
-                                             Mechanisms.Metabolite[], true, 0))
+                push!(steps, Mechanisms.Step(x1, x2, [findfirst(==(met), reactants)],
+                                             Int[], true, 0))
             end
             push!(result, _trimmed(forms, steps))
         end
@@ -349,8 +354,7 @@ share one group, since the steps of a group share their constants; every isomeri
 is a group of its own.
 """
 function _seed_groups(steps::Vector{Mechanisms.Step})
-    label = Dict{Tuple{Vector{Mechanisms.Metabolite}, Vector{Mechanisms.Metabolite},
-                       Bool, Int}, Int}()
+    label = Dict{Tuple{Vector{Int}, Vector{Int}, Bool, Int}, Int}()
     [get!(label,
           (s.taken_up, s.given_off, s.rapid_equilibrium, _is_iso(s) ? j : 0),
           length(label) + 1)
@@ -367,7 +371,7 @@ labels, and the label of `s0`'s group goes unused.
 function _merge_isomerization(steps::Vector{Mechanisms.Step}, s0::Mechanisms.Step)
     move(x::Int) = x == s0.from ? s0.to : x
     Mechanisms.Step[Mechanisms.Step(move(s.from), move(s.to), s.taken_up, s.given_off,
-                                    s.rapid_equilibrium, s.group)
+                                    s.rapid_equilibrium, s.kinetic_group)
                     for s in steps if s != s0]
 end
 
@@ -375,30 +379,29 @@ end
 `steps` with node `x` eliminated, or `nothing` when that is not possible: `x` must have
 exactly two steps, both bindings into it, Y + L → x and Z + R → x with Y ≠ Z. They
 become one Theorell–Chance step Y + L → Z + R, rapid equilibrium, in a group of its own
-labelled after the others, where Y + L is the binding of a substrate (a name of
+labelled after the others, where Y + L is the binding of a substrate (an index of
 `substrates`) when one of the two is; their groups keep their other steps. No step joins
 `x` then.
 """
-function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vector{Symbol})
+function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vector{Int})
     at_x = findall(s -> x in (s.from, s.to), steps)
     length(at_x) == 2 && all(j -> steps[j].to == x && isempty(steps[j].given_off) &&
                                   length(steps[j].taken_up) == 1, at_x) ||
         return nothing
-    # A seed binds no modifier copy, so a binding of a substrate's name binds the substrate.
-    binds_substrate(j) = only(steps[j].taken_up).name in substrates
+    binds_substrate(j) = only(steps[j].taken_up) in substrates
     entry, release = steps[sort(at_x; by = j -> !binds_substrate(j))]
     entry.from == release.from && return nothing
     keep = [!(j in at_x) for j in eachindex(steps)]
     [steps[keep]; Mechanisms.Step(entry.from, release.from, entry.taken_up,
                                   release.taken_up, true,
-                                  maximum(e -> e.group, steps) + 1)]
+                                  maximum(e -> e.kinetic_group, steps) + 1)]
 end
 
 """The merged complexes of the catalytic graph of candidate `c`, each once: the forms that a
 fused binding of a substrate enters, a binding that is not plain (`_is_binding`,
-`_is_plain_binding`) and takes up a metabolite named in `subs`. Only the edges `on`
-flags count."""
-function _merged_complexes(c::CandidateMechanism, subs::Vector{Symbol},
+`_is_plain_binding`) and takes up a metabolite of `subs`, indices into the scheme's
+metabolites. Only the edges `on` flags count."""
+function _merged_complexes(c::CandidateMechanism, subs::Vector{Int},
                            on::BitVector = trues(length(
                                c.mechanism.catalytic.steps)))
     steps = c.mechanism.catalytic.steps
@@ -468,7 +471,7 @@ function _seed_bases(c::CandidateMechanism)
     isos = filter(_is_iso, m.steps)
     joined = foldl(_merge_isomerization, isos; init = m.steps)
     merged = Mechanisms.Step[Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off, true,
-                                             s.group) for s in joined]
+                                             s.kinetic_group) for s in joined]
     bases = [merged]
     for s in isos
         tc = _eliminate_form(merged, s.to, m.substrates)
@@ -484,8 +487,8 @@ function _lumping_twin(base::Mechanisms.CatalyticScheme, cx::Vector{Int}, re::Bi
     all(cx) do f
         at = findall(e -> f == e.from || f == e.to, base.steps)
         length(at) == 2 &&
-            all(k -> !re[k] && count(e -> e.group == base.steps[k].group, base.steps) == 1,
-                at)
+            all(k -> !re[k] && count(e -> e.kinetic_group == base.steps[k].kinetic_group,
+                                     base.steps) == 1, at)
     end
 end
 
@@ -509,7 +512,7 @@ function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     m = c.mechanism.catalytic
     variants = CandidateMechanism[]
     for (i, b) in enumerate(_seed_bases(c))
-        base = _candidate(m.substrates, m.products, b.forms, b.steps)
+        base = _candidate(m.metabolites, b.forms, m.substrates, m.products, b.steps)
         _assert_atom_conserving(base, rxn)
         flips = _minimal_flips(_seed_candidate_screen(base), base)
         if i == 1
@@ -540,11 +543,12 @@ the reaction has no catalytic topology. A seed that `_enumerator_keeps` refuses 
 dropped; the flip search has run the same test on every variant.
 """
 function init_mechanisms(r::Mechanisms.EnzymeReaction)
-    subs = Symbol[s.name for s in r.substrates]
-    prods = Symbol[p.name for p in r.products]
+    # A seed's steps index the reactants, substrates first (`_catalytic_topologies`).
+    reactants = Symbol[[s.name for s in r.substrates]; [p.name for p in r.products]]
+    ns = length(r.substrates)
     seeds = _expand_substrate_product_dead_ends(_catalytic_topologies(r), r)
     mechs = CandidateMechanism[
-        _candidate(subs, prods, s.forms,
+        _candidate(reactants, s.forms, collect(1:ns), collect((ns + 1):length(reactants)),
                    Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
                                                    e.rapid_equilibrium, g)
                                    for (e, g) in zip(s.steps, _seed_groups(s.steps))])
@@ -660,9 +664,9 @@ _bound_allo_regs(m::Mechanisms.Mechanism) =
 """Names of the competitive inhibitors some step of candidate `c` takes up as a modifier
 copy (`_copy_change`)."""
 function _bound_comp_inhibitors(c::CandidateMechanism)
-    steps = c.mechanism.catalytic.steps
-    Set{Symbol}(x.name for k in eachindex(steps) for x in steps[k].taken_up
-                if _copy_change(c, k, x.name) > 0)
+    cm = c.mechanism.catalytic
+    Set{Symbol}(cm.metabolites[x] for k in eachindex(cm.steps) for x in cm.steps[k].taken_up
+                if _copy_change(c, k, cm.metabolites[x]) > 0)
 end
 
 """
@@ -742,24 +746,26 @@ end
 """
 Error unless the names of the metabolites `rxn` binds to an enzyme form spell every
 string one way. The enumerator names each form it builds by joining the names of the
-metabolites the form binds without a separator (`EAB`), so with `Ac`, `CoA` and `AcCoA`
-the forms with `Ac` and `CoA` bound and with `AcCoA` bound would share a name. Each
-substrate and product is its own label; a competitive inhibitor that is also a reactant
-binds as its copy, spelled `X::Mod` and named `Xmod`; an allosteric regulator binds no
-form, so its name takes no part. The Sardinas–Patterson test decides it, and the error
-spells both splits.
+metabolites the form binds without a separator (`EAB`, `_form_name`), so with `Ac`, `CoA`
+and `AcCoA` the forms with `Ac` and `CoA` bound and with `AcCoA` bound would share a name.
+Each substrate and product is its own label; a competitive inhibitor that is also a
+reactant binds as its modifier copy, named `Xmod`; an allosteric regulator binds no form,
+so its name takes no part. The Sardinas–Patterson test decides it, and the error spells
+both splits.
 """
 function _check_decodable_names(rxn::Mechanisms.EnzymeReaction)
     reactants = Symbol[[r.name for r in rxn.substrates]; [r.name for r in rxn.products]]
-    spelled = Dict{String, String}()
-    modifier_label(n) = n in reactants ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
-    for (label, written) in [[String(n) => String(n) for n in reactants];
-                             [modifier_label(r.name) for r in rxn.regulators
-                              if r.kind === :competitive]]
-        other = get!(spelled, label, written)
-        other == written || _spelled_twice_error([other], [written])
+    # Each label and the metabolite it stands for, as the error names it.
+    written = Dict{String, String}()
+    copy_label(n) = n in reactants ? "$(n)mod" => "$(n)mod ($n's modifier copy)" :
+                                     String(n) => String(n)
+    for (label, text) in [[String(n) => String(n) for n in reactants];
+                          [copy_label(r.name) for r in rxn.regulators
+                           if r.kind === :competitive]]
+        other = get!(written, label, text)
+        other == text || _spelled_twice_error([other], [text], label)
     end
-    words = sort!(collect(keys(spelled)))
+    words = sort!(collect(keys(written)))
     tail(w, prefix) = w[ncodeunits(prefix) + 1:end]
     # Each entry holds a dangling suffix `d` and two splits: join(long) == join(short) * d.
     queue = [(tail(v, u), [v], [u]) for u in words for v in words
@@ -769,8 +775,9 @@ function _check_decodable_names(rxn::Mechanisms.EnzymeReaction)
         d, long, short = popfirst!(queue)
         d in seen && continue
         push!(seen, d)
-        haskey(spelled, d) && _spelled_twice_error(getindex.(Ref(spelled), [short; d]),
-                                                   getindex.(Ref(spelled), long))
+        haskey(written, d) && _spelled_twice_error(getindex.(Ref(written), [short; d]),
+                                                   getindex.(Ref(written), long),
+                                                   join(long))
         for w in words
             startswith(w, d) && push!(queue, (tail(w, d), [short; w], long))
             startswith(d, w) && push!(queue, (tail(d, w), long, [short; w]))
@@ -778,10 +785,9 @@ function _check_decodable_names(rxn::Mechanisms.EnzymeReaction)
     end
 end
 
-"""Error that the label splits `a` and `b`, each a list of the names as a reaction
-writes them, spell one string."""
-function _spelled_twice_error(a::Vector{String}, b::Vector{String})
-    spelled = join(replace.(a, "::Mod" => "mod"))
+"""Error that the label splits `a` and `b`, each a list of the metabolites the labels stand
+for, both spell `spelled`."""
+function _spelled_twice_error(a::Vector{String}, b::Vector{String}, spelled::String)
     error("candidate_mechanisms: $(join(a, " + ")) and $(join(b, " + ")) both spell " *
           "$spelled: enzyme forms and their constants join the names of the metabolites " *
           "they bind without a separator, so two forms would share a name; rename a " *

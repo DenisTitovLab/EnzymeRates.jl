@@ -7,7 +7,7 @@ group's allosteric state, one flag per catalytic step: the active conformation t
 none."""
 function _excluded_steps(m::Mechanisms.Mechanism, c::Int)
     state, states = c == 1 ? :OnlyI : :OnlyA, m.allosteric.allosteric_states
-    (e -> !isempty(states) && states[e.group] === state).(m.catalytic.steps)
+    (e -> !isempty(states) && states[e.kinetic_group] === state).(m.catalytic.steps)
 end
 
 """

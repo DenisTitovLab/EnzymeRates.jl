@@ -54,8 +54,8 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E + P
+            E + S <--> ES
+            ES <--> E + P
         end
     end
     nz, L, mech = _testhelper_normalizer(mm)
@@ -72,10 +72,10 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) <--> F + P
-            F + B <--> F(B)
-            F(B) <--> E + Q
+            E + A <--> EA
+            EA <--> F + P
+            F + B <--> FB
+            FB <--> E + Q
         end
     end
     nz, L, mech = _testhelper_normalizer(pp)
@@ -98,11 +98,11 @@ end
         substrates: A, B, C
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B <--> E(A, B)
-            E(A, B) <--> F + P
-            F + C <--> F(C)
-            F(C) <--> E + Q
+            E + A <--> EA
+            EA + B <--> EAB
+            EAB <--> F + P
+            F + C <--> FC
+            FC <--> E + Q
         end
     end
     nz, L, mech = _testhelper_normalizer(terbi)
@@ -122,12 +122,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(P; residual = A - P), E(Q) + A <--> E(A, Q))
-            (E + Q <--> E(Q), E(P; residual = A - P) + Q <--> E(A, Q))
-            (E(; residual = A - P) + B <--> E(Q),
-             E(P; residual = A - P) + B <--> E(B, P; residual = A - P))
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(Q) + P ⇌ E(B, P; residual = A - P))
+            (E + A <--> EP_res_plusA_minusP, EQ + A <--> EAQ)
+            (E + Q <--> EQ, EP_res_plusA_minusP + Q <--> EAQ)
+            (E_res_plusA_minusP + B <--> EQ,
+             EP_res_plusA_minusP + B <--> EBP_res_plusA_minusP)
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EQ + P ⇌ EBP_res_plusA_minusP)
         end
     end
     nz, L, mech = _testhelper_normalizer(power)
@@ -177,7 +177,7 @@ end
         steps: begin
             E + A <--> F + P
             F + A <--> E + P
-            F + A + A ⇌ F(A, A)
+            F + A + A ⇌ FAA
         end
     end
     nz, L, mech = _testhelper_normalizer(f2)
@@ -196,9 +196,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(Q) + P
-            E(Q) <--> E + Q
+            E + A <--> EA
+            EA + B ⇌ EQ + P
+            EQ <--> E + Q
         end
     end
     nz, L, mech = _testhelper_normalizer(f3)
@@ -216,8 +216,8 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B <--> E + Q
+            E + A <--> E_res_plusA_minusP + P
+            E_res_plusA_minusP + B <--> E + Q
         end
     end
     nz, L, mech = _testhelper_normalizer(covalent)
@@ -236,8 +236,8 @@ end
         steps: begin
             E + A <--> F + P
             F + A <--> E + P
-            F + A ⇌ F(A)
-            F(A) + A ⇌ F(A, A)
+            F + A ⇌ FA
+            FA + A ⇌ FAA
         end
     end
     nz, L, mech = _testhelper_normalizer(f4)
@@ -264,9 +264,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)            :: OnlyA
-            E(A) + B ⇌ E(Q) + P        :: OnlyA
-            E(Q) <--> E + Q            :: EqualAI
+            E + A <--> EA            :: OnlyA
+            EA + B ⇌ EQ + P        :: OnlyA
+            EQ <--> E + Q            :: EqualAI
         end
     end
     v = EnzymeRates.Derivation._guard(filled)
@@ -283,10 +283,10 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)       :: EqualAI
-            E(A) <--> F + P       :: NonequalAI
-            F + B <--> F(B)       :: EqualAI
-            F(B) <--> E + Q       :: EqualAI
+            E + A <--> EA       :: EqualAI
+            EA <--> F + P       :: NonequalAI
+            F + B <--> FB       :: EqualAI
+            FB <--> E + Q       :: EqualAI
         end
     end
     tc = @enzyme_mechanism begin
@@ -294,10 +294,10 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A <--> E(A)            :: OnlyA
-            E(A) + B ⇌ E(Q) + P        :: OnlyA
-            E(Q) <--> E + Q            :: OnlyA
-            E + I <--> E(I)            :: EqualAI
+            E + A <--> EA            :: OnlyA
+            EA + B ⇌ EQ + P        :: OnlyA
+            EQ <--> E + Q            :: OnlyA
+            E + I <--> EI            :: EqualAI
         end
     end
     for (i, am) in enumerate((pp2, tc))
@@ -379,10 +379,10 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A <--> E(A)       :: EqualAI
-            E(A) <--> F + P       :: NonequalAI
-            F + B <--> F(B)       :: EqualAI
-            F(B) <--> E + Q       :: EqualAI
+            E + A <--> EA       :: EqualAI
+            EA <--> F + P       :: NonequalAI
+            F + B <--> FB       :: EqualAI
+            FB <--> E + Q       :: EqualAI
         end
         regulatory_site(2): R::NonequalAI
     end
@@ -430,9 +430,9 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(Q) + P
-            E(Q) <--> E + Q
+            E + A <--> EA
+            EA + B ⇌ EQ + P
+            EQ <--> E + Q
         end
     end
     c3 = split(rate_equation_string(f3; coefficients = true), '\n')
@@ -448,7 +448,7 @@ end
         steps: begin
             E + A <--> F + P
             F + A <--> E + P
-            F + A + A ⇌ F(A, A)
+            F + A + A ⇌ FAA
         end
     end
     @test occursin("\nN = (k_E_A_to_F_P + k_F_A_to_E_P)^(3/2)\n", rate_equation_string(f2))
@@ -462,7 +462,7 @@ end
         products: P
         steps: begin
             (E + A <--> F + P, F + A <--> E + P)
-            F + A + A ⇌ F(A, A)
+            F + A + A ⇌ FAA
         end
     end
     @test occursin("\nN = (2)^(3/2)\n", rate_equation_string(f2g))
@@ -483,8 +483,8 @@ end
         steps: begin
             E + A <--> F + P
             F + A <--> E + P
-            F + A ⇌ F(A)
-            F(A) + A ⇌ F(A, A)
+            F + A ⇌ FA
+            FA + A ⇌ FAA
         end
     end
     @test occursin("\nN = (k_E_A_to_F_P + k_F_A_to_E_P)^2\n", rate_equation_string(f4))
@@ -496,12 +496,12 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            (E + A <--> E(P; residual = A - P), E(Q) + A <--> E(A, Q))
-            (E + Q <--> E(Q), E(P; residual = A - P) + Q <--> E(A, Q))
-            (E(; residual = A - P) + B <--> E(Q),
-             E(P; residual = A - P) + B <--> E(B, P; residual = A - P))
-            (E(; residual = A - P) + P ⇌ E(P; residual = A - P),
-             E(Q) + P ⇌ E(B, P; residual = A - P))
+            (E + A <--> EP_res_plusA_minusP, EQ + A <--> EAQ)
+            (E + Q <--> EQ, EP_res_plusA_minusP + Q <--> EAQ)
+            (E_res_plusA_minusP + B <--> EQ,
+             EP_res_plusA_minusP + B <--> EBP_res_plusA_minusP)
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EQ + P ⇌ EBP_res_plusA_minusP)
         end
     end
     @test _testhelper_n_text(terbi) ==
@@ -560,17 +560,17 @@ end
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(Q) + P
-            E(Q) <--> E + Q
+            E + A <--> EA
+            EA + B ⇌ EQ + P
+            EQ <--> E + Q
         end
     end
     covalent = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
-            E + A <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B <--> E + Q
+            E + A <--> E_res_plusA_minusP + P
+            E_res_plusA_minusP + B <--> E + Q
         end
     end
     tc = @enzyme_mechanism begin
@@ -578,10 +578,10 @@ end
         products: P, Q
         modifiers: I
         steps: begin
-            E + A <--> E(A)            :: OnlyA
-            E(A) + B ⇌ E(Q) + P        :: OnlyA
-            E(Q) <--> E + Q            :: OnlyA
-            E + I <--> E(I)            :: EqualAI
+            E + A <--> EA            :: OnlyA
+            EA + B ⇌ EQ + P        :: OnlyA
+            EQ <--> E + Q            :: OnlyA
+            E + I <--> EI            :: EqualAI
         end
     end
     pp = @enzyme_mechanism begin
@@ -589,9 +589,9 @@ end
         products: P, Q
         oligomeric_state: 2
         steps: begin
-            E + A <--> E(; residual = A - P) + P :: EqualAI
-            E + Q <--> E(Q) :: EqualAI
-            E(; residual = A - P) + B <--> E(Q) :: OnlyA
+            E + A <--> E_res_plusA_minusP + P :: EqualAI
+            E + Q <--> EQ :: EqualAI
+            E_res_plusA_minusP + B <--> EQ :: OnlyA
         end
         regulatory_site(2): R::NonequalAI
     end
@@ -647,9 +647,9 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)            :: EqualAI
-            E(S) <--> E + P         :: EqualAI
-            E + I ⇌ E(I)            :: OnlyI
+            E + S ⇌ ES            :: EqualAI
+            ES <--> E + P         :: EqualAI
+            E + I ⇌ EI            :: OnlyI
         end
     end
     competitive_SS = @enzyme_mechanism begin
@@ -657,9 +657,9 @@ end
         products: P
         modifiers: I
         steps: begin
-            E + S ⇌ E(S)            :: EqualAI
-            E(S) <--> E + P         :: NonequalAI
-            E + I <--> E(I)         :: OnlyI
+            E + S ⇌ ES            :: EqualAI
+            ES <--> E + P         :: NonequalAI
+            E + I <--> EI         :: OnlyI
         end
     end
     cases = ((competitive_RE, "D_I = 1 + S / K_ES_to_E_S + I / K_I_EI_to_E_I",
@@ -679,7 +679,7 @@ end
         cm = m.catalytic
         onlyi =
             [String(x) for (k, ns) in enumerate(_testhelper_edge_names(m, :I))
-             if m.allosteric.allosteric_states[cm.steps[k].group] === :OnlyI
+             if m.allosteric.allosteric_states[cm.steps[k].kinetic_group] === :OnlyI
              for x in ns]
         d_a = only(l for l in split(full, '\n') if startswith(l, "D_A = "))
         @test !isempty(onlyi)
@@ -709,9 +709,9 @@ end
         products:   P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)     :: NonequalAI
-            E + S ⇌ E(S)     :: NonequalAI
-            E(S) <--> E(P)   :: NonequalAI
+            E + P ⇌ EP     :: NonequalAI
+            E + S ⇌ ES     :: NonequalAI
+            ES <--> EP   :: NonequalAI
         end
         regulatory_site(2): R::NonequalAI
     end
@@ -725,12 +725,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: EqualAI
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     @test EnzymeRates.Derivation._guard(bridged).fault === EnzymeRates.Derivation._BRIDGE
@@ -739,12 +739,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) <--> E(ADP)                            :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: EqualAI
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP <--> EADP                            :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     # Both bindings :OnlyA: the inactive conformation is free E alone, so the
@@ -754,9 +754,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: OnlyA
         end
     end
     heads(t) = [l[1:3] for l in split(t, '\n') if occursin(r"^[QDFWN]_[AI] = ", l)]
@@ -796,9 +796,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     s = rate_equation_string(m)
@@ -820,9 +820,9 @@ end
         substrates: S
         products: P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
     end
     @test _testhelper_short_law(m) == "(; S, P) = concs\n" *
@@ -839,9 +839,9 @@ end
         products: P
         oligomeric_state: 2
         steps: begin
-            E + S ⇌ E(S)      :: OnlyA
-            E(S) <--> E(P)    :: EqualAI
-            E + P ⇌ E(P)      :: OnlyA
+            E + S ⇌ ES      :: OnlyA
+            ES <--> EP    :: EqualAI
+            E + P ⇌ EP      :: OnlyA
         end
     end
     @test _testhelper_short_law(inert) == "(; S, P) = concs\n" *
@@ -856,9 +856,9 @@ end
         products:   P
         oligomeric_state: 2
         steps: begin
-            E + P ⇌ E(P)     :: NonequalAI
-            E + S ⇌ E(S)     :: NonequalAI
-            E(S) <--> E(P)   :: NonequalAI
+            E + P ⇌ EP     :: NonequalAI
+            E + S ⇌ ES     :: NonequalAI
+            ES <--> EP   :: NonequalAI
         end
         regulatory_site(2): R::NonequalAI
     end

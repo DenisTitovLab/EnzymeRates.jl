@@ -12,7 +12,7 @@ inactive copy, an `:OnlyI` edge's active one) is a class of its own.
 _class(m::Mechanisms.Mechanism, excluded::NTuple{2, BitVector}, c::_StepParameter) =
     excluded[c.inactive ? 2 : 1][c.step] ?
     (c.step, c.slot, c.inactive, true) :
-    (m.catalytic.steps[c.step].group, c.slot, c.inactive, false)
+    (m.catalytic.steps[c.step].kinetic_group, c.slot, c.inactive, false)
 
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
@@ -20,8 +20,7 @@ _class(m::Mechanisms.Mechanism, excluded::NTuple{2, BitVector}, c::_StepParamete
 The fundamental cycles of a spanning forest of the graph of graph `m`'s edges `flat`,
 grown over the edges in that order: row `i` of `Z` counts each edge of cycle `i` (column
 `j` is edge `flat[j]`) with its sign in the edge's stored direction, and `multiples[i]`
-is the multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). A
-metabolite counts by name, so a reactant's modifier copy counts as the reactant. Errors
+is the multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). Errors
 on a cycle whose net change is no multiple of the net reaction. Integer arithmetic
 throughout.
 
@@ -50,9 +49,10 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
             end
         end
     end
-    net = Dict{Symbol, Int}()
-    foreach(x -> net[x] = -1, m.substrates)
-    foreach(x -> net[x] = 1, m.products)
+    # Each metabolite's change in the net reaction, by its index; a modifier's is 0.
+    net = zeros(Int, length(m.metabolites))
+    net[m.substrates] .= -1
+    net[m.products] .= 1
     x1 = first(m.substrates)
     rows, multiples = Vector{Int}[], Int[]
     for (j, k) in enumerate(flat)
@@ -60,16 +60,14 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
         a, b = m.steps[k].from, m.steps[k].to
         z = path[a] - path[b]
         z[j] += 1
-        change = Dict{Symbol, Int}(x => 0 for x in keys(net))
+        change = zeros(Int, length(m.metabolites))
         for (i, kk) in enumerate(flat)
             z[i] == 0 && continue
-            up, off = m.steps[kk].taken_up, m.steps[kk].given_off
-            for x in keys(net)
-                change[x] += z[i] * (_copies(off, x) - _copies(up, x))
-            end
+            foreach(x -> change[x] += z[i], m.steps[kk].given_off)
+            foreach(x -> change[x] -= z[i], m.steps[kk].taken_up)
         end
         c = change[x1] * net[x1]
-        all(x -> change[x] == c * net[x], keys(net)) || error(
+        all(x -> change[x] == c * net[x], eachindex(net)) || error(
             "Cycle $(length(rows) + 1) produces metabolite change not proportional to " *
             "net reaction")
         push!(rows, z)

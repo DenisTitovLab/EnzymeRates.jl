@@ -1,23 +1,15 @@
-# ABOUTME: The facts a mechanism's graph gives: what a step does and its kinetic groups,
-# ABOUTME: computed once at construction, and the steps each conformation runs.
+# ABOUTME: What a mechanism's graph gives that two modules read: its kinetic groups and
+# ABOUTME: the steps each conformation runs.
 
-"""
-What step `e` of `m` does: `:isomerization` when it takes up and gives off nothing,
-`:binding` when it is a plain binding (`_is_plain_binding`), `:fused_binding` when it
-takes up one metabolite and gives off none but its two forms differ by more than that
-metabolite, else `:chemistry`.
-"""
-_step_kind(m::CatalyticScheme, e::Step) =
-    _is_iso(e) ? :isomerization : _is_plain_binding(m, e) ? :binding :
-    _is_binding(e) ? :fused_binding : :chemistry
-
-"""Each kinetic group's steps, in step order, each list stored at its length."""
+"""Each kinetic group's steps of `steps`, in step order, by the steps' `kinetic_group`
+labels; each list stored at its length."""
 function _groups(steps::Vector{Step})
-    G = maximum(e -> e.group, steps; init = 0)
-    members = [Vector{Int}(undef, count(e -> e.group == g, steps)) for g in 1:G]
+    G = maximum(e -> e.kinetic_group, steps; init = 0)
+    members = [Vector{Int}(undef, count(e -> e.kinetic_group == g, steps)) for g in 1:G]
     filled = zeros(Int, G)
     for (k, e) in enumerate(steps)
-        members[e.group][filled[e.group] += 1] = k
+        g = e.kinetic_group
+        members[g][filled[g] += 1] = k
     end
     members
 end
@@ -51,14 +43,14 @@ E."""
 function _steps_in_conformation(m::Mechanism, state::Symbol)
     c, states = m.catalytic, m.allosteric.allosteric_states
     isempty(states) && return trues(length(c.steps))
-    excluded = (e -> states[e.group] === state).(c.steps)
+    excluded = (e -> states[e.kinetic_group] === state).(c.steps)
     joined = _joined_to_free_E(c, excluded)
     (k -> !excluded[k] && joined[c.steps[k].from]).(eachindex(c.steps))
 end
 
-"""Which nodes of `m` the steps not in `excluded` join to free E, node 1."""
+"""Which forms of `m` the steps not in `excluded` join to free E, form 1."""
 function _joined_to_free_E(m::CatalyticScheme, excluded::BitVector)
-    reached = falses(length(m.nodes))
+    reached = falses(length(m.enzyme_forms))
     reached[1] = true
     grew = true
     while grew

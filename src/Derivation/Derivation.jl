@@ -17,11 +17,6 @@ _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_state
 """The two conformations by the index the guard gives them: 1 active, 2 inactive."""
 const _CONFORMATIONS = (:active, :inactive)
 
-"""The number of copies of metabolite `name` in `held`, a reactant's modifier copies
-included."""
-_copies(held::Vector{Mechanisms.Metabolite}, name::Symbol) =
-    count(x -> x.name === name, held)
-
 """The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.CatalyticScheme) = BitVector(s.rapid_equilibrium for s in m.steps)
 
@@ -33,11 +28,11 @@ named after its stored direction."""
 _constant_named_in_reverse(e::Mechanisms.Step) =
     length(e.taken_up) == 1 && isempty(e.given_off)
 
-"""The kinetic groups of `m`, numbered by their steps' `group`: each group's steps, in step
-order."""
+"""The kinetic groups of `m`, numbered by their steps' `kinetic_group`: each group's steps,
+in step order."""
 function _kinetic_groups(m::Mechanisms.CatalyticScheme)
-    G = maximum(e -> e.group, m.steps; init = 0)
-    [findall(e -> e.group == g, m.steps) for g in 1:G]
+    G = maximum(e -> e.kinetic_group, m.steps; init = 0)
+    [findall(e -> e.kinetic_group == g, m.steps) for g in 1:G]
 end
 
 include("conformations.jl")
@@ -62,7 +57,7 @@ include("memo.jl")
 # each session.
 precompile(_guard, (Mechanisms.Mechanism,))
 precompile(_derivation_input, (Type{<:_CompiledRateEquation},))
-precompile(Tuple{typeof(_mechanism_from_sig), Int, Vararg{Int}})
+precompile(_mechanism_from_sig, (Tuple,))
 precompile(_rate_body, (Mechanisms.Mechanism,))
 
 end

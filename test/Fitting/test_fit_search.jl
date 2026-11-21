@@ -41,13 +41,12 @@ _testhelper_scales_table(mets, s, r) =
 function _testhelper_check_centres_match_law(mechanism, rng)
     rate = compile_rate_equation(mechanism)
     mets = Tuple(metabolites(mechanism))
-    catalytic = mechanism.catalytic
     s = Dict(x => exp(randn(rng)) for x in mets)
     f = Dict(x => exp(2 * randn(rng)) for x in mets)
     sf = Dict(x => s[x] * f[x] for x in mets)
     r, g = exp(randn(rng)), exp(2 * randn(rng))
-    keq_factor = prod(f[x] for x in catalytic.products) /
-                 prod(f[x] for x in catalytic.substrates)
+    keq_factor = prod(f[x] for x in _testhelper_products(mechanism)) /
+                 prod(f[x] for x in _testhelper_substrates(mechanism))
     centres(scales, rate) = EnzymeRates.Fitting._log_centres(
         FittingProblem(mechanism, _testhelper_scales_table(mets, scales, rate), 1.0))
     move = centres(sf, g * r) .- centres(s, r)
@@ -83,8 +82,8 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S <--> E(S)
-            E(S) <--> E + P
+            E + S <--> ES
+            ES <--> E + P
         end
     end
     steady_state_params = (k_E_S_to_ES = 1e7, k_ES_to_E_S = 50.0, k_ES_to_E_P = 200.0)
@@ -95,8 +94,8 @@ end
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E + P
+            E + S ⇌ ES
+            ES <--> E + P
         end
     end
 
@@ -110,20 +109,20 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A + B <--> E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(P, Q) <--> E(Q) + P
-                    E(Q) <--> E + Q
+                    E + A + B <--> EAB
+                    EAB <--> EPQ
+                    EPQ <--> EQ + P
+                    EQ <--> E + Q
                 end
             end),
             two_in_rapid = @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A + B ⇌ E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(P, Q) <--> E(Q) + P
-                    E(Q) <--> E + Q
+                    E + A + B ⇌ EAB
+                    EAB <--> EPQ
+                    EPQ <--> EQ + P
+                    EQ <--> E + Q
                 end
             end),
             two_same_in_rapid = @enzyme_mechanism(begin
@@ -132,39 +131,37 @@ end
                 steps: begin
                     E + A <--> F + P
                     F + A <--> E + P
-                    F + A + A ⇌ F(A, A)
+                    F + A + A ⇌ FAA
                 end
             end),
             two_out_steady_state = @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A <--> E(A)
-                    E(A) + B <--> E(A, B)
-                    E(A, B) <--> E(P, Q)
-                    E(P, Q) <--> E + P + Q
+                    E + A <--> EA
+                    EA + B <--> EAB
+                    EAB <--> EPQ
+                    EPQ <--> E + P + Q
                 end
             end),
             modifier_copy = @enzyme_mechanism(begin
                 substrates: S
                 products: P
-                modifiers: S
                 steps: begin
-                    E + S ⇌ E(S)
-                    E(S) <--> E(P)
-                    E(P) ⇌ E + P
-                    E(P) + S::Mod ⇌ E(P, S::Mod)
+                    E + S ⇌ ES
+                    ES <--> EP
+                    EP ⇌ E + P
+                    EP + S ⇌ EPSmod
                 end
             end),
             modifier_copy_steady_state = @enzyme_mechanism(begin
                 substrates: S
                 products: P
-                modifiers: S
                 steps: begin
-                    E + S <--> E(S)
-                    E(S) <--> E(P)
-                    E(P) <--> E + P
-                    E(P) + S::Mod <--> E(P, S::Mod)
+                    E + S <--> ES
+                    ES <--> EP
+                    EP <--> E + P
+                    EP + S <--> EPSmod
                 end
             end),
         )
@@ -184,9 +181,9 @@ end
             products:   P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ E(S)     :: EqualAI
-                E(S) <--> E(P)   :: OnlyA
-                E(P) ⇌ E + P     :: EqualAI
+                E + S ⇌ ES     :: EqualAI
+                ES <--> EP   :: OnlyA
+                EP ⇌ E + P     :: EqualAI
             end
             regulatory_site(1): R::OnlyI
         end
@@ -206,9 +203,9 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A ⇌ E(A)
-                E(A) + B <--> E(Q) + P
-                E(Q) ⇌ E + Q
+                E + A ⇌ EA
+                EA + B <--> EQ + P
+                EQ ⇌ E + Q
             end
         end
         @test centres(tc_steady, s, r)[:k_EA_B_to_EQ_P] ≈ log(4.0) - log(10.0)
@@ -216,10 +213,10 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A <--> E(A)
-                E(A) + B ⇌ E(Q) + P
-                E(Q) <--> F(Q)
-                F(Q) <--> F + Q
+                E + A <--> EA
+                EA + B ⇌ EQ + P
+                EQ <--> FQ
+                FQ <--> F + Q
                 F <--> E
             end
         end
@@ -286,8 +283,8 @@ end
             substrates: A, B
             products: P, Q
             steps: begin
-                E + A + B <--> E(A, B)
-                E(A, B) <--> E + P + Q
+                E + A + B <--> EAB
+                EAB <--> E + P + Q
             end
         end
         params = (k_E_A_B_to_EAB = 1e10, k_EAB_to_E_A_B = 100.0, k_EAB_to_E_P_Q = 300.0)
@@ -322,8 +319,8 @@ end
                 substrates: A, B
                 products: P, Q
                 steps: begin
-                    E + A + B <--> E(A, B)
-                    E(A, B) <--> E + P + Q
+                    E + A + B <--> EAB
+                    EAB <--> E + P + Q
                 end
             end
             # The other column, `Dose`, is no metabolite, so the fallback leaves it out.

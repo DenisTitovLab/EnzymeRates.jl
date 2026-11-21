@@ -2,31 +2,29 @@
 # ABOUTME: dwell gauge of redundant copies, atom and emission assertions, regulator types.
 
 """Whether the rate of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds, has a
-maximum as the metabolites `names` (its substrates or its products, sorted) grow: turning
+maximum as the metabolites `names` (its substrates or its products, by index) grow: turning
 rapid equilibrium every steady-state edge that takes up or gives off one of them leaves no
 rapid-equilibrium turnover cycle (condition V). Only the edges `on` flags count, so an
 allosteric mechanism's test can read its active law (`_degenerate`)."""
-function _has_vmax(m::Mechanisms.CatalyticScheme, re::BitVector, names::Vector{Symbol},
+function _has_vmax(m::Mechanisms.CatalyticScheme, re::BitVector, names::Vector{Int},
                    on::BitVector = trues(length(m.steps)))
     touches = BitVector([_exchanges(m, k, names) for k in eachindex(m.steps)])
     !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
 end
 
-"""Whether `s` holds a metabolite named in `names`, a reactant's modifier copy under its
-reactant's name."""
-_holds(s::Vector{Mechanisms.Metabolite}, names::Vector{Symbol}) =
-    any(x -> x.name in names, s)
+"""Whether the metabolite list `s` holds a metabolite of `names`, both indices into a
+scheme's metabolites."""
+_holds(s::Vector{Int}, names::Vector{Int}) = any(in(names), s)
 
-"""Whether step `k` of `m` takes up or gives off a metabolite named in `names`
-(`_holds`)."""
-_exchanges(m::Mechanisms.CatalyticScheme, k::Int, names::Vector{Symbol}) =
+"""Whether step `k` of `m` takes up or gives off a metabolite of `names` (`_holds`)."""
+_exchanges(m::Mechanisms.CatalyticScheme, k::Int, names::Vector{Int}) =
     _holds(m.steps[k].taken_up, names) || _holds(m.steps[k].given_off, names)
 
-"""Whether step `k` of `m` takes up a metabolite named in one of `subs` and `prods` (a
-reactant of one side of the reaction) and gives off one named in the other, as a
-Theorell–Chance step does."""
-function _crosses_sides(m::Mechanisms.CatalyticScheme, k::Int, subs::Vector{Symbol},
-                        prods::Vector{Symbol})
+"""Whether step `k` of `m` takes up a metabolite of one of `subs` and `prods` (a reactant
+of one side of the reaction) and gives off one of the other, as a Theorell–Chance step
+does."""
+function _crosses_sides(m::Mechanisms.CatalyticScheme, k::Int, subs::Vector{Int},
+                        prods::Vector{Int})
     t, g = m.steps[k].taken_up, m.steps[k].given_off
     _holds(t, subs) && _holds(g, prods) || _holds(t, prods) && _holds(g, subs)
 end
@@ -41,8 +39,8 @@ Theorell–Chance step. An RE edge leaves a node through a node form F and relea
 traversing it away from F gives M off: F is its `to` form and M is consumed, or F is its
 `from` form and M is released. An RE Theorell–Chance node leaves through its own edge in
 both directions. Then the chemistry sits in rapid equilibrium with both sides and some
-reactant is not needed at zero products or substrates. A reactant's modifier copy counts as
-its reactant. Only the edges `on` flags count (`_degenerate`).
+reactant is not needed at zero products or substrates. Only the edges `on` flags count
+(`_degenerate`).
 """
 function _chemistry_equilibrates_both_sides(
         c::CandidateMechanism, re::BitVector,
@@ -104,7 +102,7 @@ function _kept_forms_keep_a_binding(am::Mechanisms.Mechanism)
         for (k, e) in enumerate(steps)
             length(e.taken_up) == 1 && isempty(e.given_off) || continue
             entered[e.to] = true
-            am.allosteric.allosteric_states[e.group] === excluded_state ||
+            am.allosteric.allosteric_states[e.kinetic_group] === excluded_state ||
                 (made[e.to] = true)
         end
         for (k, e) in enumerate(steps), f in (e.from, e.to)
@@ -164,22 +162,17 @@ function _hyperbolic_catalysis(c::CandidateMechanism, on::BitVector)
     on_site = on .& BitVector([isempty(c.forms[e.from].copies) &&
                                isempty(c.forms[e.to].copies) for e in m.steps])
     s = Mechanisms.rapid_equilibrium_segments(m, on_site)
-    # A metabolite name's row of the offsets: its position among the sorted names.
-    names = sort!(Mechanisms.metabolites(m))
-    name_of(n) = searchsortedfirst(names, n)
     # Directed segment-graph edges: source segment, target segment, source form, the
-    # names (their rows, `name_of`) bound in that direction.
+    # metabolites (their rows of the offsets, their indices) bound in that direction.
     edges = Tuple{Int, Int, Int, Vector{Int}}[]
-    rows(side) = [name_of(x.name) for x in side]
     for k in s.steps
         (; from, to) = m.steps[k]
         a, b = s.segment_of[from], s.segment_of[to]
-        push!(edges, (a, b, from, rows(m.steps[k].taken_up)))
-        push!(edges, (b, a, to, rows(m.steps[k].given_off)))
+        push!(edges, (a, b, from, m.steps[k].taken_up))
+        push!(edges, (b, a, to, m.steps[k].given_off))
     end
     n = length(s.segments)
-    for y in [m.substrates; m.products]
-        x = name_of(y)
+    for x in [m.substrates; m.products]
         score(e) = count(==(x), e[4]) + s.offsets[x, e[3]]
         carrying = [e for e in edges if score(e) > 0]
         any(e -> score(e) > 1, carrying) && return false
@@ -274,14 +267,13 @@ builds are found on that mechanism (`_dead_end_child`).
 function _productive_twin(c::CandidateMechanism, mask::BitVector)
     m = c.mechanism.catalytic
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
-    # A metabolite name's row of the offsets: its position among the sorted names.
-    names = sort!(Mechanisms.metabolites(m))
     # A form's bound names, sorted, its conformation and its residual.
     composition(f) = (sort!([c.forms[f].productive; c.forms[f].copies]), c.forms[f].label,
                       (c.forms[f].adds, c.forms[f].subtracts))
     function (site::Int, ligand::Symbol)
-        n = searchsortedfirst(names, ligand)
-        n <= length(names) && names[n] === ligand || return 0
+        # The ligand's row of the offsets, its index among the metabolites.
+        n = findfirst(==(ligand), m.metabolites)
+        n === nothing && return 0
         twins = [f for f in s.segments[s.segment_of[site]]
                  if isempty(c.forms[f].copies) &&
                     all(x -> s.offsets[x, f] == s.offsets[x, site] + (x == n),
@@ -298,9 +290,10 @@ end
 `_is_binding`, that takes up a copy, `_copy_change`), or `nothing` when the step binds no
 modifier copy."""
 function _bound_copy(c::CandidateMechanism, k::Int)
-    e = c.mechanism.catalytic.steps[k]
+    cm = c.mechanism.catalytic
+    e = cm.steps[k]
     _is_binding(e) || return nothing
-    x = only(e.taken_up).name
+    x = cm.metabolites[only(e.taken_up)]
     _copy_change(c, k, x) > 0 ? x : nothing
 end
 
@@ -362,8 +355,9 @@ function _gauge_rescaling(c::CandidateMechanism, members::Vector{Vector{Int}}, g
     binding_group = Dict{Tuple{Int, Int}, Int}()
     for (h, ks) in enumerate(members), k in ks
         e = m.steps[k]
-        e.rapid_equilibrium && _is_binding(e) && only(e.taken_up).name === ligand &&
-            _copy_change(c, k, ligand) == 0 && (binding_group[(e.from, e.to)] = h)
+        e.rapid_equilibrium && _is_binding(e) &&
+            m.metabolites[only(e.taken_up)] === ligand && _copy_change(c, k, ligand) == 0 &&
+            (binding_group[(e.from, e.to)] = h)
     end
     class = Dict{Int, _GaugeClass}(complex => label(g, 0) for complex in keys(twin_of))
     for k in members[g]
@@ -514,11 +508,11 @@ intermediates; it is intentionally NOT a `Mechanism` constructor check, since a 
 """
 function _assert_atom_conserving(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     cm = c.mechanism.catalytic
-    names(v::Vector{Mechanisms.Metabolite}) = Symbol[x.name for x in v]
+    names(v::Vector{Int}) = cm.metabolites[v]
     # The names counted on one side of an edge: `form`'s bound metabolites, productive or
     # copies, and residual additions, the residual subtractions of the `other` form, and
     # the free metabolites.
-    side(form::Int, other::Int, free::Vector{Mechanisms.Metabolite}) =
+    side(form::Int, other::Int, free::Vector{Int}) =
         [c.forms[form].productive; c.forms[form].copies; c.forms[form].adds;
          c.forms[other].subtracts; names(free)]
     for ks in _kinetic_groups(cm), k in ks
@@ -532,7 +526,7 @@ function _assert_atom_conserving(c::CandidateMechanism, rxn::Mechanisms.EnzymeRe
 end
 
 function _atom_conserving_message(cm, f::Int, t::Int, taken, given, diff)
-    from, to = Mechanisms.form_text(cm, f), Mechanisms.form_text(cm, t)
+    from, to = cm.enzyme_forms[f], cm.enzyme_forms[t]
     "atom-non-conserving step $from → $to (consumed $taken, released $given): " *
     "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff"
 end

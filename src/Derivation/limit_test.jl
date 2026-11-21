@@ -205,10 +205,11 @@ function _model_point(mech::Mechanisms.Mechanism, ncopies::Int, face::UInt64,
         a, b = m.steps[k].from, m.steps[k].to
         row[(c - 1) * nf + a] += dir
         row[(c - 1) * nf + b] -= dir
-        up, off = m.steps[k].taken_up, m.steps[k].given_off
-        for (n, name) in enumerate(names)
-            row[ncopies * nf + n] +=
-                dir * (_copies(up, name) - _copies(off, name))
+        for n in m.steps[k].taken_up
+            row[ncopies * nf + n] += dir
+        end
+        for n in m.steps[k].given_off
+            row[ncopies * nf + n] -= dir
         end
         row
     end
@@ -235,8 +236,8 @@ function _model_point(mech::Mechanisms.Mechanism, ncopies::Int, face::UInt64,
     xnames = view(x, (ncopies * nf + 1):nv)
     for k in eachindex(m.steps), c in 1:ncopies
         a, b = m.steps[k].from, m.steps[k].to
-        num = _mul_held(x[(c - 1) * nf + a], m.steps[k].taken_up, names, xnames)
-        den = _mul_held(x[(c - 1) * nf + b], m.steps[k].given_off, names, xnames)
+        num = _mul_held(x[(c - 1) * nf + a], m.steps[k].taken_up, xnames)
+        den = _mul_held(x[(c - 1) * nf + b], m.steps[k].given_off, xnames)
         K[k, c] = _mulp(num, _invp(den))
     end
     ngroups = length(groups)
@@ -251,11 +252,10 @@ function _model_point(mech::Mechanisms.Mechanism, ncopies::Int, face::UInt64,
     (; K, ss, re, flip, L, conc)
 end
 
-"""`r` times `value[n]` once for each copy of name `n` of `names` (`_guard_names`) that
-`held` holds, mod p."""
-function _mul_held(r::Int64, held::Vector{Mechanisms.Metabolite}, names::Vector{Symbol},
-                   value::AbstractVector{Int64})
-    for (n, x) in enumerate(names), _ in 1:_copies(held, x)
+"""`r` times `value[n]` once for each copy of metabolite `n` (`_guard_names`) that `held`
+holds, mod p."""
+function _mul_held(r::Int64, held::Vector{Int}, value::AbstractVector{Int64})
+    for n in held
         r = _mulp(r, value[n])
     end
     r
@@ -271,17 +271,16 @@ its speed times `K` in the stored direction, its speed alone in reverse, times e
 metabolite it takes up, a fast one times `Λ` unless `Λ` is 0."""
 function _rates_p(m::Mechanisms.CatalyticScheme, net::_Network, pt, conc::Vector{Int64},
                   Λ::Int64)
-    names = _guard_names(m)
     r = zeros(Int64, length(net.from))
     for t in eachindex(net.from)
         k, c = net.edge[t], net.conformation[t]
         if k == 0
             r[t] = net.forward[t] ? _mulp(pt.flip, pt.L) : pt.flip
         else
-            speed = net.fast[t] ? pt.re[k, c] : pt.ss[m.steps[k].group, c]
+            speed = net.fast[t] ? pt.re[k, c] : pt.ss[m.steps[k].kinetic_group, c]
             r[t] = net.forward[t] ? _mulp(speed, pt.K[k, c]) : speed
             held = net.forward[t] ? m.steps[k].taken_up : m.steps[k].given_off
-            r[t] = _mul_held(r[t], held, names, conc)
+            r[t] = _mul_held(r[t], held, conc)
         end
         net.fast[t] && Λ != 0 && (r[t] = _mulp(r[t], Λ))
     end

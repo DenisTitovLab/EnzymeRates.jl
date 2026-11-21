@@ -5,9 +5,9 @@
 
 """Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
 function _groups_with(pred, m::Mechanisms.CatalyticScheme)
-    out = falses(maximum(e -> e.group, m.steps; init = 0))
+    out = falses(maximum(e -> e.kinetic_group, m.steps; init = 0))
     for k in eachindex(m.steps)
-        pred(k) && (out[m.steps[k].group] = true)
+        pred(k) && (out[m.steps[k].kinetic_group] = true)
     end
     out
 end
@@ -29,7 +29,8 @@ a new grouping can turn a tied step and renumber the steps.
 function _regrouped(c::CandidateMechanism, groups::Vector{Int}, re::BitVector)
     m = c.mechanism
     cm, a = m.catalytic, m.allosteric
-    _candidate(cm.substrates, cm.products, c.forms, _regrouped_steps(cm, groups, re),
+    _candidate(cm.metabolites, c.forms, cm.substrates, cm.products,
+               _regrouped_steps(cm, groups, re),
                Mechanisms.Allostery(_label_tags(m, groups), a.oligomeric_state,
                                     a.regulatory_sites))
 end
@@ -37,7 +38,7 @@ end
 """Candidate `c` with step `k` of its catalytic graph at rapid equilibrium where `re[k]`
 holds, every step in its kinetic group (`_regrouped` with `c`'s own groups)."""
 _with_flags(c::CandidateMechanism, re::BitVector) =
-    _regrouped(c, Int[e.group for e in c.mechanism.catalytic.steps], re)
+    _regrouped(c, Int[e.kinetic_group for e in c.mechanism.catalytic.steps], re)
 
 """The steps of `m`, step `k` labelled `groups[k]` and at rapid equilibrium where `re[k]`
 holds."""
@@ -51,7 +52,7 @@ mechanism's groups have no state, so neither do its labels."""
 function _label_tags(m::Mechanisms.Mechanism, groups::Vector{Int})
     states = m.allosteric.allosteric_states
     isempty(states) && return Symbol[]
-    Symbol[states[m.catalytic.steps[findfirst(==(l), groups)].group]
+    Symbol[states[m.catalytic.steps[findfirst(==(l), groups)].kinetic_group]
            for l in 1:maximum(groups; init = 0)]
 end
 
@@ -262,15 +263,13 @@ function _flux_carrying_groups(m::Mechanisms.CatalyticScheme, re::BitVector)
     _groups_with(k -> flux[k], m)
 end
 
-"""Each metabolite name's net uptake sign, the names sorted (the rows of the
+"""Each metabolite's net uptake sign, in the order of `m.metabolites` (the rows of the
 offsets of `rapid_equilibrium_segments`): +1 for a substrate, −1 for a product, 0 for a
-modifier-only name."""
+modifier."""
 _name_signs(m::Mechanisms.CatalyticScheme) =
-    Int[n in m.substrates ? 1 : n in m.products ? -1 : 0
-        for n in sort!(Mechanisms.metabolites(m))]
+    Int[n in m.substrates ? 1 : n in m.products ? -1 : 0 for n in eachindex(m.metabolites)]
 
-"""The substrates step `k` of `m` takes up net, less the products it takes up net. A
-reactant's modifier copy counts as its reactant, whose concentration it shares."""
+"""The substrates step `k` of `m` takes up net, less the products it takes up net."""
 function _uptake_weight(m::Mechanisms.CatalyticScheme, k::Int)
     t, g = m.steps[k].taken_up, m.steps[k].given_off
     net(x) = _copies(t, x) - _copies(g, x)
@@ -487,18 +486,20 @@ those they subtract), for deterministic output.
 """
 function _context_bipartitions(c::CandidateMechanism, g::Int)
     m = c.mechanism.catalytic
-    ks = [k for k in eachindex(m.steps) if m.steps[k].group == g]
+    ks = [k for k in eachindex(m.steps) if m.steps[k].kinetic_group == g]
     # The group's own bound ligand, as (name, copy), when its first edge is a binding.
     k1 = first(ks)
     own = _is_binding(m.steps[k1]) ?
-        (n = only(m.steps[k1].taken_up).name; (n, _copy_change(c, k1, n) > 0)) : nothing
+        (n = m.metabolites[only(m.steps[k1].taken_up)]; (n, _copy_change(c, k1, n) > 0)) :
+        nothing
     forms = [_context_form(m, k) for k in ks]
     carries(x, (name, copy)) = name in (copy ? c.forms[x].copies : c.forms[x].productive)
     ligands = unique!([(n, copy) for x in forms
                        for n in [c.forms[x].productive; c.forms[x].copies]
                        for copy in (false, true)
                        if carries(x, (n, copy)) && (n, copy) != own])
-    role((name, copy)) = copy ? 0 : name in m.products ? 1 : 2
+    products = m.metabolites[m.products]
+    role((name, copy)) = copy ? 0 : name in products ? 1 : 2
     division(holds) = Int[k for (k, x) in zip(ks, forms) if holds(x)]
     divisions = [division(x -> carries(x, l))
                  for l in sort!(ligands; by = l -> (role(l), first(l)))]
@@ -555,22 +556,23 @@ _revert_zero_flux_parts(m::Mechanisms.CatalyticScheme, bp, flux::BitVector) =
 """
 The forms of the catalytic graph of candidate `c` where metabolite `name`, as its modifier
 copy when `copy` holds (`_copy_change`), is free on some edge: the edge's first end when it
-takes the metabolite up, its second when it gives it off, so a Theorell–Chance step E(A) + B
-→ E(Q) + P frees B at E(A) and P at E(Q). A reactant and its modifier copy share a name but
+takes the metabolite up, its second when it gives it off, so a Theorell–Chance step EA + B
+→ EQ + P frees B at EA and P at EQ. A reactant and its modifier copy share a name but
 bind different sites: the reactant asks where the metabolite binds productively, the copy
 where it binds its dead-end site. The dead-end move targets these forms for competition with
 the metabolite. A metabolite `c` does not hold is free nowhere.
 """
 function _forms_where_free(c::CandidateMechanism, name::Symbol, copy::Bool)
-    steps = c.mechanism.catalytic.steps
+    cm = c.mechanism.catalytic
     free = falses(length(c.forms))
-    for k in eachindex(steps)
-        (; from, to, taken_up, given_off) = steps[k]
+    n = something(findfirst(==(name), cm.metabolites), 0)
+    for k in eachindex(cm.steps)
+        (; from, to, taken_up, given_off) = cm.steps[k]
         # How many of `name` the step takes up and gives off in the role asked: `d` are
         # copies, the rest bind productively.
         d = _copy_change(c, k, name)
         up, off = copy ? (max(d, 0), max(-d, 0)) :
-            (_copies(taken_up, name) - max(d, 0), _copies(given_off, name) - max(-d, 0))
+            (_copies(taken_up, n) - max(d, 0), _copies(given_off, n) - max(-d, 0))
         up > 0 && (free[from] = true)
         off > 0 && (free[to] = true)
     end
@@ -578,16 +580,17 @@ function _forms_where_free(c::CandidateMechanism, name::Symbol, copy::Bool)
 end
 
 """
-The records of the forms and the steps of the dead-end move's child of candidate `c`: the
-records and steps of `c`'s catalytic graph, each step in its group, with modifier `reg`
-also bound at each form of `sites`, a complex appended in the site's conformation and
-residual; each step between two sites mirrored between their complexes, in the step's own
-group; and one new group, after `c`'s, of the rapid-equilibrium bindings of `reg` at the
-sites.
+The metabolites, the records of the forms and the steps of the dead-end move's child of
+candidate `c`: the metabolites of `c`'s catalytic graph, with `reg` after them unless it is
+one, and its records and steps, each step in its group, with modifier `reg` also bound at
+each form of `sites`, a complex appended in the site's conformation and residual; each
+step between two sites mirrored between their complexes, in the step's own group; and one
+new group, after `c`'s, of the rapid-equilibrium bindings of `reg` at the sites.
 """
 function _dead_end_graph(c::CandidateMechanism, reg::Symbol, sites::Vector{Int})
     m = c.mechanism.catalytic
-    inhibitor = Mechanisms.Metabolite(reg, true)
+    metabolites = reg in m.metabolites ? m.metabolites : [m.metabolites; reg]
+    inhibitor = findfirst(==(reg), metabolites)
     forms = copy(c.forms)
     complex = zeros(Int, length(c.forms))
     for f in sites
@@ -600,19 +603,19 @@ function _dead_end_graph(c::CandidateMechanism, reg::Symbol, sites::Vector{Int})
     for e in m.steps
         all(in(sites), (e.from, e.to)) || continue
         push!(steps, Mechanisms.Step(complex[e.from], complex[e.to], e.taken_up,
-                                     e.given_off, e.rapid_equilibrium, e.group))
+                                     e.given_off, e.rapid_equilibrium, e.kinetic_group))
     end
-    G = maximum(e -> e.group, m.steps; init = 0)
+    G = maximum(e -> e.kinetic_group, m.steps; init = 0)
     for f in sites
-        push!(steps, Mechanisms.Step(f, complex[f], [inhibitor], Mechanisms.Metabolite[],
-                                     true, G + 1))
+        push!(steps, Mechanisms.Step(f, complex[f], [inhibitor], Int[], true, G + 1))
     end
-    forms, steps
+    metabolites, forms, steps
 end
 
 """
-The dead-end move's candidate child of the mechanism `m` whose forms have the records
-`forms` and whose steps are `steps` (`_dead_end_graph`), binding modifier `reg` in a new
+The dead-end move's candidate child of the mechanism `m` whose metabolites are
+`metabolites`, whose forms have the records `forms` and whose steps are `steps`
+(`_dead_end_graph`), binding modifier `reg` in a new
 group; `nothing` when the copy is redundant in it (`_redundant_copy_groups`). A `Mechanism`
 child's new group, the group of the steps that take the copy up, is tested by
 `_gauge_rescaling` on the child's own twins (`_productive_twin`). The twins are the child's,
@@ -627,11 +630,13 @@ regulatory sites, and runs `_redundant_copy_groups` only when every complex of t
 a twin in the active state (`_all_twin`), which redundancy needs. Each child is built
 through the checked constructor (`_candidate`).
 """
-function _dead_end_child(m::Mechanisms.Mechanism, forms::Vector{_FormRecord},
-                         steps::Vector{Mechanisms.Step}, reg::Symbol)
+function _dead_end_child(m::Mechanisms.Mechanism, metabolites::Vector{Symbol},
+                         forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step},
+                         reg::Symbol)
     a = m.allosteric
     states = _is_allosteric(m) ? [a.allosteric_states; :EqualAI] : Symbol[]
-    child = _candidate(m.catalytic.substrates, m.catalytic.products, forms, steps,
+    child = _candidate(metabolites, forms, m.catalytic.substrates, m.catalytic.products,
+                       steps,
                        Mechanisms.Allostery(states, a.oligomeric_state, a.regulatory_sites))
     cm = child.mechanism.catalytic
     twin = _productive_twin(child, trues(length(cm.steps)))
@@ -640,7 +645,7 @@ function _dead_end_child(m::Mechanisms.Mechanism, forms::Vector{_FormRecord},
     # copy has a twin at each of its bindings, the only edges that take it up.
     if !_is_allosteric(m)
         binding = findfirst(k -> _copy_change(child, k, reg) > 0, eachindex(cm.steps))::Int
-        return _gauge_rescaling(child, _kinetic_groups(cm), cm.steps[binding].group,
+        return _gauge_rescaling(child, _kinetic_groups(cm), cm.steps[binding].kinetic_group,
                                 twin, _one_state_class) === nothing ? child : nothing
     end
     bindings = findall(k -> _copy_change(child, k, reg) > 0, eachindex(cm.steps))
@@ -805,7 +810,7 @@ without a regulator.
     a plain binding it is a phantom only in the variants whose inactive conformation
     binds nothing: no rescaling absorbs an A or Q binding kept there. Binding nothing is
     not enough: in a random-order merged bi-bi, whose A group takes A up at E and at
-    E(B) under one rate constant, `L` shows in every K-type variant. identify keeps every
+    EB under one rate constant, `L` shows in every K-type variant. identify keeps every
     K-type variant in the frontier, since its children can carry laws its parent's children
     lack. A variant that `_is_phantom` (`src/Derivation/key.jl`) flags is not fitted when
     another mechanism holds the fit of its law at `L = 0`: it reads that fit, with `L = 0`.

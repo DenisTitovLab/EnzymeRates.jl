@@ -37,7 +37,7 @@ flowchart TB
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
   der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
-  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;Mechanism</b><br/>Allostery<br/>CatalyticScheme<br/>EnzymeForm<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;Mechanism</b><br/>Allostery<br/>CatalyticScheme<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★#nbsp;@enzyme_reaction</b><br/><b>★#nbsp;@enzyme_mechanism</b>"| dsl
   top -->|"<b>★#nbsp;plot_rate_equation_on_data()</b>"| plot
   top -->|"CandidateMechanism<br/>candidate_mechanisms()"| enum
@@ -46,12 +46,11 @@ flowchart TB
   top -->|"RateData"| data
   top -->|"<b>★#nbsp;metabolites()</b>"| mech
   dsl -->|"check_valid_rate_equation()"| der
-  dsl -->|"check_conformation_label()"| mech
   plot -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b>"| der
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b>"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()<br/>rate_equation_term_count()"| der
-  enum -->|"<b>★#nbsp;metabolites()</b><br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
+  enum -->|"has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
   fit -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b>"| mech
@@ -151,25 +150,21 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `Mechanism` | A catalytic scheme and its allostery, in | DSL, Derivation, | ✓ |
 | | canonical form | Enumeration, Fitting, | |
 | | | Plotting, top level | |
-| `CatalyticScheme` | A reaction graph: reactants, forms and steps | DSL, Derivation, | |
+| `CatalyticScheme` | A reaction graph: metabolites, forms and steps | DSL, Derivation, | |
 | | | Enumeration | |
 | `Allostery` | A mechanism's allosteric states, its oligomeric | DSL, Derivation, | |
 | | state and its sites | Enumeration | |
-| `EnzymeForm` | An enzyme form | DSL, Derivation, Enumeration | |
-| `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
-| `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
+| `Step` | A step between two enzyme forms | DSL, Derivation, Enumeration | |
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
-| `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
-| | | Fitting, Plotting, top level | |
-| `form_text` | A node as the macros write it: `E(A, B)` | Enumeration | |
-| `step_text` | A step as the macros write it: `E + A ⇌ E(A)` | Derivation, Enumeration | |
+| `metabolites` | The rate law's concentration names | Derivation, Fitting, | ✓ |
+| | | Plotting, top level | |
+| `step_text` | A step as the macros write it: `E + A ⇌ EA` | Derivation, Enumeration | |
 | `steps_in_active_conformation` | The steps the active conformation runs | Derivation, Enumeration | |
 | `steps_in_inactive_conformation` | The steps the inactive conformation runs | Derivation, Enumeration | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
 | | steady-state steps between them | | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
 | `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Derivation, Enumeration | |
-| `check_conformation_label` | Errors on a malformed conformation label | DSL | |
 
 **`Derivation`**
 
@@ -225,37 +220,28 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 ### The mechanism data model
 
 Stored data is read with dots; derived data is a function. A catalytic scheme is a list
-of nodes (enzyme forms) and a list of steps. A node or a step is an integer index into
-`c.nodes` or `c.steps`, and a set of steps is a `BitVector` over `c.steps`. Code reads
-`m.catalytic.nodes[x].bound`, `m.catalytic.steps[k].from` or
-`m.allosteric.allosteric_states[g]` directly, and calls a function only for a fact the
-fields do not store, such as `form_text(m.catalytic, f)`.
+of metabolite names, a list of enzyme-form names and a list of steps. A metabolite, a form
+or a step is an integer index into `c.metabolites`, `c.enzyme_forms` or `c.steps`, and a
+set of steps is a `BitVector` over `c.steps`. A form's name is opaque: the scheme stores
+no form contents. Code reads `m.catalytic.enzyme_forms[f]`, `m.catalytic.steps[k].from`
+or `m.allosteric.allosteric_states[g]` directly, and calls a function only for a fact the
+fields do not store, such as `step_text(m.catalytic, k)`.
 
 | Type | Field | Holds |
 |:-----|:------|:------|
-| `Metabolite` | `name::Symbol` | the metabolite's name |
-| | `modifier::Bool` | whether it binds as a modifier, such as `A::Mod` |
-| `EnzymeForm` | `conformation::Symbol` | the conformation label, such as `E` or `F` |
-| | `bound::Vector{Metabolite}` | the metabolites the form binds |
-| | `added::Vector{Symbol}` | the substrates its residual adds |
-| | `subtracted::Vector{Symbol}` | the products its residual subtracts |
-| `Step` | `from::Int`, `to::Int` | its two nodes, in its stored direction |
-| | `taken_up::Vector{Metabolite}` | the metabolites it takes up going `from → to` |
-| | `given_off::Vector{Metabolite}` | the metabolites it gives off going `from → to` |
+| `Step` | `from::Int`, `to::Int` | its two forms, in its stored direction |
+| | `taken_up::Vector{Int}` | the metabolites it takes up going `from → to` |
+| | `given_off::Vector{Int}` | the metabolites it gives off going `from → to` |
 | | `rapid_equilibrium::Bool` | whether it is at rapid equilibrium |
-| | `group::Int` | its kinetic group |
+| | `kinetic_group::Int` | its kinetic group |
 | `Mechanism` | `catalytic::CatalyticScheme` | the catalytic scheme |
 | | `allosteric::Allostery` | its allostery; a plain mechanism's has no states |
-| `CatalyticScheme` | `substrates::Vector{Symbol}` | the substrates, sorted |
-| | `products::Vector{Symbol}` | the products, sorted |
-| | `nodes::Vector{EnzymeForm}` | free E first, then the other forms in content order |
-| | `steps::Vector{Step}` | each step in the direction the graph gives, in content order |
-| | `enzyme_forms::Vector{Symbol}` | stored: each node's name, such as `EA` |
-| | `modifiers::Vector{Symbol}` | stored: every name bound as a modifier, sorted |
-| | `groups::Vector{Vector{Int}}` | stored: each kinetic group's steps |
-| | `step_kinds::Vector{Symbol}` | stored: each step's kind, such as `:binding` |
-| | `toward_products::BitVector` | stored: whether each step runs toward products |
-| | `step_sides::Vector{Tuple{String,String}}` | stored: each step's two side names |
+| `CatalyticScheme` | `metabolites::Vector{Symbol}` | the substrates, the products, then |
+| | | the modifiers, each group by name |
+| | `enzyme_forms::Vector{Symbol}` | free E first, then the other forms by name |
+| | `substrates::Vector{Int}` | the substrates' indices into `metabolites` |
+| | `products::Vector{Int}` | the products' indices into `metabolites` |
+| | `steps::Vector{Step}` | each step in the direction the graph gives, sorted |
 | `Allostery` | `allosteric_states::Vector{Symbol}` | one per kinetic group: `:OnlyA`, |
 | | | `:OnlyI`, `:EqualAI` or `:NonequalAI`; |
 | | | empty for a plain mechanism |
@@ -275,18 +261,17 @@ fields do not store, such as `form_text(m.catalytic, f)`.
 | | `allowed_oligomeric_states::Vector{Int}` | the subunit counts to enumerate |
 | | `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` | pairs that share one site |
 
-Each list of a node or a step is sorted. Every construction path computes the facts marked
-stored once from the other fields; `==` and `hash` leave them out. The constructor
-`CatalyticScheme(substrates, products, nodes, steps)` takes nodes in any order, a node any
-number of times, and steps in either direction with kinetic group labels 1, 2, …; it puts
+Each list of a step is sorted. The constructor
+`CatalyticScheme(metabolites, enzyme_forms, substrates, products, steps)` takes the names
+in any order and steps in either direction with kinetic group labels 1, 2, …; it puts
 them in canonical form and checks them, keeping the written labels.
-`Mechanism(catalytic, allosteric)` numbers the kinetic groups in canonical order and moves
+`Mechanism(catalytic, allosteric)` numbers the kinetic groups by their first step and moves
 each allosteric state with its group, so `Allostery(allosteric_states, oligomeric_state,
 sites)` takes one state per written label; a plain mechanism's `Allostery` has no states,
-oligomeric state 1 and no sites. To change a mechanism, copy `m.catalytic.nodes` and
-`m.catalytic.steps` with new fields and call the constructors. Never mutate a built
-mechanism's vectors in place: its canonical form, stored facts, hash, compiled Sig and
-memo entries depend on them.
+oligomeric state 1 and no sites. To change a mechanism, copy `m.catalytic.enzyme_forms`
+and `m.catalytic.steps` with new fields and call the constructors. Never mutate a built
+mechanism's vectors in place: its canonical form, hash, compiled Sig and memo entries
+depend on them.
 
 ### One request through the modules
 
@@ -297,7 +282,7 @@ fit:
    (`Mechanisms`). `IdentifyRateEquationProblem(reaction, table, Keq)` (top level) checks
    the table into a `Data.RateData`.
 2. **The starting mechanisms.** `Enumeration.candidate_mechanisms(reaction; ...)`, given
-   identify's size limits and optional regulators, writes each seed as nodes and steps,
+   identify's size limits and optional regulators, writes each seed as forms and steps,
    and the `Mechanism` constructor puts it in canonical form. It returns only candidates
    whose rate law is defined (`Derivation.check_valid_rate_equation(Bool, m)`) and within
    the size limits (`Derivation.rate_equation_term_count`,
@@ -430,9 +415,9 @@ each further member of a kinetic class to its first. The columns come ordered by
 block, the step's shape (an isomerization, a step with more than one metabolite, a
 binding), whether neither of its forms is free E, steady state before rapid equilibrium,
 the constant that runs against the reaction, then the places of the step's forms and
-metabolites in the order the lean graph stores them (free E, then the forms by name; the
-metabolites in `metabolites(m)` order), so the fitted constants do not follow the order in
-which steps happen to be stored.
+metabolites in stored order (free E, then the forms by name; the metabolites in
+`metabolites(m)` order), so the fitted constants do not follow the order in which steps
+happen to be stored.
 The solve reduces the system
 exactly (`_reduce_joint_system`: `Rational{Int}`, redone in `Rational{BigInt}` on
 overflow). Pivot columns are dependents. `_solve`
@@ -452,13 +437,11 @@ keeps (`steps_in_active_conformation(am)`, `steps_in_inactive_conformation(am)`;
 edge of a plain mechanism). Every edge keeps its stored direction, so both conformations
 share the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
-in content order (conformation label, bound metabolites, residual); each edge runs in the
-direction the graph gives it (`_orientation`), and a kinetic group's edges turn with its
-lead (`_turn_groups_together!`). The forms' names
-and the step's metabolites, not its stored place, break the priority's last ties.
-Constants are named from the forms' names (`enzyme_forms`) and the bare names of the
-metabolites a step takes up or gives off, so a reactant's modifier copy reads as the
-reactant there.
+by name; each edge runs in the direction the graph gives it (`_orientation`), and a kinetic
+group's edges turn with its lead (`_turn_groups_together!`). The forms' names and the
+step's metabolites, not its stored place, break the priority's last ties. Constants are
+named from the forms' names (`enzyme_forms`) and the names of the metabolites a step takes
+up or gives off.
 
 ### The law, its code, its text and its key
 
@@ -678,62 +661,63 @@ its base search tries.
 
 Mechanism enumeration uses the **concrete type** `Mechanism` (`src/Mechanisms/types.jl`):
 a `CatalyticScheme` and its `Allostery`. A `CatalyticScheme` is a reaction graph in
-canonical form: its sorted `substrates` and `products`; `nodes` (`EnzymeForm`: an enzyme
-form's conformation label, the metabolites it binds, and the substrates it adds and the
-products it subtracts as its residual); and `steps` (`Step`: two node indices, the
-metabolites the step takes up and gives off, its rapid-equilibrium flag and its kinetic
-group). Each list of metabolites (`Metabolite`: a name, and whether it binds as a modifier,
-so a reactant and its modifier copy are two metabolites) and of names is sorted. It holds
-no reaction, and `==` and `hash` read these fields alone, not the facts a mechanism
-stores, alike in every process. An `Allostery` holds one allosteric state per kinetic
-group (none for a plain mechanism), the oligomeric state and the regulatory sites.
-Every module reads these fields with dots (see [The mechanism data model](@ref)).
+canonical form: its `metabolites` by name (the substrates, then the products, then the
+modifiers, each sorted), its `substrates` and `products` as indices into them, its
+`enzyme_forms` by name (free E first, then sorted), and its `steps` (`Step`: two form
+indices, the sorted indices of the metabolites the step takes up and gives off, its
+rapid-equilibrium flag and its kinetic group). A form's name is opaque: the graph stores
+no form contents, so a reactant bound where it does not react is the reactant taken up,
+and only the forms' names tell the two bindings apart (`ESSmod` beside `ES`). It holds no
+reaction, and `==` and `hash` read these fields alone, alike in every process. An
+`Allostery` holds one allosteric state per kinetic group (none for a plain mechanism), the
+oligomeric state and the regulatory sites. Every module reads these fields with dots (see
+[The mechanism data model](@ref)).
 
-The macros, the parser and the enumeration build a mechanism from nodes and steps.
-`CatalyticScheme(substrates, products, nodes, steps)` takes the nodes in any order, a
-node any number of times, and each step in either direction with its kinetic group label
-(1, 2, …, each used), and builds the canonical graph (`_canonicalize`) and checks it;
+The macros, the parser and the enumeration build a mechanism from names and steps.
+`CatalyticScheme(metabolites, enzyme_forms, substrates, products, steps)` takes the names in
+any order and each step in either direction with its kinetic group label (1, 2, …, each
+used), builds the canonical graph (`_canonical`) and checks it;
 `Mechanism(catalytic, Allostery(allosteric_states, oligomeric_state, sites))` takes the
-state of each written group label. The macros check the names under `modifiers:`
-themselves. The enumeration works on candidates (`CandidateMechanism`): a mechanism and
-its own record of each form (`_FormRecord`, `src/Enumeration/record.jl`: the form's
-conformation label, the names it binds productively and as modifier copies, and its
-residual). Its moves read a form's contents from the record alone, and tell a step that
-binds a modifier copy from one that binds the reactant by the difference between its two
-forms' records. The seeds write their topologies, dead ends and bases as records and steps;
-the moves copy a parent's records and steps with new flags, groups or bound inhibitors
-(`_regrouped`, `_with_flags`, `_dead_end_graph`). One function, `_candidate`, builds every
-candidate, the only place in `Enumeration` that calls a mechanism constructor, and
-`_form_records` reads the records of a mechanism written by hand, the only place that reads
-a form's contents from a mechanism. The moves that tag a mechanism or change its regulatory
-sites compose the parent's catalytic scheme with other states or sites,
+state of each written group label. The enumeration works on candidates
+(`CandidateMechanism`): a mechanism and its own record of each form (`_FormRecord`,
+`src/Enumeration/record.jl`: the form's conformation label, the names it binds
+productively and as modifier copies, and its residual). The enumerator owns the naming
+rule (`_form_name`): it names each form from its record, `EAB` for E with A and B bound,
+`ESSmod` for ES with a second S bound where it does not react, `E_res_plusA_minusP` for a
+covalent intermediate after A bound and P left. Its moves read a form's contents from the
+record alone, and tell a step that binds a modifier copy from one that binds the reactant
+by the difference between its two forms' records. The seeds write their topologies, dead
+ends and bases as records and steps; the moves copy a parent's records and steps with new
+flags, groups or bound inhibitors (`_regrouped`, `_with_flags`, `_dead_end_graph`). One
+function, `_candidate`, names the forms and builds every candidate, the only place in
+`Enumeration` that calls a mechanism constructor; it keeps the records in the order of the
+built mechanism's forms. The moves that tag a mechanism or change its regulatory sites
+compose the parent's catalytic scheme with other states or sites,
 `Mechanism(parent.catalytic, Allostery(states, oligomeric_state, sites))`, which runs only
-the state and site checks. Going `from → to`, a step takes up
-the metabolites in `taken_up` and gives off those in `given_off`. Steps are classified by
-these lists. A binding takes up exactly one metabolite and gives off none. It is plain
-(`:binding`) when its target form is its source form with that metabolite added, the
-residual unchanged and the conformation free to change (`_is_plain_binding`), and fused
-(`:fused_binding`) otherwise, as when the last substrate binds straight into the
-product-bound form (`E(A) + B → E(P, Q)`).
-The constructor rejects a binding whose forms match a plain binding by name but not by role,
-such as `E + P::Mod ⇌ E(P)`. An isomerization takes up and gives off nothing (`_is_iso`); a
-Theorell–Chance step takes up one metabolite and gives off another (`:chemistry`).
-Every edge but a plain binding (a `step_kinds` entry other than `:binding`) is chemistry;
-the allosteric moves (`_chemistry_groups`, in `Enumeration`) and `_merged_complexes` tell
-catalysis from binding by the records of a step's two forms (`_is_plain_binding`); the
-derivation and the guard read no step kind, and tell a step's shape from its lists. The derivation reads every binding alike, so a fused
-binding's rapid-equilibrium constant is a dissociation constant and its steady-state pair a
-binding and a release rate constant. Every step's constants are named by the two sides of
-its kinetic class's kept member — each side's enzyme form followed by its free metabolites
-(`K_ES_to_E_S` for `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`,
-`k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`).
+the state and site checks. Going `from → to`, a step takes up the metabolites in
+`taken_up` and gives off those in `given_off`. A binding takes up exactly one metabolite
+and gives off none (`_is_binding`). The enumerator calls it plain when its target's record
+is its source's with that metabolite added, the residual unchanged and the conformation
+free to change (`_is_plain_binding`), and fused otherwise, as when the last substrate binds
+straight into the product-bound form (`EA + B → EPQ`). An isomerization takes up and gives
+off nothing (`_is_iso`); a Theorell–Chance step takes up one metabolite and gives off
+another. The allosteric moves (`_chemistry_groups`) and `_merged_complexes` tell catalysis
+from binding by the records of a step's two forms (`_is_plain_binding`); the derivation and
+the guard read no form contents, and tell a step's shape from its lists. The derivation
+reads every binding alike, so a fused binding's rapid-equilibrium constant is a
+dissociation constant and its steady-state pair a binding and a release rate constant.
+Every step's constants are named by the two sides of its kinetic class's kept member —
+each side's enzyme form followed by its free metabolites (`K_ES_to_E_S` for
+`E + S ⇌ ES`, `K_EPQ_to_EA_B` for `EA + B ⇌ EPQ`, `k_EA_B_to_EQ_P` for
+`EA + B <--> EQ + P`).
 
 Like the compiled laws, the graph is canonical, so the order or direction in which
 steps are written does not change the resulting mechanism. The canonical form is
 load-bearing: deduplication by `==` and `hash` works only because construction is
 canonical, and every constant is named after the stored sides of its class's kept member,
-so do not relax or reorder it. `_canonicalize` stores free E
-first and the other forms in content order, and stores every edge in the direction the
+so do not relax or reorder it. `_canonical` stores the metabolites as substrates,
+products and modifiers, each by name, free E first and the other forms by name, and stores
+every edge in the direction the
 graph gives it (`_orientation`), reading only the edges, the forms' names, the substrates
 and the products: an edge that only takes up or only gives off metabolites runs as the
 uptake, so a release is stored as the binding it reverses; one that takes up some and
@@ -743,35 +727,31 @@ cycle through it that turns the reaction over runs (`_turnover_directions!`, a
 breadth-first search over a form and the net uptake of the first substrate, which finds
 the shortest closed walk); failing that, away from free E, and failing that from the form
 whose name comes first, free E before every other, so that a direction follows the forms'
-names and not the order they are stored in. It sorts the edges and numbers the kinetic
-groups by their first edge. The edges of one group share their constants, so they turn
+names and not the order they are stored in. It sorts the edges, and `Mechanism` numbers
+the kinetic groups by their first edge. The edges of one group share their constants, so they turn
 together after the member nearest free E among those the first three rules decide, ties
 broken by the forms' names (`_turn_groups_together!`): an edge with metabolites takes up
 what that member takes up, and an isomerization keeps the direction it was written in
 relative to it. In
-`(Estar <--> E, Estar(A) <--> E(A))` the reaction runs through the two edges in opposite
+`(Estar <--> E, EstarA <--> EA)` the reaction runs through the two edges in opposite
 directions, so nothing in the graph says how the members correspond: the writer aligns
 the group, as the enumerator does, and turning one isomerization against its group
 writes another mechanism. The `RegulatorySite` constructor sorts a site's ligands by
 name, and the `Mechanism` constructor sorts the sites.
 
-The constructors check representation only (`_check_declarations`, `_check_representation`,
-and for an allosteric mechanism `_check_tags` and `_check_ligands`): names a metabolite can
-take and conformation
-labels shaped as labels, none a metabolite's name; every name the steps hold declared, and
-every declared name taken up, given off or bound by some step; residuals that add substrates
-and subtract products; the free form E (nothing bound, no residual), and edges that join
-every form to it. They also enforce the kinetic-group rules. A group's edges take up and
-give off the same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused and
-a plain binding of one metabolite may share a group and a Theorell–Chance step cannot share
-one with a binding. A reaction — the pair of an edge's two sides — appears in one edge
-(`_check_each_reaction_once`). No two distinct forms render one name
-(`_check_distinct_form_names`): a form's name joins its conformation and bound metabolites
-without a separator, so E with a metabolite `star` bound and the free conformation `Estar`
-would both be `Estar` and share their constants' names. The enumerator, which names the
-forms it builds from their contents, refuses a reaction whose names spell one string two
-ways, such as `NAD`, `P` and `NADP` (`_check_decodable_names`, run by
-`candidate_mechanisms`). Whether a mechanism's rate law is
+The constructors check representation only (`_check_written` and `_check_graph`, and for
+an allosteric mechanism `_check_tags` and `_check_ligands`): indices in range; names a
+metabolite can take, each declared once, and no form named like a metabolite; a form named
+`E`, and edges that join every form to it; every declared name taken up, given off or
+bound by some step. They also enforce the kinetic-group rules. A group's edges take up and
+give off the same entries and carry one RE/SS flag (`_check_uniform_groups`), so a fused
+and a plain binding of one metabolite may share a group and a Theorell–Chance step cannot
+share one with a binding. A reaction — the pair of an edge's two sides — appears in one
+edge (`_check_each_reaction_once`). Form names are opaque, so two of them can render one
+constant name, as a form named `ES_I` and the side `ES + I` do; the guard rejects such a
+mechanism (`_shared_constant_names`). The enumerator, which names the forms it builds from
+their contents, refuses a reaction whose names spell one string two ways, such as `NAD`,
+`P` and `NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Whether a mechanism's rate law is
 defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
 [Well-posedness guard](@ref)). The macros, the parser and every derivation entry throw on a
 mechanism it rejects (`check_valid_rate_equation`), and the enumerator's exits and its

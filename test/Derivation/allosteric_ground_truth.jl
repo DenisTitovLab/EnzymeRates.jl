@@ -84,9 +84,9 @@ end
     onlyA = @enzyme_mechanism begin
         substrates: S ; products: P ; oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)     :: OnlyA
-            E(S) <--> E(P)   :: OnlyA
-            E + P ⇌ E(P)     :: EqualAI
+            E + S ⇌ ES     :: OnlyA
+            ES <--> EP   :: OnlyA
+            E + P ⇌ EP     :: EqualAI
         end
     end
     # (:K_A_ES_to_E_S, :K_EP_to_E_P, :k_A_ES_to_EP, :L)
@@ -145,10 +145,10 @@ end
     multiA = @enzyme_mechanism begin
         substrates: A, B ; products: P ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)          :: OnlyA
-            E(A) + B ⇌ E(A, B)    :: OnlyA
-            E(A, B) <--> E(P)     :: OnlyA
-            E + P ⇌ E(P)          :: EqualAI
+            E + A ⇌ EA          :: OnlyA
+            EA + B ⇌ EAB    :: OnlyA
+            EAB <--> EP     :: OnlyA
+            E + P ⇌ EP          :: EqualAI
         end
     end
     # (:K_A_EAB_to_EA_B, :K_A_EA_to_E_A, :K_EP_to_E_P, :k_A_EAB_to_EP, :L)
@@ -231,10 +231,10 @@ end
     metabD = @enzyme_mechanism begin
         substrates: S, B ; products: P ; oligomeric_state: 1
         steps: begin
-            E + S <--> E(S)      :: OnlyA
-            E(S) + B ⇌ E(S, B)   :: EqualAI
-            E(S, B) <--> E(P)    :: OnlyA
-            E + P ⇌ E(P)         :: EqualAI
+            E + S <--> ES      :: OnlyA
+            ES + B ⇌ EBS   :: EqualAI
+            EBS <--> EP    :: OnlyA
+            E + P ⇌ EP         :: EqualAI
         end
     end
     # (:K_EBS_to_ES_B,:K_EP_to_E_P,:k_A_EBS_to_EP,:k_A_ES_to_E_S,:k_A_E_S_to_ES,:L)
@@ -325,10 +325,10 @@ end
         substrates: A, B
         products: P
         steps: begin
-            E + A <--> E(A)
-            E(A) + B ⇌ E(A, B)
-            E(A, B) <--> E(P)
-            E + P ⇌ E(P)
+            E + A <--> EA
+            EA + B ⇌ EAB
+            EAB <--> EP
+            E + P ⇌ EP
         end
     end
     bfp = parameters(base)
@@ -379,19 +379,19 @@ end
     nonallo = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q
         steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(; residual = A - P) + P
-            E(; residual = A - P) + B <--> E(B; residual = A - P)
-            E(B; residual = A - P) <--> E + Q
+            E + A <--> EA
+            EA <--> E_res_plusA_minusP + P
+            E_res_plusA_minusP + B <--> EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> E + Q
         end
     end
     alloEq = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                                       :: EqualAI
-            E(A) <--> E(; residual = A - P) + P                   :: EqualAI
-            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
-            E(B; residual = A - P) <--> E + Q                     :: EqualAI
+            E + A <--> EA                                       :: EqualAI
+            EA <--> E_res_plusA_minusP + P                   :: EqualAI
+            E_res_plusA_minusP + B <--> EB_res_plusA_minusP :: EqualAI
+            EB_res_plusA_minusP <--> E + Q                     :: EqualAI
         end
     end
     fpn = parameters(nonallo)
@@ -555,10 +555,10 @@ end
     allo = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A <--> E(A)                                       :: EqualAI
-            E(A) <--> E(; residual = A - P) + P                   :: NonequalAI
-            E(; residual = A - P) + B <--> E(B; residual = A - P) :: EqualAI
-            E(B; residual = A - P) <--> E + Q                     :: NonequalAI
+            E + A <--> EA                                       :: EqualAI
+            EA <--> E_res_plusA_minusP + P                   :: NonequalAI
+            E_res_plusA_minusP + B <--> EB_res_plusA_minusP :: EqualAI
+            EB_res_plusA_minusP <--> E + Q                     :: NonequalAI
         end
     end
     fp = parameters(allo)
@@ -686,12 +686,12 @@ end
     both = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                          :: EqualAI
-            E(A) <--> E(P; residual = A - P)                      :: OnlyA
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
-            E + Q ⇌ E(Q)                                          :: EqualAI
+            E + A ⇌ EA                                          :: EqualAI
+            EA <--> EP_res_plusA_minusP                      :: OnlyA
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP    :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                         :: OnlyA
+            E + Q ⇌ EQ                                          :: EqualAI
         end
     end
     @test all(_testhelper_admission_agreement(both;
@@ -706,12 +706,12 @@ end
     half2 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
-            E + A ⇌ E(A)                                          :: EqualAI
-            E(A) <--> E(P; residual = A - P)                      :: EqualAI
-            E(; residual = A - P) + P ⇌ E(P; residual = A - P)    :: EqualAI
-            E(; residual = A - P) + B ⇌ E(B; residual = A - P)    :: EqualAI
-            E(B; residual = A - P) ⇌ E(Q)                         :: OnlyA
-            E + Q ⇌ E(Q)                                          :: EqualAI
+            E + A ⇌ EA                                          :: EqualAI
+            EA <--> EP_res_plusA_minusP                      :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP    :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP    :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                         :: OnlyA
+            E + Q ⇌ EQ                                          :: EqualAI
         end
     end
     @test ER.Derivation._guard(half2) ==
@@ -745,9 +745,9 @@ end
     inert = @enzyme_mechanism begin
         substrates: S ; products: P ; oligomeric_state: 1
         steps: begin
-            E + S ⇌ E(S)   :: OnlyA
-            E(S) <--> E(P) :: EqualAI
-            E + P ⇌ E(P)   :: OnlyA
+            E + S ⇌ ES   :: OnlyA
+            ES <--> EP :: EqualAI
+            E + P ⇌ EP   :: OnlyA
         end
     end
     # (:K_A_EP_to_E_P, :K_A_ES_to_E_S, :k_ES_to_EP, :L)
@@ -798,12 +798,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: EqualAI
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: OnlyA
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: EqualAI
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     v = ER.Derivation._guard(err1)
@@ -822,12 +822,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: EqualAI
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: OnlyA
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: EqualAI
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     half2 = @_testhelper_unguarded @enzyme_mechanism begin
@@ -835,12 +835,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: EqualAI
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     @test ER.Derivation._guard(half2).fault === ER.Derivation._BRIDGE
@@ -854,12 +854,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) <--> E(ADP)                            :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: EqualAI
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP <--> EADP                            :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     _testhelper_check_law_against_oracle(half2_ss)
@@ -1012,28 +1012,28 @@ end
             @enzyme_mechanism(begin
                 substrates: A, B ; products: P ; oligomeric_state: 1
                 steps: begin
-                    E + A <--> E(A)        :: EqualAI
-                    E(A) + B ⇌ E(A, B)     :: EqualAI
-                    E(A, B) <--> E(P)      :: NonequalAI
-                    E + P ⇌ E(P)           :: EqualAI
+                    E + A <--> EA        :: EqualAI
+                    EA + B ⇌ EAB     :: EqualAI
+                    EAB <--> EP      :: NonequalAI
+                    E + P ⇌ EP           :: EqualAI
                 end
             end) : nprot == 2 ?
             @enzyme_mechanism(begin
                 substrates: A, B ; products: P ; oligomeric_state: 2
                 steps: begin
-                    E + A <--> E(A)        :: EqualAI
-                    E(A) + B ⇌ E(A, B)     :: EqualAI
-                    E(A, B) <--> E(P)      :: NonequalAI
-                    E + P ⇌ E(P)           :: EqualAI
+                    E + A <--> EA        :: EqualAI
+                    EA + B ⇌ EAB     :: EqualAI
+                    EAB <--> EP      :: NonequalAI
+                    E + P ⇌ EP           :: EqualAI
                 end
             end) :
             @enzyme_mechanism(begin
                 substrates: A, B ; products: P ; oligomeric_state: 3
                 steps: begin
-                    E + A <--> E(A)        :: EqualAI
-                    E(A) + B ⇌ E(A, B)     :: EqualAI
-                    E(A, B) <--> E(P)      :: NonequalAI
-                    E + P ⇌ E(P)           :: EqualAI
+                    E + A <--> EA        :: EqualAI
+                    EA + B ⇌ EAB     :: EqualAI
+                    EAB <--> EP      :: NonequalAI
+                    E + P ⇌ EP           :: EqualAI
                 end
             end)
         fp = parameters(allo)
@@ -1101,12 +1101,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: OnlyA
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     reported = ER.Derivation._guard_with_reading(dead)
@@ -1115,7 +1115,7 @@ end
     msg = ER.Derivation._guard_message(dead)
     @test occursin("feeds the forms E_res_plusATP_minusF16BP of the inactive " *
                    "conformation, which leave only through the vanishing step " *
-                   "E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)",
+                   "E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP",
                    msg)
     @test _testhelper_epath_verdict(dead; rng = MersenneTwister(997),
                                     face = _testhelper_faces(dead)[v.face], corners = true,
@@ -1139,12 +1139,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: OnlyA
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: OnlyA
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: OnlyA
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: OnlyA
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     pinned = @_testhelper_unguarded @enzyme_mechanism begin
@@ -1152,12 +1152,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: EqualAI
-            E(F6P; residual = ATP - F16BP) ⇌ E(ADP)                               :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: EqualAI
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: EqualAI
+            EF6P_res_plusATP_minusF16BP ⇌ EADP                               :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     @test ER.Derivation._guard(pinned) ==
@@ -1170,12 +1170,12 @@ end
         products: ADP, F16BP
         oligomeric_state: 1
         steps: begin
-            E + ATP ⇌ E(ATP)                                                      :: EqualAI
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)                          :: EqualAI
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP):: EqualAI
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)    :: EqualAI
-            E(F6P; residual = ATP - F16BP) <--> E(ADP)                            :: OnlyA
-            E + ADP ⇌ E(ADP)                                                      :: EqualAI
+            E + ATP ⇌ EATP                                                      :: EqualAI
+            EATP <--> EF16BP_res_plusATP_minusF16BP                          :: EqualAI
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP:: EqualAI
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP    :: EqualAI
+            EF6P_res_plusATP_minusF16BP <--> EADP                            :: OnlyA
+            E + ADP ⇌ EADP                                                      :: EqualAI
         end
     end
     _testhelper_check_law_against_oracle(half2)
@@ -1188,12 +1188,12 @@ end
         substrates: ATP, F6P
         products: ADP, F16BP
         steps: begin
-            E + ATP ⇌ E(ATP)
-            E(ATP) <--> E(F16BP; residual = ATP - F16BP)
-            E(; residual = ATP - F16BP) + F16BP ⇌ E(F16BP; residual = ATP - F16BP)
-            E(; residual = ATP - F16BP) + F6P ⇌ E(F6P; residual = ATP - F16BP)
-            E(F6P; residual = ATP - F16BP) <--> E(ADP)
-            E + ADP ⇌ E(ADP)
+            E + ATP ⇌ EATP
+            EATP <--> EF16BP_res_plusATP_minusF16BP
+            E_res_plusATP_minusF16BP + F16BP ⇌ EF16BP_res_plusATP_minusF16BP
+            E_res_plusATP_minusF16BP + F6P ⇌ EF6P_res_plusATP_minusF16BP
+            EF6P_res_plusATP_minusF16BP <--> EADP
+            E + ADP ⇌ EADP
         end
     end
     nfp = parameters(nonallo)
