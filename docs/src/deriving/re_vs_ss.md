@@ -61,10 +61,10 @@ re = @enzyme_mechanism begin
     substrates: A, B
     products:   P
     steps: begin
-        E + A ⇌ E(A)
-        E(A) + B ⇌ E(A, B)
-        E(A, B) <--> E(P)
-        E(P) ⇌ E + P
+        E + A ⇌ EA
+        EA + B ⇌ EAB
+        EAB <--> EP
+        EP ⇌ E + P
     end
 end
 parameters(re)
@@ -83,10 +83,10 @@ ss = @enzyme_mechanism begin
     substrates: A, B
     products:   P
     steps: begin
-        E + A <--> E(A)
-        E(A) + B <--> E(A, B)
-        E(A, B) <--> E(P)
-        E(P) <--> E + P
+        E + A <--> EA
+        EA + B <--> EAB
+        EAB <--> EP
+        EP <--> E + P
     end
 end
 parameters(ss)

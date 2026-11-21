@@ -23,9 +23,9 @@ m = @enzyme_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> Eprime(P)
-        Eprime(P) ⇌ Eprime + P
+        E + S ⇌ ES
+        ES <--> EprimeP
+        EprimeP ⇌ Eprime + P
         Eprime <--> E
     end
 end

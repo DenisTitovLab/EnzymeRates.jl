@@ -54,19 +54,19 @@ ungrouped = @enzyme_mechanism begin
     substrates: A, B
     products:   P, Q
     steps: begin
-        E + A ⇌ E(A)
-        E + B ⇌ E(B)
-        E(A) + B ⇌ E(A, B)
-        E(B) + A ⇌ E(A, B)
-        E(A, B) <--> E(P, Q)
-        E(P, Q) ⇌ E(P) + Q
-        E(P, Q) ⇌ E(Q) + P
-        E(P) ⇌ E + P
-        E(Q) ⇌ E + Q
-        E(A) + Q ⇌ E(A, Q)
-        E(Q) + A ⇌ E(A, Q)
-        E(B) + P ⇌ E(B, P)
-        E(P) + B ⇌ E(B, P)
+        E + A ⇌ EA
+        E + B ⇌ EB
+        EA + B ⇌ EAB
+        EB + A ⇌ EAB
+        EAB <--> EPQ
+        EPQ ⇌ EP + Q
+        EPQ ⇌ EQ + P
+        EP ⇌ E + P
+        EQ ⇌ E + Q
+        EA + Q ⇌ EAQ
+        EQ + A ⇌ EAQ
+        EB + P ⇌ EBP
+        EP + B ⇌ EBP
     end
 end
 print(rate_equation_string(ungrouped))
@@ -87,11 +87,11 @@ grouped = @enzyme_mechanism begin
     substrates: A, B
     products:   P, Q
     steps: begin
-        (E + A ⇌ E(A), E(B) + A ⇌ E(A, B), E(Q) + A ⇌ E(A, Q))
-        (E + B ⇌ E(B), E(A) + B ⇌ E(A, B), E(P) + B ⇌ E(B, P))
-        E(A, B) <--> E(P, Q)
-        (E(P, Q) ⇌ E(Q) + P, E(P) ⇌ E + P, E(B) + P ⇌ E(B, P))
-        (E(P, Q) ⇌ E(P) + Q, E(Q) ⇌ E + Q, E(A) + Q ⇌ E(A, Q))
+        (E + A ⇌ EA, EB + A ⇌ EAB, EQ + A ⇌ EAQ)
+        (E + B ⇌ EB, EA + B ⇌ EAB, EP + B ⇌ EBP)
+        EAB <--> EPQ
+        (EPQ ⇌ EQ + P, EP ⇌ E + P, EB + P ⇌ EBP)
+        (EPQ ⇌ EP + Q, EQ ⇌ E + Q, EA + Q ⇌ EAQ)
     end
 end
 print(rate_equation_string(grouped))

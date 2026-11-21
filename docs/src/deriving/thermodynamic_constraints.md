@@ -96,12 +96,12 @@ m = @enzyme_mechanism begin
     substrates: A, B
     products:   P
     steps: begin
-        E + A ⇌ E(A)
-        E + B ⇌ E(B)
-        E(A) + B ⇌ E(A, B)
-        E(B) + A ⇌ E(A, B)
-        E(A, B) <--> E(P)
-        E(P) ⇌ E + P
+        E + A ⇌ EA
+        E + B ⇌ EB
+        EA + B ⇌ EAB
+        EB + A ⇌ EAB
+        EAB <--> EP
+        EP ⇌ E + P
     end
 end
 print(rate_equation_string(m))

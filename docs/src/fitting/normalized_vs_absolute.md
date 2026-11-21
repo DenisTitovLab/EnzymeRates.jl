@@ -111,8 +111,8 @@ uni_uni = @enzyme_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S <--> E(S)
-        E(S) <--> E + P
+        E + S <--> ES
+        ES <--> E + P
     end
 end
 

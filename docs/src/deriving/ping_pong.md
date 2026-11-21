@@ -21,10 +21,10 @@ m = @enzyme_mechanism begin
     substrates: A, B
     products:   P, Q
     steps: begin
-        E + A <--> E(A)
-        E(A) <--> E(; residual = A - P) + P
-        E(; residual = A - P) + B <--> E(B; residual = A - P)
-        E(B; residual = A - P) <--> E + Q
+        E + A <--> EA
+        EA <--> E_res_plusA_minusP + P
+        E_res_plusA_minusP + B <--> EB_res_plusA_minusP
+        EB_res_plusA_minusP <--> E + Q
     end
 end
 print(rate_equation_string(m))

@@ -42,9 +42,9 @@ generator = @allosteric_mechanism begin
     catalytic_multiplicity: 2
     allosteric_regulators: A
     steps: begin
-        E + S ⇌ E(S)         :: EqualAI
-        E(S) <--> E(P)       :: OnlyA
-        E(P) ⇌ E + P         :: EqualAI
+        E + S ⇌ ES         :: EqualAI
+        ES <--> EP       :: OnlyA
+        EP ⇌ E + P         :: EqualAI
     end
     regulatory_site(2): A::OnlyA
 end

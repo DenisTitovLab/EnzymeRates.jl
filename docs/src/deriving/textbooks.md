@@ -18,9 +18,9 @@ julia> m = @enzyme_mechanism begin
            substrates: S
            products:   P
            steps: begin
-               E + S ⇌ E(S)
-               E(S) <--> E(P)
-               E(P) ⇌ E + P
+               E + S ⇌ ES
+               ES <--> EP
+               EP ⇌ E + P
            end
        end;
 
@@ -139,9 +139,9 @@ m = @enzyme_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
-        E(P) ⇌ E + P
+        E + S ⇌ ES
+        ES <--> EP
+        EP ⇌ E + P
     end
 end
 (parameters(m), metabolites(m))

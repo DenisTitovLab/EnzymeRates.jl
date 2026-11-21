@@ -31,9 +31,9 @@ allo = @allosteric_mechanism begin
     catalytic_multiplicity: 2
     allosteric_regulators: A, I
     steps: begin
-        E + S ⇌ E(S)        :: EqualAI
-        E(S) <--> E(P)       :: NonequalAI
-        E(P) ⇌ E + P        :: EqualAI
+        E + S ⇌ ES        :: EqualAI
+        ES <--> EP       :: NonequalAI
+        EP ⇌ E + P        :: EqualAI
     end
     regulatory_site(2): A::OnlyA
     regulatory_site(2): I::OnlyI
@@ -213,9 +213,9 @@ both_excluded = @allosteric_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S ⇌ E(S)      :: OnlyA
-        E(S) <--> E(P)    :: OnlyA
-        E(P) ⇌ E + P      :: EqualAI
+        E + S ⇌ ES      :: OnlyA
+        ES <--> EP    :: OnlyA
+        EP ⇌ E + P      :: EqualAI
     end
 end
 print(rate_equation_string(both_excluded))
@@ -235,9 +235,9 @@ julia> @allosteric_mechanism begin
            substrates: S
            products:   P
            steps: begin
-               E + S ⇌ E(S)      :: OnlyA
-               E(S) <--> E(P)    :: EqualAI
-               E(P) ⇌ E + P      :: EqualAI
+               E + S ⇌ ES      :: OnlyA
+               ES <--> EP    :: EqualAI
+               EP ⇌ E + P      :: EqualAI
            end
        end
 ERROR: AllostericMechanism: in the inactive conformation the rapid-equilibrium step
@@ -258,9 +258,9 @@ ss_excluded = @allosteric_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S <--> E(S)   :: OnlyA
-        E(S) <--> E(P)    :: EqualAI
-        E(P) ⇌ E + P      :: EqualAI
+        E + S <--> ES   :: OnlyA
+        ES <--> EP    :: EqualAI
+        EP ⇌ E + P      :: EqualAI
     end
 end;
 ```
@@ -278,12 +278,12 @@ pingpong = @allosteric_mechanism begin
     substrates: A, B
     products:   P, Q
     steps: begin
-        E + A ⇌ E(A)                                        :: EqualAI
-        E(A) <--> E(P; residual = A - P)                    :: OnlyA
-        E(P; residual = A - P) ⇌ E(; residual = A - P) + P  :: EqualAI
-        E(; residual = A - P) + B ⇌ E(B; residual = A - P)  :: EqualAI
-        E(B; residual = A - P) ⇌ E(Q)                       :: OnlyA
-        E(Q) ⇌ E + Q                                        :: EqualAI
+        E + A ⇌ EA                                        :: EqualAI
+        EA <--> EP_res_plusA_minusP                    :: OnlyA
+        EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+        E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+        EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+        EQ ⇌ E + Q                                        :: EqualAI
     end
 end;
 ```
@@ -363,9 +363,9 @@ collapse = @allosteric_mechanism begin
     catalytic_multiplicity: 2
     allosteric_regulators: R
     steps: begin
-        E + S ⇌ E(S)      :: NonequalAI
-        E(S) <--> E(P)    :: EqualAI
-        E(P) ⇌ E + P      :: EqualAI
+        E + S ⇌ ES      :: NonequalAI
+        ES <--> EP    :: EqualAI
+        EP ⇌ E + P      :: EqualAI
     end
     regulatory_site(2): R::OnlyI
 end
@@ -388,9 +388,9 @@ coupled = @allosteric_mechanism begin
     catalytic_multiplicity: 2
     allosteric_regulators: R
     steps: begin
-        E + S ⇌ E(S)      :: NonequalAI
-        E(S) <--> E(P)    :: EqualAI
-        E(P) ⇌ E + P      :: NonequalAI
+        E + S ⇌ ES      :: NonequalAI
+        ES <--> EP    :: EqualAI
+        EP ⇌ E + P      :: NonequalAI
     end
     regulatory_site(2): R::OnlyI
 end
@@ -433,9 +433,9 @@ ss = @allosteric_mechanism begin
     catalytic_multiplicity: 2
     allosteric_regulators: R
     steps: begin
-        E + S <--> E(S)    :: NonequalAI
-        E(S) <--> E(P)     :: EqualAI
-        E(P) ⇌ E + P       :: EqualAI
+        E + S <--> ES    :: NonequalAI
+        ES <--> EP     :: EqualAI
+        EP ⇌ E + P       :: EqualAI
     end
     regulatory_site(2): R::OnlyI
 end
