@@ -78,8 +78,8 @@ end
         # The isomerization goes first, its reverse rate (against the reaction) before
         # its forward one; then the two bindings' constants that run against the
         # reaction, the release of S and the uptake of P (a product binding's uptake runs
-        # against it), the later step in the stored order first (the binding of S, whose
-        # form E(S) comes after E(P)); then the others.
+        # against it), the step whose forms come later by name first (the binding of S,
+        # as ES comes after EP); then the others.
         @test describe.(sys.columns) == [("ES <--> EP", 2), ("ES <--> EP", 1),
                                          ("E + S <--> ES", 2), ("E + P <--> EP", 1),
                                          ("E + S <--> ES", 1), ("E + P <--> EP", 2)]
@@ -165,21 +165,28 @@ end
         @test key(at_free_E, 1, 0)[end] == _testhelper_edge(m, at_free_E)
     end
 
-    @testset "the fitted constants do not follow the order the steps are stored in" begin
-        # The constructors store the steps of a mechanism in one order, so each spec's
-        # steps are reversed here in a graph built without them: the solve fits the same
-        # constants.
+    @testset "the fitted constants do not follow the order of forms, steps and groups" begin
+        # The constructors store the forms, steps and kinetic groups of a mechanism in one
+        # order, so each spec is rebuilt here without them: its steps reversed, the forms
+        # after free E reversed and its kinetic groups numbered the other way round, each
+        # group's allosteric state moving with it. The solve fits the same constants.
         for spec in MECHANISM_TEST_SPECS
             m = _testhelper_lift(spec.mechanism)
             cm = EnzymeRates.Mechanisms.catalytic(m)
+            nf, G = length(cm.nodes), length(cm.groups)
+            form(f) = f == 1 ? 1 : nf + 2 - f
+            steps = [EnzymeRates.Mechanisms.Step(form(e.from), form(e.to), e.taken_up,
+                                                 e.given_off, e.rapid_equilibrium,
+                                                 G + 1 - e.group)
+                     for e in reverse(cm.steps)]
             reordered = EnzymeRates.Mechanisms._unchecked_mechanism(
-                cm.substrates, cm.products, cm.nodes, reverse(cm.steps))
+                cm.substrates, cm.products, [cm.nodes[1]; reverse(cm.nodes[2:end])], steps)
             x = m isa EnzymeRates.AllostericMechanism ?
-                EnzymeRates.AllostericMechanism(reordered, m.allosteric_states,
+                EnzymeRates.AllostericMechanism(reordered, reverse(m.allosteric_states),
                                                 m.oligomeric_state, m.regulatory_sites) :
                 reordered
-            @test EnzymeRates.Derivation._solve(x).fitted ==
-                  EnzymeRates.Derivation._solve(m).fitted
+            @test (spec.name, EnzymeRates.Derivation._solve(x).fitted) ==
+                  (spec.name, EnzymeRates.Derivation._solve(m).fitted)
         end
     end
 

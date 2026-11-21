@@ -8,9 +8,9 @@ const ER = EnzymeRates
     D = ER.Derivation
     col = D._StepParameter
     # Uni-uni: E + P → E(P) and E + S → E(S) at rapid equilibrium, E(S) → E(P) steady
-    # state, each its own group. The isomerization's columns come first (kind 3), its
-    # reverse rate, which runs against the reaction, before its forward one; then the
-    # bindings, the larger content rank first.
+    # state, each its own group. The isomerization's columns come first, by its shape,
+    # its reverse rate, which runs against the reaction, before its forward one; then the
+    # bindings, the one whose forms come later by name first (ES after EP).
     m = ER.Mechanism(@enzyme_mechanism begin
         substrates: S
         products: P
