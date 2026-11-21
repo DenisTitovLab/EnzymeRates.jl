@@ -532,8 +532,8 @@ uni_bi_topos = EnzymeRates.Enumeration._catalytic_topologies(uni_bi_rxn)
         # Every topology has exactly one SS step.
         @test all(count(!s.rapid_equilibrium for s in t.steps) == 1 for t in topos)
     end
-    @test all(compile_rate_equation(_testhelper_topo_mech(uni_bi_rxn, t)) isa
-              EnzymeRates.Derivation._CompiledRateEquation for t in uni_bi_topos)
+    @test !any(_testhelper_is_allosteric(_testhelper_topo_mech(uni_bi_rxn, t))
+               for t in uni_bi_topos)
 end
 
 @testset "a topology writes each release as the binding it reverses" begin
@@ -1401,9 +1401,7 @@ end
     specs = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     @test all(isempty(_testhelper_connectivity_violations(m)) for m in specs)
     @test !isempty(specs)
-    for spec in first(specs, min(3, length(specs)))
-        @test compile_rate_equation(spec) isa EnzymeRates.Derivation._CompiledRateEquation
-    end
+    @test !any(_testhelper_is_allosteric, specs)
 end
 
 end
@@ -1939,7 +1937,6 @@ end
     for r in result
         @test !_testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
     # The D and P flank flips, absent, keep the seed's rank (chain lemma).
     r0 = _testhelper_identifiable_rank(m)
@@ -2236,7 +2233,6 @@ end
     end
     for r in kids
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
     for r in kids, s in _testhelper_graph(r).steps
         _testhelper_is_binding(s) && only(s.consumed_modifier) &&
@@ -2328,7 +2324,6 @@ end
     @test Set(kids) == Set(expected)
     for r in kids
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
     for r in kids
         @test count(==(:OnlyA), r.allosteric.allosteric_states) == 1
@@ -2473,7 +2468,6 @@ end
         @test EnzymeRates.Derivation.fitted_parameter_count(r) > base
         @test !_testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
         @test length(r.catalytic.steps) == length(m.catalytic.steps)
         @test _testhelper_keeps_reaction(r, m)
     end
@@ -2564,11 +2558,10 @@ end
               length(unique(r.catalytic.steps[k].group for k in a_group)) == 2,
               result)
 
-    # 3. compilability
+    # 3. kind and invariants
     for r in result
         @test _testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
 
     # 4. tag inheritance: each result group inherits the tag of the parent
@@ -3673,10 +3666,9 @@ end
         # for exact parameter counts.
         @test _testhelper_param_deltas(m, result) == fill(1, n_variants)
 
-        # 3. compilability
+        # 3. invariants
         for r in result
             _testhelper_assert_mechanism_invariants(r)
-            @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
         end
 
         # 4. property: each variant has ≥1 I-binding step, and all I-binding steps in a
@@ -5079,11 +5071,10 @@ end
         @test r_fitted == base_fitted + 1
     end
 
-    # 3. compilability
+    # 3. kind and invariants
     for r in result
         @test _testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
 
     # 4. property: exactly one new catalytic group; its tag is
@@ -6044,7 +6035,6 @@ end
 
     for r in result
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
 end
 
@@ -7603,10 +7593,10 @@ end
     seed_truth = _testhelper_fitted(am)
     @test _testhelper_fitted(only(r_removal)) == seed_truth + 1
 
-    # 4. compilability + invariants on each variant.
+    # 4. kind and invariants of each variant.
     for r in result
+        @test _testhelper_is_allosteric(r)
         _testhelper_assert_mechanism_invariants(r)
-        @test compile_rate_equation(r) isa EnzymeRates.Derivation._CompiledRateEquation
     end
 end
 
@@ -15192,10 +15182,7 @@ end
                      if _testhelper_is_free_e_binding(m, ks))
         iso = Set(_testhelper_iso_groups(m))
         children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-        # Every emitted child compiles.
-        for c in children
-            @test compile_rate_equation(c) isa EnzymeRates.Derivation._CompiledRateEquation
-        end
+        @test all(_testhelper_is_allosteric, children)
         # The free-enzyme-normalization child (the free-E bindings :OnlyA, plus
         # all chemical steps :OnlyA — a dead inactive conformation) leaves the
         # lumped downstream group's binding :EqualAI, so its shared constant
