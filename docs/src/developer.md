@@ -248,6 +248,7 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 | | `products::Vector{Symbol}` | the products, sorted |
 | | `nodes::Vector{EnzymeForm}` | free E first, then the other forms in content order |
 | | `steps::Vector{Step}` | each step physical-forward, in content order |
+| | `enzyme_forms::Vector{Symbol}` | stored: each node's name, such as `EA` |
 | | `modifiers::Vector{Symbol}` | stored: every name bound as a modifier, sorted |
 | | `groups::Vector{Vector{Int}}` | stored: each kinetic group's steps |
 | | `step_kinds::Vector{Symbol}` | stored: each step's kind, such as `:binding` |

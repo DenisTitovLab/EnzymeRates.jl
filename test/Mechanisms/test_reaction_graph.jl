@@ -119,8 +119,9 @@ end
     # No reaction and no cache: the names, the nodes and the steps with their groups, then
     # the facts computed from them once; for an allosteric mechanism its tags,
     # multiplicity and sites, then each conformation's steps and the steps it excludes.
-    @test fieldnames(ER.Mechanism) == (:substrates, :products, :nodes, :steps, :modifiers,
-                                       :groups, :step_kinds, :toward_products, :step_sides)
+    @test fieldnames(ER.Mechanism) ==
+          (:substrates, :products, :nodes, :steps, :enzyme_forms, :modifiers, :groups,
+           :step_kinds, :toward_products, :step_sides)
     @test fieldnames(ER.Mechanisms.EnzymeForm) ==
           (:conformation, :bound, :added, :subtracted)
     @test fieldnames(ER.Mechanisms.Step) ==
@@ -1318,7 +1319,7 @@ end
 end
 
 """Whether the facts `m` stores are those its canonical fields give, and the stored fields
-hold them: its modifiers and groups, read off its nodes and steps here, and
+hold them: its form names, modifiers and groups, read off its nodes and steps here, and
 each step's kind, direction toward products and side names, as the graph reads compute
 them from the canonical fields."""
 function _testhelper_facts_hold(m::ER.Mechanism)
@@ -1328,7 +1329,8 @@ function _testhelper_facts_hold(m::ER.Mechanism)
     modifiers = sort!(unique!(Symbol[x.name for list in lists for x in list if x.modifier]))
     groups = [findall(e -> e.group == g, m.steps)
               for g in 1:maximum(e -> e.group, m.steps)]
-    m.modifiers == modifiers && m.groups == groups &&
+    m.enzyme_forms == [Symbol(M._form_name(m, f)) for f in eachindex(m.nodes)] &&
+        m.modifiers == modifiers && m.groups == groups &&
         m.step_kinds == [M._step_kind(m, e) for e in m.steps] &&
         m.toward_products == [M._runs_toward_products(m, e) for e in m.steps] &&
         m.step_sides == [M._sides(m, e) for e in m.steps]
@@ -1399,6 +1401,7 @@ end
         end
     end)
     x = ER.Mechanisms._unchecked_mechanism(m.substrates, m.products, m.nodes, m.steps)
+    x.enzyme_forms[2] = :F
     push!(x.modifiers, :S)
     x.groups[1] = [2, 3]
     x.step_kinds[1] = :chemistry

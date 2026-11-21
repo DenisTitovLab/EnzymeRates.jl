@@ -451,10 +451,11 @@ other nodes in content order (`isless(::EnzymeForm)`); `steps` run physical-forw
 content order (`isless(::Step)`), the kinetic groups numbered by their first step.
 
 It also stores facts its canonical fields give, computed once when it is built:
-`modifiers`, every name bound as a modifier, sorted; `groups`, each kinetic group's steps
-in step order; and per step, `step_kinds` (`_step_kind`), `toward_products` (whether it
-runs toward products as stored, `_runs_toward_products`) and `step_sides` (the names of
-its two sides, which name its constants, `_sides`). They take no part in `==` and `hash`.
+`enzyme_forms`, each node's name (`_form_name`), in node order; `modifiers`, every name
+bound as a modifier, sorted; `groups`, each kinetic group's steps in step order; and per
+step, `step_kinds` (`_step_kind`), `toward_products` (whether it runs toward products as
+stored, `_runs_toward_products`) and `step_sides` (the names of its two sides, `_sides`).
+They take no part in `==` and `hash`.
 
 `Mechanism(substrates, products, nodes, steps)` builds one from nodes and steps written
 any way and checks it; `_unchecked_mechanism` takes canonical fields and checks nothing,
@@ -468,6 +469,7 @@ struct Mechanism
     products::Vector{Symbol}
     nodes::Vector{EnzymeForm}
     steps::Vector{Step}
+    enzyme_forms::Vector{Symbol}
     modifiers::Vector{Symbol}
     groups::Vector{Vector{Int}}
     step_kinds::Vector{Symbol}
@@ -480,9 +482,11 @@ struct Mechanism
                                          nodes::Vector{EnzymeForm},
                                          steps::Vector{Step})
         graph = new(substrates, products, nodes, steps)
-        new(substrates, products, nodes, steps, copy(_modifiers(nodes, steps)),
-            _groups(steps), Symbol[_step_kind(graph, e) for e in steps],
-            _runs_toward_products.(Ref(graph), steps), _step_sides(graph))
+        forms = [_form_name(graph, f) for f in eachindex(nodes)]
+        new(substrates, products, nodes, steps, Symbol.(forms),
+            copy(_modifiers(nodes, steps)), _groups(steps),
+            Symbol[_step_kind(graph, e) for e in steps],
+            _runs_toward_products.(Ref(graph), steps), _step_sides(graph, forms))
     end
 end
 

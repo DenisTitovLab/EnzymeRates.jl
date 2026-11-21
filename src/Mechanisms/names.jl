@@ -54,12 +54,10 @@ _side_name(m::Mechanism, form::String, free::Vector{Metabolite}) =
 them."""
 _sides(m::Mechanism, e::Step) = (_side_name(m, _form_name(m, e.from), e.taken_up),
                                  _side_name(m, _form_name(m, e.to), e.given_off))
-"""Each step's two sides (`_sides`), naming each node once."""
-function _step_sides(m::Mechanism)
-    forms = [_form_name(m, f) for f in eachindex(m.nodes)]
+"""Each step's two sides (`_sides`), its nodes named `forms` (`_form_name`)."""
+_step_sides(m::Mechanism, forms::Vector{String}) =
     [(_side_name(m, forms[e.from], e.taken_up), _side_name(m, forms[e.to], e.given_off))
      for e in m.steps]
-end
 
 """Step `k` of `m` as a mechanism macro writes it, in its stored direction: each side is
 its node (`form_text`) and the metabolites the step takes up or gives off there
