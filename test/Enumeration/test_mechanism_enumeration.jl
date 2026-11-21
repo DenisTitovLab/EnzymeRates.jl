@@ -15369,6 +15369,9 @@ end
         e
     end
     @test err isa ErrorException
+    # The user calls `candidate_mechanisms`, so the message names it.
+    @test startswith(err.msg, "candidate_mechanisms: no mechanism binds every required " *
+                              "regulator")
     @test occursin("required regulator", err.msg)
     @test occursin("competitive inhibitors: S", err.msg)
     @test occursin("allosteric regulators: none", err.msg)

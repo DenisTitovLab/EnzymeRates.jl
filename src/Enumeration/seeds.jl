@@ -622,7 +622,7 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
     end
     if isempty(seeds)
         list(s) = isempty(s) ? "none" : join(sort!(collect(s)), ", ")
-        error("seed_mechanisms: no mechanism binds every required regulator " *
+        error("candidate_mechanisms: no mechanism binds every required regulator " *
               "(competitive inhibitors: " * list(required_comp) *
               "; allosteric regulators: " * list(required_allo) * "). A substrate or " *
               "product declared as a competitive inhibitor binds only where its complex " *
