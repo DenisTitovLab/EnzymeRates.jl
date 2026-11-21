@@ -55,8 +55,8 @@ the part for a module before changing its internals.
 - Enumeration works on candidates (`CandidateMechanism`): a `Mechanism` and the
   enumerator's private record of each form; a caller reads only `c.mechanism`.
   `compile_rate_equation(m)` compiles a mechanism's rate equation when its value is needed.
-- Data tables mark measurements made with one amount of enzyme with a `group` column; a
-  rate law gives the rate per unit enzyme. `Keq` is always given by the user, never
+- A data table's `group` column marks the measurements made with one amount of enzyme;
+  a rate law gives the rate per unit enzyme. `Keq` is always given by the user, never
   estimated from data, and is the last positional argument wherever a function takes it.
 
 ## Design rules
@@ -240,9 +240,9 @@ Tests of a compiled rate law (`compile_rate_equation`) live in `test/Derivation/
 follow two rules:
 
 1. **Write the full mechanism down**, step by step with `@enzyme_mechanism`, in the
-   testset or in a `MECHANISM_TEST_SPECS` entry. A fixture
-   from the enumerator or a helper cannot be checked against its rate equation by reading.
-   The exception is an aggregate check over a whole population, which says so in a comment.
+   testset or in a `MECHANISM_TEST_SPECS` entry. A fixture from the enumerator or a
+   helper cannot be checked against its rate equation by reading. The exception is an
+   aggregate check over a whole population, which says so in a comment.
 2. **Compare with a separately derived rate equation** at random parameters and
    concentrations: one derived by hand or from a textbook (`analytical_rate_fn`), or from
    the mass-action steady state (`_testhelper_reference_qssa`). The package's own printed
