@@ -316,8 +316,7 @@ _check_coefficient_values(coefficients::Bool, coefficient_values::Bool) =
     rate_equation_string(m; coefficients = false, coefficient_values = true) -> String
 
 Return the rate law of mechanism `m` as a multi-line `String` (it returns the text; it does
-not print). Pass a concrete `Mechanism` / `AllostericMechanism` or its compiled
-[`EnzymeMechanism`](@ref EnzymeRates.Mechanisms.EnzymeMechanism) singleton.
+not print).
 
 The text runs as Julia code once `params`, `concs` and `Keq` are bound, as they are in
 a call of [`compile_rate_equation`](@ref)`(m)`. It destructures
@@ -391,16 +390,9 @@ julia> print(rate_equation_string(m; coefficients = true, coefficient_values = f
 v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 """
-function rate_equation_string(m::Union{Mechanisms.Mechanism,
-                                        Mechanisms.AllostericMechanism};
-                              coefficients::Bool = false, coefficient_values::Bool = true)
+function rate_equation_string(m::_AnyMech; coefficients::Bool = false,
+                              coefficient_values::Bool = true)
     _check_coefficient_values(coefficients, coefficient_values)
     check_valid_rate_equation(m)
     _with_memo_law((m, s, L) -> _law_text(m, s, L; coefficients, coefficient_values), m)
 end
-
-rate_equation_string(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism);
-                     coefficients::Bool = false, coefficient_values::Bool = true) =
-    (_check_coefficient_values(coefficients, coefficient_values);
-     _with_law((m, s, L) -> _law_text(m, s, L; coefficients, coefficient_values),
-               _derivation_input(typeof(m))))

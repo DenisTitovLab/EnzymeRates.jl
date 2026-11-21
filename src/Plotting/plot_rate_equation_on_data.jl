@@ -56,9 +56,6 @@ function _group_scale(measured, predicted)
     exp(mean(log(abs(measured[i] / predicted[i])) for i in usable))
 end
 
-const _AnyMechanism = Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
-                            Mechanisms.AllostericMechanism}
-
 """
     rate_equation_panels(predict, listed_first, Keq, table; absolute, concentration_unit,
         xscale)
@@ -146,7 +143,7 @@ fig = plot_rate_equation_on_data(michaelis_menten, (Vmax = 2.0, Km = 1e-4), data
 ```
 
 # Arguments
-- `m`: a mechanism, in any form `FittingProblem` accepts, which draws its rate law,
+- `m`: a mechanism, which draws its rate law,
   `compile_rate_equation(m)(concentrations, params, Keq)`; or `rate`, a function, which
   draws `rate(concentrations, params)`. `concentrations` is a `NamedTuple` of one row's
   concentrations, one per concentration column of `table`.
@@ -201,12 +198,11 @@ largest.
 - The errors `FittingProblem` raises for a table it rejects, with every column but `group`
   and `Rate` checked as a concentration.
 """
-function plot_rate_equation_on_data(@nospecialize(m::_AnyMechanism),
-                                    @nospecialize(params::NamedTuple), table, Keq::Real;
-                                    absolute::Bool = false,
-                                    concentration_unit::AbstractString = "M",
-                                    columns::Integer = 5, figure::NamedTuple = (;),
-                                    axis::NamedTuple = (;))
+function plot_rate_equation_on_data(
+        @nospecialize(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}),
+        @nospecialize(params::NamedTuple), table, Keq::Real; absolute::Bool = false,
+        concentration_unit::AbstractString = "M", columns::Integer = 5,
+        figure::NamedTuple = (;), axis::NamedTuple = (;))
     makie_extension = _makie_extension(columns)
     rate = Derivation.compile_rate_equation(m)
     for name in Derivation.parameters(rate)

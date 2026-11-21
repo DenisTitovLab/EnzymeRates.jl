@@ -36,14 +36,6 @@ function Base.show(io::IO, am::AllostericMechanism)
     nothing
 end
 
-# A compiled mechanism prints its mechanism's text. Each method compiles once, whatever
-# the Sig: it reads the Sig at run time (`Mechanism(em)`), and `@nospecializeinfer` keeps
-# a caller compiled for one Sig, such as `sprint`, from inferring a show for that Sig.
-Base.@nospecializeinfer Base.show(io::IO, @nospecialize(em::EnzymeMechanism)) =
-    show(io, Mechanism(em))
-Base.@nospecializeinfer Base.show(io::IO, @nospecialize(aem::AllostericEnzymeMechanism)) =
-    show(io, AllostericMechanism(aem))
-
 """Print the line `label: item, item, ...` of a mechanism's block, or nothing when
 `items` is empty."""
 function _print_line(io::IO, label::String, items::Vector)

@@ -20,8 +20,9 @@ const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 1.5   # baseline 2026-10-23: 0.12 s l
 # room for the other Julia versions and architectures CI runs.
 const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
 const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
-# Encoding the Sigs of the 239 bi-bi seeds, once per process: each Sig is one vector of
-# Ints made a tuple, so encoding compiles once, whatever the mechanism. Both budgets sit
+# Encoding the Sigs of the 239 bi-bi seeds, the type parameters of their compiled rate
+# laws, once per process: each Sig is one vector of Ints made a tuple, so encoding compiles
+# once, whatever the mechanism. Both budgets sit
 # a few times above the baseline: the instance budget fails a compile of one method
 # instance per seed, the native-code budget a compile that emits more than about 0.3 KB
 # of code per seed.
@@ -101,7 +102,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     # Three fresh subprocesses supply every measurement below. Each must be a fresh
     # process: the test process has already loaded the shared fixtures, and whenever
     # another test file runs before this one (a focused or reordered run)
-    # init_mechanisms and the same EnzymeMechanism{...} body are already compiled, so
+    # init_mechanisms and the same compiled rate law's body are already compiled, so
     # an in-process measurement could read near zero and no gate would trip on a
     # regression.
     #   - trace: init_mechanisms on a bi-bi reaction under --trace-compile, then
@@ -111,25 +112,26 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     macro-expansion cost. bi-bi is non-trivial, so the gate is representative;
     #     uni-uni is too small to catch regressions.
     #   - cold: uni-uni init_mechanisms alone (the cold half of the compile-reuse
-    #     gate), then the first call of a compiled rate law. init_mechanisms compiles
-    #     none of the @generated rate-law body, so the first call costs what it costs in
-    #     a process that never ran init_mechanisms.
+    #     gate), then the first call of a compiled rate law, once its generated
+    #     `parameters` has decoded the mechanism. init_mechanisms compiles none of the
+    #     @generated rate-law body, so the first call costs what it costs in a process
+    #     that never ran init_mechanisms.
     #     Before both, the script counts the package image's `_rate_body` specializations.
     #   - fit: the identify path on bi-bi mechanisms as _process_batch and
     #     _cross_validation_loss take it: PASS1 (`_pass1_record`: the guard, the solve
     #     and its fitted count, the law, the printed law, and the mechanism's
-    #     text, id and key, all on the concrete mechanism), PASS2 (FittingProblem and a
+    #     text, id and key, all on the mechanism value), PASS2 (FittingProblem and a
     #     CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the
     #     first of five written-out seeds compile everything that does not depend on the
-    #     mechanism, so each fresh mechanism after them compiles only what its own type
-    #     needs. The five differ in Sig length and in fitted names, and are picked by
-    #     content, not by their place in the seeds. The census counts the method
+    #     mechanism, so each fresh mechanism after them compiles only what its compiled
+    #     rate law's type needs. The five differ in Sig length and in fitted names, and are
+    #     picked by content, not by their place in the seeds. The census counts the method
     #     instances of every module, since a fit compiled per mechanism compiles
     #     Optimization, SciMLBase, CMAEvolutionStrategy and Base code. It also counts the
     #     show instances that PASS1's text adds and, after the census, those that
-    #     printing the compiled mechanism adds: a mechanism's show that specialized on
-    #     the Sig would compile again for each fresh mechanism. PASS1 compiles nothing
-    #     for a fresh mechanism, since it reads only the concrete one.
+    #     printing the compiled rate law adds: a show that specialized on the Sig would
+    #     compile again for each fresh mechanism. PASS1 compiles nothing for a fresh
+    #     mechanism, since it reads only the mechanism value.
     trace_script = """
         using EnzymeRates
         r = EnzymeRates.EnzymeReaction(
@@ -173,10 +175,11 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                 E(P) ⇌ E + P
             end
         end
-        params = NamedTuple{Tuple(EnzymeRates.parameters(m))}(
-            ntuple(_ -> 1.0, length(EnzymeRates.parameters(m))))
+        rate = compile_rate_equation(m)
+        params = NamedTuple{EnzymeRates.parameters(rate)}(
+            ntuple(_ -> 1.0, length(EnzymeRates.parameters(rate))))
         concs = (S = 1.0, P = 0.5)
-        t = @elapsed compile_rate_equation(m)(concs, params, 2.0)
+        t = @elapsed rate(concs, params, 2.0)
         println("ELAPSED:", t)
         """
     fit_script = """
@@ -204,7 +207,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         end
         # The method instances and native code bytes that PASS1, PASS2 and one LOOCV
         # fold of m add, their compile time, the show instances that PASS1 and then
-        # printing the compiled mechanism add, and the method instances PASS1 alone adds.
+        # printing the compiled rate law add, and the method instances PASS1 alone adds.
         function _testhelper_measure(m)
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
@@ -222,7 +225,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
                    (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
             s2 = _testhelper_instances(methods(show))
-            sprint(show, ER.compile_mechanism(m))
+            sprint(show, compile_rate_equation(m))
             (fit..., s1 - s0 + _testhelper_instances(methods(show)) - s2, pass1)
         end
         ms = [c.mechanism for c in ER.Enumeration.init_mechanisms(rxn)]
@@ -230,12 +233,12 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         # and once; encoding every seed first keeps it out of the per-mechanism counts
         # and measures its total for this process.
         n_sig, b_sig = _testhelper_all_instances(), Base.jit_total_bytes()
-        foreach(ER.Mechanisms._sig_of, ms)
+        foreach(ER.Derivation._sig_of, ms)
         println("SIG_INSTANCES:", _testhelper_all_instances() - n_sig,
                 " SIG_NATIVE:", Base.jit_total_bytes() - b_sig)
         # Five bi-bi seeds with five Sig lengths and five fitted-name tuples, written
         # out: the first warms the fit path, and the other four are measured fresh.
-        picks = ER.Mechanism.([
+        picks = [
             @enzyme_mechanism(begin
                 substrates: A, B
                 products: P, Q
@@ -290,7 +293,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                     E(B) + A ⇌ E(A, B)
                     E(Q) + P ⇌ E(P, Q)
                 end
-            end)])
+            end)]
         Random.seed!(1)
         Base.cumulative_compile_timing(true)
         _testhelper_measure(picks[1])
@@ -299,9 +302,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
                     " FIT_COMPILE_", k, ":", t, " PASS1_SHOW_", k, ":", s,
                     " PASS1_INSTANCES_", k, ":", p)
         end
-        ems = ER.compile_mechanism.(picks)
-        println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
-        println("FIT_NAMES:", length(unique(ER.parameters, ems)))
+        rates = compile_rate_equation.(picks)
+        println("FIT_SHAPES:", length(unique(r -> typeof(typeof(r).parameters[1]), rates)))
+        println("FIT_NAMES:", length(unique(ER.parameters, rates)))
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm, t_uni_warm_compile =
@@ -416,15 +419,15 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             @test maximum(native) <= FIT_NATIVE_BUDGET_KB * 1024
         end
 
-        # PASS1 prints the text of a mechanism with a fresh Sig from the concrete
-        # mechanism, and the compiled mechanism prints its text through the concrete one,
-        # so neither compiles show for the fresh Sig.
-        @testset "fit compile: PASS1 and a compiled mechanism's text compile no show" begin
+        # PASS1 prints the text of a mechanism with a fresh Sig from the mechanism value,
+        # and a compiled rate law prints one line whatever its Sig, so neither compiles
+        # show for the fresh Sig.
+        @testset "fit compile: PASS1 and a compiled rate law's text compile no show" begin
             @info "show instances per fresh mechanism: $pass1_show (budget: 0)"
             @test maximum(pass1_show) == 0
         end
 
-        # PASS1 reads the concrete mechanism alone (its solve, law, key and printed law),
+        # PASS1 reads the mechanism value alone (its solve, law, key and printed law),
         # so once the first mechanism has compiled it, a fresh mechanism compiles nothing.
         @testset "fit compile: PASS1 compiles nothing for a fresh mechanism" begin
             @info "PASS1 method instances per fresh mechanism: $pass1_instances (budget: 0)"
@@ -442,9 +445,9 @@ end
     # same printed law in both forms, for the 42 specs and the six gate laws (PASS1
     # derives and prints on the workers).
     sha256 = EnzymeRates.Derivation.sha256
-    mechs = [_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS]
-    append!(mechs, _testhelper_lift.(_testhelper_largest_enumerated_mechanisms))
-    append!(mechs, _testhelper_lift.(_testhelper_large_ter_bi_mechanisms))
+    mechs = [s.mechanism for s in MECHANISM_TEST_SPECS]
+    append!(mechs, _testhelper_largest_enumerated_mechanisms)
+    append!(mechs, _testhelper_large_ter_bi_mechanisms)
     @test length(mechs) == 48
     file = tempname()
     write(file, join([sprint(show, m) for m in mechs], "\n----\n"))

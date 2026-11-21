@@ -33,10 +33,6 @@ not run, whatever its state. Every step of a plain mechanism runs.
 """
 steps_in_active_conformation(m::Mechanism) = trues(length(m.steps))
 steps_in_active_conformation(am::AllostericMechanism) = _steps_in_conformation(am, :OnlyI)
-steps_in_active_conformation(@nospecialize(em::EnzymeMechanism)) =
-    steps_in_active_conformation(Mechanism(em))
-steps_in_active_conformation(@nospecialize(aem::AllostericEnzymeMechanism)) =
-    steps_in_active_conformation(AllostericMechanism(aem))
 
 """
     steps_in_inactive_conformation(m) -> BitVector
@@ -47,10 +43,6 @@ place of those of `:OnlyI` groups. Every step of a plain mechanism runs.
 """
 steps_in_inactive_conformation(m::Mechanism) = trues(length(m.steps))
 steps_in_inactive_conformation(am::AllostericMechanism) = _steps_in_conformation(am, :OnlyA)
-steps_in_inactive_conformation(@nospecialize(em::EnzymeMechanism)) =
-    steps_in_inactive_conformation(Mechanism(em))
-steps_in_inactive_conformation(@nospecialize(aem::AllostericEnzymeMechanism)) =
-    steps_in_inactive_conformation(AllostericMechanism(aem))
 
 """The steps of the catalytic graph of `am` that run in the conformation that excludes the
 kinetic groups in allosteric state `state`: the other steps, between forms they join to

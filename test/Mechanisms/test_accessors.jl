@@ -19,14 +19,14 @@
     # dependent_parameter_values(m, values, Keq) is exactly the dependent constants to the
     # parameters.
     values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
-    dep_mono, _ = _testhelper_dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
+    dep_mono, _ = _testhelper_dependent_param_exprs(m_mono)
     @test !isempty(dep_mono)
     @test Set(keys(dependent_parameter_values(m_mono, values_mono, 1.0))) ==
           Set(keys(dep_mono))
     @test isdisjoint(keys(dependent_parameter_values(m_mono, values_mono, 1.0)),
                      params_mono)
 
-    base = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    base = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -34,12 +34,12 @@
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     allosteric_states = fill(:NonequalAI, length(base.groups))
     site = EnzymeRates.Mechanisms.RegulatorySite([:R], 2, [:NonequalAI])
     am = EnzymeRates.AllostericMechanism(base, allosteric_states, 2, [site])
     @test am.allosteric_states == allosteric_states
-    m_allo = EnzymeRates.AllostericEnzymeMechanism(am)
+    m_allo = am
     params_allo = parameters(m_allo)
     @test any(occursin("_I_", string(p)) for p in params_allo)
     @test any(occursin("reg", string(p)) for p in params_allo)
@@ -54,10 +54,10 @@
                      params_allo)
 end
 
-@testset "fitted parameters of a concrete mechanism equal its compiled form's" begin
+@testset "fitted parameters of a mechanism equal its compiled rate law's" begin
     for spec in MECHANISM_TEST_SPECS
-        @test parameters(_testhelper_lift(spec.mechanism)) ===
-              parameters(spec.mechanism)
+        @test parameters(spec.mechanism) ===
+              parameters(compile_rate_equation(spec.mechanism))
     end
 end
 
@@ -81,7 +81,7 @@ end
     @test dependent_parameter_values(m, merge((k_EP_to_ES = 99.0,), p), 4.0) == deps
     # The concrete mechanism gives the same values, the argument Keq wins over a Keq in
     # params, and BigFloat values stay BigFloat.
-    @test dependent_parameter_values(EnzymeRates.Mechanism(m), p, 4.0) == deps
+    @test dependent_parameter_values(m, p, 4.0) == deps
     @test dependent_parameter_values(m, merge(p, (Keq = 99.0, E_total = 99.0)), 4.0) ==
           deps
     @test dependent_parameter_values(m, map(big, p), big(4.0)).k_EP_to_ES == big(3) / 8
@@ -130,7 +130,7 @@ end
         @test issorted(collect(keys(all_p))[length(p) + 1:end])
         # Every step constant the law reads, in each conformation, is among the keys; the
         # regulator constants and L are fitted, so p holds them.
-        mech = _testhelper_lift(m)
+        mech = m
         states = mech isa EnzymeRates.Mechanism ? (:None,) : (:A, :I)
         @test issubset((n for st in states
                         for ns in _testhelper_edge_names(mech, st) for n in ns),

@@ -105,8 +105,8 @@ end
     for (name, nsites) in ("MWC Dimer [AllostericEnzymeMechanism]" => 0,
                            "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites" => 2)
         @testset "$name" begin
-            A = EnzymeRates.Derivation._law(_testhelper_lift(
-                only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism))
+            A = EnzymeRates.Derivation._law(
+                only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism)
             v = A.vars
             c = findfirst(v.conc)
             k = findfirst(i -> !v.conc[i] && v.names[i] ∉ (:Keq, :L), eachindex(v.names))
@@ -189,7 +189,7 @@ end
     # Concentrations are labelled by name, so models that differ only in which inhibitor
     # or regulator binds, or where an inhibitor binds, get different keys.
     key(m) = EnzymeRates.Derivation._canonical(
-        EnzymeRates.Derivation._law(_testhelper_lift(m)), "attack").key
+        EnzymeRates.Derivation._law(m), "attack").key
     uni_I = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -274,7 +274,7 @@ end
                   "8b54530459132227ea8fe854cce576346e7ae872ac59f137eab1f6a5d913cbbf")
     for (name, key) in pinned
         spec = only(s for s in MECHANISM_TEST_SPECS if s.name == name)
-        m = _testhelper_lift(spec.mechanism)
+        m = spec.mechanism
         @test EnzymeRates.Derivation._canonical(
             EnzymeRates.Derivation._law(m), "pin").key == key
     end
@@ -289,14 +289,14 @@ end
     # by (1 + L) and the uptake rate constant by 1/(1 + L): at every L the variant is its
     # law at L = 0, the law of its catalytic mechanism, at those constants (spec
     # section 13).
-    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S <--> E(P)    :: OnlyA
             E + P ⇌ E(P)       :: OnlyA
         end
-    end)
+    end
     A = EnzymeRates.Derivation._law(am)
     θ = [A.vars.names[v] for v in eachindex(A.vars.names)
          if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
@@ -315,7 +315,7 @@ end
     # L phantom though its inactive conformation binds. With S's binding :NonequalAI the
     # inactive conformation binds S under a constant of its own, a term the active
     # conformation lacks, and no certificate exists.
-    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 1
@@ -324,7 +324,7 @@ end
             E(S) <--> E(P)     :: OnlyA
             E + P ⇌ E(P)       :: EqualAI
         end
-    end)
+    end
     A = EnzymeRates.Derivation._law(am)
     @test EnzymeRates.Derivation._is_phantom(A)
     θ = [A.vars.names[v] for v in eachindex(A.vars.names)
@@ -332,7 +332,7 @@ end
     @test θ == [:K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP]
     @test EnzymeRates.Derivation._phantom_weights(A) == [0 // 1, 0 // 1, -1 // 1]
     @test _testhelper_phantom_map_holds(am; rng = Random.MersenneTwister(22))
-    s_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    s_relaxed = @allosteric_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 1
@@ -341,7 +341,7 @@ end
             E(S) <--> E(P)     :: OnlyA
             E + P ⇌ E(P)       :: EqualAI
         end
-    end)
+    end
     @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(s_relaxed))
 end
 
@@ -353,7 +353,7 @@ end
     # exists. The Theorell–Chance K-type only_a binds Q at free E in its inactive
     # conformation, yet its certificate maps it onto its law at L = 0, so it is an L
     # phantom.
-    two_subunits = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    two_subunits = @allosteric_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -361,8 +361,8 @@ end
             E + S <--> E(P)    :: OnlyA
             E + P ⇌ E(P)       :: OnlyA
         end
-    end)
-    p_relaxed = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    end
+    p_relaxed = @allosteric_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 1
@@ -370,8 +370,8 @@ end
             E + S <--> E(P)    :: OnlyA
             E + P ⇌ E(P)       :: NonequalAI
         end
-    end)
-    onlyi_site = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    end
+    onlyi_site = @allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -380,8 +380,8 @@ end
             E + P ⇌ E(P)       :: OnlyA
         end
         regulatory_site(1): R::OnlyI
-    end)
-    onlya_site = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    end
+    onlya_site = @allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -390,15 +390,15 @@ end
             E + P ⇌ E(P)       :: OnlyA
         end
         regulatory_site(1): R::OnlyA
-    end)
-    only_a = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    end
+    only_a = @allosteric_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             E + A ⇌ E(A)                :: OnlyA
             E(A) + B <--> E(Q) + P      :: OnlyA
             E + Q ⇌ E(Q)                :: EqualAI
         end
-    end)
+    end
     for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
         @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))
     end
@@ -445,22 +445,22 @@ end
     # its law at L = 0, holds every fitted constant but L and is the law of the plain
     # merged uni-uni, so it reads that law's fit. Its own key, under which identify
     # lists it, is the key of its MWC law. The plain mechanism reads its own fit.
-    plain = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    plain = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S <--> E(P)
             E + P ⇌ E(P)
         end
-    end)
-    phantom = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    end
+    phantom = @allosteric_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S <--> E(P)    :: OnlyA
             E + P ⇌ E(P)       :: OnlyA
         end
-    end)
+    end
     id = "phantom"
     A = EnzymeRates.Derivation._law(phantom)
     own = EnzymeRates.Derivation._canonical(A, id)
@@ -477,7 +477,7 @@ end
     # With S's and P's bindings and its regulatory site's one ligand R :EqualAI, the
     # certificate holds, yet the active law lacks R's constant: the variant reads its own
     # fit.
-    regulated = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    regulated = @allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -488,7 +488,7 @@ end
             E + P ⇌ E(P)       :: EqualAI
         end
         regulatory_site(1): R::EqualAI
-    end)
+    end
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(regulated))
     r = EnzymeRates.Derivation.rate_equation_dedup_key(regulated)
     @test (r.fit_key, r.fit_parameters) == (r.key, r.parameters)
@@ -498,7 +498,7 @@ end
     # Five two-step cycles E → X → E, alike up to the label of X, reach the leaf cap: the
     # law takes the SHA-256 of "mechanism|" and the first 16 hex digits of the SHA-256 of
     # the mechanism's text. Both strings were read once and must not change.
-    pinwheel = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    pinwheel = @enzyme_mechanism begin
         substrates: A
         products: P
         steps: begin
@@ -513,7 +513,7 @@ end
             E + A <--> M + P
             M + A <--> E + P
         end
-    end)
+    end
     k = EnzymeRates.Derivation.rate_equation_dedup_key(pinwheel)
     @test k.capped
     @test k.key == bytes2hex(EnzymeRates.Derivation.sha256("mechanism|3e5cf962a87e32c2"))

@@ -72,20 +72,18 @@ concentrations use the same one. K and k then carry that unit: a K in mM, a seco
 k per mM per time. See "Units and the search box" in the Getting Started page for how the
 fit searches around the concentrations in your data.
 """
-function FittingProblem(
-        @nospecialize(mechanism::Union{Mechanisms.AbstractEnzymeMechanism, _AnyMech}),
-        table, Keq::Real; absolute::Bool=false, reference=nothing)
-    m = _to_concrete_mechanism(mechanism)
+function FittingProblem(@nospecialize(mechanism::_AnyMech), table, Keq::Real;
+                        absolute::Bool=false, reference=nothing)
     rate = Derivation.compile_rate_equation(mechanism)
-    rate_data = Data.RateData(table, Mechanisms.metabolites(m), Keq; absolute, reference,
-                              owner = "mechanism")
+    rate_data = Data.RateData(table, Mechanisms.metabolites(mechanism), Keq; absolute,
+                              reference, owner = "mechanism")
     data = rate_data.data
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
-    FittingProblem{typeof(m), typeof(rate), typeof(data)}(
-        m, rate, rate_data, collect(values(group_map)),
+    FittingProblem{typeof(mechanism), typeof(rate), typeof(data)}(
+        mechanism, rate, rate_data, collect(values(group_map)),
         log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
 end
 
@@ -318,7 +316,7 @@ concentrations of those metabolites in the table, or 1 when there are none.
 """
 function _concentration_scales(@nospecialize(fp::FittingProblem))
     data = fp.rate_data.data
-    mets = Mechanisms.metabolites(fp.mechanism::_AnyMech)
+    mets = Mechanisms.metabolites(fp.mechanism)
     # `getfield` reads a column by its runtime name without compiling for the table's type;
     # `RateData` stores each metabolite's column as a `Vector{Float64}`.
     positive = Vector{Float64}[
@@ -343,7 +341,7 @@ and each metabolite's concentration scale (`_concentration_scales`) raised to th
 constant's powers of them (`Derivation.parameter_units`).
 """
 function _log_centres(@nospecialize(fp::FittingProblem))
-    m = fp.mechanism::_AnyMech
+    m = fp.mechanism
     units = Derivation.parameter_units(m)
     s = _concentration_scales(fp)
     log_s = Float64[log(s[x]) for x in Mechanisms.metabolites(m)]
@@ -353,14 +351,15 @@ end
 """
     _scale_rate_constants(mechanism, params, factor) -> NamedTuple
 
-`params` with every fitted rate constant of `mechanism` (a concrete or a compiled one),
-each constant whose units hold the rate (`Derivation.parameter_units`), multiplied by
-`factor`, every other entry unchanged. A common factor on those constants multiplies every
-rate by the same factor and leaves the binding constants, `L` and the regulatory constants
-alone.
+`params` with every fitted rate constant of `mechanism`, each constant whose units hold
+the rate (`Derivation.parameter_units`), multiplied by `factor`, every other entry
+unchanged. A common factor on those constants multiplies every rate by the same factor and
+leaves the binding constants, `L` and the regulatory constants alone.
 """
 function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    m = _to_concrete_mechanism(mechanism)::_AnyMech
+    # The caller does not specialize on the mechanism; the type asserted lets the
+    # Derivation calls below dispatch without a run-time lookup.
+    m = mechanism::_AnyMech
     names = Derivation.parameters(m)
     rate = Derivation.parameter_units(m).rate
     rate_constants = Set{Symbol}()
@@ -370,15 +369,6 @@ function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, fac
     NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
                                  keys(params), values(params)))
 end
-
-# The concrete mechanism a compiled one encodes, and a concrete one itself. The callers
-# hold a mechanism they do not specialize on: the catch-all method lets them call this
-# without a run-time lookup, and the type they assert on its result lets the Derivation
-# calls after it dispatch without one too.
-_to_concrete_mechanism(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
-_to_concrete_mechanism(m::Mechanisms.AllostericEnzymeMechanism) =
-    Mechanisms.AllostericMechanism(m)
-_to_concrete_mechanism(m) = m
 
 """
     _reference_scale(fp, params)

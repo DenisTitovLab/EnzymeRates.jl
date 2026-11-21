@@ -39,7 +39,7 @@ _testhelper_scales_table(mets, s, r) =
 # own factor, `Keq` by those factors to their stoichiometry and each fitted parameter by the
 # move of its centre multiplies the rate by exactly the factor on the rate reference.
 function _testhelper_check_centres_match_law(mechanism, rng)
-    m = _testhelper_lift(mechanism)
+    m = mechanism
     rate = compile_rate_equation(m)
     mets = Tuple(metabolites(m))
     catalytic = EnzymeRates.Mechanisms.catalytic(m)
@@ -180,7 +180,7 @@ end
             m, _testhelper_scales_table(metabolites(m), s, r), 2.0))))
         s = Dict(:S => 10.0, :P => 100.0, :R => 1000.0)
         r = 4.0
-        allosteric = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        allosteric = @allosteric_mechanism begin
             substrates: S
             products:   P
             allosteric_regulators: R
@@ -191,7 +191,7 @@ end
                 E(P) ⇌ E + P     :: EqualAI
             end
             regulatory_site(1): R::OnlyI
-        end)
+        end
         expected = Dict(:K_ES_to_E_S => log(10.0), :K_EP_to_E_P => log(100.0),
                         :k_A_ES_to_EP => log(4.0), :K_I_Rreg => log(1000.0), :L => 0.0)
         got = centres(allosteric, s, r)
@@ -204,7 +204,7 @@ end
         # equilibrium constant, fitted where an isomerization closes the cycle, reads what
         # it gives off over what it takes up.
         s = Dict(:A => 2.0, :B => 10.0, :P => 100.0, :Q => 3.0)
-        tc_steady = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        tc_steady = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -212,9 +212,9 @@ end
                 E(A) + B <--> E(Q) + P
                 E(Q) ⇌ E + Q
             end
-        end)
+        end
         @test centres(tc_steady, s, r)[:k_EA_B_to_EQ_P] ≈ log(4.0) - log(10.0)
-        tc_rapid = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        tc_rapid = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -224,7 +224,7 @@ end
                 F(Q) <--> F + Q
                 F <--> E
             end
-        end)
+        end
         @test centres(tc_rapid, s, r)[:K_EA_B_to_EQ_P] ≈ log(100.0) - log(10.0)
     end
 

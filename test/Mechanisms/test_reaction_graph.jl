@@ -143,7 +143,7 @@ end
              M.Step(3, 2, none, none, false, 3)]
     canonical = ER.Mechanism([:S], [:P], [E, EP, ES], steps)
     @test (canonical.nodes, canonical.steps) == ([E, EP, ES], steps)
-    @test canonical == ER.Mechanism(@enzyme_mechanism begin
+    @test canonical == @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -151,7 +151,7 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     permuted = ER.Mechanism([:S], [:P], [ES, E, EP, E],
                             [M.Step(4, 3, P, none, true, 1), M.Step(2, 1, S, none, true, 2),
                              M.Step(1, 3, none, none, false, 3)])
@@ -880,37 +880,36 @@ end
            "EQ_Qmod → EQQmod"]
 end
 
-"""The graph whose Sig is `sig`, `x`'s kind of graph. `sig` is splatted with its length
-left open, as the lifts splat it, so the decoders compile once, whatever the Sig length."""
-_testhelper_decode(::ER.Mechanism, @nospecialize(sig)) =
-    ER.Mechanisms._mechanism_from_sig(sig...)
-_testhelper_decode(::ER.AllostericMechanism, @nospecialize(sig)) =
-    ER.Mechanisms._allosteric_mechanism_from_sig(sig...)
+"""The graph whose Sig (`Derivation._sig_of`) is `sig`. `sig` is splatted with its length
+left open, as a compiled law's generated methods splat it: inference does not specialize
+on it, so the decoder compiles once, whatever the Sig length."""
+Base.@nospecializeinfer _testhelper_decode(@nospecialize(sig)) =
+    ER.Derivation._mechanism_from_sig(sig...)
 
-@testset "a graph's Sig decodes to the graph, and equal graphs share one type" begin
+@testset "a graph's Sig decodes to the graph, and equal graphs share one law" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_build(spec.raw)
-        sig = ER.Mechanisms._sig_of(x)
+        sig = ER.Derivation._sig_of(x)
         @test sig isa Tuple{Vararg{Int}}
-        @test _testhelper_decode(x, sig) == x
-        cx = ER.compile_mechanism(x)
-        @test typeof(cx).parameters[1] === sig
-        @test ER.Mechanisms._concrete(cx) == x
-        @test ER.compile_mechanism(_testhelper_build(_testhelper_rewrite(spec.raw))) === cx
+        @test _testhelper_decode(sig) == x
+        rate = compile_rate_equation(x)
+        @test typeof(rate).parameters[1] === sig
+        @test _testhelper_decode(typeof(rate).parameters[1]) == x
+        @test compile_rate_equation(_testhelper_build(_testhelper_rewrite(spec.raw))) ===
+              rate
     end
     m = _testhelper_graph_uniuni()
-    @test ER.Mechanism(ER.EnzymeMechanism(m)) == m
+    @test _testhelper_decode(ER.Derivation._sig_of(m)) == m
     am = ER.AllostericMechanism(
         m, [:EqualAI, :NonequalAI, :OnlyA], 4,
         [EnzymeRates.Mechanisms.RegulatorySite([:X, :R], 2, [:OnlyA, :OnlyI])])
-    aem = ER.AllostericEnzymeMechanism(am)
-    @test ER.AllostericMechanism(aem) == am
+    @test _testhelper_decode(ER.Derivation._sig_of(am)) == am
     # A name outside ASCII, sorting last among 32 metabolite entries.
     names = [[Symbol("S", i) for i in 1:30]; :αKG]
     wide = ER.Mechanism(names, [:P], _testhelper_bindings(
         [EnzymeRates.Mechanisms.Metabolite(x, false) for x in [names; :P]])...)
     @test ER.Mechanisms._table(wide)[32] == EnzymeRates.Mechanisms.Metabolite(:αKG, false)
-    @test _testhelper_decode(wide, ER.Mechanisms._sig_of(wide)) == wide
+    @test _testhelper_decode(ER.Derivation._sig_of(wide)) == wide
 end
 
 """Uni-uni whose substrate's name holds `n` characters, so its Sig is longer than any
@@ -927,23 +926,22 @@ _testhelper_long_named(n) = let S = Symbol("S", "x"^(n - 1))
     end)))
 end
 
-@testset "the Sig decoders compile once, whatever a Sig's length" begin
-    # The lifts splat a Sig whose length their code leaves open, so each varargs decoder
-    # compiles once, whatever the Sig length: after one lift, lifting mechanisms of three
-    # Sig lengths no other test decodes adds no method instance. A decoder that took its
-    # Sig as an `NTuple{N, Int}` would compile once per length.
+@testset "the Sig decoder compiles once, whatever a Sig's length" begin
+    # A compiled law's generated methods splat its Sig with its length left open, so the
+    # varargs decoder compiles once, whatever the Sig length: after one decode, decoding
+    # the Sigs of three lengths no other test decodes adds no method instance. A decoder
+    # that took its Sig as an `NTuple{N, Int}` would compile once per length.
     instances(f) = count(_ -> true, Base.specializations(only(methods(f))))
     _testhelper_allosteric_long_named(n) =
         ER.AllostericMechanism(_testhelper_long_named(n), [:EqualAI, :EqualAI, :OnlyA], 2,
                                EnzymeRates.Mechanisms.RegulatorySite[])
-    for (decoder, build) in ((ER.Mechanisms._mechanism_from_sig, _testhelper_long_named),
-                             (ER.Mechanisms._allosteric_mechanism_from_sig,
-                              _testhelper_allosteric_long_named))
+    decoder = ER.Derivation._mechanism_from_sig
+    for build in (_testhelper_long_named, _testhelper_allosteric_long_named)
         lengths = (301, 401, 501, 601)
-        compiled = [ER.compile_mechanism(build(n)) for n in lengths]
-        @test ER.Mechanisms._concrete(compiled[1]) == build(lengths[1])
+        sigs = [typeof(compile_rate_equation(build(n))).parameters[1] for n in lengths]
+        @test _testhelper_decode(sigs[1]) == build(lengths[1])
         before = instances(decoder)
-        foreach(ER.Mechanisms._concrete, compiled[2:4])
+        foreach(_testhelper_decode, sigs[2:4])
         @test instances(decoder) == before
     end
 end
@@ -1105,7 +1103,7 @@ let population = _testhelper_census_population(),
     allosteric = _testhelper_census_allosteric()
 @testset "a graph's canonical form, pinned as text, read back from its Sig and raw" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        @test ER.Mechanisms._concrete(spec.mechanism) == _testhelper_build(spec.raw)
+        @test spec.mechanism == _testhelper_build(spec.raw)
     end
     # The specs' canonical text, a blank line between specs, pinned as a fixture.
     text = reduce((a, b) -> [a; ""; b],
@@ -1138,13 +1136,13 @@ let population = _testhelper_census_population(),
     # from the nodes and steps it writes back. The count: the six reactions' init
     # mechanisms, then the bi-bi reaction's children.
     @test length(population) == 5508 + 5471
-    @test all(_testhelper_decode(x, ER.Mechanisms._sig_of(x)) == x for x in population)
+    @test all(_testhelper_decode(ER.Derivation._sig_of(x)) == x for x in population)
     @test all(_testhelper_build(_testhelper_written(x)) == x for x in population)
 end
 
 @testset "a sub-graph's segments and inactive edges are what its steps give" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        @test _testhelper_subgraphs_agree(_testhelper_lift(spec.mechanism))
+        @test _testhelper_subgraphs_agree(spec.mechanism)
     end
     @test isempty([i for (i, x) in enumerate(population)
                    if !_testhelper_subgraphs_agree(x)])
@@ -1155,9 +1153,8 @@ end
     # reads it back, for the specs, plain and allosteric, and the census's first
     # populations, plain and allosteric.
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        @test _testhelper_reads_back(_testhelper_lift(spec.mechanism))
-        @test ER.compile_mechanism(
-            ER.DSL.parse_mechanism(sprint(show, spec.mechanism))) === spec.mechanism
+        @test _testhelper_reads_back(spec.mechanism)
+        @test ER.DSL.parse_mechanism(sprint(show, spec.mechanism)) == spec.mechanism
     end
     # The allosteric children of the uni-uni, ping-pong and two-site reactions.
     @test length(allosteric) == 5 + 885 + 5
@@ -1272,13 +1269,13 @@ end
 end
 
 """Whether `x` survives its round trips: its printed text reads back as `x` and prints
-again as that text, two reads of the text hash alike, and `x` decodes from its compiled
-type as itself."""
+again as that text, two reads of the text hash alike, and `x` decodes from the Sig of its
+compiled law as itself."""
 function _testhelper_round_trips(x)
     text = sprint(show, x)
     a, b = ER.DSL.parse_mechanism(text), ER.DSL.parse_mechanism(text)
     a == x && sprint(show, a) == text && hash(a) == hash(b) == hash(x) &&
-        _testhelper_lift(ER.compile_mechanism(x)) == x
+        _testhelper_decode(ER.Derivation._sig_of(x)) == x
 end
 
 @testset "storage round trips" begin
@@ -1289,7 +1286,7 @@ end
         products: P[C], Q[N]
     end
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
-        @test _testhelper_round_trips(_testhelper_lift(spec.mechanism))
+        @test _testhelper_round_trips(spec.mechanism)
     end
     init = _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
     @test length(init) == 239
@@ -1340,10 +1337,11 @@ end
 
 @testset "stored facts equal what the canonical fields give" begin
     # Every construction path: the constructors (the specs' writings, the bi-bi seeds)
-    # and the Sig decoder (the specs' compiled forms).
+    # and the Sig decoder (the specs' compiled laws).
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         @test _testhelper_facts_hold(_testhelper_build(spec.raw))
-        @test _testhelper_facts_hold(_testhelper_lift(spec.mechanism))
+        @test _testhelper_facts_hold(
+            _testhelper_decode(ER.Derivation._sig_of(spec.mechanism)))
     end
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
@@ -1353,17 +1351,17 @@ end
               _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
 end
 
-@testset "stored facts survive the singleton round trip" begin
+@testset "stored facts survive the Sig round trip" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_build(spec.raw)
-        @test _testhelper_all_fields_equal(_testhelper_lift(ER.compile_mechanism(x)), x)
+        @test _testhelper_all_fields_equal(_testhelper_decode(ER.Derivation._sig_of(x)), x)
     end
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    @test all(x -> _testhelper_all_fields_equal(_testhelper_lift(ER.compile_mechanism(x)),
-                                                x),
+    @test all(x -> _testhelper_all_fields_equal(
+                  _testhelper_decode(ER.Derivation._sig_of(x)), x),
               _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn)))
 end
 
@@ -1371,7 +1369,7 @@ end
     # A mechanism's facts are functions of its canonical fields, so two mechanisms with
     # equal canonical fields are equal and hash alike whatever their facts hold: here a
     # rebuilt copy whose every fact is overwritten.
-    m = ER.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -1379,7 +1377,7 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     x = ER.Mechanisms._unchecked_mechanism(m.substrates, m.products, m.nodes, m.steps)
     x.enzyme_forms[2] = :F
     push!(x.modifiers, :S)
@@ -1458,17 +1456,17 @@ end
     # Julia 1.13 (6,672, 22,264 and 25,912 bytes): a mechanism stores the facts it computes
     # once, and they may not make every construction in a search meaningfully dearer.
     budget(bytes) = ceil(Int, 1.3 * bytes)
-    michaelis_menten = ER.Mechanism(@enzyme_mechanism begin
+    michaelis_menten = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S <--> E(S)
             E(S) <--> E + P
         end
-    end)
+    end
     @test _testhelper_construction_bytes(michaelis_menten) <= budget(6_672)
     # The largest seed of the bi-bi init set (A, B → P, Q): 9 forms, 13 steps.
-    random_bi_bi = ER.Mechanism(@enzyme_mechanism begin
+    random_bi_bi = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -1478,9 +1476,9 @@ end
             (E + Q ⇌ E(Q), E(B) + Q ⇌ E(B, Q), E(P) + Q ⇌ E(P, Q))
             E(A, B) <--> E(P, Q)
         end
-    end)
+    end
     @test _testhelper_construction_bytes(random_bi_bi) <= budget(22_264)
     # Hexokinase: 14 steps, two :OnlyA groups and a regulatory site.
-    hk = _testhelper_lift(only(s for s in MECHANISM_TEST_SPECS if s.name == "HK").mechanism)
+    hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK").mechanism
     @test _testhelper_construction_bytes(hk) <= budget(25_912)
 end

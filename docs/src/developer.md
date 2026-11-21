@@ -37,16 +37,16 @@ flowchart TB
   fit["<b><big>Fitting</big></b><br/>Fits a rate law to measured rates."]
   der["<b><big>Derivation</big></b><br/>Derives a mechanism's rate equation and compiles it."]
   data["<b><big>Data</big></b><br/>Checks and holds a table of measured rates."]
-  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;EnzymeMechanism</b><br/><b>★#nbsp;AllostericEnzymeMechanism</b><br/>AbstractEnzymeMechanism<br/>AllostericMechanism<br/>EnzymeForm<br/>Mechanism<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
+  mech["<b><big>Mechanisms</big></b><br/>Stores reactions and mechanisms as plain data.<br/><br/>Types every module but Data reads:<br/><b>★#nbsp;EnzymeReaction</b><br/><b>★#nbsp;Mechanism</b><br/>AllostericMechanism<br/>EnzymeForm<br/>Metabolite<br/>Reactant<br/>Regulator<br/>RegulatorySite<br/>Step"]
   top -->|"<b>★#nbsp;@enzyme_reaction</b><br/><b>★#nbsp;@enzyme_mechanism</b><br/><b>★#nbsp;@allosteric_mechanism</b>"| dsl
   top -->|"<b>★#nbsp;plot_rate_equation_on_data()</b>"| plot
   top -->|"CandidateMechanism<br/>candidate_mechanisms()"| enum
   top -->|"<b>★#nbsp;fit_rate_equation()</b><br/><b>★#nbsp;FittingProblem</b><br/>test_rate_equation()"| fit
   top -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/>rate_equation_dedup_key()"| der
   top -->|"RateData"| data
-  top -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
+  top -->|"<b>★#nbsp;metabolites()</b>"| mech
   dsl -->|"check_valid_rate_equation()"| der
-  dsl -->|"check_conformation_label()<br/>compile_mechanism()"| mech
+  dsl -->|"check_conformation_label()"| mech
   plot -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b>"| der
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b>"| mech
@@ -55,7 +55,7 @@ flowchart TB
   fit -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b>"| mech
-  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
 ```
@@ -78,7 +78,7 @@ with `Keq`, the `absolute` flag and the reference anchors; `FittingProblem` and
 (`Mechanism`, `AllostericMechanism`) as plain values whose fields any module reads with
 dots. Its constructors put a mechanism in canonical form and check it, and `show` prints a
 mechanism as the macro block that builds it. It hides canonical form, the representation
-checks and the `Sig` encoding of the compiled types. A mechanism stores facts about its
+checks. A mechanism stores facts about its
 own graph (step groups and kinds, which steps run toward products, the allosteric
 conformation masks), and `Mechanisms` also answers the graph analyses that read them:
 rapid-equilibrium segments, turnover and unbalanced cycles, and the species present.
@@ -147,19 +147,14 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `EnzymeReaction` | A reaction and its regulators | DSL, Enumeration, top level | ✓ |
 | `Reactant` | A substrate or product with its atoms | DSL | |
 | `Regulator` | A declared regulator with its kind and effect | DSL | |
-| `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | |
+| `Mechanism` | A reaction graph in canonical form | DSL, Derivation, Enumeration, | ✓ |
 | | | Fitting, Plotting, top level | |
 | `AllostericMechanism` | A `Mechanism` with allosteric states and sites | DSL, Derivation, | |
 | | | Enumeration, Fitting, Plotting, top level | |
-| `EnzymeForm` | An enzyme form | DSL, Enumeration | |
+| `EnzymeForm` | An enzyme form | DSL, Derivation, Enumeration | |
 | `Step` | A step between two nodes | DSL, Derivation, Enumeration | |
 | `Metabolite` | A metabolite in a node or a step | DSL, Derivation, Enumeration | |
 | `RegulatorySite` | A regulatory site | DSL, Derivation, Enumeration | |
-| `AbstractEnzymeMechanism` | Compiled types' supertype | Derivation, Fitting, Plotting, | |
-| | | top level | |
-| `EnzymeMechanism` | A plain mechanism as a singleton type | Derivation, Fitting, top level | ✓ |
-| `AllostericEnzymeMechanism` | The MWC singleton type | Derivation, Fitting, top level | ✓ |
-| `compile_mechanism` | Lifts to the singleton type | DSL, Derivation, top level | |
 | `metabolites` | The rate law's concentration names | Derivation, Enumeration, | ✓ |
 | | | Fitting, Plotting, top level | |
 | `catalytic` | The catalytic `Mechanism` of a mechanism | Derivation, Enumeration | |
@@ -336,13 +331,13 @@ underscore. The test also parses this page and fails when a table under
 
 A mechanism's rate equation is derived once, at compile time, by the
 King–Altman/Cha method in `@generated` functions (`src/Derivation/codegen.jl`).
-To make that possible, a mechanism is encoded as a **singleton type** — the
-exported `EnzymeMechanism{Sig}` or `AllostericEnzymeMechanism{Sig}`
-(`src/Mechanisms/types.jl`) — whose one type parameter, `Sig`, encodes the mechanism's
+To make that possible, `compile_rate_equation(m)` returns a **singleton callable**,
+`_CompiledRateEquation{Sig}`, whose one type parameter, `Sig`, encodes the mechanism's
 canonical reaction graph as a tuple of integers (`_sig_of`), so the order or direction in
 which the steps were written does not change the resulting type. The compiler
-specializes the derivation per type, so the symbolic King–Altman work runs
-during precompilation rather than at every call.
+specializes the derivation per type, so the symbolic King–Altman work runs once per
+mechanism and session rather than at every call. The mechanism itself is a plain value;
+only its compiled law carries a type of its own.
 
 This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves the compiled law,
@@ -365,32 +360,23 @@ thousands of candidates — impractical.
 `loss!` is held to the same standard: `FittingProblem` pre-allocates its
 `log_ratios_buffer` once and `loss!` reuses it, so the inner optimization loop
 allocates nothing. The cost is the flip side of the benefit: each unique
-singleton type triggers a full symbolic derivation, and a mechanism with many
+compiled law triggers a full symbolic derivation, and a mechanism with many
 enzyme forms or steps can be slow to compile, exhaust memory, or `StackOverflow`.
 
-`compile_mechanism` (internal) is the boundary between the two representations:
-`compile_mechanism(m::Mechanism) = EnzymeMechanism(m)` and
-`compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)`. The lifts
-back, `Mechanism(em)` and `AllostericMechanism(aem)`, decode the Sig (`_mechanism_from_sig`,
-`_allosteric_mechanism_from_sig`) into the mechanism it encodes, so a mechanism survives the
-round trip unchanged. Decoding trusts the Sig, which only `_sig_of` writes: a plain Sig's
-decoding checks nothing, and an allosteric one's runs only the composition constructor's tag
-and site checks. A mechanism of either representation prints as the macro block that builds
-it (`show`, `src/Mechanisms/text.jl`), from the concrete mechanism, so the compiled types'
-`show` takes its argument `@nospecialize` and `@nospecializeinfer` and compiles once.
+The encoding of a mechanism in a type parameter lives in `Derivation`, behind
+`compile_rate_equation`: `_sig_of` writes the Sig, and the generated methods decode it
+(`_derivation_input`, `_mechanism_from_sig`) through the `Mechanisms` constructors, which
+check it, so a mechanism survives the round trip unchanged. Equal mechanisms give the same
+callable. Only the `@generated` methods do work per compiled law: the callable's call
+runs the derivation, `parameters(rate)` runs its constraint solve, and `metabolites(rate)`
+reads the names off the decoded mechanism. The decoder reads the Sig at run time, and the
+package image holds it, so it compiles once for all mechanisms. Each compiled law then
+pays for its generated bodies and the derivation they run, and for the methods that
+specialize on it: Base's `text/plain` display and `FittingProblem` and `loss!` below. A
+compiled law prints one line (`compiled rate equation`), whatever its Sig. A mechanism
+prints as the macro block that builds it (`show`, `src/Mechanisms/text.jl`);
 `DSL.parse_mechanism` reads that text back through the macros' walker and checks, never
-evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
-
-`compile_rate_equation(m)` returns a singleton callable, `_CompiledRateEquation{M}`, whose
-one type parameter is the mechanism's singleton type, so equal mechanisms give the same
-callable. Only the `@generated` methods do work per singleton type: the callable's call
-runs the derivation, `parameters` runs its constraint solve, and `metabolites` reads names
-off the lifted mechanism; `parameters(rate)` and `metabolites(rate)` read the last two. The
-lifts read the Sig at run time, and the derivation helpers that take a singleton or its
-type take it `@nospecialize`, so they compile once for all mechanisms. Each mechanism type
-then pays for its generated bodies and the derivation they run, and for the methods that
-specialize on it: `dependent_parameter_values`, Base's `text/plain` display, and
-`FittingProblem` and `loss!` below. `FittingProblem` holds the mechanism and its compiled
+evaluating it, and identify's CSVs store it with a short id (`mechanism_id`). `FittingProblem` holds the mechanism and its compiled
 law, and `loss!` specializes on the law's type on purpose: it then reads `parameters(rate)`
 and `metabolites(rate)` as constants and calls the law without dispatch. The optimizer
 never sees that type. `fit_rate_equation`
@@ -520,7 +506,7 @@ Identify asks one mechanism four questions in a row: `check_valid_rate_equation`
 `src/Derivation/memo.jl`) keeps the guard verdict, joint solve and law of the last
 concrete mechanism asked about, matched by `===`, so each is derived once for all four.
 The memo holds one mechanism in the task's local storage, so it never grows and tasks
-share nothing. The compiled types' derivation never reads it.
+share nothing. A compiled law's generated methods never read it.
 
 ### Reading `Base.gc_live_bytes`
 
@@ -736,7 +722,7 @@ its kinetic class's kept member — each side's enzyme form followed by its free
 (`K_ES_to_E_S` for `E + S ⇌ E(S)`, `K_EPQ_to_EA_B` for `E(A) + B ⇌ E(P, Q)`,
 `k_EA_B_to_EQ_P` for `E(A) + B <--> E(Q) + P`).
 
-Like the singleton types, the graph is canonical, so the order or direction in which
+Like the compiled laws, the graph is canonical, so the order or direction in which
 steps are written does not change the resulting mechanism. The canonical form is
 load-bearing: deduplication by `==` and `hash` works only because construction is
 canonical, and every constant is named after the stored sides of its class's kept member,
@@ -796,8 +782,8 @@ builds, expands, and deduplicates many thousands of candidate mechanisms (see
 constructing it would trigger compiler specialization — the same precompilation cost the
 derivation pays — multiplied across thousands of mechanisms, which would be prohibitive.
 Carrying mechanism structure as runtime values instead means enumeration and deduplication
-cost no compilation at all. Only the candidates the search actually fits are lifted to
-singleton types, one at a time, through `compile_mechanism`.
+cost no compilation at all. Only the candidates the search actually fits have their rate
+laws compiled, one at a time, through `compile_rate_equation`.
 
 The moves never emit a child that is provably a reparameterization of its parent. The
 split move divides a group by binding context and accepts a set of splits only if the

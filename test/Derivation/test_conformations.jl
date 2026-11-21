@@ -5,7 +5,7 @@ const ER = EnzymeRates
 
 @testset "steps_in_active_conformation and steps_in_inactive_conformation" begin
     M = ER.Mechanisms
-    am = ER.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -16,7 +16,7 @@ const ER = EnzymeRates
             E + I ⇌ E(I)          :: OnlyI
             E(I) + P ⇌ E(I, P)    :: EqualAI
         end
-    end)
+    end
     m = M.catalytic(am)
     # Canonical form numbers the forms E, E(I), E(I, P), E(P), E(S) and stores the steps
     # E + I → E(I), E + P → E(P), E + S → E(S), E(I) + P → E(I, P), E(S) → E(P).
@@ -30,7 +30,7 @@ end
 
 @testset "excluded steps of a plain and an allosteric mechanism" begin
     D = ER.Derivation
-    am = ER.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -41,7 +41,7 @@ end
             E + I ⇌ E(I)          :: OnlyI
             E(I) + P ⇌ E(I, P)    :: EqualAI
         end
-    end)
+    end
     m = am.catalytic
     # A plain mechanism excludes no step. The steps are stored as in the testset above:
     # the active conformation excludes the :OnlyI binding of I, the inactive one the
@@ -55,7 +55,7 @@ end
 @testset "the excluded steps and exclusion_components: an :OnlyA dead-end binding" begin
     M = ER.Mechanisms
     D = ER.Derivation
-    am = ER.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -66,7 +66,7 @@ end
             E(S) <--> E(P)                  :: EqualAI
             E(P) ⇌ E + P                    :: EqualAI
         end
-    end)
+    end
     m = M.catalytic(am)
     # Canonical form numbers the forms E, E(P), E(S), E(S, S::Mod) and stores the steps
     # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod). The inactive

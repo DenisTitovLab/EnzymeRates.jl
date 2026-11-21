@@ -1,5 +1,5 @@
 # ABOUTME: The DSL macros @enzyme_reaction, @enzyme_mechanism and @allosteric_mechanism,
-# ABOUTME: which check a mechanism with the guard and compile it.
+# ABOUTME: which build a reaction or a mechanism and check a mechanism with the guard.
 
 """
     @enzyme_reaction begin
@@ -78,11 +78,11 @@ end
         end
     end
 
-Build a mechanism from its elementary steps. The value is an `EnzymeMechanism`, a
-mechanism compiled to a type of its own, which
+Build a mechanism from its elementary steps. The value is a `Mechanism`, which
 [`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation) turns into a
-rate law that evaluates without allocating. It prints as the block that builds it, each
-list sorted and one line per kinetic group in canonical order.
+rate law that evaluates without allocating. Two writings of one mechanism give equal
+values. It prints as the block that builds it, each list sorted and one line per kinetic
+group in canonical order.
 
 Labels:
 - `substrates:` and `products:` (required) name the reactants, without atoms; atoms
@@ -159,7 +159,7 @@ k_ES_to_EP
 ```
 """
 macro enzyme_mechanism(block)
-    return :($_compiled_mechanism($(raw_mechanism(block, false))))
+    return :($_checked_mechanism($(raw_mechanism(block, false))))
 end
 
 """
@@ -178,8 +178,7 @@ end
 
 Build a two-conformation (MWC) mechanism: the enzyme is active (A) or inactive (I), the
 free enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory
-sites apart from the catalytic one. The value is an `AllostericEnzymeMechanism`, a
-mechanism compiled to a type of its own, which
+sites apart from the catalytic one. The value is an `AllostericMechanism`, which
 [`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation) turns into a
 rate law that evaluates without allocating. It prints as the block that builds it, each
 list sorted, `oligomeric_state:` written out and one line per kinetic group in canonical
@@ -253,13 +252,5 @@ L
 ```
 """
 macro allosteric_mechanism(block)
-    return :($_compiled_mechanism($(raw_mechanism(block, true))))
+    return :($_checked_mechanism($(raw_mechanism(block, true))))
 end
-
-"""
-    _compiled_mechanism(raw) -> EnzymeMechanism or AllostericEnzymeMechanism
-
-The compiled mechanism of `raw` (`_checked_mechanism`): the macros' expansion calls it,
-so its checks run when the expanded code runs.
-"""
-_compiled_mechanism(raw::NamedTuple) = Mechanisms.compile_mechanism(_checked_mechanism(raw))

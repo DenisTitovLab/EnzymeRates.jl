@@ -72,8 +72,6 @@ include("type_stability_harness.jl")
         end
         regulatory_site(2): X::OnlyA
     end
-    plain_concrete = EnzymeRates.Mechanism(plain)
-    allosteric_concrete = EnzymeRates.AllostericMechanism(allosteric)
     Reaction = Mech.EnzymeReaction
     floats(names) = NamedTuple{Tuple(names)}(ntuple(_ -> 1.0, length(names)))
     table(m) = (; group = ["g"], Rate = [1.0], (x => [1.0] for x in metabolites(m))...)
@@ -81,49 +79,41 @@ include("type_stability_harness.jl")
     optimizer = CMAEvolutionStrategyOpt()
     plain_table = table(plain)
 
-    concrete_forms = (; plain_concrete, allosteric_concrete)
-    singleton_forms = (; plain, allosteric)
-    every_form = (; concrete_forms..., singleton_forms...)
+    forms = (; plain, allosteric)
 
     @testset "Mechanisms" begin
         @_testhelper_no_dispatch Mech.check_conformation_label(:A, "label")
-        @_testhelper_no_dispatch Mech.form_text(plain_concrete, 1)
-        @_testhelper_no_dispatch Mech.step_text(plain_concrete, 1)
-        @_testhelper_no_dispatch Mech.has_turnover_cycle(plain_concrete, ::BitVector)
+        @_testhelper_no_dispatch Mech.form_text(plain, 1)
+        @_testhelper_no_dispatch Mech.step_text(plain, 1)
+        @_testhelper_no_dispatch Mech.has_turnover_cycle(plain, ::BitVector)
         @_testhelper_no_dispatch Mech.has_unbalanced_cycle(
             ::Vector{Int}, ::Vector{Int}, ::Vector{Int}, ::BitVector, ::Vector{Int},
             ::Vector{Int})
+        @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(plain, ::BitVector)
         @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(
-            plain_concrete, ::BitVector)
-        @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(
-            plain_concrete, ::BitVector, ::BitVector)
+            plain, ::BitVector, ::BitVector)
 
         @_testhelper_no_dispatch EnzymeRates.Mechanism(
             ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Mech.EnzymeForm},
             ::Vector{Mech.Step})
-        @_testhelper_no_dispatch EnzymeRates.Mechanism(plain)
-        @_testhelper_no_dispatch EnzymeRates.AllostericMechanism(allosteric)
         @_testhelper_no_dispatch EnzymeRates.AllostericMechanism(
             ::Vector{Symbol}, ::Vector{Symbol}, ::Vector{Mech.EnzymeForm},
             ::Vector{Mech.Step}, ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
         @_testhelper_no_dispatch EnzymeRates.AllostericMechanism(
-            plain_concrete, ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
-        @_testhelper_no_dispatch EnzymeMechanism(plain_concrete)
-        @_testhelper_no_dispatch AllostericEnzymeMechanism(allosteric_concrete)
+            plain, ::Vector{Symbol}, 1, ::Vector{Mech.RegulatorySite})
 
-        @testset "$form" for (form, m) in pairs(every_form)
+        @testset "$form" for (form, m) in pairs(forms)
             @_testhelper_no_dispatch metabolites(m)
             @_testhelper_no_dispatch Mech.steps_in_active_conformation(m)
             @_testhelper_no_dispatch Mech.steps_in_inactive_conformation(m)
-        end
-        @testset "$form" for (form, m) in pairs(concrete_forms)
-            @_testhelper_no_dispatch Mech.compile_mechanism(m)
             @_testhelper_no_dispatch Mech.catalytic(m)
         end
     end
 
     @testset "Derivation" begin
-        @testset "$form" for (form, m) in pairs(singleton_forms)
+        @testset "$form" for (form, m) in pairs(forms)
+            # The compiled law's type depends on the mechanism's value, so this call's
+            # result is not inferred; building it dispatches nothing.
             @_testhelper_no_dispatch compile_rate_equation(m)
             rate = compile_rate_equation(m)
             # The hot path: each data row of each evaluation calls the compiled rate law
@@ -132,12 +122,6 @@ include("type_stability_harness.jl")
                 floats(metabolites(m)), floats(parameters(m)), 2.0)
             @_testhelper_no_dispatch parameters(rate)
             @_testhelper_no_dispatch metabolites(rate)
-            @_testhelper_no_dispatch parameters(m)
-        end
-        @testset "$form" for (form, m) in pairs(concrete_forms)
-            # The compiled law's type depends on the mechanism's value, so this call's
-            # result is not inferred; building it dispatches nothing.
-            @_testhelper_no_dispatch compile_rate_equation(m)
             @_testhelper_dispatches_in error_messages parameters(m)
             @_testhelper_dispatches_in error_messages Deriv.check_valid_rate_equation(m)
             @_testhelper_no_dispatch Deriv.check_valid_rate_equation(Bool, m)
@@ -146,7 +130,7 @@ include("type_stability_harness.jl")
             @_testhelper_no_dispatch Deriv.rate_equation_term_count(m)
             @_testhelper_dispatches_in error_messages Deriv.rate_equation_dedup_key(m)
         end
-        @testset "$form" for (form, m) in pairs(every_form)
+        @testset "$form" for (form, m) in pairs(forms)
             @_testhelper_dispatches_in error_messages rate_equation_string(m)
             @_testhelper_dispatches_in error_messages rate_equation_string(
                 m; coefficients = true)
@@ -158,11 +142,9 @@ include("type_stability_harness.jl")
                 m, floats(parameters(m)), 2.0)
             @_testhelper_dispatches_in error_messages Deriv.parameter_units(m)
         end
-        @_testhelper_no_dispatch Deriv._name(
-            ::Deriv._RegulatorParameter, allosteric_concrete)
-        @_testhelper_no_dispatch Deriv._name(
-            ::Deriv._AllostericParameter, allosteric_concrete)
-        @_testhelper_no_dispatch Deriv.rate_equation_term_count(plain_concrete, ::BitVector)
+        @_testhelper_no_dispatch Deriv._name(::Deriv._RegulatorParameter, allosteric)
+        @_testhelper_no_dispatch Deriv._name(::Deriv._AllostericParameter, allosteric)
+        @_testhelper_no_dispatch Deriv.rate_equation_term_count(plain, ::BitVector)
     end
 
     @testset "Enumeration" begin
@@ -179,7 +161,7 @@ include("type_stability_harness.jl")
     end
 
     @testset "Fitting" begin
-        @testset "$form" for (form, m) in pairs(singleton_forms)
+        @testset "$form" for (form, m) in pairs(forms)
             # A site here would run on every data row of every evaluation of every fit.
             @_testhelper_no_dispatch Fit.loss!(::Vector{Float64}, problem(m))
             @_testhelper_dispatches_in error_messages solver_boundary fit_rate_equation(
@@ -192,7 +174,7 @@ include("type_stability_harness.jl")
         # `fit_rate_equation` takes a `@nospecialize` problem, so this is what compiles.
         @_testhelper_dispatches_in error_messages solver_boundary fit_rate_equation(
             ::Fit.FittingProblem, optimizer)
-        @testset "$form" for (form, m) in pairs(every_form)
+        @testset "$form" for (form, m) in pairs(forms)
             @_testhelper_dispatches_in value_to_type Fit.FittingProblem(m, table(m), 2.0)
             @_testhelper_dispatches_in value_to_type Fit.test_rate_equation(
                 m, floats(parameters(m)), table(m), 2.0)
@@ -232,8 +214,8 @@ include("type_stability_harness.jl")
                 save_dir = "results"))
         @_testhelper_dispatches_in error_messages EnzymeRates._pass1_record(
             ::Enum.CandidateMechanism)
-        # The workers pass the concrete mechanisms of the search.
-        @testset "$form" for (form, m) in pairs(concrete_forms)
+        # The workers pass the mechanisms of the search.
+        @testset "$form" for (form, m) in pairs(forms)
             @_testhelper_dispatches_in(
                 error_messages, value_to_type, solver_boundary,
                 EnzymeRates._cross_validation_loss(
@@ -257,8 +239,7 @@ include("type_stability_harness.jl")
         @_testhelper_dispatches_in(
             draws_a_figure,
             plot_rate_equation_on_data(
-                ::Union{Mech.AbstractEnzymeMechanism, EnzymeRates.Mechanism,
-                        EnzymeRates.AllostericMechanism},
+                ::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism},
                 ::NamedTuple, plain_table, 2.0))
         @_testhelper_dispatches_in(
             value_to_type, draws_a_figure,

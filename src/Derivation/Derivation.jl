@@ -57,10 +57,13 @@ include("messages.jl")
 include("memo.jl")
 
 # Every mechanism macro call and the flip, split and tagging searches run the guard, and
-# the first call of a mechanism's compiled rate law runs `_rate_body`, so both compile into
-# the package image rather than in each session.
+# the first call of a mechanism's compiled rate law decodes its Sig (`_derivation_input`)
+# and runs `_rate_body`, so all of them compile into the package image rather than in
+# each session.
 precompile(_guard, (Mechanisms.Mechanism,))
 precompile(_guard, (Mechanisms.AllostericMechanism,))
+precompile(_derivation_input, (Type{<:_CompiledRateEquation},))
+precompile(Tuple{typeof(_mechanism_from_sig), Int, Vararg{Int}})
 precompile(_rate_body, (Mechanisms.Mechanism,))
 precompile(_rate_body, (Mechanisms.AllostericMechanism,))
 

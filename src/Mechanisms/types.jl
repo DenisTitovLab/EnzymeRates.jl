@@ -1,14 +1,18 @@
 # ABOUTME: Value types: EnzymeReaction, and the mechanism as a reaction graph in canonical
-# ABOUTME: form, built from nodes and steps, with its checks, identity and Sig.
+# ABOUTME: form, built from nodes and steps, with its checks and identity.
 
 # ─── Concrete types ───────────────────────────────────────────────────
+
+"""The allosteric states a kinetic group or a regulatory site's ligand takes; the
+constructors accept no other (`_check_tags`, `RegulatorySite`)."""
+const _ALLOSTERIC_STATES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
 
 """
 RegulatorySite: a binding site (possibly multimeric) for one or
 more allosteric ligands, each given by its name, once. `ligands[i]` and
 `allosteric_states[i]` are parallel. The constructor sorts the ligands by name and
 carries each ligand's state along, so the order the ligands are given in never changes
-`==`, `hash` or the compiled type.
+`==`, `hash` or the compiled rate law.
 """
 struct RegulatorySite
     ligands::Vector{Symbol}
@@ -22,10 +26,10 @@ struct RegulatorySite
                   "must equal length(allosteric_states)=$(length(allosteric_states))")
         multiplicity ≥ 1 ||
             error("RegulatorySite: multiplicity must be ≥ 1, got $multiplicity")
-        bad = findfirst(∉(_TAG_CODES), allosteric_states)
+        bad = findfirst(∉(_ALLOSTERIC_STATES), allosteric_states)
         bad === nothing ||
             error("RegulatorySite: allosteric state $(allosteric_states[bad]) " *
-                  "must be one of $_TAG_CODES")
+                  "must be one of $_ALLOSTERIC_STATES")
         dup = findfirst(i -> ligands[i] in view(ligands, 1:(i - 1)), eachindex(ligands))
         dup === nothing || error("RegulatorySite: ligand $(ligands[dup]) appears twice " *
                                  "in one regulatory site")
@@ -406,10 +410,9 @@ They take no part in `==` and `hash`.
 
 `Mechanism(substrates, products, nodes, steps)` builds one from nodes and steps written
 any way and checks it; `_unchecked_mechanism` takes canonical fields and checks nothing,
-for canonical form and the Sig decoder. Do not mutate the vectors of a built mechanism in
-place: its canonical form, stored facts, hash, compiled Sig and memo entries depend on
-them; build a new one with the constructor. Lift it to its compiled type with
-`EnzymeRates.compile_mechanism(m)` or `EnzymeMechanism(m)`.
+for canonical form. Do not mutate the vectors of a built mechanism in place: its
+canonical form, stored facts, hash and memo entries depend on them; build a new one with
+the constructor.
 """
 struct Mechanism
     substrates::Vector{Symbol}
@@ -467,33 +470,6 @@ end
 """A site's place in the order of a mechanism's sites: its ligands, its multiplicity,
 then its ligands' tags."""
 _site_key(s::RegulatorySite) = (s.ligands, s.multiplicity, s.allosteric_states)
-
-"""The supertype of the singleton mechanism types `EnzymeMechanism` and
-`AllostericEnzymeMechanism`."""
-abstract type AbstractEnzymeMechanism end
-
-"""
-    EnzymeMechanism{Sig}
-
-A plain enzyme mechanism as a singleton type, the form `compile_rate_equation` compiles.
-`Sig`, its only parameter, is the mechanism encoded as one tuple of integers (`_sig_of`),
-so equal mechanisms share one type and the derivation compiles once per mechanism.
-`@enzyme_mechanism` returns one; `EnzymeMechanism(m)` or
-`EnzymeRates.compile_mechanism(m)` lifts a `Mechanism` to it and
-`EnzymeRates.Mechanism(em)` reads the mechanism back. The layout of `Sig` is internal.
-"""
-struct EnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
-
-"""
-    AllostericEnzymeMechanism{Sig}
-
-An allosteric (MWC) enzyme mechanism as a singleton type: `Sig`, its only parameter,
-is the mechanism encoded as one tuple of integers (`_sig_of`), its catalytic graph
-first. `@allosteric_mechanism` returns one; `AllostericEnzymeMechanism(am)` or
-`EnzymeRates.compile_mechanism(am)` lifts an `AllostericMechanism` to it and
-`EnzymeRates.AllostericMechanism(aem)` reads the mechanism back.
-"""
-struct AllostericEnzymeMechanism{Sig} <: AbstractEnzymeMechanism end
 
 # ─── Content order ──────────────────────────────────────────────────────
 
@@ -870,8 +846,8 @@ end
 
 # ─── Checks ─────────────────────────────────────────────────────────────
 
-"""Error unless `allosteric_states` holds one valid tag (`_TAG_CODES`) for each of `G`
-kinetic groups and the oligomeric state is at least 1."""
+"""Error unless `allosteric_states` holds one valid tag (`_ALLOSTERIC_STATES`) for each
+of `G` kinetic groups and the oligomeric state is at least 1."""
 function _check_tags(allosteric_states::Vector{Symbol}, G::Int, oligomeric_state::Int)
     length(allosteric_states) == G ||
         error("AllostericMechanism: allosteric_states length " *
@@ -879,10 +855,10 @@ function _check_tags(allosteric_states::Vector{Symbol}, G::Int, oligomeric_state
     oligomeric_state ≥ 1 ||
         error("AllostericMechanism: oligomeric_state must be ≥ 1, " *
               "got $oligomeric_state")
-    bad = findfirst(∉(_TAG_CODES), allosteric_states)
+    bad = findfirst(∉(_ALLOSTERIC_STATES), allosteric_states)
     bad === nothing ||
-        error("AllostericMechanism: catalytic group $bad has invalid " *
-              "allosteric state $(allosteric_states[bad]) (must be one of $_TAG_CODES)")
+        error("AllostericMechanism: catalytic group $bad has invalid allosteric state " *
+              "$(allosteric_states[bad]) (must be one of $_ALLOSTERIC_STATES)")
     nothing
 end
 
@@ -1098,168 +1074,6 @@ for T in (RegulatorySite, Reactant, Regulator, EnzymeReaction, EnzymeForm, Step,
                 init = :(hash($(QuoteNode(nameof(T))), h))))
 end
 
-# ─── Sig ────────────────────────────────────────────────────────────────
-#
-# A mechanism's Sig, every entry an `Int`:
-#   plain       its names: their number, then each name, the sorted distinct names of its
-#               reactants, metabolites and conformation labels; the substrates and the
-#               products; the number of nodes, then each node (label, bound, added,
-#               subtracted); the number of steps, then each step (from, to, taken up,
-#               given off, flag, group). After the names, a name is its index among them,
-#               a list is its length followed by its entries, and a metabolite is its name
-#               followed by its modifier flag.
-#   name        its number of characters, then each character's code point.
-#   allosteric  the plain Sig of its catalytic mechanism; one tag code per group; the
-#               oligomeric state; the number of sites, then per site its
-#               multiplicity, its number of ligands and per ligand its name and tag code.
-
-"""The allosteric tags, coded by position: catalytic groups and site ligands share them,
-and the constructors accept no other (`_check_tags`, `RegulatorySite`)."""
-const _TAG_CODES = (:OnlyA, :OnlyI, :EqualAI, :NonequalAI)
-_tag_code(t::Symbol) = findfirst(==(t), _TAG_CODES)::Int
-
-function _sig_name!(out::Vector{Int}, s::Symbol)
-    str = String(s)
-    push!(out, length(str))
-    for c in str
-        push!(out, Int(c))
-    end
-    out
-end
-
-"""The sorted distinct names of `m`: its reactants, its metabolite names and its
-conformation labels."""
-_sig_names(m::Mechanism) =
-    sort!(unique!([m.substrates; m.products; [x.name for x in _table(m)];
-                   [n.conformation for n in m.nodes]]))
-
-function _sig_mechanism!(out::Vector{Int}, m::Mechanism)
-    names = _sig_names(m)
-    push!(out, length(names))
-    foreach(s -> _sig_name!(out, s), names)
-    index(s::Symbol) = searchsortedfirst(names, s)
-    function symbols!(list::Vector{Symbol})
-        push!(out, length(list))
-        foreach(s -> push!(out, index(s)), list)
-    end
-    function mets!(list::Vector{Metabolite})
-        push!(out, length(list))
-        foreach(x -> push!(out, index(x.name), x.modifier), list)
-    end
-    symbols!(m.substrates)
-    symbols!(m.products)
-    push!(out, length(m.nodes))
-    for n in m.nodes
-        push!(out, index(n.conformation))
-        mets!(n.bound)
-        symbols!(n.added)
-        symbols!(n.subtracted)
-    end
-    push!(out, length(m.steps))
-    for e in m.steps
-        push!(out, e.from, e.to)
-        mets!(e.taken_up)
-        mets!(e.given_off)
-        push!(out, e.rapid_equilibrium, e.group)
-    end
-    out
-end
-
-"""`m` as one homogeneous integer tuple, the only type parameter of its compiled type."""
-_sig_of(m::Mechanism) = Tuple(_sig_mechanism!(Int[], m))
-function _sig_of(am::AllostericMechanism)
-    out = _sig_mechanism!(Int[], am.catalytic)
-    foreach(t -> push!(out, _tag_code(t)), am.allosteric_states)
-    push!(out, am.oligomeric_state, length(am.regulatory_sites))
-    for s in am.regulatory_sites
-        push!(out, s.multiplicity, length(s.ligands))
-        for (l, t) in zip(s.ligands, s.allosteric_states)
-            _sig_name!(out, l)
-            push!(out, _tag_code(t))
-        end
-    end
-    Tuple(out)
-end
-
-"""A Sig read from its start: a struct, not captured variables, so nothing is boxed."""
-mutable struct _SigReader
-    sig::Vector{Int}
-    at::Int
-end
-_next!(r::_SigReader) = r.sig[r.at += 1]
-function _next_name!(r::_SigReader)
-    n = _next!(r)
-    Symbol(String([Char(_next!(r)) for _ in 1:n]))
-end
-
-function _read_mechanism!(r::_SigReader)
-    names = [_next_name!(r) for _ in 1:_next!(r)]
-    symbols() = Symbol[names[_next!(r)] for _ in 1:_next!(r)]
-    mets() = Metabolite[Metabolite(names[_next!(r)], _next!(r) == 1) for _ in 1:_next!(r)]
-    substrates = symbols()
-    products = symbols()
-    nodes = [EnzymeForm(names[_next!(r)], mets(), symbols(), symbols())
-             for _ in 1:_next!(r)]
-    steps = [Step(_next!(r), _next!(r), mets(), mets(), _next!(r) == 1, _next!(r))
-             for _ in 1:_next!(r)]
-    _unchecked_mechanism(substrates, products, nodes, steps)
-end
-
-function _read_site!(r::_SigReader)
-    multiplicity = _next!(r)
-    n = _next!(r)
-    ligands, states = Symbol[], Symbol[]
-    for _ in 1:n
-        push!(ligands, _next_name!(r))
-        push!(states, _TAG_CODES[_next!(r)])
-    end
-    RegulatorySite(ligands, multiplicity, states)
-end
-
-"""The mechanism whose Sig is `sig`, splatted. Decoding trusts the Sig, which only
-`_sig_of` writes, so it canonicalizes and checks nothing. The varargs method compiles
-once, whatever the Sig length, as long as callers splat a Sig whose length their code
-leaves open."""
-_mechanism_from_sig(sig::Int...) = _read_mechanism!(_SigReader(collect(sig), 0))
-"""The allosteric mechanism whose Sig is `sig`, splatted; only the composition
-constructor's tag and site checks run."""
-function _allosteric_mechanism_from_sig(sig::Int...)
-    r = _SigReader(collect(sig), 0)
-    m = _read_mechanism!(r)
-    tags = [_TAG_CODES[_next!(r)] for _ in 1:length(m.groups)]
-    multiplicity = _next!(r)
-    sites = [_read_site!(r) for _ in 1:_next!(r)]
-    AllostericMechanism(m, tags, multiplicity, sites)
-end
-
-"""Lift a `Mechanism` to its singleton `EnzymeMechanism` type (`_sig_of`)."""
-EnzymeMechanism(m::Mechanism) = EnzymeMechanism{_sig_of(m)}()
-"""Lift an `AllostericMechanism` to its singleton `AllostericEnzymeMechanism` type."""
-AllostericEnzymeMechanism(am::AllostericMechanism) =
-    AllostericEnzymeMechanism{_sig_of(am)}()
-
-# The lifts back read the Sig at run time, so they compile once, whatever the mechanism.
-# Each gives back the mechanism its Sig encodes.
-"""The `Mechanism` the compiled mechanism `em` encodes."""
-Mechanism(@nospecialize(em::EnzymeMechanism)) =
-    _mechanism_from_sig(typeof(em).parameters[1]...)
-"""The `AllostericMechanism` the compiled mechanism `aem` encodes."""
-AllostericMechanism(@nospecialize(aem::AllostericEnzymeMechanism)) =
-    _allosteric_mechanism_from_sig(typeof(aem).parameters[1]...)
-"""Lift a singleton mechanism to its concrete `Mechanism` or `AllostericMechanism`."""
-_concrete(@nospecialize(em::EnzymeMechanism)) = Mechanism(em)
-_concrete(@nospecialize(aem::AllostericEnzymeMechanism)) = AllostericMechanism(aem)
-
-"""
-    compile_mechanism(m::Mechanism)
-    compile_mechanism(am::AllostericMechanism)
-
-Convert a `Mechanism` to an `EnzymeMechanism`, or an
-`AllostericMechanism` to an `AllostericEnzymeMechanism`.
-"""
-compile_mechanism(m::Mechanism) = EnzymeMechanism(m)
-compile_mechanism(am::AllostericMechanism) = AllostericEnzymeMechanism(am)
-
 # ─── Reads ──────────────────────────────────────────────────────────────
 
 """
@@ -1289,9 +1103,34 @@ function _modifiers(nodes::Vector{EnzymeForm}, steps::Vector{Step})
     foreach(e -> (add(e.taken_up); add(e.given_off)), steps)
     sort!(names)
 end
-# The concentration names in the order the rate law reads them: substrates, products,
-# then the modifier-only names, each by name; an allosteric mechanism appends each site's
-# ligands in site order, once each.
+"""
+    metabolites(m) -> Vector{Symbol}
+
+The names of the metabolites of mechanism `m`, each once: its substrates, then its
+products, then the names its steps bind as modifiers only, each sorted by name, then the
+ligands of an allosteric mechanism's regulatory sites, site by site. These are the
+concentrations its rate law reads, in the order `metabolites(rate)` of its compiled law
+([`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation)) gives
+them as a tuple.
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           steps: begin
+               E + S <--> E(S)
+               E(S) <--> E + P
+           end
+       end;
+
+julia> metabolites(m)
+2-element Vector{Symbol}:
+ :S
+ :P
+```
+"""
 metabolites(m::Mechanism) = unique!([m.substrates; m.products; m.modifiers])
 metabolites(am::AllostericMechanism) =
     unique!([metabolites(am.catalytic);
@@ -1360,43 +1199,3 @@ _runs_toward_products(m::Mechanism, e::Step) =
 _is_free(n::EnzymeForm) = isempty(n.bound) && !_has_residual(n)
 """Whether `n` is free E: label `E`, nothing bound and no residual."""
 _is_free_E(n::EnzymeForm) = n.conformation === :E && _is_free(n)
-
-# ─── Accessors ─────────────────────────────────────────────────
-#
-# A compiled mechanism is read by lifting it to its concrete `Mechanism` or
-# `AllostericMechanism` (`Mechanism(em)`, `AllostericMechanism(aem)`). Only
-# `metabolites` is read on the compiled type itself.
-
-"""
-    metabolites(m::EnzymeMechanism) → Tuple{Symbol,...}
-
-Return distinct metabolite names as a tuple of `Symbol`s: substrates, then products,
-then the names the steps bind as modifiers, each sorted by name, then the ligands of an
-allosteric mechanism's regulatory sites, site by site, without duplicates. These are the
-concentrations the mechanism's compiled rate law reads
-([`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation)), and
-`metabolites(rate)` gives the same tuple.
-
-```jldoctest
-julia> using EnzymeRates
-
-julia> m = @enzyme_mechanism begin
-           substrates: S
-           products: P
-           steps: begin
-               E + S <--> E(S)
-               E(S) <--> E + P
-           end
-       end;
-
-julia> metabolites(m)
-(:S, :P)
-```
-"""
-@generated function metabolites(::M) where {M <: AbstractEnzymeMechanism}
-    # Kept `@generated`: `metabolites(rate)` of a compiled rate law reads it, and
-    # `loss!` uses that as a compile-time-constant tuple to build the per-datapoint
-    # `NamedTuple{MetNames}` concs on the fitting hot path. A runtime body would make
-    # that NamedTuple type-unstable and allocate.
-    Tuple(metabolites(_concrete(M())))
-end

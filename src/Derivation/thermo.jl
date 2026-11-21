@@ -238,8 +238,7 @@ narrowed to `Rational{Int}`; a value outside `Int` throws. Every class of consta
 law is independent or dependent under the name of its kept member (`_constant_columns`).
 Columns outside the law (an `:OnlyA` edge's inactive copy, an `:OnlyI` edge's active copy,
 a copy on a form its conformation prunes) are eliminated first, so no dependent of the
-law reads them. The `Type` method decodes a compiled mechanism and checks that its rate
-law is defined (`_derivation_input`).
+law reads them.
 """
 function _solve(m::_AnyMech)
     cols = _constant_columns(m)
@@ -299,9 +298,6 @@ order."""
 _regulator_names(::Mechanisms.Mechanism) = Symbol[]
 _regulator_names(am::Mechanisms.AllostericMechanism) =
     Symbol[_name(p, am) for p in _regulator_parameters(am)]
-
-_solve(@nospecialize(M::Type{<:Mechanisms.AbstractEnzymeMechanism})) =
-    _solve(_derivation_input(M))
 
 """Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
 without compiling the mechanism."""

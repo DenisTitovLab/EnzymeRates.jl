@@ -13,7 +13,7 @@ is the solve's flat order, `_flat_edges`), with `L` and the regulator constants 
 random.
 """
 function _testhelper_solve_point(m, rng)
-    mech = _testhelper_lift(m)
+    mech = m
     g = _testhelper_graph(mech)
     sys = _testhelper_JS.Derivation._joint_system(mech)
     edges = _testhelper_JS.Derivation._flat_edges(_testhelper_JS.Mechanisms.catalytic(mech))
@@ -72,7 +72,7 @@ end
 
 @testset "Joint thermodynamic solve" begin
     @testset "the priority key orders the columns" begin
-        mech = EnzymeRates.Mechanism(_testhelper_mm_ss)
+        mech = _testhelper_mm_ss
         sys = EnzymeRates.Derivation._joint_system(mech)
         describe(c) = (_testhelper_edge_text(mech, c.step), c.slot)
         # The isomerization goes first, its reverse rate (against the reaction) before
@@ -94,7 +94,7 @@ end
         # Every step at steady state: a binding at free E, a binding off free E, an
         # isomerization, a Theorell–Chance exchange, the releases of P and Q, each stored as
         # its uptake, and an isomerization of free E.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -106,9 +106,9 @@ end
                 E(Q) <--> E + Q
                 E <--> F
             end
-        end)
+        end
         # The binding off free E at rapid equilibrium.
-        m_re = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m_re = @enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
@@ -117,7 +117,7 @@ end
                 E(A, B) <--> E(P)
                 E(P) <--> E + P
             end
-        end)
+        end
         _testhelper_key(x, text, slot, block) =
             EnzymeRates.Derivation._priority_key(x, _testhelper_edge(x, text), slot, block,
                                                  EnzymeRates.Derivation._lean_ranks(x))
@@ -142,14 +142,14 @@ end
         @test key("E + Q <--> EQ", 1, 0) > key("E + Q <--> EQ", 2, 0)
         # A release of two products is stored as its uptake, E + P + Q → E(A, B), which
         # runs against the reaction, so its forward rate is the constant against it.
-        two = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        two = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
                 E + A + B <--> E(A, B)
                 E(A, B) <--> E + P + Q
             end
-        end)
+        end
         @test _testhelper_key(two, "E + P + Q <--> EAB", 1, 0)[5] &&
               !_testhelper_key(two, "E + P + Q <--> EAB", 2, 0)[5]
         # then the places of the step's two forms in the order the lean graph stores them,
@@ -161,14 +161,14 @@ end
         # then, between two steps of the same forms, the places of their metabolites in
         # metabolites(m), the later first: in the steady-state uni-uni the uptake of P into
         # E(S), which runs against the reaction, goes before the release of S
-        uni = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        uni = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
                 E + S <--> E(S)
                 E(S) <--> E + P
             end
-        end)
+        end
         p_uptake = _testhelper_key(uni, "E + P <--> ES", 1, 0)
         s_release = _testhelper_key(uni, "E + S <--> ES", 2, 0)
         @test p_uptake[1:7] == s_release[1:7]
@@ -183,7 +183,7 @@ end
         # after free E reversed and its kinetic groups numbered the other way round, each
         # group's allosteric state moving with it. The solve fits the same constants.
         for spec in MECHANISM_TEST_SPECS
-            m = _testhelper_lift(spec.mechanism)
+            m = spec.mechanism
             cm = EnzymeRates.Mechanisms.catalytic(m)
             nf, G = length(cm.nodes), length(cm.groups)
             form(f) = f == 1 ? 1 : nf + 2 - f
@@ -205,7 +205,7 @@ end
     @testset "a modifier copy keys after the reactant of its name" begin
         @test isless(EnzymeRates.Mechanisms.Metabolite(:A, false),
                      EnzymeRates.Mechanisms.Metabolite(:A, true))
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: A
             products: P
             modifiers: A
@@ -215,7 +215,7 @@ end
                 E(P) ⇌ E + P
                 E + A::Mod ⇌ E(A::Mod)
             end
-        end)
+        end
         @test EnzymeRates.Mechanisms._table(m) ==
               [EnzymeRates.Mechanisms.Metabolite(:A, false),
                EnzymeRates.Mechanisms.Metabolite(:A, true),
@@ -225,7 +225,7 @@ end
     @testset "a step on no cycle runs away from free E (C9)" begin
         # D <--> E lies on no cycle, so it runs away from free E, however it is written:
         # its forward rate constant is k_E_to_D.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -234,7 +234,7 @@ end
                 E(P) <--> E + P
                 D <--> E
             end
-        end)
+        end
         iso = only(k for k in eachindex(m.steps)
                    if occursin("D", _testhelper_edge_text(m, k)))
         @test _testhelper_edge_text(m, iso) == "E <--> D"
@@ -242,7 +242,7 @@ end
         @test EnzymeRates.Derivation._name(kf, m) === :k_E_to_D
         @test EnzymeRates.Derivation._name(kr, m) === :k_D_to_E
         # Written E <--> D, the step is stored the same way.
-        @test EnzymeRates.Mechanism(@enzyme_mechanism begin
+        @test (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -288,7 +288,7 @@ end
                 (D <--> E, D(S) <--> E(S))
             end
         end
-        m = EnzymeRates.Mechanism(tied_mm)
+        m = tied_mm
         # Groups and steps in canonical order: the steps at free E first, then by form.
         @test [_testhelper_edge_text(m, k)
                for k in EnzymeRates.Derivation._flat_edges(m)] ==
@@ -299,7 +299,7 @@ end
             only(ks for ks in m.groups if length(ks) == 2)
         @test all(k -> label(m.steps[k].from) === :E && label(m.steps[k].to) === :D, tied)
         # Written E <--> D and E(S) <--> D(S), the group is stored the same way.
-        @test EnzymeRates.Mechanism(@enzyme_mechanism begin
+        @test (@enzyme_mechanism begin
             substrates: S
             products: P
             steps: begin
@@ -315,7 +315,7 @@ end
     end
 
     @testset "fundamental cycles carry their multiple of the net reaction" begin
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: A, B
             products: P
             steps: begin
@@ -326,13 +326,13 @@ end
                 E(A, B) <--> E(P)
                 E(P) ⇌ E + P
             end
-        end)
+        end
         Z, multiples = EnzymeRates.Derivation._fundamental_cycles(
             m, EnzymeRates.Derivation._flat_edges(m))
         @test size(Z) == (2, 6)
         @test sort(abs.(multiples)) == [0, 1]
         # A cycle that turns A into P without B and Q is no multiple of the net reaction.
-        slip = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        slip = @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -344,7 +344,7 @@ end
                 E(A) <--> E(P)
                 E(P) <--> E + P
             end
-        end)
+        end
         err = @test_throws ErrorException EnzymeRates.Derivation._fundamental_cycles(
             slip, EnzymeRates.Derivation._flat_edges(slip))
         @test occursin("produces metabolite change not proportional to net reaction",
@@ -367,7 +367,7 @@ end
         # I binds E(A) and E(P) under one :NonequalAI group. In the inactive
         # conformation E(A) and E(A, I) lie behind the :OnlyA binding of A, so only the
         # E(P) + I member is in that conformation's law.
-        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        am = @allosteric_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -378,7 +378,7 @@ end
                 E + P ⇌ E(P)                                      :: EqualAI
                 (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
             end
-        end)
+        end
         kept = EnzymeRates.Derivation._kept_members(am)
         group = [e.group for e in am.catalytic.steps]
         g = only(g for (g, members) in enumerate(
@@ -393,14 +393,14 @@ end
                                      group[c.step] == key[1], sys.columns)
             @test sys.columns[last_col].step == edge
         end
-        _testhelper_check_law_against_oracle(EnzymeRates.compile_mechanism(am))
+        _testhelper_check_law_against_oracle(am)
     end
 
     @testset "the inactive cycle row runs over the whole graph, islands included" begin
         # E(A) and E(A, I) lie behind the :OnlyA binding of A, so the inactive law holds
         # only E, E(P) and E(I, P). The cycle through E(A) still gets an inactive row,
         # which reads the inactive copies of the two :OnlyA steps, outside the law.
-        am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+        am = @allosteric_mechanism begin
             substrates: A
             products: P
             modifiers: I
@@ -411,7 +411,7 @@ end
                 E + P ⇌ E(P)                                      :: EqualAI
                 (E(A) + I ⇌ E(A, I), E(P) + I ⇌ E(I, P))          :: NonequalAI
             end
-        end)
+        end
         sys = EnzymeRates.Derivation._joint_system(am)
         # The cycle once per conformation, then the second member of the :NonequalAI
         # group's active class and of its inactive class.
@@ -428,7 +428,7 @@ end
     @testset "every spec's solve counts its declared dimension" begin
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
-                mech = _testhelper_lift(spec.mechanism)
+                mech = spec.mechanism
                 sys = EnzymeRates.Derivation._joint_system(mech)
                 _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
                 excluded = (EnzymeRates.Derivation._excluded_steps(mech, 1),
@@ -451,7 +451,7 @@ end
     @testset "every spec keeps the last column of each class (E3)" begin
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
-                mech = _testhelper_lift(spec.mechanism)
+                mech = spec.mechanism
                 sys = EnzymeRates.Derivation._joint_system(mech)
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
@@ -487,7 +487,7 @@ end
         for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
             @testset "$(spec.name)" begin
                 rng = Random.MersenneTwister(i)
-                mech = _testhelper_lift(spec.mechanism)
+                mech = spec.mechanism
                 point = setprecision(BigFloat, 256) do
                     _testhelper_solve_point(mech, rng)
                 end
@@ -510,7 +510,7 @@ end
     @testset "the content order reads base names, never rendered names" begin
         # The form holding A and C comes first in the content order, since its first
         # bound name, A, sorts before AB, though its rendered name, EAC, sorts after EAB.
-        m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+        m = @enzyme_mechanism begin
             substrates: A, C
             products: AB
             steps: begin
@@ -519,7 +519,7 @@ end
                 E(A, C) <--> E(AB)
                 E(AB) ⇌ E + AB
             end
-        end)
+        end
         names = [EnzymeRates.Mechanisms._form_name(m, f) for f in eachindex(m.nodes)]
         eac, eab = findfirst(==("EAC"), names), findfirst(==("EAB"), names)
         @test isless(m.nodes[eac], m.nodes[eab]) && eac < eab
@@ -532,7 +532,7 @@ end
     # The conformational square ties two isomerizations of one group, so the Haldane
     # relation fixes k_F_to_E through square roots: Keq = (k_E_to_F / k_F_to_E)² ·
     # (k_F_S_to_ES / k_ES_to_F_S) · (k_FS_to_E_P / k_E_P_to_FS).
-    half = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    half = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -540,7 +540,7 @@ end
             F(S) <--> E + P
             F + S <--> E(S)
         end
-    end)
+    end
     s = EnzymeRates.Derivation._solve(half)
     @test issorted([d.col for d in s.dependents])
     @test sort([d.label for d in s.dependents]) ==
@@ -562,7 +562,7 @@ end
     # constant equals the kept one); B's two bindings close a binding square with A's,
     # which ties them (Wegscheider); the cycle through the catalytic step fixes its
     # reverse rate (Haldane).
-    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    folded = @enzyme_mechanism begin
         substrates: A, B
         products: P
         steps: begin
@@ -572,7 +572,7 @@ end
             E(A, B) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     s = EnzymeRates.Derivation._solve(folded)
     described = [(s.names[d.col], d.label, d.keq, [s.names[f] => e for (f, e) in d.factors])
                  for d in s.dependents]
@@ -591,14 +591,14 @@ end
 end
 
 @testset "_solve maps an :EqualAI edge's inactive constant to its active column" begin
-    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S ⇌ E(S)        :: EqualAI
             E(S) <--> E + P     :: NonequalAI
         end
-    end)
+    end
     s = EnzymeRates.Derivation._solve(am)
     C = EnzymeRates.Derivation._StepParameter
     binding = _testhelper_edge(am, "E + S ⇌ ES")
@@ -615,7 +615,7 @@ end
 @testset "_solve lists the fitted names in parameter order" begin
     for spec in MECHANISM_TEST_SPECS
         @test Tuple(
-            EnzymeRates.Derivation._solve(_testhelper_lift(spec.mechanism)).fitted) ==
+            EnzymeRates.Derivation._solve(spec.mechanism).fitted) ==
               parameters(spec.mechanism)
     end
 end

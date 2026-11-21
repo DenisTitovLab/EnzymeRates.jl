@@ -119,7 +119,7 @@ end
     # ── Mechanism-level accessors ─────────────────────────────────────────────
     @testset "Mechanism-level accessors" begin
         @test Set(parameters(uni_uni)) == Set(keys(true_params))
-        @test metabolites(uni_uni) == (:S, :P)
+        @test metabolites(uni_uni) == [:S, :P]
     end
 
     # ── FittingProblem construction ───────────────────────────────────────────
@@ -197,10 +197,10 @@ end
         # An integer Keq converts to the Float64 field.
         @test FittingProblem(uni_uni, ok_data, 2; reference=ref).rate_data.Keq === 2.0
         # The concrete-mechanism constructor passes the keywords on.
-        fp_conc = FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data, 1.0;
+        fp_conc = FittingProblem(uni_uni, ok_data, 1.0;
                                  reference=ref)
         @test fp_conc.rate_data.absolute === false && fp_conc.rate_data.reference == ref
-        @test FittingProblem(EnzymeRates.Mechanism(uni_uni), ok_data, 1.0;
+        @test FittingProblem(uni_uni, ok_data, 1.0;
                              absolute=true).rate_data.absolute === true
         # There is no kcat keyword: a `reference` sets the scale.
         @test_throws MethodError FittingProblem(uni_uni, ok_data, 1.0; reference=ref,
@@ -513,7 +513,7 @@ end
             rng = Random.MersenneTwister(5)
             law_params = NamedTuple{parameters(m)}(
                 Tuple(1.0 .+ 9.0 .* rand(rng, length(parameters(m)))))
-            mets = metabolites(m)
+            mets = Tuple(metabolites(m))
             law_concs = [NamedTuple{mets}(Tuple(0.1 .+ 9.9 .* rand(rng, length(mets))))
                          for _ in 1:500]
             groups = [string("G", div(i - 1, 50) + 1) for i in 1:500]

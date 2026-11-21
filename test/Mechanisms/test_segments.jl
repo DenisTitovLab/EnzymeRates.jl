@@ -96,7 +96,7 @@ end
                ["E + A ⇌ EA", "EA + B <--> EQ + P", "E + Q <--> EQ"]]),
     ]
     for (em, cycles) in cases
-        m = ER.Mechanism(em)
+        m = em
         n = length(eachindex(m.steps))
         at = [[_testhelper_edge(m, text) for text in cycle] for cycle in cycles]
         for bits in 0:(2^n - 1)
@@ -110,7 +110,7 @@ end
 @testset "turnover cycle: MECHANISM_TEST_SPECS" begin
     M = ER.Mechanisms
     for spec in MECHANISM_TEST_SPECS
-        mech = _testhelper_lift(spec.mechanism)
+        mech = spec.mechanism
         m = M.catalytic(mech)
         n = length(eachindex(m.steps))
         # Every mechanism turns the reaction over, and none at rapid equilibrium alone.
@@ -135,7 +135,7 @@ end
     # times: a cycle takes up A and Q and gives off nothing, or takes up B alone. The
     # turnover test weighs each step by its uptake of the first substrate, A, so it finds
     # the first cycle and not the second.
-    aq = ER.Mechanism(@enzyme_mechanism begin
+    aq = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -146,12 +146,12 @@ end
             E(A) + Q <--> E(A, Q)
             E(A, Q) <--> E
         end
-    end)
+    end
     on = BitVector(k in [_testhelper_edge(aq, t)
                          for t in ("E + A <--> EA", "EA + Q <--> EAQ", "EAQ <--> E")]
                    for k in eachindex(aq.steps))
     @test M.has_turnover_cycle(aq, on)
-    b_only = ER.Mechanism(@enzyme_mechanism begin
+    b_only = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -162,7 +162,7 @@ end
             E + B <--> E(B)
             E(B) <--> E
         end
-    end)
+    end
     on = BitVector(k in [_testhelper_edge(b_only, t)
                          for t in ("E + B <--> EB", "E <--> EB")]
                    for k in eachindex(b_only.steps))

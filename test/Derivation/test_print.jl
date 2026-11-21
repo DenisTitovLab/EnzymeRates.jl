@@ -4,7 +4,7 @@
 # The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete
 # mechanism.
 function _testhelper_normalizer(m)
-    mech = _testhelper_lift(m)
+    mech = m
     L = EnzymeRates.Derivation._law(mech)
     EnzymeRates.Derivation._normalizer(
         L.D, L.vars, EnzymeRates.Derivation._substrate_vars(mech, L.vars)), L, mech
@@ -24,7 +24,7 @@ _testhelper_n_text(m) =
 # law's value. `at_zero`, when a metabolite name, sets that concentration to 0.
 function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
     params, Keq = _testhelper_random_independent_params(m; rng)
-    concs = NamedTuple{metabolites(m)}(
+    concs = NamedTuple{Tuple(metabolites(m))}(
         Tuple(x === at_zero ? 0.0 : 0.1 + 9.9 * rand(rng) for x in metabolites(m)))
     rate = compile_rate_equation(m)
     for coefficients in (false, true)
@@ -279,7 +279,7 @@ end
         @test any(face -> _testhelper_epath_verdict(filled; rng, face, reading) !==
                           :converges, _testhelper_faces(filled))
     end
-    pp2 = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    pp2 = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
         oligomeric_state: 2
@@ -289,8 +289,8 @@ end
             F + B <--> F(B)       :: EqualAI
             F(B) <--> E + Q       :: EqualAI
         end
-    end)
-    tc = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    end
+    tc = @allosteric_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: I
@@ -300,7 +300,7 @@ end
             E(Q) <--> E + Q            :: OnlyA
             E + I <--> E(I)            :: EqualAI
         end
-    end)
+    end
     for (i, am) in enumerate((pp2, tc))
         s = EnzymeRates.Derivation._solve(am)
         A = EnzymeRates.Derivation._law(am, s)
@@ -345,7 +345,7 @@ end
     # Units on the 42 specs, each at one catalytic subunit (spec section 14).
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
-            am = _testhelper_lift(_testhelper_single_subunit(spec.mechanism))
+            am = _testhelper_single_subunit(spec.mechanism)
             _testhelper_check_units(
                 am, EnzymeRates.Derivation._law(am, EnzymeRates.Derivation._solve(am)))
         end
@@ -354,13 +354,11 @@ end
 
 @testset "the printed law and its coefficient form equal the law on every spec" begin
     # Both forms, read back in 256-bit BigFloat, equal the derived law to 1e-20 at a
-    # consistent point of every spec, the concrete and the compiled mechanism print one
-    # text, and neither form holds a printing artifact.
+    # consistent point of every spec, and neither form holds a printing artifact.
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
             m = spec.mechanism
             full = rate_equation_string(m)
-            @test rate_equation_string(_testhelper_lift(m)) == full
             @test isempty(_testhelper_print_artifacts(full))
             @test isempty(_testhelper_print_artifacts(
                 rate_equation_string(m; coefficients = true)))
@@ -600,7 +598,7 @@ end
         end
         regulatory_site(2): R::NonequalAI
     end
-    am = _testhelper_lift(pp)
+    am = pp
     law = EnzymeRates.Derivation._law(am, EnzymeRates.Derivation._solve(am))
     subs = EnzymeRates.Derivation._substrate_vars(am, law.vars)
     @test (
@@ -682,7 +680,7 @@ end
               "v = (Q_A + L * Q_I) * (S - P / Keq) / (D_A + L * D_I)"
         @test "D_A = 1 + dA_S * S" in split(coef, '\n')
         @test d_i_coefficient in split(coef, '\n')
-        am = _testhelper_lift(m)
+        am = m
         cm = EnzymeRates.Mechanisms.catalytic(am)
         onlyi =
             [String(x) for (k, ns) in enumerate(_testhelper_edge_names(am, :I))
@@ -835,10 +833,10 @@ end
     end
     @test _testhelper_short_law(m) == "(; S, P) = concs\n" *
         "v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)"
-    @test rate_equation_string(_testhelper_lift(m); coefficients = true,
+    @test rate_equation_string(m; coefficients = true,
                                coefficient_values = false) == _testhelper_short_law(m)
     @test_throws ArgumentError rate_equation_string(m; coefficient_values = false)
-    @test_throws ArgumentError rate_equation_string(_testhelper_lift(m);
+    @test_throws ArgumentError rate_equation_string(m;
                                                     coefficient_values = false)
 
     # The MWC short law keeps the conformations' definitions in their coefficients.
@@ -881,14 +879,14 @@ end
         "v = (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / " *
         "(D_A^2 * W_A + L * D_I^2 * W_I)"
 
-    # An aggregate check over every spec and both large-law lists, concrete and compiled:
-    # the short form is the coefficient form minus its `params` line, its comment and the
-    # value lines (`n…`, `d…`, `f…`, `N…` on the left), in order.
+    # An aggregate check over every spec and both large-law lists: the short form is the
+    # coefficient form minus its `params` line, its comment and the value lines (`n…`,
+    # `d…`, `f…`, `N…` on the left), in order.
     # A coefficient's value line: `n_0 = `, `dA_S = `, `fI_B = `, `N = `, `N_A = `.
     value_line = r"^(?:[ndf][AI]?(?:_\S*)?|N(?:_[AI])?) = "
-    for mech in [[s.mechanism for s in MECHANISM_TEST_SPECS];
-                 _testhelper_largest_enumerated_mechanisms;
-                 _testhelper_large_ter_bi_mechanisms], m in (mech, _testhelper_lift(mech))
+    for m in [[s.mechanism for s in MECHANISM_TEST_SPECS];
+              _testhelper_largest_enumerated_mechanisms;
+              _testhelper_large_ter_bi_mechanisms]
         full = split(rate_equation_string(m; coefficients = true), '\n')
         expected = [l for l in full[2:end]
                     if !startswith(l, "# ") && !occursin(value_line, l)]

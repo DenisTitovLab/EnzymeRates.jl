@@ -3,10 +3,6 @@
 
 # ─── Parameters API ─────────────────────────────────────────
 
-# Every mechanism is a singleton type of its own, so a method specialized on one
-# compiles again for each mechanism. The derivation helpers that lift a singleton,
-# or its type, to its concrete form therefore take it `@nospecialize`.
-
 """
     parameters(m) -> Tuple{Vararg{Symbol}}
     parameters(rate) -> Tuple{Vararg{Symbol}}
@@ -20,14 +16,6 @@ given, never fitted. The rate law computes every other constant from these and `
 [`dependent_parameter_values`](@ref)). Errors when the rate law of `m` is not defined
 (`check_valid_rate_equation`).
 """
-@generated function parameters(::M) where {M <: Mechanisms.AbstractEnzymeMechanism}
-    Tuple(_solve(M).fitted)
-end
-
-# The concrete Mechanism / AllostericMechanism reads the joint solve of the checked
-# mechanism through the memo (`_memo_solve`), compiling nothing. Callers that hold a
-# `Mechanism` (e.g. the `identify_rate_equation` pipeline) use it without an explicit
-# lift.
 function parameters(m::_AnyMech)
     check_valid_rate_equation(m)
     Tuple(_memo_solve(m).fitted)
@@ -49,15 +37,7 @@ counts as the reactant. Errors when the rate law of `m` is not defined
 """
 function parameter_units(m::_AnyMech)
     check_valid_rate_equation(m)
-    _parameter_units(m, _memo_solve(m).info)
-end
-function parameter_units(@nospecialize(m::Mechanisms.AbstractEnzymeMechanism))
-    cm = _derivation_input(typeof(m))
-    _parameter_units(cm, _solve(cm).info)
-end
-
-"""`parameter_units` of the checked mechanism `m`, whose fitted constants are `info`."""
-function _parameter_units(m::_AnyMech, info::Vector{_Parameter})
+    info = _memo_solve(m).info
     column = Dict(x => j for (j, x) in enumerate(Mechanisms.metabolites(m)))
     units = (; rate = zeros(Int, length(info)),
              concentrations = zeros(Int, length(info), length(column)))
@@ -126,11 +106,8 @@ julia> dependent_parameter_values(m, p, 4.0)
 (k_EP_to_ES = 0.375,)
 ```
 """
-function dependent_parameter_values(
-        m::Union{Mechanisms.AbstractEnzymeMechanism, Mechanisms.Mechanism,
-                 Mechanisms.AllostericMechanism},
-        params::NamedTuple, Keq::Real)
-    s = _solve(m isa Mechanisms.AbstractEnzymeMechanism ? typeof(m) : _well_posed(m))
+function dependent_parameter_values(m::_AnyMech, params::NamedTuple, Keq::Real)
+    s = _solve(_well_posed(m))
     absent = Symbol[k for k in s.fitted if !haskey(params, k)]
     isempty(absent) || error("dependent_parameter_values: params must hold every name " *
                              "of parameters(m); it lacks " * join(absent, ", "))

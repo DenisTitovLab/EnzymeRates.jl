@@ -40,7 +40,7 @@ function _testhelper_ro_bibi(states)
     _testhelper_one_step_groups([:A, :B], [:P, :Q], sd, states)
 end
 function _testhelper_evalrate(am; seed=1, split=nothing)
-    cem=ER.compile_mechanism(am); rng=MersenneTwister(seed)
+    cem=am; rng=MersenneTwister(seed)
     rate=ER.compile_rate_equation(cem)
     fp=parameters(am)
     mets=collect(ER.metabolites(cem))

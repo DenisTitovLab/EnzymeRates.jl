@@ -13,7 +13,7 @@ Contains all expected properties for comprehensive testing.
 Base.@kwdef struct _testhelper_MechanismTestSpec
     # Core data
     name::String                          # Human-readable name for test labels
-    mechanism::Any                        # EnzymeMechanism or AllostericEnzymeMechanism
+    mechanism::Any                        # Mechanism or AllostericMechanism
     metabolite_names::Vector{Symbol}      # metabolites(mechanism) order; for params/concs
 
     # Structural expectations
@@ -70,7 +70,7 @@ end
     @_testhelper_with_raw call
 
 `(mechanism, raw)` for `call`, an `@enzyme_mechanism` or `@allosteric_mechanism` call:
-the compiled mechanism the call builds, and the raw value the package's DSL walker
+the mechanism the call builds, and the raw value the package's DSL walker
 reads from its block, which keeps the steps and regulatory sites as written. It fills
 `_testhelper_MechanismTestSpec.raw`.
 """
@@ -91,13 +91,6 @@ function _testhelper_assert_mechanism_invariants(m)
     end
     nothing
 end
-
-# The Mechanism lifted from an EnzymeMechanism, or the AllostericMechanism lifted from an
-# AllostericEnzymeMechanism; a concrete mechanism is returned as is.
-_testhelper_lift(m::EnzymeRates.EnzymeMechanism) = EnzymeRates.Mechanism(m)
-_testhelper_lift(m::EnzymeRates.AllostericEnzymeMechanism) =
-    EnzymeRates.AllostericMechanism(m)
-_testhelper_lift(m::Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}) = m
 
 """One `_StepParameter` per slot of step `k` of `m`'s catalytic graph, in the inactive
 conformation when `inactive`."""
@@ -173,14 +166,14 @@ _testhelper_turned(e::EnzymeRates.Mechanisms.Step) =
 """The rapid-equilibrium flag of each step of the concrete mechanism `m`."""
 _testhelper_flags(m) = BitVector(e.rapid_equilibrium for e in m.steps)
 
-"""Whether the concrete mechanism `x` reads back from the text `show` prints for it
+"""Whether the mechanism `x` reads back from the text `show` prints for it
 (`DSL.parse_mechanism`) as itself."""
 _testhelper_reads_back(x) = EnzymeRates.DSL.parse_mechanism(sprint(show, x)) == x
 
 """
     _testhelper_graph(m) -> NamedTuple
 
-`m` (concrete or compiled) as the test helpers read it, a `NamedTuple`: `forms`, each
+`m` as the test helpers read it, a `NamedTuple`: `forms`, each
 form's name (`Vector{String}`, stored order); `free`, whether each form holds no
 metabolite and no residual; `steps`, one `NamedTuple` per step, group by group, each group
 in edge order, in stored direction, with `from` and `to` (form positions), `consumed`
@@ -197,7 +190,7 @@ conformation (`inactive` and every `inactive_names` empty), no sites and
 then by content.
 """
 function _testhelper_graph(m)
-    mech = _testhelper_lift(m)
+    mech = m
     allo = mech isa EnzymeRates.AllostericMechanism
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     kept = EnzymeRates.Derivation._kept_members(mech)
@@ -245,11 +238,11 @@ step's constants as the naming chokepoint renders them."""
 _testhelper_step_constant_names(m) =
     Set(x for s in _testhelper_graph(m).steps for x in s.names)
 
-# The names of a compiled mechanism's substrates and products, and of its regulators: the
-# modifiers an EnzymeMechanism's steps bind.
+# The names of a mechanism's substrates and products, and of its regulators: the
+# modifiers a plain mechanism's steps bind.
 _testhelper_substrates(m) = _testhelper_graph(m).substrates
 _testhelper_products(m) = _testhelper_graph(m).products
-_testhelper_regulators(m::EnzymeRates.EnzymeMechanism) = _testhelper_graph(m).modifiers
+_testhelper_regulators(m::EnzymeRates.Mechanism) = _testhelper_graph(m).modifiers
 
 """
 The `reference` of a relative-mode problem on the rate table `data` (a `NamedTuple` of
@@ -277,7 +270,7 @@ canonical form turns (`_canonicalize`), group by group, and writing every step t
 way round, in the reverse order, builds the same mechanism.
 """
 function _testhelper_check_stored_orientation(m)
-    mech = _testhelper_lift(m)
+    mech = m
     raw = _testhelper_written(mech)
     # The written form holds edge `k` as step `k`.
     flipped = _testhelper_canonicalize(raw).flipped
@@ -297,8 +290,8 @@ end
 The joint solve `s` as expressions: `dep` maps each dependent constant that is its class's
 kept member to `Keq^q · Π independent^e` with rational exponents (`_testhelper_power_expr`;
 the empty product is `1.0`); `indep` is `Tuple(s.fitted)`. A kinetic group's other members
-equal the kept one and add no entry. Given a concrete mechanism or a compiled mechanism's
-type, it renders that mechanism's solve (`EnzymeRates.Derivation._solve`).
+equal the kept one and add no entry. Given a mechanism, it renders that mechanism's solve
+(`EnzymeRates.Derivation._solve`).
 """
 function _testhelper_dependent_param_exprs(s::EnzymeRates.Derivation._Solve)
     dep = Dict{Symbol, Union{Symbol, Expr, Float64}}()
@@ -335,14 +328,9 @@ function _testhelper_power_expr(keq_exp::Rational, factors)
 end
 
 """
-`m`, compiled or concrete, with one catalytic subunit: an allosteric mechanism rebuilt
-with oligomeric state 1, whose MWC law is the exact steady state of one protomer; a
-plain mechanism unchanged.
+`m` with one catalytic subunit: an allosteric mechanism rebuilt with oligomeric state 1,
+whose MWC law is the exact steady state of one protomer; a plain mechanism unchanged.
 """
-_testhelper_single_subunit(m::EnzymeRates.EnzymeMechanism) = m
-_testhelper_single_subunit(m::EnzymeRates.AllostericEnzymeMechanism) =
-    EnzymeRates.AllostericEnzymeMechanism(
-        _testhelper_single_subunit(EnzymeRates.AllostericMechanism(m)))
 _testhelper_single_subunit(m::EnzymeRates.Mechanism) = m
 _testhelper_single_subunit(am::EnzymeRates.AllostericMechanism) =
     EnzymeRates.AllostericMechanism(am.catalytic, copy(am.allosteric_states), 1,
@@ -424,12 +412,12 @@ _testhelper_step_text(g, s) =
     (s.rapid_equilibrium ? " ⇌ " : " <--> ") *
     join([g.forms[s.to]; String.(s.released)], " + ")
 
-"""Edge `k` of the catalytic graph of `m` (concrete or compiled) as text, in its stored
+"""Edge `k` of the catalytic graph of `m` as text, in its stored
 direction, each side its form's name (`_form_name`) and the labels of the metabolites the
 edge takes up or gives off there (`_entry_label`, so a reactant's modifier copy reads
 `Amod`): `"E + S ⇌ ES"`, `"EA + B <--> EQ + P"`, `"E + Amod ⇌ EAmod"`."""
 function _testhelper_edge_text(m, k::Int)
-    g = EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m))
+    g = EnzymeRates.Mechanisms.catalytic(m)
     e = g.steps[k]
     labels(list) = [EnzymeRates.Mechanisms._entry_label(x, g.substrates, g.products)
                     for x in list]
@@ -440,7 +428,7 @@ end
 
 """The edge of the catalytic graph of `m` whose text (`_testhelper_edge_text`) is `text`."""
 _testhelper_edge(m, text) =
-    only(k for k in eachindex(EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m)).steps)
+    only(k for k in eachindex(EnzymeRates.Mechanisms.catalytic(m).steps)
          if _testhelper_edge_text(m, k) == text)
 
 """
@@ -466,7 +454,7 @@ catalytic graph, the ones either conformation's law deletes or prunes included; 
 mechanism repeats column 1 in column 2. The law's constants are among them.
 """
 function _testhelper_consistent_point(m, rng)
-    mech = _testhelper_lift(m)
+    mech = m
     g = _testhelper_graph(mech)
     allo = g.oligomeric_state !== nothing
     mets = unique!([g.substrates; g.products; g.modifiers])
@@ -586,7 +574,7 @@ when the network is disconnected, since its steady state is then not unique. Wit
 function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(10)^30,
                                        flip::Int = 1, occupancy::Int = 0)
     setprecision(BigFloat, 256) do
-        mech = _testhelper_lift(m)
+        mech = m
         g = _testhelper_graph(mech)
         node = Dict{Tuple{Symbol, Int}, Int}()
         id(c, f) = get!(node, (c, f), length(node) + 1)
@@ -630,19 +618,17 @@ end
 The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived law
 (`EnzymeRates.Derivation._law`) at the parameter values `params` (by name: the fitted
 constants, `Keq` and, for an allosteric mechanism, `L` and the regulator constants) and the
-concentrations `concs`. A compiled `m` goes through its derivation entry, which runs the
-boundary check; a concrete `m` is read as it is, so the oracles can evaluate the law of a
-mechanism the guard rejects. A law that is 0/0 on a face gives NaN there.
+concentrations `concs`. `m` is read as it is, without the guard, so the oracles can
+evaluate the law of a mechanism the guard rejects. A law that is 0/0 on a face gives NaN
+there.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
-        mech = m isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ?
-               EnzymeRates.Derivation._derivation_input(typeof(m)) : m
         env = Dict{Symbol, BigFloat}(k => BigFloat(v) for (k, v) in params)
         for (k, v) in concs
             env[k] = BigFloat(v)
         end
-        _testhelper_evaluate_law(EnzymeRates.Derivation._law(mech), env)
+        _testhelper_evaluate_law(EnzymeRates.Derivation._law(m), env)
     end
 end
 
@@ -672,7 +658,7 @@ The Float64 arguments of a compiled rate law (`compile_rate_equation`) at a draw
 fitted constants `fitted`, and `Keq`.
 """
 function _testhelper_float64_inputs(fitted, params, concs, mets)
-    c64 = NamedTuple{mets}(Tuple(Float64(concs[x]) for x in mets))
+    c64 = NamedTuple{Tuple(mets)}(Tuple(Float64(concs[x]) for x in mets))
     p64 = NamedTuple{Tuple(fitted)}(Float64.(getindex.(Ref(params), fitted)))
     c64, p64, Float64(params[:Keq])
 end
@@ -690,11 +676,9 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
                                               bigfloat = false, rtol = big(10)^-20)
     rng = Random.MersenneTwister(seed)
     em = _testhelper_single_subunit(m)
-    # The point and the solver take the concrete mechanism: each compiled mechanism is
-    # its own type, so given one they would compile again for every mechanism.
-    mech = _testhelper_lift(em)
-    fitted = _testhelper_dependent_param_exprs(typeof(em))[2]
-    mets = EnzymeRates.metabolites(em)
+    mech = em
+    fitted = _testhelper_dependent_param_exprs(em)[2]
+    mets = Tuple(EnzymeRates.metabolites(em))
     rate = compile_rate_equation(em)
     for _ in 1:n_points
         point, concs, params = _testhelper_law_inputs(mech, fitted, rng)
@@ -720,12 +704,12 @@ parameter point, in 256-bit BigFloat: the law's value at equilibrium concentrati
 first product scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times
 lower, then, for an allosteric mechanism, the same ratio of `H·Q` for each conformation
 whose `Q` is not zero. Each is zero in exact arithmetic when the law satisfies every Haldane
-and Wegscheider relation. `m`, compiled or concrete, is read as the concrete mechanism,
-without the guard, so a law the guard rejects is checked too.
+and Wegscheider relation. `m` is read without the guard, so a law the guard rejects is
+checked too.
 """
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
-        mech = _testhelper_lift(m)
+        mech = m
         s = EnzymeRates.Derivation._solve(mech)
         L = EnzymeRates.Derivation._law(mech, s)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
@@ -865,7 +849,7 @@ law of a mechanism the guard rejects is derived once, unchecked
 (`EnzymeRates.Derivation._law`), and evaluated in BigFloat (`_testhelper_evaluate_law`), as
 `_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
-    mech = _testhelper_lift(m)
+    mech = m
     fitted = _testhelper_dependent_param_exprs(mech)[2]
     rate = if _testhelper_is_valid(mech)
         compile_rate_equation(mech)
@@ -1013,7 +997,7 @@ macro _testhelper_unguarded(call)
 end
 
 """
-The faces of `m` (concrete or compiled) that the guard checks (spec section 8), each as
+The faces of `m` that the guard checks (spec section 8), each as
 the set of names it zeroes, in the guard's order: the interior, every product zero, every
 substrate zero, each substrate and then each product alone on a side of two or more; then
 each of these with every modifier-only name zero too. A reactant's `::Mod` copy carries
@@ -1021,7 +1005,7 @@ its reactant's name, so it is zeroed with it; a regulatory-site ligand is zeroed
 it also binds the catalytic site.
 """
 function _testhelper_faces(m)
-    cm = EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m))
+    cm = EnzymeRates.Mechanisms.catalytic(m)
     mods = Set(x.name for x in EnzymeRates.Mechanisms._table(cm)
                if x.modifier && !(x.name in cm.substrates || x.name in cm.products))
     base = [Set{Symbol}(), Set(cm.products), Set(cm.substrates)]
@@ -1250,7 +1234,7 @@ end
 conformation, log-uniform over `10^±3`: a speed pattern of the RE-speed oracle."""
 _testhelper_draw_speeds(m, rng) =
     BigFloat[big(10)^(3 * (2 * big(rand(rng)) - 1))
-             for _ in EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m)).steps, _ in 1:2]
+             for _ in EnzymeRates.Mechanisms.catalytic(m).steps, _ in 1:2]
 
 """
     _testhelper_network(m, point, concs; speeds, mode = :law, ε = 1, potentials, sigma,
@@ -1282,7 +1266,7 @@ function _testhelper_network(m, point, concs::AbstractDict; speeds::Matrix{BigFl
                              sigma::Vector{BigFloat} = BigFloat[],
                              theta::Vector{BigFloat} = BigFloat[],
                              reading::Union{Symbol, Matrix{Symbol}} = :all_lose_affinity)
-    mech = _testhelper_lift(m)
+    mech = m
     cm = EnzymeRates.Mechanisms.catalytic(mech)
     nf = length(cm.nodes)
     nc = mech isa EnzymeRates.AllostericMechanism ? 2 : 1
@@ -1598,7 +1582,7 @@ The law is the package's (`law = :package`, read unchecked) or the oracle's own
 """
 function _testhelper_respeed(m, point, concs::AbstractDict, face::Set{Symbol}; rng,
                              law::Symbol = :package)
-    mech = _testhelper_single_subunit(_testhelper_lift(m))
+    mech = _testhelper_single_subunit(m)
     Λs = (big(10.0)^10, big(10.0)^20)
     c0 = merge(concs, Dict(z => big(0) for z in face))
     patterns = [_testhelper_draw_speeds(mech, rng) for _ in 1:2]
@@ -1625,7 +1609,7 @@ The RE-speed oracle's verdict on each face of `m` (`_testhelper_faces`) at one p
 mechanism is judged at one catalytic subunit (`_testhelper_single_subunit`).
 """
 function _testhelper_respeed_verdicts(m; rng, law::Symbol = :package)
-    mech = _testhelper_single_subunit(_testhelper_lift(m))
+    mech = _testhelper_single_subunit(m)
     setprecision(BigFloat, 256) do
         point = _testhelper_consistent_point(mech, rng)
         concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
@@ -1871,7 +1855,7 @@ function _testhelper_epath_verdict(m; rng, face::Set{Symbol} = Set{Symbol}(),
                                    reading::Union{Symbol, Matrix{Symbol}} =
                                        :all_lose_affinity)
     setprecision(BigFloat, precision) do
-        am = _testhelper_single_subunit(_testhelper_lift(m))
+        am = _testhelper_single_subunit(m)
         switch_off = _testhelper_reading(am, reading)
         any(((_, ex),) -> ex.failure !== :none,
             _testhelper_excluding(am; reading = switch_off)) && return :no_path
@@ -1936,7 +1920,7 @@ function _testhelper_in_epath_window(m; rng,
                                      reading::Union{Symbol, Matrix{Symbol}} =
                                          :all_lose_affinity)
     setprecision(BigFloat, 512) do
-        am = _testhelper_single_subunit(_testhelper_lift(m))
+        am = _testhelper_single_subunit(m)
         point = _testhelper_consistent_point(am, rng)
         concs = Dict{Symbol, BigFloat}(x => big(10)^(2 * big(rand(rng)) - 1)
                                        for x in EnzymeRates.metabolites(am))
@@ -2127,7 +2111,7 @@ end
 
 """The guard's class-3 verdict (`_check_face`) on each face of `m`, in `_faces` order."""
 function _testhelper_face_verdicts(m)
-    mech = _testhelper_lift(m)
+    mech = m
     net = EnzymeRates.Derivation._law_network(mech)
     faces = EnzymeRates.Derivation._faces(EnzymeRates.Mechanisms.catalytic(mech))
     [EnzymeRates.Derivation._check_face(mech, net, faces, i) for i in eachindex(faces)]
@@ -2146,7 +2130,7 @@ _testhelper_agrees(fault::EnzymeRates.Derivation._Fault, verdict::Symbol) =
 """Whether class 3's message for its verdict `v` on `m` (`_face_message`) names the face
 and, when `v` leads with an edge, that edge's step line."""
 function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
-    mech = _testhelper_lift(m)
+    mech = m
     who = mech isa EnzymeRates.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
     msg = EnzymeRates.Derivation._face_message(who, mech, v)
     line = v.edge == 0 ? "" : EnzymeRates.Mechanisms.step_text(
@@ -2154,12 +2138,12 @@ function _testhelper_names_its_step(m, v::EnzymeRates.Derivation._Verdict)
     occursin(": at zero ", msg) && occursin(line, msg)
 end
 
-"""The concentrations at which `_testhelper_finite_on_every_face` reads the law of `mech`,
-compiled or concrete: one `NamedTuple` per face of its catalytic graph
+"""The concentrations at which `_testhelper_finite_on_every_face` reads the law of `mech`:
+one `NamedTuple` per face of its catalytic graph
 (`EnzymeRates.Derivation._faces`), with that face's metabolites at 0 and the others drawn
 from (0.1, 10)."""
 function _testhelper_face_concentrations(mech; rng = Random.default_rng())
-    x = _testhelper_lift(mech)
+    x = mech
     g = EnzymeRates.Mechanisms.catalytic(x)
     mets = Tuple(EnzymeRates.metabolites(x))
     map(EnzymeRates.Derivation._faces(g)) do face
@@ -2168,14 +2152,12 @@ function _testhelper_face_concentrations(mech; rng = Random.default_rng())
     end
 end
 
-"""Whether the compiled rate law of `mech`, compiled or concrete, is finite at random
+"""Whether the compiled rate law of `mech` (`compile_rate_equation`) is finite at random
 positive parameters (`_testhelper_random_independent_params`) at the concentrations of
 every face (`_testhelper_face_concentrations`)."""
 function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
-    m = mech isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? mech :
-        EnzymeRates.compile_mechanism(_testhelper_lift(mech))
-    params, Keq = _testhelper_random_independent_params(m; rng)
-    rate = compile_rate_equation(m)
+    params, Keq = _testhelper_random_independent_params(mech; rng)
+    rate = compile_rate_equation(mech)
     all(concs -> isfinite(rate(concs, params, Keq)),
         _testhelper_face_concentrations(mech; rng))
 end
@@ -2266,15 +2248,13 @@ end
 Check that the rate law of `m`, with one catalytic subunit, equals to 1e-20 the exact
 rapid-equilibrium limit of the oracle's own law network (`_testhelper_network`,
 `_testhelper_re_limit`), which deletes each conformation's excluded steps and prunes from
-free E by itself, at `n_points` consistent points (`_testhelper_consistent_point`). A
-compiled `m` is read through its derivation entry, which runs the guard; a concrete `m` is
-read without it (`_testhelper_law_value`).
+free E by itself, at `n_points` consistent points (`_testhelper_consistent_point`). `m`
+is read without the guard (`_testhelper_law_value`).
 """
 function _testhelper_check_law_against_limit(m; n_points::Int = 3, seed::Int = 1)
     sub = _testhelper_single_subunit(m)
-    am = _testhelper_lift(sub)
-    fitted = _testhelper_dependent_param_exprs(
-        sub isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? typeof(sub) : sub)[2]
+    am = sub
+    fitted = _testhelper_dependent_param_exprs(sub)[2]
     rng = Random.MersenneTwister(seed)
     setprecision(BigFloat, 256) do
         for _ in 1:n_points
@@ -2532,8 +2512,8 @@ end
 """
     _testhelper_name_units(m) -> Dict{Symbol, Tuple{Rational{Int}, Rational{Int}}}
 
-The units, as (concentration, time) exponents, of every name a rate law of `m` (concrete or
-compiled) reads, from the graph alone (`_testhelper_graph`), never from the law: each
+The units, as (concentration, time) exponents, of every name a rate law of `m` reads,
+from the graph alone (`_testhelper_graph`), never from the law: each
 concentration (1, 0); `Keq` (product copies − substrate copies, 0); a
 steady-state rate constant (−copies its step takes up in its direction, −1); a
 rapid-equilibrium binding's dissociation constant (1, 0); any other rapid-equilibrium
@@ -2541,7 +2521,7 @@ constant (copies released − copies consumed, 0); a regulator's dissociation co
 (1, 0); `L` (0, 0).
 """
 function _testhelper_name_units(m)
-    mech = _testhelper_lift(m)
+    mech = m
     g = _testhelper_graph(mech)
     u = Dict{Symbol, Tuple{Rational{Int}, Rational{Int}}}(
         x => (1 // 1, 0 // 1) for x in EnzymeRates.metabolites(mech))
@@ -2778,12 +2758,12 @@ _testhelper_print_artifacts(s::AbstractString) =
 The worst relative error, over `points` consistent points (`_testhelper_law_inputs`, seed
 `seed`), of `m`'s printed law and its coefficient form (`rate_equation_string`), read back
 in 256-bit BigFloat (`_testhelper_eval_rate_string`), against its derived law
-(`EnzymeRates.Derivation._law`). `m` is compiled or concrete and passes the guard; an
+(`EnzymeRates.Derivation._law`). `m` passes the guard; an
 allosteric mechanism's point is drawn at one catalytic subunit, and the law is read at its
 own multiplicity.
 """
 function _testhelper_printed_law_error(m; points::Int = 2, seed::Int = 31)
-    mech = _testhelper_lift(m)
+    mech = m
     L = EnzymeRates.Derivation._law(mech)
     fitted = collect(EnzymeRates.Derivation._solve(mech).fitted)
     texts = (rate_equation_string(m), rate_equation_string(m; coefficients = true))
@@ -4013,12 +3993,12 @@ end
 #                   L*(k_cat_T*S/Ks_T - k_rev_T*P/Kp_T)*(1 + S/Ks_T + P/Kp_T)
 #                 )
 # The explicit flat homodimer fixture is intentionally omitted; the
-# AllostericEnzymeMechanism form below is the canonical representation.
+# AllostericMechanism form below is the canonical representation.
 
-# 24B. AllostericEnzymeMechanism MWC Dimer
+# 24B. AllostericMechanism MWC Dimer
 #      2 catalytic sites × 2 conformations (R/T). No explicit equality constraints
 #      needed — symmetric subunits are captured by the site multiplicity.
-#      Conformational equilibrium: L (= K37 in the EnzymeMechanism above).
+#      Conformational equilibrium: L.
 let
     m, raw = @_testhelper_with_raw @allosteric_mechanism begin
         substrates: S
@@ -4061,9 +4041,9 @@ end
 # inhibitor/activator mechanisms above.
 
 # The explicit flat homodimer inhibitor fixture is intentionally omitted;
-# the AllostericEnzymeMechanism form below is canonical.
+# the AllostericMechanism form below is canonical.
 
-# 25B. AllostericEnzymeMechanism Homodimer + Non-competitive Inhibitor
+# 25B. AllostericMechanism Homodimer + Non-competitive Inhibitor
 #      I binds all enzyme forms independently with the same Ki (enzyme-level).
 #      sigma = Q_cat^2 * (1 + I/K_I_reg1)  (multiplicative factor).
 #      The Wegscheider closure of the R_00I ⇌ T_00I cycle is automatic in the

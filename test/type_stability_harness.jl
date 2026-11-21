@@ -145,7 +145,7 @@ macro _testhelper_dispatches_in(sets_and_call...)
 end
 
 @testset "the type-stability harness" begin
-    plain_concrete = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    plain_concrete = @enzyme_mechanism begin
         substrates: S
         products:   P
         steps: begin
@@ -153,7 +153,7 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     check = EnzymeRates.Derivation.check_valid_rate_equation
 
     @testset "it finds a boxed variable and a call on a Ref{Any}" begin

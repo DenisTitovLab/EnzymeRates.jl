@@ -41,7 +41,7 @@ using OptimizationCMAEvolutionStrategy
         @test fp.rate_data.reference == [(S = 10,) => 3.0]
         @test fp.rate_data.reference isa Vector{Pair{NamedTuple, Float64}}
         # The concrete-mechanism constructor passes the reference on.
-        fp_conc = FittingProblem(EnzymeRates.Mechanism(mm), mm_data, 2.0;
+        fp_conc = FittingProblem(mm, mm_data, 2.0;
                                  reference = [(S = 10.0,) => 3.0])
         @test fp_conc.rate_data.reference == [(S = 10.0,) => 3.0]
     end
@@ -184,7 +184,7 @@ using OptimizationCMAEvolutionStrategy
         @test test_rate_equation(mm, merge(fit.params, (Keq = 99.0, E_total = 1.0)),
                                  mm_data, 2.0) ≈ fit.loss
         # The concrete mechanism gives the same loss.
-        @test test_rate_equation(EnzymeRates.Mechanism(mm), fit.params, mm_data, 2.0) ≈
+        @test test_rate_equation(mm, fit.params, mm_data, 2.0) ≈
               fit.loss
         # Absolute mode scores the magnitude: the true constants fit the data exactly,
         # constants ten times as fast do not.

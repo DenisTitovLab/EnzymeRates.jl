@@ -3,7 +3,7 @@
 # ABOUTME: rate, NonequalAI K_I, SS binding rate k_I — the shapes that once UndefVar'd).
 
 const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
-    typeof(m) for m in (
+    m for m in (
         # k_ENADPyruvate_to_ENAD_Pyruvate family (EqualAI-shared dependent-param partition)
         @allosteric_mechanism(begin
             substrates: NADH, Pyruvate

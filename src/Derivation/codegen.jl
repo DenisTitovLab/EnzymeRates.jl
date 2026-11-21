@@ -185,11 +185,120 @@ _rate_body(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
     _with_law((m, s, L) -> _body(_program(m, s, L)), m)
 
 # ─── compile_rate_equation ─────────────────────────────────────────────────────
+#
+# A mechanism's Sig, the type parameter of its compiled rate law, every entry an `Int`:
+#   names       their number, then each name as its number of characters and each
+#               character's code point: the sorted distinct names of its metabolites, its
+#               conformation labels and its allosteric states. After them a name is its
+#               index among them, a list is its length followed by its entries, and a
+#               metabolite is its name followed by its modifier flag.
+#   catalytic   its substrates and its products; the number of forms, then each form
+#               (label, bound, added, subtracted); the number of steps, then each step
+#               (from, to, taken up, given off, flag, group).
+#   allostery   one allosteric state per kinetic group, none for a plain mechanism; the
+#               oligomeric state; the number of sites, then each site (ligands,
+#               multiplicity, states).
 
-"""The rate law of the compiled mechanism type `M` as a function
-(`compile_rate_equation`). Its only parameter is `M`, so equal mechanisms share one
+"""The allosteric states of `m`, one per kinetic group, its oligomeric state and its
+regulatory sites: none, 1 and none for a plain mechanism."""
+_allostery(::Mechanisms.Mechanism) = (Symbol[], 1, Mechanisms.RegulatorySite[])
+_allostery(am::Mechanisms.AllostericMechanism) =
+    (am.allosteric_states, am.oligomeric_state, am.regulatory_sites)
+
+"""`m` as one tuple of integers, its Sig (layout above): the only type parameter of its
+compiled rate law. Equal mechanisms have equal Sigs, since a mechanism is stored in
+canonical form."""
+function _sig_of(m::_AnyMech)
+    cm = Mechanisms.catalytic(m)
+    states, oligomeric_state, sites = _allostery(m)
+    names = sort!(unique!([Mechanisms.metabolites(m); [n.conformation for n in cm.nodes];
+                           states; [x for s in sites for x in s.allosteric_states]]))
+    out = Int[length(names)]
+    for x in names
+        text = String(x)
+        push!(out, length(text))
+        foreach(c -> push!(out, Int(c)), text)
+    end
+    index(x::Symbol) = searchsortedfirst(names, x)
+    function symbols!(list::Vector{Symbol})
+        push!(out, length(list))
+        foreach(x -> push!(out, index(x)), list)
+    end
+    function metabolites!(list::Vector{Mechanisms.Metabolite})
+        push!(out, length(list))
+        foreach(x -> push!(out, index(x.name), x.modifier), list)
+    end
+    symbols!(cm.substrates)
+    symbols!(cm.products)
+    push!(out, length(cm.nodes))
+    for n in cm.nodes
+        push!(out, index(n.conformation))
+        metabolites!(n.bound)
+        symbols!(n.added)
+        symbols!(n.subtracted)
+    end
+    push!(out, length(cm.steps))
+    for e in cm.steps
+        push!(out, e.from, e.to)
+        metabolites!(e.taken_up)
+        metabolites!(e.given_off)
+        push!(out, e.rapid_equilibrium, e.group)
+    end
+    symbols!(states)
+    push!(out, oligomeric_state, length(sites))
+    for s in sites
+        symbols!(s.ligands)
+        push!(out, s.multiplicity)
+        symbols!(s.allosteric_states)
+    end
+    Tuple(out)
+end
+
+"""A Sig read from its start: a struct, not captured variables, so nothing is boxed."""
+mutable struct _SigReader
+    sig::Vector{Int}
+    at::Int
+end
+_next!(r::_SigReader) = r.sig[r.at += 1]
+
+"""The mechanism whose Sig is `sig`, splatted, built by the constructors, which check it:
+a plain mechanism when the Sig holds no allosteric state. The varargs method compiles
+once, whatever the Sig length, as long as callers splat a Sig whose length their code
+leaves open."""
+function _mechanism_from_sig(sig::Int...)
+    r = _SigReader(collect(sig), 0)
+    names = [Symbol(String([Char(_next!(r)) for _ in 1:_next!(r)])) for _ in 1:_next!(r)]
+    name() = names[_next!(r)]
+    symbols() = Symbol[name() for _ in 1:_next!(r)]
+    metabolites() = Mechanisms.Metabolite[Mechanisms.Metabolite(name(), _next!(r) == 1)
+                                          for _ in 1:_next!(r)]
+    substrates = symbols()
+    products = symbols()
+    forms = [Mechanisms.EnzymeForm(name(), metabolites(), symbols(), symbols())
+             for _ in 1:_next!(r)]
+    steps = [Mechanisms.Step(_next!(r), _next!(r), metabolites(), metabolites(),
+                             _next!(r) == 1, _next!(r))
+             for _ in 1:_next!(r)]
+    m = Mechanisms.Mechanism(substrates, products, forms, steps)
+    states = symbols()
+    oligomeric_state = _next!(r)
+    sites = [Mechanisms.RegulatorySite(symbols(), _next!(r), symbols())
+             for _ in 1:_next!(r)]
+    isempty(states) ? m :
+        Mechanisms.AllostericMechanism(m, states, oligomeric_state, sites)
+end
+
+"""The rate law of the mechanism whose Sig (`_sig_of`) is `Sig`, as a function
+(`compile_rate_equation`). Its only parameter is the Sig, so equal mechanisms share one
 instance and its call is generated once per mechanism."""
-struct _CompiledRateEquation{M <: Mechanisms.AbstractEnzymeMechanism} end
+struct _CompiledRateEquation{Sig} end
+
+"""The mechanism whose compiled rate law has the type `R`, decoded from its Sig
+(`_mechanism_from_sig`) and checked as `check_valid_rate_equation` checks it, without the
+memo (`_well_posed`): what the law's generated methods derive from. It reads the Sig off
+`R` at run time, so it and the decoder compile once, whatever the mechanism."""
+_derivation_input(@nospecialize(R::Type{<:_CompiledRateEquation})) =
+    _well_posed(_mechanism_from_sig(R.parameters[1]...))
 
 """
     compile_rate_equation(m) -> rate
@@ -226,7 +335,8 @@ julia> m = @enzyme_mechanism begin
            end
        end;
 
-julia> rate = compile_rate_equation(m);
+julia> rate = compile_rate_equation(m)
+compiled rate equation
 
 julia> parameters(rate)
 (:K_EP_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
@@ -237,20 +347,27 @@ julia> rate((S = 1.0, P = 0.5), params, 4.0)
 0.65625
 ```
 """
-compile_rate_equation(m::Mechanisms.AbstractEnzymeMechanism) =
-    _CompiledRateEquation{typeof(m)}()
-compile_rate_equation(m::_AnyMech) = compile_rate_equation(Mechanisms.compile_mechanism(m))
+compile_rate_equation(m::_AnyMech) = _CompiledRateEquation{_sig_of(m)}()
 
-# The type parameter's name holds `_`, as no metabolite name does, and the body reads every
-# input by name, so a metabolite named `M` reads as a concentration.
-@generated function (::_CompiledRateEquation{M_type})(concs::NamedTuple, params::NamedTuple,
-                                                     Keq::Real) where {M_type}
+# In each generator, the argument `compiled_law` is the law's type. Its name holds `_`, as
+# no metabolite name does, and the body reads every input by name, so a metabolite named
+# like it reads as a concentration.
+@generated function (compiled_law::_CompiledRateEquation)(concs::NamedTuple,
+                                                         params::NamedTuple, Keq::Real)
     # The generator decodes the mechanism and checks its rate law once
     # (`_derivation_input`).
-    _rate_body(_derivation_input(M_type))
+    _rate_body(_derivation_input(compiled_law))
 end
 
 # `Fitting.loss!` builds its `NamedTuple`s from these names, so they must be compile-time
-# constants: both read `M`'s generated methods.
-parameters(::_CompiledRateEquation{M}) where {M} = parameters(M())
-Mechanisms.metabolites(::_CompiledRateEquation{M}) where {M} = Mechanisms.metabolites(M())
+# constants: each is generated from the Sig, once per mechanism. The metabolites need no
+# check of the law.
+@generated parameters(compiled_law::_CompiledRateEquation) =
+    Tuple(_solve(_derivation_input(compiled_law)).fitted)
+@generated Mechanisms.metabolites(compiled_law::_CompiledRateEquation) =
+    Tuple(Mechanisms.metabolites(_mechanism_from_sig(compiled_law.parameters[1]...)))
+
+# A compiled law prints one line whatever its mechanism; `@nospecializeinfer` keeps a caller
+# compiled for one law, such as `sprint`, from inferring a show for that law.
+Base.@nospecializeinfer Base.show(io::IO, @nospecialize(rate::_CompiledRateEquation)) =
+    print(io, "compiled rate equation")

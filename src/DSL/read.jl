@@ -596,8 +596,8 @@ end
 The mechanism that `raw`, the walker's value for a mechanism block (`raw_mechanism`),
 writes, checked: the constructors (`_construct`) and the boundary check
 (`check_valid_rate_equation`) check the mechanism.
-The macros (`_compiled_mechanism`) and the parser (`parse_mechanism`) build every
-mechanism through it, so they accept the same mechanisms.
+The macros' expansion and the parser (`parse_mechanism`) build every mechanism through
+it, so they accept the same mechanisms, and its checks run when the expanded code runs.
 """
 function _checked_mechanism(raw::NamedTuple)
     m = _construct(raw)

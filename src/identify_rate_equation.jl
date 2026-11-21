@@ -82,14 +82,14 @@ end
 Results from `identify_rate_equation`.
 
 # Fields
-- `best`: the selected `AbstractEnzymeMechanism` (1-SE rule on the LOOCV
-  scores; see Model selection in `identify_rate_equation`)
+- `best`: the selected mechanism, a `Mechanism` or an `AllostericMechanism` (1-SE rule
+  on the LOOCV scores; see Model selection in `identify_rate_equation`)
 - `cv_results`: `DataFrame` with LOOCV results for
   top candidates per param count; the same table as `loocv_results.csv`, so its
   `rate_equation` column holds the law without its coefficient values
 """
 struct IdentifyRateEquationResults
-    best::Mechanisms.AbstractEnzymeMechanism
+    best::_AnyMech
     cv_results::DataFrame
 end
 
@@ -1085,7 +1085,6 @@ function _cv_model_selection(
 
     best_row_idx = _select_best_row(cv_df; se_threshold)
     best = candidates[best_row_idx]
-    best_mechanism = Mechanisms.compile_mechanism(best.candidate.mechanism)
 
     # Flatten per-fold scores into one column per held-out group.
     # Group order matches the `groups = unique(prob.rate_data.data.group)` iteration above.
@@ -1094,7 +1093,7 @@ function _cv_model_selection(
     end
 
     _progress(save_dir, show_progress,
-        "Selected: $(nameof(typeof(best_mechanism))) " *
+        "Selected: $(nameof(typeof(best.candidate.mechanism))) " *
         "(key=$(best.key)), n_params=$(best.n_params)")
 
     # Save the LOOCV table and the selected best equation alongside the
@@ -1106,7 +1105,7 @@ function _cv_model_selection(
         best.candidate.mechanism; coefficients = true)]
     _write_csv(save_dir, "best_equation.csv", best_df)
 
-    return IdentifyRateEquationResults(best_mechanism, cv_df)
+    return IdentifyRateEquationResults(best.candidate.mechanism, cv_df)
 end
 
 """

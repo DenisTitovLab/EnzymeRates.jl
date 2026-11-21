@@ -23,7 +23,7 @@ end
 
 @testset "graph accessors: random-order bi-bi" begin
     M = ER.Mechanisms
-    m = ER.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -33,7 +33,7 @@ end
             E(P, Q) <--> E(Q) + P
             E(Q) <--> E + Q
         end
-    end)
+    end
     @test M.catalytic(m) === m
 
     # Form numbers follow canonical form: free E, then the forms by their bound
@@ -76,7 +76,7 @@ end
 
 @testset "graph accessors: allosteric uni-uni" begin
     M = ER.Mechanisms
-    am = ER.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         allosteric_regulators: R
@@ -87,7 +87,7 @@ end
             E(P) ⇌ E + P      :: EqualAI
         end
         regulatory_site(2): R::OnlyI
-    end)
+    end
     m = M.catalytic(am)
     @test m isa ER.Mechanism
 
@@ -133,7 +133,7 @@ end
 @testset "graph accessors: conformations and chemistry" begin
     M = ER.Mechanisms
     # Uni-uni through a second free form F: S binds straight into the product-bound form.
-    m = ER.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -141,7 +141,7 @@ end
             F(P) ⇌ F + P
             E <--> F
         end
-    end)
+    end
     # Canonical form numbers the forms E, F, F(P). It stores the isomerization from F,
     # where only products enter or leave, to E, where only substrates do: against its
     # writing.
@@ -155,7 +155,7 @@ end
           [[:S], Symbol[], [:P]]
 
     # A Theorell–Chance step takes up B and gives off P: chemistry, no binding.
-    tc = ER.Mechanism(@enzyme_mechanism begin
+    tc = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -163,7 +163,7 @@ end
             E(A) + B <--> E(Q) + P
             E(Q) <--> E + Q
         end
-    end)
+    end
     # Canonical form numbers the forms E, E(A), E(Q) and stores the steps E + A → E(A),
     # E + Q → E(Q), E(A) + B → E(Q) + P.
     @test [(e.from, e.to) for e in tc.steps] == [(1, 2), (1, 3), (2, 3)]
@@ -172,7 +172,7 @@ end
 
     # A merged complex entered by the last substrate: a fused binding; the isomerization
     # and the plain binding of the product release keep their kinds.
-    fused = ER.Mechanism(@enzyme_mechanism begin
+    fused = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -181,14 +181,14 @@ end
             E(P, Q) ⇌ E(Q) + P
             E(Q) ⇌ E + Q
         end
-    end)
+    end
     @test sort([fused.step_kinds[k] for k in eachindex(fused.steps)]) ==
           [:binding, :binding, :binding, :fused_binding]
 end
 
 @testset "graph accessors: a ping-pong's residual" begin
     M = ER.Mechanisms
-    m = ER.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -197,7 +197,7 @@ end
             E(; residual = A - P) + B <--> E(B; residual = A - P)
             E(B; residual = A - P) <--> E + Q
         end
-    end)
+    end
     # Canonical form numbers the forms E, E(; residual = A - P), E(A),
     # E(B; residual = A - P): forms of one label sort by their bound metabolites, the
     # empty list first.
@@ -222,7 +222,7 @@ end
             E(P) ⇌ E + P
         end
     end
-    m = ER.Mechanism(em)
+    m = em
     # Canonical form numbers the forms E, E(P), E(S), E(S, S::Mod) and sorts the steps
     # E + P → E(P), E + S → E(S), E(S) → E(P), E(S) + S::Mod → E(S, S::Mod).
     ESS = m.nodes[4].bound
@@ -242,11 +242,11 @@ end
     @test all(x -> x.modifier, m.steps[4].taken_up)
     @test isempty(filter(x -> x.modifier, m.steps[2].taken_up))
 
-    # Two reads of one mechanism agree, and a form of another mechanism compares by content.
-    other = ER.Mechanism(em)
+    # A copy of one mechanism agrees, and a form of another mechanism compares by content.
+    other = deepcopy(em)
     @test other.nodes[4].bound == ESS && hash(other.nodes[4].bound) == hash(ESS)
     @test other.nodes[3].bound != ESS
-    uniuni = ER.Mechanism(@enzyme_mechanism begin
+    uniuni = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
@@ -254,13 +254,13 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     @test uniuni.nodes[3].bound == m.nodes[3].bound
 end
 
 @testset "step_text and form_text: steps and forms as the macros write them" begin
     M = ER.Mechanisms
-    m = ER.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -270,7 +270,7 @@ end
             E(P, Q) <--> E(Q) + P
             E(Q) <--> E + Q
         end
-    end)
+    end
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q) and stores
     # each step the way the graph gives it, a release as the binding it reverses.
     @test [M.form_text(m, x) for x in eachindex(m.nodes)] ==
@@ -279,7 +279,7 @@ end
           ["E + A ⇌ E(A)", "E + B ⇌ E(B)", "E + Q <--> E(Q)", "E(A) + B ⇌ E(A, B)",
            "E(A, B) <--> E(P, Q)", "E(B) + A ⇌ E(A, B)", "E(Q) + P <--> E(P, Q)"]
     # A residual and a modifier copy.
-    pingpong = ER.Mechanism(@enzyme_mechanism begin
+    pingpong = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -288,10 +288,10 @@ end
             E(; residual = A - P) + B <--> E(B; residual = A - P)
             E(B; residual = A - P) <--> E + Q
         end
-    end)
+    end
     @test [M.form_text(pingpong, x) for x in eachindex(pingpong.nodes)] ==
           ["E", "E(; residual = A - P)", "E(A)", "E(B; residual = A - P)"]
-    inhibited = ER.Mechanism(@enzyme_mechanism begin
+    inhibited = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: S
@@ -301,14 +301,14 @@ end
             E(S) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     @test M.form_text(inhibited, 4) == "E(S, S::Mod)"
     @test M.step_text(inhibited, 4) == "E(S) + S::Mod ⇌ E(S, S::Mod)"
 end
 
 @testset "toward_products: a ping-pong's half-reactions" begin
     M = ER.Mechanisms
-    m = ER.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -317,7 +317,7 @@ end
             E(; residual = A - P) + B <--> E(B; residual = A - P)
             E(B; residual = A - P) <--> E + Q
         end
-    end)
+    end
     # Each step is stored as its uptake: E + A → E(A), E + Q → E(B; residual = A - P),
     # E(; residual = A - P) + P → E(A), E(; residual = A - P) + B → E(B; residual = A - P).
     # The releases of P and Q run toward products against their stored direction; the

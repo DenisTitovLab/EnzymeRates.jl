@@ -120,7 +120,7 @@ end
     # single segment and both conformations weigh free E 1. The cross-weight regime, where
     # free E's weight differs between the conformations (fA ≠ fI), needs a steady-state
     # :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA gate below.
-    am = ER.AllostericMechanism(onlyA)
+    am = onlyA
     A = ER.Derivation._law(am)
     # single active segment
     @test A.active.trees[1] * A.active.shift == one(ER.Derivation._Poly)
@@ -695,7 +695,7 @@ end
             E + Q ⇌ E(Q)                                          :: EqualAI
         end
     end
-    @test all(_testhelper_admission_agreement(ER.AllostericMechanism(both);
+    @test all(_testhelper_admission_agreement(both;
                                               rng = MersenneTwister(663), corners = true))
     _testhelper_check_law_against_limit(both)
     _testhelper_check_law_against_oracle(both)
@@ -864,7 +864,7 @@ end
         end
     end
     _testhelper_check_law_against_oracle(half2_ss)
-    am = ER.AllostericMechanism(half2_ss)
+    am = half2_ss
 
     inactive = ER.Derivation._law(am).inactive
     @test !iszero(inactive.trees[1] * inactive.shift)

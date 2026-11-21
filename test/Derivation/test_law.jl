@@ -36,7 +36,7 @@ end
 @testset "rate_equation_term_count is segments times spanning trees" begin
     n_plain = 0
     for spec in MECHANISM_TEST_SPECS
-        m = _testhelper_lift(spec.mechanism)
+        m = spec.mechanism
         m isa EnzymeRates.Mechanism || continue
         n_plain += 1
         mask = trues(length(m.steps))
@@ -44,7 +44,7 @@ end
               Int(_testhelper_laplacian_tree_count(m, mask))
     end
     @test n_plain == 31
-    random_bibi = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    random_bibi = @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
         steps: begin
@@ -58,22 +58,22 @@ end
             E(P1) <--> E + P1
             E(P2) <--> E + P2
         end
-    end)
+    end
     @test EnzymeRates.Derivation.rate_equation_term_count(random_bibi) === 336
-    one_segment = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    one_segment = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E + P
         end
-    end)
+    end
     @test EnzymeRates.Derivation.rate_equation_term_count(one_segment) === 1
 end
 
 @testset "the plain law equals the exact steady state on every plain spec" begin
     for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
-        m = _testhelper_lift(spec.mechanism)
+        m = spec.mechanism
         m isa EnzymeRates.Mechanism || continue
         @testset "$(spec.name)" begin
             L = EnzymeRates.Derivation._law(m)
@@ -92,7 +92,7 @@ end
 @testset "a plain law is H times a positive polynomial in lowest terms" begin
     rng = Random.MersenneTwister(7)
     for spec in MECHANISM_TEST_SPECS
-        m = _testhelper_lift(spec.mechanism)
+        m = spec.mechanism
         m isa EnzymeRates.Mechanism || continue
         @testset "$(spec.name)" begin
             L = EnzymeRates.Derivation._law(m)
@@ -119,7 +119,7 @@ end
     # constants both conformations share (:EqualAI); the inactive mask keeps all three
     # steps, the binding under its inactive constant. Both laws number their variables
     # alike: the mechanism's concentrations, the solve's independents, then Keq.
-    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -128,16 +128,16 @@ end
             E(S) <--> E + P         :: EqualAI
             E + I ⇌ E(I)            :: OnlyI
         end
-    end)
-    mm = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    end
+    mm = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E + P
         end
-    end)
-    competitive = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    end
+    competitive = @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: I
@@ -146,7 +146,7 @@ end
             E(S) <--> E + P
             E + I ⇌ E(I)
         end
-    end)
+    end
     s = EnzymeRates.Derivation._solve(am)
     cm, mets = EnzymeRates.Mechanisms.catalytic(am), EnzymeRates.metabolites(am)
     active = EnzymeRates.Derivation._law(
@@ -176,7 +176,7 @@ end
     # Written backwards: every step the other way round, in the reverse order, which
     # canonical form gives back.
     for spec in MECHANISM_TEST_SPECS
-        m = _testhelper_lift(spec.mechanism)
+        m = spec.mechanism
         m isa EnzymeRates.Mechanism || continue
         back = EnzymeRates.Mechanism(m.substrates, m.products, m.nodes,
                                      reverse(_testhelper_turned.(m.steps)))
@@ -184,7 +184,7 @@ end
     end
     # A same-model regrouping: the binding square ties B's two dissociation constants,
     # so tying them as one group as well leaves the model and its fitted names alone.
-    folded = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    folded = @enzyme_mechanism begin
         substrates: A, B
         products: P
         steps: begin
@@ -194,8 +194,8 @@ end
             E(A, B) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
-    tied = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    end
+    tied = @enzyme_mechanism begin
         substrates: A, B
         products: P
         steps: begin
@@ -204,7 +204,7 @@ end
             E(A, B) <--> E(P)
             E(P) ⇌ E + P
         end
-    end)
+    end
     @test folded != tied
     @test EnzymeRates.Derivation._solve(folded).fitted ==
           EnzymeRates.Derivation._solve(tied).fitted
@@ -213,7 +213,7 @@ end
 
 @testset "plain laws satisfy detailed balance" begin
     for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
-        m = _testhelper_lift(spec.mechanism)
+        m = spec.mechanism
         m isa EnzymeRates.Mechanism || continue
         L = EnzymeRates.Derivation._law(m)
         rng = Random.MersenneTwister(600 + i)
@@ -267,7 +267,7 @@ end
 @testset "_law refuses a mask whose steady-state steps leave its segments apart" begin
     # The mask keeps two steady-state steps that share no form, so the segment graph has
     # no spanning tree: V×τ is 0, which the cap lets through, and the engine refuses.
-    m = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -277,7 +277,7 @@ end
             E(P, Q) <--> E(Q) + P
             E(Q) <--> E + Q
         end
-    end)
+    end
     mask = BitVector([EnzymeRates.Mechanisms.step_text(m, k) in ("E + A <--> E(A)",
                                                                   "E(Q) + P <--> E(P, Q)")
                       for k in eachindex(m.steps)])
@@ -291,7 +291,7 @@ end
 @testset "_law refuses a law over the term cap" begin
     # The mechanism of "Rate equation too large error" (test_rate_eq_derivation.jl):
     # 11 forms, 16 steps, V×τ about 29,000.
-    m_manual = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    m_manual = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         modifiers: R1
@@ -313,7 +313,7 @@ end
             F(R1) + B <--> F(B, R1)
             F(B, R1) <--> E(R1) + Q
         end
-    end)
+    end
     @test EnzymeRates.Derivation.rate_equation_term_count(m_manual) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     err = @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
@@ -336,14 +336,14 @@ end
         EnzymeRates.Derivation._Solve(s.columns, s.names, s.column, s.independents,
                                       [big_power; s.dependents[2:end]], s.info, s.fitted)
     end
-    mm = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    mm = @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S <--> E(S)
             E(S) <--> E + P
         end
-    end)
+    end
     bad = _testhelper_overflowing(EnzymeRates.Derivation._solve(mm))
     err = @test_throws ErrorException EnzymeRates.Derivation._law(mm, bad,
                                                                   trues(length(mm.steps)))
@@ -351,7 +351,7 @@ end
                                     "leaves Int64 arithmetic")
     @test endswith(err.value.msg, sprint(show, mm))
     # An MWC law's message names the allosteric mechanism, not its catalytic graph.
-    am = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
+    am = @allosteric_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 2
@@ -360,7 +360,7 @@ end
             E(S) <--> E(P)     :: NonequalAI
             E + P ⇌ E(P)       :: EqualAI
         end
-    end)
+    end
     bad = _testhelper_overflowing(EnzymeRates.Derivation._solve(am))
     err = @test_throws ErrorException EnzymeRates.Derivation._law(am, bad)
     @test startswith(err.value.msg, "internal error: the rate law of this mechanism " *
@@ -377,11 +377,11 @@ end
     # conformation and combined, and the fitted names count the declared dimension. A
     # second derivation gives an equal law with an equal hash.
     specs = [s for s in MECHANISM_TEST_SPECS
-             if s.mechanism isa EnzymeRates.AllostericEnzymeMechanism]
+             if s.mechanism isa EnzymeRates.AllostericMechanism]
     @test length(specs) == 11
     for (i, spec) in enumerate(specs)
         @testset "$(spec.name)" begin
-            am = _testhelper_lift(_testhelper_single_subunit(spec.mechanism))
+            am = _testhelper_single_subunit(spec.mechanism)
             s = EnzymeRates.Derivation._solve(am)
             A = EnzymeRates.Derivation._law(am, s)
             rng = Random.MersenneTwister(i)
@@ -442,7 +442,7 @@ end
             end
         end))
     for (n, em) in enumerate(mechs)
-        am = _testhelper_lift(em)
+        am = em
         s = EnzymeRates.Derivation._solve(am)
         A = EnzymeRates.Derivation._law(am, s)
         @test A.n == n
@@ -502,7 +502,7 @@ end
             E + P ⇌ E(P)      :: OnlyA
         end
     end
-    am = _testhelper_lift(inert)
+    am = inert
     @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(am))
     s = EnzymeRates.Derivation._solve(am)
     A = EnzymeRates.Derivation._law(am, s)
@@ -567,7 +567,7 @@ end
             E(P) + B <--> E(B, P)    :: EqualAI
         end
     end
-    am = _testhelper_lift(em)
+    am = em
     cm = am.catalytic
     amask, imask = EnzymeRates.Mechanisms.steps_in_active_conformation(am),
         EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)

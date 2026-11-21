@@ -93,7 +93,7 @@ end
     @test _testhelper_step_text.(Ref(g), g.steps) ==
           ["E + I ⇌ EI", "ES + I ⇌ EIS", "E + P ⇌ EP", "E + S ⇌ ES", "ES <--> EP",
            "ES + P ⇌ EPmodS"]
-    @test _testhelper_graph(EnzymeRates.Mechanism(plain)) == g
+    @test _testhelper_graph(plain) == g
 
     # A ping-pong: the residual forms sort by their bound metabolites, the residual-only
     # form before E(A), and each half-reaction's isomerization runs to the product side.
@@ -139,7 +139,7 @@ end
     @test (g.tags, g.inactive, g.oligomeric_state, g.sites) ==
           (Symbol[], Int[], nothing, [])
     @test (g.substrates, g.products, g.modifiers) == ([:A, :B], [:P, :Q], Symbol[])
-    @test _testhelper_graph(EnzymeRates.Mechanism(pingpong)) == g
+    @test _testhelper_graph(pingpong) == g
 
     # A Theorell–Chance step takes up B and gives off P in one step, so its `released`
     # holds a name; it runs the way the reaction does, B in and P out.
@@ -227,7 +227,7 @@ end
           [(multiplicity = 2, ligands = [:R1, :R2], allosteric_states = [:OnlyI, :EqualAI]),
            (multiplicity = 1, ligands = [:R3], allosteric_states = [:NonequalAI])]
     @test (g.substrates, g.products, g.modifiers) == ([:S], [:P], [:I])
-    @test _testhelper_graph(EnzymeRates.AllostericMechanism(allo)) == g
+    @test _testhelper_graph(allo) == g
 end
 
 @testset "Exact steady-state oracle" begin
@@ -281,8 +281,7 @@ end
     @testset "rejects a disconnected network" begin
         # Two enzymes that never meet have no single steady state. The constructor
         # rejects their network; the canonical graph of the walker's raw value, which no
-        # constructor check has read, holds it, and the oracle rejects it too, concrete
-        # or compiled.
+        # constructor check has read, holds it, and the oracle rejects it too.
         @test_throws(ErrorException("Mechanism: the steps do not form one connected " *
                                     "graph; no steps lead from free E to F"),
                      @enzyme_mechanism begin
@@ -306,14 +305,12 @@ end
                 F(S) <--> F + P
             end
         end), false)).mechanism
-        for m in (two_enzymes, EnzymeRates.compile_mechanism(two_enzymes))
-            point = _testhelper_consistent_point(m, Random.MersenneTwister(1))
-            @test_throws(ErrorException("_testhelper_steady_state_rate: the network of " *
-                                        "4 enzyme forms is disconnected, so its steady " *
-                                        "state is not unique"),
-                         _testhelper_steady_state_rate(m, point,
-                                                       Dict(:S => big(1), :P => big(1))))
-        end
+        point = _testhelper_consistent_point(two_enzymes, Random.MersenneTwister(1))
+        @test_throws(ErrorException("_testhelper_steady_state_rate: the network of " *
+                                    "4 enzyme forms is disconnected, so its steady " *
+                                    "state is not unique"),
+                     _testhelper_steady_state_rate(two_enzymes, point,
+                                                   Dict(:S => big(1), :P => big(1))))
     end
 
     @testset "the two conformations combine at the flip ratio L" begin
@@ -361,13 +358,13 @@ end
                 F + S <--> E(S)
             end
         end
-        dep, _ = _testhelper_dependent_param_exprs(typeof(half))
+        dep, _ = _testhelper_dependent_param_exprs(half)
         @test any(ex -> occursin("Keq ^ -1//2", string(ex)), values(dep))
         _testhelper_check_law_against_oracle(half)
         # A 1% error in Keq moves the dependent constant, and the oracle sees it.
         rng = Random.MersenneTwister(3)
         point = setprecision(() -> _testhelper_consistent_point(half, rng), BigFloat, 256)
-        fitted = _testhelper_dependent_param_exprs(typeof(half))[2]
+        fitted = _testhelper_dependent_param_exprs(half)[2]
         params = Dict{Symbol, BigFloat}(k => point.vals[k] for k in fitted)
         params[:Keq] = point.Keq * big"1.01"
         concs = Dict{Symbol, BigFloat}(:S => big"0.7", :P => big"1.3")
@@ -541,7 +538,7 @@ const _testhelper_sample_regroupings =
             regulatory_site(2): R::EqualAI
         end
         dep, indep =
-            _testhelper_dependent_param_exprs(EnzymeRates.AllostericMechanism(b10))
+            _testhelper_dependent_param_exprs(b10)
         @test :K_Rreg in indep
         @test !any(k -> occursin("Rreg", string(k)), keys(dep))
         _testhelper_check_law_against_oracle(b10)
@@ -600,7 +597,7 @@ end
     @test EnzymeRates.Derivation._guard(r2) == EnzymeRates.Derivation._WELL_POSED
     @test all(_testhelper_admission_agreement(r2; rng = Random.MersenneTwister(551),
                                               corners = true))
-    _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(r2))
+    _testhelper_check_law_against_limit(r2)
     mm = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -609,14 +606,14 @@ end
             E(S) <--> E + P
         end
     end
-    @test mm == EnzymeRates.Mechanism(@enzyme_mechanism begin
+    @test mm == @enzyme_mechanism begin
         substrates: S
         products: P
         steps: begin
             E + S ⇌ E(S)
             E(S) <--> E + P
         end
-    end)
+    end
 end
 
 @testset "the oracle's faces follow the spec's list" begin
@@ -839,7 +836,7 @@ end
     @test EnzymeRates.Derivation._guard(r4) == EnzymeRates.Derivation._WELL_POSED
     @test all(_testhelper_admission_agreement(r4; rng = Random.MersenneTwister(32),
                                               corners = true))
-    _testhelper_check_law_against_limit(EnzymeRates.compile_mechanism(r4))
+    _testhelper_check_law_against_limit(r4)
     # R2 read as the guard's built readings read it, F <--> E stopped: its ε-path converges
     # at the interior and at zero S, and at zero P depends on how fast F <--> E vanishes.
     # The guard admits R2 under another reading ("the unguarded macro builds what the
@@ -977,7 +974,7 @@ end
     # A plain mechanism's ε-network is its law network, so class 2 must flag exactly the
     # cycles the moves' test flags: on each plain spec and population member as written,
     # with one more kinetic group at rapid equilibrium, and with every step at it.
-    plain = [m for m in [[_testhelper_lift(s.mechanism) for s in MECHANISM_TEST_SPECS];
+    plain = [m for m in [[s.mechanism for s in MECHANISM_TEST_SPECS];
                          _testhelper_population_sample] if m isa EnzymeRates.Mechanism]
     found = Bool[]
     for m in plain
@@ -1046,8 +1043,8 @@ end
                                              (:bibi, (E_, E_, E_, N_, E_, N_), 2),
                                              (:uu_ss, (E_, E_, E_, N_), 3)))
         m = eval(Meta.parse(_testhelper_iso_text(family, tags; n)))
-        am = EnzymeRates.AllostericMechanism(m)
-        fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
+        am = m
+        fitted = _testhelper_dependent_param_exprs(m)[2]
         rng = Random.MersenneTwister(100 + i)
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
         exact = setprecision(() -> _testhelper_protomer_rate(am, point, concs; n),
@@ -1057,10 +1054,10 @@ end
     end
     # A flip at the other free form gives another law: the law tells the flip form.
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, N_))))
-    am = EnzymeRates.AllostericMechanism(m)
+    am = m
     eprime = only(f for f in 2:length(am.catalytic.nodes)
                   if EnzymeRates.Mechanisms._is_free(am.catalytic.nodes[f]))
-    fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
+    fitted = _testhelper_dependent_param_exprs(m)[2]
     rng = Random.MersenneTwister(201)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -1075,13 +1072,13 @@ end
     # r_c = [D_c]/[E_c]. So L means [E_I]/[E_A].
     m = eval(Meta.parse(_testhelper_iso_text(:uu_ss, (E_, E_, E_, E_);
                                              extra = "D ⇌ E :: NonequalAI")))
-    am = EnzymeRates.AllostericMechanism(m)
+    am = m
     cm = am.catalytic
     d = only(f for f in 2:length(cm.nodes)
              if EnzymeRates.Mechanisms._is_free(cm.nodes[f]) &&
                 cm.nodes[f].conformation === :D)
     kd = only(j for (j, e) in enumerate(cm.steps) if Set((e.from, e.to)) == Set((1, d)))
-    fitted = _testhelper_dependent_param_exprs(typeof(m))[2]
+    fitted = _testhelper_dependent_param_exprs(m)[2]
     rng = Random.MersenneTwister(202)
     for _ in 1:3
         point, concs, params = _testhelper_law_inputs(am, fitted, rng)
@@ -1114,12 +1111,12 @@ end
 
 @testset "an admitted :OnlyI mechanism compiles to its law" begin
     # The eleven fixtures the guard admits (all but the inhibitor bridge and the essential
-    # activator): the compiled mechanism fits the constants its concrete law reads, and
-    # its Float64 compiled law equals that law at a consistent point.
+    # activator): the mechanism fits the constants its law reads, and its Float64
+    # compiled law equals that law at a consistent point.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         label in (:copy_group_bridge, :essential_activator) && continue
         @testset "$label" begin
-            em = EnzymeRates.compile_mechanism(am)
+            em = am
             fitted = _testhelper_dependent_param_exprs(am)[2]
             @test parameters(em) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,

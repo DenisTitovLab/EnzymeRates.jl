@@ -34,14 +34,6 @@ end
 holds no fault (`_check_verdict`)."""
 _well_posed(m) = (_check_verdict(m, _guard(m)); m)
 
-"""The concrete mechanism the compiled type `M` encodes (`Mechanism(em)`,
-`AllostericMechanism(aem)`), checked as `check_valid_rate_equation` checks it, without the
-memo (`_well_posed`): the input of every derivation entry."""
-_derivation_input(@nospecialize(M::Type{<:Mechanisms.EnzymeMechanism})) =
-    _well_posed(Mechanisms.Mechanism(M()))
-_derivation_input(@nospecialize(M::Type{<:Mechanisms.AllostericEnzymeMechanism})) =
-    _well_posed(Mechanisms.AllostericMechanism(M()))
-
 # ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
 
 """
