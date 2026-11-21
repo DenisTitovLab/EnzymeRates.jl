@@ -1078,7 +1078,7 @@ load-bearing. The merged site reuses one site's `multiplicity` (equal to
 `oligomeric_state`), and the `RegulatorySite` constructor sorts its
 ligands by name, so two merge routes reaching the same ligand partition produce
 `==` mechanisms and dedup by `hash`. Regulator type is not enforced here;
-`expand_mechanisms` drops every child that fails `_respects_reg_type`.
+`candidate_mechanisms` drops every child that fails `_respects_reg_type`.
 """
 function _expand_merge_regulatory_sites(am::Mechanisms.AllostericMechanism)
     sites = am.regulatory_sites

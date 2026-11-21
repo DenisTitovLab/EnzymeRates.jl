@@ -176,53 +176,6 @@ _label_collision_error(c::Symbol, who::String, kind::String) =
           "conformation label.")
 
 """
-Error unless the labels of `reactants` (substrate and product names) and `modifiers`
-(names that bind as modifiers) are uniquely decodable: no string splits into labels two
-ways. Enzyme forms and their constants join the labels of the metabolites they bind
-without a separator (`_form_name`), so with `Ac`, `CoA` and `AcCoA` the forms
-E(Ac, CoA) and E(AcCoA) would share a name. Each name is its own label, but a reactant
-that also binds as a modifier does so as its copy `Xmod`, written `X::Mod`; an allosteric
-regulator binds no form, so its name takes no part. The Sardinas–Patterson test decides
-it, and the error, which `who` begins, spells both splits.
-"""
-function check_decodable_names(reactants::Vector{Symbol}, modifiers::Vector{Symbol},
-                                   who::String)
-    spelled = Dict{String, String}()
-    modifier_label(n) = n in reactants ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
-    for (label, written) in [[String(n) => String(n) for n in reactants];
-                             modifier_label.(modifiers)]
-        other = get!(spelled, label, written)
-        other == written || _spelled_twice_error([other], [written], who)
-    end
-    words = sort!(collect(keys(spelled)))
-    tail(w, prefix) = w[ncodeunits(prefix) + 1:end]
-    # Each entry holds a dangling suffix `d` and two splits: join(long) == join(short) * d.
-    queue = [(tail(v, u), [v], [u]) for u in words for v in words
-             if u != v && startswith(v, u)]
-    seen = Set{String}()
-    while !isempty(queue)
-        d, long, short = popfirst!(queue)
-        d in seen && continue
-        push!(seen, d)
-        haskey(spelled, d) && _spelled_twice_error(getindex.(Ref(spelled), [short; d]),
-                                                   getindex.(Ref(spelled), long), who)
-        for w in words
-            startswith(w, d) && push!(queue, (tail(w, d), [short; w], long))
-            startswith(d, w) && push!(queue, (tail(d, w), long, [short; w]))
-        end
-    end
-end
-
-"""Error, which `who` begins, that the label splits `a` and `b`, each a list of DSL
-spellings, spell one string."""
-function _spelled_twice_error(a::Vector{String}, b::Vector{String}, who::String)
-    spelled = join(replace.(a, "::Mod" => "mod"))
-    error("$who: $(join(a, " + ")) and $(join(b, " + ")) both spell $spelled: " *
-          "enzyme forms and their constants join the names of the metabolites they bind " *
-          "without a separator, so two forms would share a name; rename a metabolite")
-end
-
-"""
     EnzymeReaction
 
 The public concrete reaction descriptor: substrates, products, optional
@@ -230,7 +183,7 @@ regulators, and the set of oligomeric states the mechanism
 enumerator is allowed to consider. It is the entry point to the package —
 pair it with rate data in an
 [`IdentifyRateEquationProblem`](@ref EnzymeRates.IdentifyRateEquationProblem), or pass
-it to `EnzymeRates.Enumeration.init_mechanisms` to enumerate candidate mechanisms.
+it to `EnzymeRates.Enumeration.candidate_mechanisms` to enumerate candidate mechanisms.
 
 # Fields
 - `substrates::Vector{Reactant}` and `products::Vector{Reactant}` — each reactant
@@ -256,12 +209,8 @@ reason it rejects a reactant or regulator named `Keq`, `L`, `N`, `params`,
 local names of its code, a name holding `_`, since constant names join
 names with `_`, the name `E`, which labels the free enzyme form, and a name that is
 no identifier, is a keyword or reads in Julia code as another name (a micro sign as `μ`),
-which no DSL text can write. It also rejects names
-that spell one string two ways, such as
-`Ac`, `CoA` and `AcCoA`: an enzyme form's name joins the names of the
-metabolites it binds without a separator, so E with `Ac` and `CoA` bound and E
-with `AcCoA` bound would share a name. A reaction prints as the `@enzyme_reaction`
-block that builds it.
+which no DSL text can write. A reaction prints as the `@enzyme_reaction` block that
+builds it.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -318,9 +267,6 @@ struct EnzymeReaction
             "a product; concentrations and constants are keyed by name")
         _check_metabolite_names("EnzymeReaction",
                                 Symbol[sub_names; prod_names; first.(reg_keys)])
-        check_decodable_names([sub_names; prod_names],
-            Symbol[n for (n, kind) in reg_keys if kind === :competitive],
-            "EnzymeReaction")
 
         sub_set  = Set(sub_names)
         prod_set = Set(prod_names)

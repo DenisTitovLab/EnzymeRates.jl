@@ -2418,9 +2418,8 @@ end
     end
 
     @testset "a text the macros reject is rejected with their message" begin
-        # A syntax error, a constructor error, the boundary check and the decodability
-        # check, each as the macro reports it, thrown at once rather than wrapped in a
-        # LoadError.
+        # A syntax error, constructor errors and the boundary check, each as the macro
+        # reports it, thrown at once rather than wrapped in a LoadError.
         @test_throws(ErrorException("@enzyme_mechanism: `steps:` not specified."),
                      EnzymeRates.DSL.parse_mechanism("""
             @enzyme_mechanism begin
@@ -2462,11 +2461,10 @@ end
         @test macro_error isa ErrorException &&
               occursin("rapid-equilibrium segment", macro_error.msg)
         @test_throws macro_error EnzymeRates.DSL.parse_mechanism(bottomless)
-        @test_throws(ErrorException("Mechanism: Ac + CoA and AcCoA both spell AcCoA: " *
-                                    "enzyme forms and their constants join the names " *
-                                    "of the metabolites they bind without a separator, " *
-                                    "so two forms would share a name; rename a " *
-                                    "metabolite"),
+        @test_throws(ErrorException("Mechanism: the enzyme forms E(Ac, CoA) and " *
+                                    "E(AcCoA) both render the name EAcCoA; every " *
+                                    "constant is named after the forms its step joins, " *
+                                    "so rename a metabolite to tell the two forms apart"),
                      EnzymeRates.DSL.parse_mechanism("""
             @allosteric_mechanism begin
                 substrates: Ac, CoA
@@ -2482,7 +2480,7 @@ end
     end
 end
 
-@testset "DSL entry points: reaction_expr, raw_mechanism, check_uniquely_decodable" begin
+@testset "DSL entry points: reaction_expr and raw_mechanism" begin
     M, DSL = EnzymeRates.Mechanisms, EnzymeRates.DSL
     # The `EnzymeReaction` expression a block writes builds the reaction the macro builds;
     # its names resolve in `DSL`.
@@ -2532,25 +2530,6 @@ end
                          regulatory_sites = [(; ligands = [:R], multiplicity = 2,
                                               allosteric_states = [:OnlyI])])
 
-    # Names that spell every string one way pass; Ac + CoA and AcCoA spell AcCoA twice.
-    @test DSL.check_uniquely_decodable(plain) === nothing
-    @test DSL.check_uniquely_decodable(allosteric) === nothing
-    Ac, CoA, AcCoA = (M.Metabolite(x, false) for x in (:Ac, :CoA, :AcCoA))
-    EAc, EAcCoA = M.EnzymeForm(:E, [Ac], Symbol[], Symbol[]),
-                  M.EnzymeForm(:E, [Ac, CoA], Symbol[], Symbol[])
-    clash = (; substrates = [:Ac, :CoA], products = [:AcCoA], modifiers = Symbol[],
-             nodes = [E, EAc, EAc, EAcCoA, EAcCoA, E],
-             steps = [M.Step(1, 2, [Ac], M.Metabolite[], true, 1),
-                      M.Step(3, 4, [CoA], M.Metabolite[], true, 2),
-                      M.Step(5, 6, M.Metabolite[], [AcCoA], false, 3)])
-    two_ways = ErrorException(
-        "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
-        "constants join the names of the metabolites they bind without a separator, so " *
-        "two forms would share a name; rename a metabolite")
-    @test_throws two_ways DSL.check_uniquely_decodable(clash)
-    @test_throws two_ways DSL.check_uniquely_decodable(
-        (; clash..., allosteric_states = [:EqualAI, :EqualAI, :EqualAI], oligomeric_state = 1,
-         regulatory_sites = DSL._WrittenSite[]))
 
     # The constructors build the value a block writes (`_construct`) from its nodes and
     # steps; the reader checks the names under `modifiers:`, which the constructors take

@@ -312,18 +312,6 @@ const _WrittenSite = NamedTuple{(:ligands, :multiplicity, :allosteric_states),
                                 Tuple{Vector{Symbol}, Int, Vector{Symbol}}}
 
 """
-    check_uniquely_decodable(raw)
-
-Error unless the names `raw` (`raw_mechanism`) declares spell every string one way
-(`check_decodable_names`): its substrates and products, and the names under
-`modifiers:`. An allosteric mechanism's regulatory-site ligands bind no form, so they
-take no part. The macros check every mechanism they read this way before building it.
-"""
-check_uniquely_decodable(raw::NamedTuple) =
-    Mechanisms.check_decodable_names([raw.substrates; raw.products], raw.modifiers,
-                                     "Mechanism")
-
-"""
 A `regulatory_site(n): X::Tag, ...` line as written: `label` is its `regulatory_site(n)`
 call, whose one argument is the site's multiplicity, and `values` its ligand entries,
 each a name with its tag.
@@ -606,14 +594,12 @@ end
     _checked_mechanism(raw) -> Mechanism or AllostericMechanism
 
 The mechanism that `raw`, the walker's value for a mechanism block (`raw_mechanism`),
-writes, checked: its names must spell every string one way only
-(`check_uniquely_decodable`, as a reaction's are checked), then the constructors
-(`_construct`) and the boundary check (`check_valid_rate_equation`) check the mechanism.
+writes, checked: the constructors (`_construct`) and the boundary check
+(`check_valid_rate_equation`) check the mechanism.
 The macros (`_compiled_mechanism`) and the parser (`parse_mechanism`) build every
 mechanism through it, so they accept the same mechanisms.
 """
 function _checked_mechanism(raw::NamedTuple)
-    check_uniquely_decodable(raw)
     m = _construct(raw)
     Derivation.check_valid_rate_equation(m)
     m

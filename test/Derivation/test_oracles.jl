@@ -1338,19 +1338,19 @@ end
 
 # The next three testsets read one population, built in a let block around them so that the
 # collector frees it after them: the children the moves give the inhibitor declaration's
-# seeds before expand_mechanisms drops the ones the guard rejects.
+# seeds before candidate_mechanisms drops the ones the guard rejects.
 let children = [c
                 for m in EnzymeRates.Enumeration.init_mechanisms(_testhelper_inhibitor_rxn)
                 for c in _testhelper_plain_moves(m, _testhelper_inhibitor_rxn)]
 @testset "all but 34 inhibitor children pass the guard; none tags catalysis :OnlyI" begin
     # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
-    # guard but 34, which expand_mechanisms drops, and no allosteric child tags a catalytic
-    # group :OnlyI (spec section 13). Each of the 34 tags :OnlyA a fused rapid-equilibrium
-    # binding into E(P, Q), E(A) + B ⇌ E(P, Q) or E(B) + A ⇌ E(P, Q), which the inactive
-    # conformation's other steps leave between two groups: at zero A and B it runs one
-    # way into a cut-off form that fills faster than it empties (`_FILLED`). An aggregate
-    # regression pin over the declaration's whole seed set (CLAUDE.md enumeration rule 1's
-    # exception).
+    # guard but 34, which candidate_mechanisms drops, and no allosteric child tags a
+    # catalytic group :OnlyI (spec section 13). Each of the 34 tags :OnlyA a fused
+    # rapid-equilibrium binding into E(P, Q), E(A) + B ⇌ E(P, Q) or E(B) + A ⇌ E(P, Q),
+    # which the inactive conformation's other steps leave between two groups: at zero A
+    # and B it runs one way into a cut-off form that fills faster than it empties
+    # (`_FILLED`). An aggregate regression pin over the declaration's whole seed set
+    # (CLAUDE.md enumeration rule 1's exception).
     @test length(children) == 5505
     rejected = filter(!_testhelper_is_valid, children)
     @test length(rejected) == 34

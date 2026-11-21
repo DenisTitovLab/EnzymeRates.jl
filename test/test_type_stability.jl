@@ -89,8 +89,6 @@ include("type_stability_harness.jl")
 
     @testset "Mechanisms" begin
         @_testhelper_no_dispatch Mech.check_conformation_label(:A, "label")
-        @_testhelper_no_dispatch Mech.check_decodable_names(
-            ::Vector{Symbol}, ::Vector{Symbol}, "label")
         @_testhelper_no_dispatch Mech.form_text(plain_concrete, 1)
         @_testhelper_no_dispatch Mech.step_text(plain_concrete, 1)
         @_testhelper_no_dispatch Mech.has_turnover_cycle(plain_concrete, ::BitVector)
@@ -174,11 +172,11 @@ include("type_stability_harness.jl")
         @_testhelper_dispatches_in error_messages Enum.init_mechanisms(::Reaction)
         @_testhelper_dispatches_in error_messages pmap_and_tables Enum.seed_mechanisms(
             ::Reaction, ::Names, ::Names)
-        @_testhelper_dispatches_in error_messages pmap_and_tables Enum.starting_mechanisms(
-            ::Reaction, ::Names, ::Names)
+        @_testhelper_dispatches_in error_messages pmap_and_tables Enum.candidate_mechanisms(
+            ::Reaction)
+        @_testhelper_dispatches_in error_messages Enum.candidate_mechanisms(
+            ::Reaction, ::Enum.CandidateMechanism)
         for Mechs in (Plain, Allosteric, Union{Plain, Allosteric})
-            @_testhelper_dispatches_in error_messages Enum.expand_mechanisms(
-                ::Vector{Mechs}, ::Reaction)
             @_testhelper_no_dispatch Enum._is_seed_node(
                 ::Mechs, ::Reaction, ::Names, ::Names)
         end
@@ -225,7 +223,7 @@ include("type_stability_harness.jl")
 
         @_testhelper_dispatches_in value_to_type IdentifyRateEquationProblem(
             ::Reaction, plain_table, 2.0)
-        @_testhelper_no_dispatch EnzymeRates._fit_order(::EnzymeRates._Candidate)
+        @_testhelper_no_dispatch EnzymeRates._fit_order(::EnzymeRates._Pass1Record)
         # The print, the tables and the CSV are what a search's master does between sweeps.
         @_testhelper_dispatches_in(
             error_messages, value_to_type, pmap_and_tables, prints_to_stdout,
@@ -236,9 +234,8 @@ include("type_stability_harness.jl")
             identify_rate_equation(
                 ::IdentifyRateEquationProblem{typeof(plain_table)}; optimizer,
                 save_dir = "results"))
-        @testset "$form" for (form, m) in pairs(concrete_forms)
-            @_testhelper_dispatches_in error_messages EnzymeRates._pass1_record(m, 1, 1)
-        end
+        @_testhelper_dispatches_in error_messages EnzymeRates._pass1_record(
+            ::Enum.CandidateMechanism)
         # The workers pass the concrete mechanisms of the search.
         @testset "$form" for (form, m) in pairs(concrete_forms)
             @_testhelper_dispatches_in(

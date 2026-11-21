@@ -6,8 +6,7 @@ Print `m` as the `@enzyme_mechanism` text that builds it: its substrates, produc
 modifiers (the names its steps bind as modifiers), each list sorted and an empty one left
 out, then its steps (`_print_steps`). The text is a function of `m` alone, so equal
 mechanisms print one text. `DSL.parse_mechanism` reads the text of a mechanism the macros
-accept back as that mechanism: one that is well posed (`check_valid_rate_equation`) and
-whose names spell every string one way (`check_decodable_names`).
+accept back as that mechanism: one that is well posed (`check_valid_rate_equation`).
 """
 function Base.show(io::IO, m::Mechanism)
     print(io, "@enzyme_mechanism begin")

@@ -116,8 +116,8 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     #     a process that never ran init_mechanisms.
     #     Before both, the script counts the package image's `_rate_body` specializations.
     #   - fit: the identify path on bi-bi mechanisms as _process_batch and
-    #     _cross_validation_loss take it: PASS1 (`_pass1_record`: complexity, the guard,
-    #     the solve and its fitted count, the law, the printed law, and the mechanism's
+    #     _cross_validation_loss take it: PASS1 (`_pass1_record`: the guard, the solve
+    #     and its fitted count, the law, the printed law, and the mechanism's
     #     text, id and key, all on the concrete mechanism), PASS2 (FittingProblem and a
     #     CMA-ES fit) and one LOOCV fold. Encoding every seed's Sig and a full pass on the
     #     first of five written-out seeds compile everything that does not depend on the
@@ -209,9 +209,9 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             n0, b0 = _testhelper_all_instances(), Base.jit_total_bytes()
             t0 = Base.cumulative_compile_time_ns()[1]
             s0 = _testhelper_instances(methods(show))
-            rec = ER._pass1_record(m, typemax(Int), typemax(Int))
+            rec = ER._pass1_record(ER.Enumeration.CandidateMechanism(m))
             pass1 = _testhelper_all_instances() - n0
-            rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
+            rec isa ER._Pass1Record || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
             fp = FittingProblem(m, PROB.rate_data.data, PROB.rate_data.Keq;
                                 ER._fit_keywords(m, PROB)...)

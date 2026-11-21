@@ -2605,8 +2605,8 @@ end
 
 @testset "two distinct forms that render one name are rejected" begin
     # E with `star` bound and the conformation Estar with nothing bound both render
-    # :Estar, so every constant named after one form would also name the other. The
-    # reaction's names spell each name one way; the clash comes from a conformation label.
+    # :Estar, so every constant named after one form would also name the other: the clash
+    # comes from a conformation label.
     err = _testhelper_thrown() do
         ER.DSL._construct(ER.DSL.raw_mechanism(:(begin
             substrates: star
@@ -2628,12 +2628,11 @@ end
 
 @testset "two forms whose constants would share a name are rejected" begin
     # P's modifier copy bound to E and the modifier Pmod bound to E would both render the
-    # form EPmod, after which their constants are named. P::Mod and Pmod spell one name,
-    # so the macro rejects them before it builds the mechanism.
+    # form EPmod, after which their constants are named, so the constructor rejects them.
     @test_throws ErrorException(
-        "Mechanism: P::Mod and Pmod both spell Pmod: enzyme forms and their constants " *
-        "join the names of the metabolites they bind without a separator, so two forms " *
-        "would share a name; rename a metabolite") @enzyme_mechanism begin
+        "Mechanism: the enzyme forms E(P::Mod) and E(Pmod) both render the name EPmod; " *
+        "every constant is named after the forms its step joins, so rename a metabolite " *
+        "to tell the two forms apart") @enzyme_mechanism begin
         substrates: S
         products: P
         modifiers: P, Pmod
@@ -2645,12 +2644,12 @@ end
             E + Pmod ⇌ E(Pmod)
         end
     end
-    # The allosteric macro checks its catalytic names alike: E(Ac, CoA) and E(AcCoA)
-    # would both render EAcCoA.
+    # The constructor rejects an allosteric mechanism's catalytic forms alike: E(Ac, CoA)
+    # and E(AcCoA) would both render EAcCoA.
     @test_throws ErrorException(
-        "Mechanism: Ac + CoA and AcCoA both spell AcCoA: enzyme forms and their " *
-        "constants join the names of the metabolites they bind without a separator, so " *
-        "two forms would share a name; rename a metabolite") @allosteric_mechanism begin
+        "Mechanism: the enzyme forms E(Ac, CoA) and E(AcCoA) both render the name " *
+        "EAcCoA; every constant is named after the forms its step joins, so rename a " *
+        "metabolite to tell the two forms apart") @allosteric_mechanism begin
         substrates: Ac, CoA
         products: AcCoA
         allosteric_regulators: X
@@ -3351,59 +3350,6 @@ end
             end
             regulatory_site(2): A_R::EqualAI
         end)
-end
-
-@testset "a reaction's metabolite names spell each name one way" begin
-    # Enzyme forms and their constants join the names of the metabolites they bind, so a
-    # reaction is rejected when its names spell one string two ways; a reactant also
-    # declared a competitive inhibitor binds as its copy, spelled X::Mod, named Xmod.
-    _testhelper_two_ways(a, b, x) = ErrorException(
-        "EnzymeReaction: $a and $b both spell $x: enzyme forms and their constants join " *
-        "the names of the metabolites they bind without a separator, so two forms would " *
-        "share a name; rename a metabolite")
-    @test_throws _testhelper_two_ways("Ac + CoA", "AcCoA", "AcCoA") @enzyme_reaction begin
-        substrates: Ac[C], CoA[S]
-        products:   AcCoA[CS]
-    end
-    @test_throws _testhelper_two_ways("A + I", "AI", "AI") @enzyme_reaction begin
-        substrates: A[C], AI[N]
-        products:   P[CN]
-        competitive_inhibitors: I
-    end
-    # The split can take several steps to find: XY + Z and X + YZ both spell XYZ.
-    @test_throws _testhelper_two_ways("XY + Z", "X + YZ", "XYZ") @enzyme_reaction begin
-        substrates: X[C], YZ[N]
-        products:   XY[C], Z[N]
-    end
-    # A reactant's modifier copy is named Xmod.
-    @test_throws _testhelper_two_ways("P::Mod", "Pmod", "Pmod") @enzyme_reaction begin
-        substrates: S[C]
-        products:   P[C]
-        competitive_inhibitors: P, Pmod
-    end
-    @test_throws _testhelper_two_ways("X + mod", "X::Mod", "Xmod") @enzyme_reaction begin
-        substrates: X[C]
-        products:   mod[C]
-        competitive_inhibitors: X
-    end
-    # NAD and NADH spell no name two ways; with H, NAD + H spells NADH.
-    nadh = @enzyme_reaction begin
-        substrates: NAD[C]
-        products:   NADH[C]
-    end
-    @test [p.name for p in nadh.products] == [:NADH]
-    @test_throws _testhelper_two_ways("NAD + H", "NADH", "NADH") @enzyme_reaction begin
-        substrates: NAD[C], H[N]
-        products:   NADH[CN]
-    end
-    # An allosteric regulator binds no enzyme form, so its name takes no part.
-    allosteric = @enzyme_reaction begin
-        substrates: A[C]
-        products:   P[C]
-        competitive_inhibitors: I
-        allosteric_regulators: AI
-    end
-    @test [reg.name for reg in allosteric.regulators] == [:AI, :I]
 end
 
 @testset "the composition constructor retags a catalytic graph" begin

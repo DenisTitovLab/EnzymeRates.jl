@@ -8,10 +8,9 @@ import Unicode
 
 public AbstractEnzymeMechanism, AllostericEnzymeMechanism, AllostericMechanism,
     EnzymeMechanism, EnzymeReaction, Mechanism, Metabolite, EnzymeForm, Reactant, Regulator,
-    RegulatorySite, Step, catalytic, check_conformation_label, check_decodable_names,
-    compile_mechanism, form_text, has_turnover_cycle, has_unbalanced_cycle, metabolites,
-    rapid_equilibrium_segments, step_text, steps_in_active_conformation,
-    steps_in_inactive_conformation
+    RegulatorySite, Step, catalytic, check_conformation_label, compile_mechanism, form_text,
+    has_turnover_cycle, has_unbalanced_cycle, metabolites, rapid_equilibrium_segments,
+    step_text, steps_in_active_conformation, steps_in_inactive_conformation
 
 include("types.jl")
 include("accessors.jl")

@@ -491,15 +491,15 @@ function _assert_emission_rules(m::Union{Mechanisms.Mechanism,
     flux = _flux_carrying_groups(cm, _rapid_equilibrium_flags(cm))
     for (g, ks) in enumerate(members)
         cm.steps[first(ks)].rapid_equilibrium || flux[g] || error(
-            "expand_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
+            "candidate_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
             "step that carries net flux, so its two constants enter the rate only as " *
             "their ratio; write the group at rapid equilibrium")
     end
     for g in _redundant_copy_groups(m)
-        error("expand_mechanisms: kinetic group {" * label(g) * "} binds a competitive " *
-              "inhibitor only where the complex duplicates a productive form, and a " *
-              "dwell gauge absorbs its constant into the existing binding's; bind the " *
-              "inhibitor where it forms a new complex, or drop it")
+        error("candidate_mechanisms: kinetic group {" * label(g) * "} binds a " *
+              "competitive inhibitor only where the complex duplicates a productive " *
+              "form, and a dwell gauge absorbs its constant into the existing binding's; " *
+              "bind the inhibitor where it forms a new complex, or drop it")
     end
     nothing
 end

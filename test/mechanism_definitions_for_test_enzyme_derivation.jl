@@ -952,14 +952,26 @@ function _testhelper_phantom_map_holds(am; rng)
     end
 end
 
-"""The mechanisms `init_mechanisms(rxn)` seeds and `rounds` rounds of `expand_mechanisms`
-reach, without duplicates."""
+"""The candidate (`Enumeration.CandidateMechanism`) of the mechanism `m`, a `Mechanism` or
+an `AllostericMechanism`, written by hand, to hand to `candidate_mechanisms` as a
+parent."""
+_testhelper_candidate(m) = EnzymeRates.Enumeration.CandidateMechanism(m)
+
+"""The mechanisms of the children (`candidate_mechanisms`) of each mechanism of `parents`
+by every expansion move, parent by parent."""
+_testhelper_children(parents, rxn) =
+    Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
+        c.mechanism for m in parents
+        for c in EnzymeRates.Enumeration.candidate_mechanisms(rxn, _testhelper_candidate(m))]
+
+"""The mechanisms `init_mechanisms(rxn)` seeds and `rounds` rounds of expansion
+(`_testhelper_children`) reach, without duplicates."""
 function _testhelper_population(rxn, rounds)
     level = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[
         m for m in EnzymeRates.Enumeration.init_mechanisms(rxn)]
     mechs = copy(level)
     for _ in 1:rounds
-        level = unique!(EnzymeRates.Enumeration.expand_mechanisms(level, rxn))
+        level = unique!(_testhelper_children(level, rxn))
         append!(mechs, level)
     end
     unique!(mechs)
@@ -2421,8 +2433,8 @@ function _testhelper_onlyi_fixtures()
      with_OnlyA, bibi_regulator)
 end
 
-# The children of the four moves `expand_mechanisms` runs on a plain `Mechanism` `m`, in
-# its order, before its regulator-type filter and before it drops the children the
+# The children of the four moves `candidate_mechanisms` runs on a plain `Mechanism` `m`,
+# in its order, before its regulator-type filter and before it drops the children the
 # guard rejects.
 _testhelper_plain_moves(m, rxn) =
     append!(Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[],
@@ -2640,10 +2652,9 @@ function _testhelper_laplacian_tree_count(m::EnzymeRates.Mechanism, mask::BitVec
     V * det(lap[2:end, 2:end])
 end
 
-"""The rate-law key and canonical order PASS1 (`_pass1_record`, with no complexity filter
-and no parameter cap) gives the concrete mechanism `m`."""
-_testhelper_pass1_canonical(m) =
-    EnzymeRates._pass1_record(m, typemax(Int), typemax(Int)).canon
+"""The rate-law key and canonical order PASS1 (`_pass1_record`) gives the concrete
+mechanism `m`."""
+_testhelper_pass1_canonical(m) = EnzymeRates._pass1_record(_testhelper_candidate(m)).canon
 
 # ── Printed-law oracles ─────────────────────────────────────────────────────
 
@@ -5012,7 +5023,7 @@ end
 # `_expand_to_allosteric` reaches it by tagging the two substrate binding groups
 # :OnlyA with the chemistry.
 
-# The three largest rate laws among the children of one `expand_mechanisms` round over
+# The three largest rate laws among the children of one expansion round over
 # 60 bi-bi seeds: random-order merged complexes with dead-end bindings, every step steady
 # state, 396 denominator terms each.
 const _testhelper_largest_enumerated_mechanisms = [

@@ -513,11 +513,10 @@ end
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{Mechanism}
 
-Public entry point. Produces the starting mechanisms of the search for a
-reaction as concrete `Mechanism` structs: first the seeds, then their merged
-and Theorell–Chance variants. A seed is built for each catalytic topology
-(`_catalytic_topologies`) and each substrate/product dead-end subset
-(`_expand_substrate_product_dead_ends`), with one steady-state step, a
+The unregulated seeds of the search for a reaction, as concrete `Mechanism` structs:
+first the seeds, then their merged and Theorell–Chance variants. A seed is built for
+each catalytic topology (`_catalytic_topologies`) and each substrate/product dead-end
+subset (`_expand_substrate_product_dead_ends`), with one steady-state step, a
 chemistry isomerization, and the binding steps of one metabolite at one RE/SS
 flag collapsed into one kinetic group (`_seed_groups`). Dead-end
 enumeration respects `shared_catalytic_site`. The variants of each seed
@@ -675,50 +674,105 @@ function _is_seed_node(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMecha
     true
 end
 
-"""
-    starting_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
-        -> (mechanisms, failures::Vector{Tuple{Any, String}})
-
-The mechanisms the beam fits first. Both sets empty means they start from
-`init_mechanisms`; a non-empty set means they start from `seed_mechanisms`. Either way the
-base tier fits the seeds that are not degenerate and, in place of those that are, their
-flip children that are not (`_base_tier`). Each failure is a `(seed, message)` pair.
-"""
-function starting_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
-                             required_comp::Set{Symbol})
-    seeds = (isempty(required_allo) && isempty(required_comp)) ? init_mechanisms(rxn) :
-        seed_mechanisms(rxn, required_allo, required_comp)
-    _base_tier(unique(seeds), rxn)
+function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction;
+                              max_param_count::Int = typemax(Int),
+                              eq_complexity_filter::Int = typemax(Int),
+                              optional_allosteric_regulators::Vector{Symbol} = Symbol[],
+                              optional_competitive_inhibitors::Vector{Symbol} = Symbol[])
+    _check_decodable_names(reaction)
+    required_allo, required_comp = _required_regulators(
+        reaction, optional_allosteric_regulators, optional_competitive_inhibitors)
+    seeds = (isempty(required_allo) && isempty(required_comp)) ?
+        init_mechanisms(reaction) : seed_mechanisms(reaction, required_allo, required_comp)
+    _candidates(_base_tier(unique(seeds), reaction), max_param_count, eq_complexity_filter)
 end
 
-"""The first 200 characters of the message of the error `e`."""
-_exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
+"""
+    _required_regulators(rxn, optional_allosteric_regulators,
+                         optional_competitive_inhibitors)
+        -> (required_allo::Set{Symbol}, required_comp::Set{Symbol})
+
+The regulators the starting mechanisms must bind: every allosteric regulator and every
+competitive inhibitor declared in `rxn`, minus the names the caller marked optional. Both
+sets empty means the search starts from the unregulated seeds (`init_mechanisms`).
+"""
+function _required_regulators(rxn::Mechanisms.EnzymeReaction,
+                              optional_allosteric_regulators::Vector{Symbol},
+                              optional_competitive_inhibitors::Vector{Symbol})
+    required(kind, optional) = setdiff(
+        Set{Symbol}(reg.name for reg in rxn.regulators if reg.kind === kind), optional)
+    (required(:allosteric, optional_allosteric_regulators),
+     required(:competitive, optional_competitive_inhibitors))
+end
 
 """
-The mechanisms the beam fits first: every seed of `mechs` that is not degenerate
+The mechanisms the search fits first: every seed of `mechs` that is not degenerate
 (`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
 that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
 worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
 ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
 step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
-degeneracy condition reads. An expansion error is returned as a failure, one per seed,
-carrying the seed and the first 200 characters of the error. The flip search emits only
-children `_enumerator_keeps` accepts.
+degeneracy condition reads. Every flip child must conserve atoms
+(`_assert_atom_conserving`, which errors). The flip search emits only children
+`_enumerator_keeps` accepts.
 """
 function _base_tier(mechs::Vector, rxn::Mechanisms.EnzymeReaction)
     base = Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}[
         m for m in mechs if !_degenerate(m)]
-    failures = Tuple{Any, String}[]
     for m in mechs
         _degenerate(m) || continue
-        try
-            for child in _expand_re_to_ss(m)
-                _assert_atom_conserving(child, rxn)
-                _degenerate(child) || push!(base, child)
-            end
-        catch e
-            push!(failures, (m, _exc_string(e)))
+        for child in _expand_re_to_ss(m)
+            _assert_atom_conserving(child, rxn)
+            _degenerate(child) || push!(base, child)
         end
     end
-    unique(base), failures
+    unique(base)
+end
+
+"""
+Error unless the names of the metabolites `rxn` binds to an enzyme form spell every
+string one way. The enumerator names each form it builds by joining the names of the
+metabolites the form binds without a separator (`EAB`), so with `Ac`, `CoA` and `AcCoA`
+the forms with `Ac` and `CoA` bound and with `AcCoA` bound would share a name. Each
+substrate and product is its own label; a competitive inhibitor that is also a reactant
+binds as its copy, spelled `X::Mod` and named `Xmod`; an allosteric regulator binds no
+form, so its name takes no part. The Sardinas–Patterson test decides it, and the error
+spells both splits.
+"""
+function _check_decodable_names(rxn::Mechanisms.EnzymeReaction)
+    reactants = Symbol[[r.name for r in rxn.substrates]; [r.name for r in rxn.products]]
+    spelled = Dict{String, String}()
+    modifier_label(n) = n in reactants ? "$(n)mod" => "$n::Mod" : String(n) => String(n)
+    for (label, written) in [[String(n) => String(n) for n in reactants];
+                             [modifier_label(r.name) for r in rxn.regulators
+                              if r.kind === :competitive]]
+        other = get!(spelled, label, written)
+        other == written || _spelled_twice_error([other], [written])
+    end
+    words = sort!(collect(keys(spelled)))
+    tail(w, prefix) = w[ncodeunits(prefix) + 1:end]
+    # Each entry holds a dangling suffix `d` and two splits: join(long) == join(short) * d.
+    queue = [(tail(v, u), [v], [u]) for u in words for v in words
+             if u != v && startswith(v, u)]
+    seen = Set{String}()
+    while !isempty(queue)
+        d, long, short = popfirst!(queue)
+        d in seen && continue
+        push!(seen, d)
+        haskey(spelled, d) && _spelled_twice_error(getindex.(Ref(spelled), [short; d]),
+                                                   getindex.(Ref(spelled), long))
+        for w in words
+            startswith(w, d) && push!(queue, (tail(w, d), [short; w], long))
+            startswith(d, w) && push!(queue, (tail(d, w), long, [short; w]))
+        end
+    end
+end
+
+"""Error that the label splits `a` and `b`, each a list of the names as a reaction
+writes them, spell one string."""
+function _spelled_twice_error(a::Vector{String}, b::Vector{String})
+    spelled = join(replace.(a, "::Mod" => "mod"))
+    error("$(join(a, " + ")) and $(join(b, " + ")) both spell $spelled: enzyme forms and " *
+          "their constants join the names of the metabolites they bind without a " *
+          "separator, so two forms would share a name; rename a metabolite")
 end

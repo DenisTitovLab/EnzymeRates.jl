@@ -173,8 +173,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     `:NonequalAI` excludes nothing, but class 3 rejects it: at zero substrates, and at zero
     B, the covalent forms of both conformations lie on one rapid-equilibrium segment, joined
     only through free E, so the rate's limit depends on how fast each conformation's steps
-    run (`_SPLIT`, `_LIMIT_SPEED`). `expand_mechanisms` drops that child, and none of the 44
-    children above has an inactive conformation that turns the reaction over. On the
+    run (`_SPLIT`, `_LIMIT_SPEED`). `candidate_mechanisms` drops that child, and none of the
+    44 children above has an inactive conformation that turns the reaction over. On the
     three-step ping-pong, whose steps are all steady-state, the same relaxation passes.
   - **A bare tagging base is fitted only beside a regulator.**
     The tagging move emits a base only beside a declared regulator, and no move reaches the

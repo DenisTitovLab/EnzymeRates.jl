@@ -5200,7 +5200,7 @@ end
 
 @testset "every sampled census mechanism is finite on every face" begin
     # An aggregate pin over a seed set: 300 mechanisms sampled from init_mechanisms and one
-    # expand_mechanisms round of the bi-bi and ping-pong reactions.
+    # round of expansion (`candidate_mechanisms`) of the bi-bi and ping-pong reactions.
     bibi = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -5212,7 +5212,7 @@ end
     mechs = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[]
     for rxn in (bibi, pingpong)
         seeds = EnzymeRates.Enumeration.init_mechanisms(rxn)
-        append!(mechs, seeds, EnzymeRates.Enumeration.expand_mechanisms(seeds, rxn))
+        append!(mechs, seeds, _testhelper_children(seeds, rxn))
     end
     sample = mechs[randperm(Random.MersenneTwister(6), length(mechs))[1:300]]
     @test isempty(filter(m -> !_testhelper_finite_on_every_face(
