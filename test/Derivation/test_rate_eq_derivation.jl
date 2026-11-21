@@ -913,6 +913,36 @@ end
     # It prints one line, which names what it is, not its type parameter.
     @test sprint(show, rate) == "compiled rate equation"
     @test repr(MIME"text/plain"(), rate) == "compiled rate equation"
+
+    # An allosteric mechanism compiles alike; its law equals the mass-action steady state
+    # of one protomer (`_testhelper_check_law_against_oracle`).
+    am = @allosteric_mechanism begin
+        substrates: S
+        products: P
+        allosteric_regulators: X
+        oligomeric_state: 2
+        steps: begin
+            E + S ⇌ E(S)     :: EqualAI
+            E(S) <--> E(P)   :: OnlyA
+            E(P) ⇌ E + P     :: EqualAI
+        end
+        regulatory_site(2): X::OnlyA
+    end
+    arate = compile_rate_equation(am)
+    @test parameters(arate) == parameters(am)
+    @test metabolites(arate) == Tuple(metabolites(am)) == (:S, :P, :X)
+    @test compile_rate_equation(am) === arate && arate !== rate
+    anames = parameters(am)
+    aparams = NamedTuple{anames}(Tuple(rand(MersenneTwister(2), length(anames)) .+ 0.5))
+    aconcs = (S = 0.7, P = 0.3, X = 0.2)
+    @test isfinite(arate(aconcs, aparams, 2.0))
+    @test (@allocated arate(aconcs, aparams, 2.0)) == 0
+    _testhelper_check_law_against_oracle(am)
+
+    # A fit evaluates the law `compile_rate_equation` gives its mechanism.
+    table = (group = ["g", "g"], Rate = [1.0, 2.0], S = [1.0, 2.0], P = [0.1, 0.1])
+    @test FittingProblem(m, table, 2.0).rate === rate
+    @test FittingProblem(am, (; table..., X = [0.5, 0.5]), 2.0).rate === arate
 end
 
 @testset "parameters agree across representations" begin
