@@ -19,9 +19,9 @@ function _guard_message(mech::_AnyMech)
     who = mech isa Mechanisms.AllostericMechanism ? "AllostericMechanism" : "Mechanism"
     verdict.fault === _NO_FAULT && error("_guard_message: verdict $verdict holds no fault")
     verdict.fault === _SHARED_NAME &&
-        return "Constants of this mechanism's rate equation share a name (" *
-               join(_shared_constant_names(mech), ", ") * "); rename a metabolite or a " *
-               "conformation label so that each constant has a name of its own"
+        return "$who: constants of this mechanism's rate equation share a name (" *
+               join(_shared_constant_names(mech), ", ") * "). Rename a metabolite or a " *
+               "conformation label so that each constant has a name of its own."
     verdict.fault === _NO_CYCLE &&
         return "$who: no cycle of steps turns substrates into products, so the rate is " *
                "zero everywhere."

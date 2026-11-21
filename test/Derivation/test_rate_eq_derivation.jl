@@ -2432,9 +2432,10 @@ end
     # active constant of the :NonequalAI step E(b) <--> A(Eb).
     am_a = _testhelper_unchecked(_testhelper_relabelled_raw(:A))
     conformation_a = am_a
-    clash_a = ErrorException("Constants of this mechanism's rate equation share a name " *
-                             "(k_A_Eb_to_AEb); rename a metabolite or a conformation " *
-                             "label so that each constant has a name of its own")
+    clash_a = ErrorException("AllostericMechanism: constants of this mechanism's rate " *
+                             "equation share a name (k_A_Eb_to_AEb). Rename a metabolite " *
+                             "or a conformation label so that each constant has a name " *
+                             "of its own.")
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, am_a)
     @test_throws clash_a EnzymeRates.Derivation.check_valid_rate_equation(am_a)
     params = (K_Eb_to_E_b = 1.0, K_A_to_E = 2.0, k_A_Eb_to_AEb = 3.0, k_AEb_to_A_Eb = 4.0,
@@ -2455,9 +2456,10 @@ end
     # :NonequalAI step's inactive constant.
     am_i = _testhelper_unchecked(_testhelper_relabelled_raw(:I))
     conformation_i = am_i
-    clash_i = ErrorException("Constants of this mechanism's rate equation share a name " *
-                             "(k_I_Eb_to_IEb); rename a metabolite or a conformation " *
-                             "label so that each constant has a name of its own")
+    clash_i = ErrorException("AllostericMechanism: constants of this mechanism's rate " *
+                             "equation share a name (k_I_Eb_to_IEb). Rename a metabolite " *
+                             "or a conformation label so that each constant has a name " *
+                             "of its own.")
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, am_i)
     @test_throws clash_i parameters(conformation_i)
     @test_throws clash_i rate_equation_string(conformation_i)
@@ -2492,10 +2494,10 @@ end
     end)
     residual_clash = _testhelper_build(EnzymeRates.DSL.raw_mechanism(residual_block, false))
     clash_residual = ErrorException(
-        "Constants of this mechanism's rate equation share a name " *
+        "Mechanism: constants of this mechanism's rate equation share a name " *
         "(k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP, " *
-        "k_EminusQ_res_plusA_minusP_to_E_res_plusA_minusP_minusQ); rename a metabolite " *
-        "or a conformation label so that each constant has a name of its own")
+        "k_EminusQ_res_plusA_minusP_to_E_res_plusA_minusP_minusQ). Rename a metabolite " *
+        "or a conformation label so that each constant has a name of its own.")
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, residual_clash)
     @test_throws clash_residual eval(:(@enzyme_mechanism $residual_block))
     @test_throws clash_residual parameters(residual_clash)
