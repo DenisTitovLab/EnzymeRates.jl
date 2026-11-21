@@ -57,7 +57,7 @@ The mechanism has five independent parameters: the binding constants
 the active-state catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator
 binding constant `K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`.
 `Keq` is user-supplied, and the rate is per unit enzyme.
-[Mechanisms with allosteric regulators](@ref) covers the allosteric-state tags
+[Mechanisms with allosteric regulators](@ref) covers the allosteric states
 and the partition-function structure.
 
 Each substrate and product declares its **atom inventory** in the bracket:

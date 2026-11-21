@@ -53,5 +53,6 @@ print(rate_equation_string(m; coefficients = true))
 The modified forms carry the names the mechanism search gives them:
 `E_res_plusA_minusP` (the modified free enzyme, its residual the atoms it has **gained**
 from `A` less those it is **committed to release** in `P`) and `EB_res_plusA_minusP`
-(with `B` additionally bound). Any other names give the same law, its constants named
-after them.
+(with `B` additionally bound). Other names give the same law with its constants named
+after them, though a renamed form can change which of two tied constants is fitted and
+which is dependent ([Thermodynamic constraints](@ref)).

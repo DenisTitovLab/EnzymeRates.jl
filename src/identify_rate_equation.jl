@@ -485,8 +485,8 @@ _pmap_to_vector(f, ::Type{T}, itr) where {T} = convert(Vector{T}, pmap(f, itr))
 """
 CSV row for a mechanism that threw. Same NamedTuple schema as a fitted row; it records
 only the mechanism's text and id and the error (`missing` elsewhere, empty `params`).
-`mechanism` is the mechanism's text, rendered from the concrete mechanism, so a row
-names its mechanism even when it does not compile; `parent_id` is missing.
+`mechanism` is the mechanism's printed text (`show`), so a row names its mechanism even
+when it does not compile; `parent_id` is missing.
 """
 function _failure_row(f::FitFailure)
     text = sprint(show, f.mech)
@@ -561,7 +561,7 @@ function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{In
 end
 
 """
-PASS 1 of `_process_batch` (on the workers) for candidate `c`, from its concrete mechanism
+PASS 1 of `_process_batch` (on the workers) for candidate `c`, from its mechanism
 alone and compiling nothing: its fitted constants (`parameters`, which runs the guard
 first), its law printed in named coefficients without their values
 (`rate_equation_string`), its text and the text's id (`mechanism_id`), and its law's key

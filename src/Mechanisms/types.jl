@@ -1,7 +1,7 @@
 # ABOUTME: Value types: EnzymeReaction, and the mechanism as a reaction graph (its catalytic
 # ABOUTME: scheme in canonical form) and its allostery, with their checks and identity.
 
-# ─── Concrete types ───────────────────────────────────────────────────
+# ─── Reactions and regulatory sites ──────────────────────────────────
 
 """The allosteric states a kinetic group or a regulatory site's ligand takes; the
 constructors accept no other (`_check_tags`, `RegulatorySite`)."""
@@ -162,9 +162,8 @@ end
 """
     EnzymeReaction
 
-The public concrete reaction descriptor: substrates, products, optional
-regulators, and the set of oligomeric states the mechanism
-enumerator is allowed to consider. It is the entry point to the package —
+A reaction: its substrates, products, optional regulators, and the oligomeric states the
+mechanism enumerator may consider. It is the entry point to the package —
 pair it with rate data in an
 [`IdentifyRateEquationProblem`](@ref EnzymeRates.IdentifyRateEquationProblem), or pass
 it to `EnzymeRates.Enumeration.candidate_mechanisms` to enumerate candidate mechanisms.

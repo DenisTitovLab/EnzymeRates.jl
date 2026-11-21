@@ -842,18 +842,19 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
     end
 
     @testset "a regulator multiplicity list is a parse error" begin
-        # A regulator takes the `oligomeric_state:` multiplicities; a list after its
-        # name, tagged or not, is rejected and names the regulator.
+        # A regulator takes the oligomeric states that `oligomeric_state:` lists; a list
+        # after its name, tagged or not, is rejected and names the regulator.
         @test_throws("@enzyme_reaction: regulator I lists multiplicities, got `I(1, 2)`; " *
-                     "a regulator takes the `oligomeric_state:` multiplicities, so list " *
-                     "I bare.", eval(:(@enzyme_reaction begin
+                     "a regulator takes the oligomeric states that `oligomeric_state:` " *
+                     "lists, so list I bare.", eval(:(@enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             competitive_inhibitors: I(1, 2)
         end)))
         @test_throws("@enzyme_reaction: regulator A lists multiplicities, got " *
-                     "`A(4)::Inhibitor`; a regulator takes the `oligomeric_state:` " *
-                     "multiplicities, so list A bare.", eval(:(@enzyme_reaction begin
+                     "`A(4)::Inhibitor`; a regulator takes the oligomeric states that " *
+                     "`oligomeric_state:` lists, so list A bare.",
+                     eval(:(@enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             allosteric_regulators: A(4)::Inhibitor

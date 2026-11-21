@@ -138,7 +138,7 @@ except in a conformation with no normalizer, which prints its polynomials as der
 denominator has a constant term and the graph it keeps is one rapid-equilibrium segment,
 with E its only free form and no covalent form. That is the common case, and the law is
 then the textbook MWC form. When the `:OnlyA` groups stop every
-catalytic cycle of the inactive conformation, as the tagging move's tag sets do, the law
+catalytic cycle of the inactive conformation, as the search's allosteric bases do, the law
 has no `Q_I`: the inactive branch adds enzyme to the denominator and no flux. When the
 inactive conformation is free E alone, the
 law has no `D_I` either, and its branch of the denominator is `L` times `F_A^n` and `W_I`,

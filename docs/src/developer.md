@@ -244,7 +244,7 @@ fields do not store, such as `step_text(m.catalytic, k)`.
 | `Allostery` | `allosteric_states::Vector{Symbol}` | one per kinetic group: `:OnlyA`, |
 | | | `:OnlyI`, `:EqualAI` or `:NonequalAI`; |
 | | | empty for a plain mechanism |
-| | `oligomeric_state::Int` | the subunits that change conformation together |
+| | `oligomeric_state::Int` | the number of subunits that change conformation together |
 | | `regulatory_sites::Vector{RegulatorySite}` | the regulatory sites |
 | `RegulatorySite` | `ligands::Vector{Symbol}` | the ligands that bind the site |
 | | `multiplicity::Int` | the number of such sites |
@@ -966,13 +966,12 @@ Three changes account for the gain:
   contract `x * y + z` by itself, so it executes no fused multiply-adds.
 - **The one law engine (#95).** Nearly all of the further 1.7–3.6× arrives in this
   commit; #91 and #92 change nothing, and #93 helps only the 13-parameter PFKP law, from 36
-  to 27 ns.
-  Before #95, an MWC law called Julia's general integer power (`pow_body`) for each `x^n`,
-  at about 2 ns a call: 7 calls per evaluation on the 13-parameter PFKP law and 20 on the
-  20-parameter law. #95 writes these powers as multiplications, which takes those laws from
-  27 to 11 and from 64 to 20 ns per row. Laws also lose operations: from #92 to 0.10.0, the
-  13-parameter plain PGK law falls from 460 to 312 multiplications and from 317 to 150
-  additions.
+  to 27 ns. Before #95, an MWC law called Julia's general integer power (`pow_body`) for
+  each `x^n`, at about 2 ns a call: 7 calls per evaluation on the 13-parameter PFKP law and
+  20 on the 20-parameter law. #95 writes these powers as multiplications, which takes those
+  laws from 27 to 11 and from 64 to 20 ns per row. Laws also lose operations: from #92 to
+  0.10.0, the 13-parameter plain PGK law falls from 460 to 312 multiplications and from 317
+  to 150 additions.
 
 The fit counts changed far less, and the losses agree: 89% of PFKP's and 87% of PGK's fits
 at 0.10.0 pair with a fit at 0.8.0 of equal parameter count within a relative loss of 10⁻⁸.
@@ -991,9 +990,8 @@ Each one-core mean comes from a random sample of the run's fits: 40 PFKP and 80 
 include startup, enumeration, cross-validation and idle workers. The 0.8.0 PFKP run reached
 its 24 h limit during cross-validation, so its figure is a lower bound.
 
-These one-core means predate #99, which changes each fit's search box; the sample above,
-with
-#99, gives 1.41 and 1.05 s. How much of that gap #99 causes is not separated.
+These one-core means predate #99, which changes each fit's search box; the sample
+above, with #99, gives 1.41 and 1.05 s. How much of that gap #99 causes is not separated.
 
 The cluster gained less than a single core did: at least 25× and 7× per fit, because workers
 now wait for much of a run. In `sacct`, the average worker of the 0.10.0 runs used the CPU

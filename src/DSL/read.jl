@@ -102,7 +102,7 @@ _positive_int(v, what) = v isa Integer && !(v isa Bool) && v >= 1 ? Int(v) :
 Parse `R` entries, optionally tagged with a regulator type, `R::Activator` or
 `R::Inhibitor`, into `(kind, name, effect)`; an untagged `R` has effect
 `:unspecified`. A multiplicity list such as `R(1, 2)` is an error: a regulator takes the
-reaction's `oligomeric_state:` values. `Regulator` rejects a type tag on a
+oligomeric states that `oligomeric_state:` lists. `Regulator` rejects a type tag on a
 competitive inhibitor.
 """
 function _parse_regulator_entries(values, kind::Symbol)
@@ -119,8 +119,8 @@ function _parse_regulator_entries(values, kind::Symbol)
         inner isa Expr && inner.head === :call && length(inner.args) >= 2 &&
             inner.args[1] isa Symbol && all(a -> a isa Integer, inner.args[2:end]) &&
             error("@enzyme_reaction: regulator $(inner.args[1]) lists multiplicities, " *
-                  "got `$v`; a regulator takes the `oligomeric_state:` multiplicities, " *
-                  "so list $(inner.args[1]) bare.")
+                  "got `$v`; a regulator takes the oligomeric states that " *
+                  "`oligomeric_state:` lists, so list $(inner.args[1]) bare.")
         error("@enzyme_reaction: cannot parse regulator entry $v. Use `R`.")
     end
 end

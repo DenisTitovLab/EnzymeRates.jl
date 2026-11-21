@@ -10,24 +10,26 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **The ter-ter starting set is large to hold.**
   The ter-ter `init_mechanisms` testset retains 251,107 mechanisms. When each `Mechanism`
   stored its modifiers, groups, step kinds, directions toward products and step sides, the
-  live heap grew 48% (1,272 to 1,883 MiB), the peak resident set from 2.3 to 3.1 GB, and
-  the extra garbage collection made the call about 20% slower (94 s to 117 s on Julia
-  1.13); its time limit of 400 s excludes garbage collection, about 23% of the call on CI,
-  since a slow macOS runner reached 430 s with it and a fast one took 77 s. The step sides
-  cost most: two strings per step, 668 of the 5,408 retained bytes per mechanism. Denis
-  raised the limit instead of taking one of three measured options: (A) keep
-  already-sorted input vectors instead of copying them; (B) compute `step_sides` on
-  demand; (D) reuse the variants the flip search in `_seed_variants` already builds.
-  A mechanism now stores no facts: a catalytic scheme holds its metabolites, its forms'
-  names, its substrates and products and its steps, and an allostery its states, its
-  oligomeric state and its sites. Computing a conformation's steps on demand in place of
-  its four stored masks left the enumeration test file at 137.0 and 138.4 s against 135.7
-  and 133.8 s, the admission test file at 87.9 and 92.6 s against 89.1 and 89.2 s, and the
-  ter-ter `init_mechanisms` line at 52.4 and 52.3 s against 54.0 and 53.6 s. The lean
-  graph then took that line from 56.1 to 44.1 s and the enumeration test file from 123.2
-  and 124.2 s to 110.8 and 111.3 s (Julia 1.13.4, one process at a time), and builds a
-  mechanism 1.5-2.5× faster (1.90 to 1.29 µs for Michaelis–Menten, 28.9 to 11.5 µs for a
-  ter-ter seed of 27 forms and 55 steps).
+  live heap grew 48% (1,272 to 1,883 MiB), the peak resident set from 2.3 to 3.1 GB, and the
+  extra garbage collection made the call about 20% slower (94 s to 117 s on Julia 1.13); its
+  time limit of 400 s excludes garbage collection, about 23% of the call on CI, since a slow
+  macOS runner reached 430 s with it and a fast one took 77 s. The step sides cost most: two
+  strings per step, 668 of the 5,408 retained bytes per mechanism. Denis raised the limit
+  instead of taking one of the measured options. Two do not depend on the stored facts: (A)
+  keep already-sorted input vectors instead of copying them, which lets a mechanism share
+  the caller's vectors (72 s, 24% under the time before the facts were stored); (D) reuse
+  the variants the flip search in `_seed_variants` already builds (51 s together with (A)
+  and with the step sides computed on demand, 45% under the time before the facts). A
+  mechanism stores no facts: a catalytic scheme holds its metabolites, its forms' names, its
+  substrates and products and its steps, and an allostery its states, its oligomeric state
+  and its sites. Computing a conformation's steps on demand in place of its four stored
+  masks left the enumeration test file at 137.0 and 138.4 s against 135.7 and 133.8 s, the
+  admission test file at 87.9 and 92.6 s against 89.1 and 89.2 s, and the ter-ter
+  `init_mechanisms` line at 52.4 and 52.3 s against 54.0 and 53.6 s. The lean graph then
+  took that line from 56.1 to 44.1 s and the enumeration test file from 123.2 and 124.2 s to
+  110.8 and 111.3 s (Julia 1.13.4, one process at a time), and builds a mechanism 1.5-2.5×
+  faster (1.90 to 1.29 µs for Michaelis–Menten, 28.9 to 11.5 µs for a ter-ter seed of 27
+  forms and 55 steps).
   TASK-17-NUMBERS: the live heap and the peak resident set of the ter-ter testset, and the
   time of `candidate_mechanisms` on the ter-ter reaction, measured on the lean graph;
   then keep this entry with those numbers or retire it. No benchmark or pin yet covers the

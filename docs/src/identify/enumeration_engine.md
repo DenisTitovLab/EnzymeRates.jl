@@ -306,14 +306,15 @@ dissociation constant `K_R`).
 
 ### 4. Promote a non-allosteric to allosteric mechanism
 
-Converts a plain mechanism to allosteric variants, each built on a **base** tag set
-(`_tagging_bases`). A chemistry group holds an isomerization, a fused binding or a
-Theorell–Chance step (`_chemistry_groups`); every other group is a binding group. The first
-candidate base tags every chemistry group `:OnlyA` and every binding group `:EqualAI`: an
+Converts a plain mechanism to allosteric variants, each built on a **base**, an
+allosteric state for every kinetic group (`_tagging_bases`). A chemistry group holds an
+isomerization, a fused binding or a Theorell–Chance step (`_chemistry_groups`); every other
+group is a binding group. The first candidate base makes every chemistry group `:OnlyA`
+and every binding group `:EqualAI`: an
 inactive conformation that binds ligands but runs no chemistry. When it passes the
 well-posedness guard (admission included; see [Mechanisms with allosteric regulators](@ref))
 and the binding test, it is the only base. Otherwise the bases are the smallest sets of
-chemistry groups, tagged `:OnlyA` with every other group `:EqualAI`, that stop every
+chemistry groups, made `:OnlyA` with every other group `:EqualAI`, that stop every
 catalytic cycle of the inactive conformation and pass both tests; a set that fails leaves
 its supersets in the search. On a ping-pong mechanism the first candidate cuts the covalent
 forms off in the inactive conformation, which then runs neither half-reaction (see
@@ -324,17 +325,18 @@ fail gives no base, and a half spread over several chemistry groups can give sev
 
 On its bases the engine emits, per oligomeric state:
 
-- **K-types:** every nonempty set of binding groups tagged `:OnlyA` on top of a base, and,
-  when the every-chemistry set is no base, on top of that set too, since a tagged binding
-  can restore the limit (as in a bi-bi whose group mixes a plain binding with a fused one);
-  each is emitted bare, and the exits drop those that fail the guard or the binding test;
+- **K-types:** every nonempty set of binding groups made `:OnlyA` on top of a base, and,
+  when the every-chemistry set is no base, on top of that set too, since an `:OnlyA`
+  binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
+  fused one); each is emitted bare, and the exits drop those that fail the guard or the
+  binding test;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
-  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. Over one subunit the
+  variant per `(regulator, state)` with `state ∈ {:OnlyA, :OnlyI}`. Over one subunit the
   regulator reveals `L` on the every-chemistry base; above one subunit, and on a one-half
   base, `L` can show without one, yet every base is emitted only with a regulator (the
   repository's `ROADMAP.md` lists this).
 
-Tag sets whose laws agree up to renaming the constants share one key, so identify fits the
+Variants whose laws agree up to renaming the constants share one key, so identify fits the
 law once.
 The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
 would cancel). The exits drop a child that fails the guard or the binding test, as for
@@ -388,8 +390,8 @@ an allosteric state drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
 `:EqualAI` only at a mixed existing site). No-op on a non-allosteric input.
 
 **Parameter delta:**
-- `:OnlyA` or `:OnlyI` tag: **+1** (one binding constant `K_A` or `K_I`).
-- `:NonequalAI` tag: **+2** (independent `K_A` and `K_I`).
+- `:OnlyA` or `:OnlyI`: **+1** (one binding constant `K_A` or `K_I`).
+- `:NonequalAI`: **+2** (independent `K_A` and `K_I`).
 
 ### 6. Relax an `:EqualAI` group to independent A/I states
 

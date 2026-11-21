@@ -299,7 +299,7 @@ order."""
 _regulator_names(am::Mechanisms.Mechanism) =
     Symbol[_name(p, am) for p in _regulator_parameters(am)]
 
-"""Number of independent (fitted) constants of a concrete mechanism, from the joint solve,
+"""Number of independent (fitted) constants of a mechanism, from the joint solve,
 without compiling the mechanism."""
 fitted_parameter_count(m::Mechanisms.Mechanism) = length(_solve(m).fitted)
 
