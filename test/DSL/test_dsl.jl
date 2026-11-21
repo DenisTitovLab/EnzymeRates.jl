@@ -1443,10 +1443,17 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
             @test_throws "@enzyme_mechanism: " * text eval(_testhelper_block_with(step))
         end
 
-        # Call notation is an error; where its arguments name no form, the error asks for
-        # a name.
+        # Call notation is an error. Where every argument is a bare name the error names
+        # the form, its head and then the arguments sorted; otherwise it asks for a name.
+        for (step, name) in ((:(E + S ⇌ E(S)), "ES"), (:(E + S ⇌ E(B, A)), "EAB"))
+            @test_throws("@enzyme_mechanism: `$(step.args[3])` is call notation; an " *
+                         "enzyme form is a name, so write `$name`.",
+                         eval(_testhelper_block_with(step)))
+        end
         for step in (:(E + S ⇌ E(S, f(I))), :(E + S ⇌ E(S; residual = 2S)),
-                     :(E + S ⇌ E(S; foo = P)), :(E + S ⇌ E((I + S)::Mod)))
+                     :(E + S ⇌ E(S; foo = P)), :(E + S ⇌ E(S; foo)),
+                     :(E + S ⇌ E((I + S)::Mod)), :(E + S ⇌ E(S::Mod)),
+                     :(E + S ⇌ E(B; residual = A - P)))
             @test_throws("@enzyme_mechanism: `$(step.args[3])` is call notation; an " *
                          "enzyme form is a name, so write one, such as `EAB` for " *
                          "`E(A, B)`.",

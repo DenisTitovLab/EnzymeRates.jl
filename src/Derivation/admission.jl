@@ -606,9 +606,9 @@ first substrate (`_turnover_name`). In order:
   conformation;
 - `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive transition
   whose reverse is dead, or is entered from outside it and the law network, so admission
-  cannot show that its weight does not depend on how fast its exits vanish; a basin
-  entered only reversibly from the law network is sealed: its weight vanishes, and it
-  leaves the fed nodes;
+  cannot show that its weight does not depend on how fast its exits vanish; the verdict
+  names a feed whose reverse is dead when there is one; a basin entered only reversibly
+  from the law network is sealed: its weight vanishes, and it leaves the fed nodes;
 - `_BRIDGE`: in some conformation the vanishing transitions shorten the cheapest spanning
   in-tree of the fed nodes (R1 fails, `_shortens_in_tree`) and the first substrate's uptake
   is no potential on the strongly connected parts of its alive transitions that are not
@@ -644,12 +644,20 @@ function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::I
                                 net.edge[t])
         end
     end
+    # The verdict names a feed whose reverse is dead when there is one, and else the first
+    # feed whose reverse runs back but that enters from outside the basin and the law
+    # network, so that a message saying nothing runs back is true where it can be.
+    runs_back = 0
     for t in eachindex(net.from)
         u, w = net.from[t], net.to[t]
         s.alive[t] && s.fed[u] && s.stranded[w] || continue
-        s.alive[isodd(t) ? t + 1 : t - 1] && (s.stranded[u] || law_nodes[u]) && continue
-        return _Verdict(_PUMPED, _LIMIT_UNTESTED, 0, net.conformation[t], net.edge[t])
+        s.alive[isodd(t) ? t + 1 : t - 1] ||
+            return _Verdict(_PUMPED, _LIMIT_UNTESTED, 0, net.conformation[t], net.edge[t])
+        runs_back == 0 && !(s.stranded[u] || law_nodes[u]) && (runs_back = t)
     end
+    runs_back == 0 ||
+        return _Verdict(_PUMPED, _LIMIT_UNTESTED, 0, net.conformation[runs_back],
+                        net.edge[runs_back])
     nodes = s.fed .& .!s.stranded
     _fewest_slow(net, nodes, s.n0) < 0 && return _WELL_POSED
     passed = 0

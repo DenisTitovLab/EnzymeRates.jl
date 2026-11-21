@@ -508,44 +508,13 @@ function _raw_term(t, names)
           "side; got `$t`.")
 end
 
-"""A name for the form that the call `t` writes in call notation, for the error that asks
-for one, or `nothing` when `t` is no form in call notation: its head, then each bound
-metabolite (`Xmod` for `X::Mod`), then any residual as `_res`, `_plus<name>` per added
-substrate and `_minus<name>` per subtracted product (`E(B; residual = A - P)` gives
-`EB_res_plusA_minusP`)."""
+"""The name of the form that the call `t` writes in call notation, for the error that asks
+for one: its head, then its arguments sorted by name (`E(B, A)` gives `EAB`), when every
+argument is a bare name; else `nothing`."""
 function _called_form_name(t::Expr)
-    io = IOBuffer()
-    print(io, t.args[1])
-    for a in t.args[2:end]
-        if a isa Symbol
-            print(io, a)
-        elseif a isa Expr && a.head === :(::) && a.args[1] isa Symbol && a.args[2] === :Mod
-            print(io, a.args[1], "mod")
-        elseif a isa Expr && a.head === :parameters && length(a.args) == 1 &&
-               a.args[1] isa Expr && a.args[1].head === :kw &&
-               a.args[1].args[1] === :residual
-            print(io, "_res")
-            _print_residual(io, a.args[1].args[2], true) || return nothing
-        else
-            return nothing
-        end
-    end
-    String(take!(io))
-end
-
-"""Print the residual expression `e` as `_plus<name>` per added name and `_minus<name>` per
-subtracted one, `positive` the sign of `e`; whether `e` is a residual expression."""
-function _print_residual(io::IO, e, positive::Bool)
-    if e isa Symbol
-        print(io, positive ? "_plus" : "_minus", e)
-        return true
-    elseif e isa Expr && e.head === :call && e.args[1] === :+ && length(e.args) >= 3
-        return all(a -> _print_residual(io, a, positive), e.args[2:end])
-    elseif e isa Expr && e.head === :call && e.args[1] === :- && length(e.args) in (2, 3)
-        length(e.args) == 3 && !_print_residual(io, e.args[2], positive) && return false
-        return _print_residual(io, e.args[end], !positive)
-    end
-    false
+    args = t.args[2:end]
+    all(a -> a isa Symbol, args) || return nothing
+    Symbol(t.args[1], sort!(Symbol[args...])...)
 end
 
 """

@@ -336,6 +336,29 @@ end
             slip.catalytic, EnzymeRates.Derivation._flat_edges(slip.catalytic))
         @test occursin("produces metabolite change not proportional to net reaction",
                        err.value.msg)
+        # A cycle that takes up a modifier and gives it off nowhere, E + I ⇌ EI then
+        # EI <--> E, is checked over the reactants alone, so it passes as a Wegscheider
+        # cycle and the law derives. Whether the guard should refuse such a mechanism is
+        # open (ROADMAP).
+        consumes_i = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            modifiers: I
+            steps: begin
+                E + S ⇌ ES
+                ES <--> E + P
+                E + I ⇌ EI
+                EI <--> E
+            end
+        end
+        Z, multiples = EnzymeRates.Derivation._fundamental_cycles(
+            consumes_i.catalytic, EnzymeRates.Derivation._flat_edges(consumes_i.catalytic))
+        @test sort(abs.(multiples)) == [0, 1]
+        @test parameters(consumes_i) ==
+              (:K_EI_to_E_I, :K_ES_to_E_S, :k_ES_to_E_P, :k_E_to_EI)
+        @test occursin("v = (k_ES_to_E_P / K_ES_to_E_S) * (S - P / Keq) / " *
+                       "(1 + S / K_ES_to_E_S + I / K_EI_to_E_I)",
+                       rate_equation_string(consumes_i))
     end
 
     @testset "the reduction runs in Int64 and retries in BigInt on overflow" begin

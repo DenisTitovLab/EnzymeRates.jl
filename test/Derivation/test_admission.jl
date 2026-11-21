@@ -4457,10 +4457,10 @@ end
     # Half 1 and its copy at EAI share one :OnlyA group, and I's binding at E is :OnlyA
     # too. As in the ping-pong above, under the first built reading, at zero A and B, the
     # covalent forms are fed, by B's binding and by the copy of half 1 at EAI running
-    # forward, and their only ways out, the two copies of half 1 taking P back up, vanish;
-    # the guard names the first feed in step order, the copy at EAI. The search admits it
-    # as it admits that ping-pong. Untagging that group joins EI to E, so I's
-    # rapid-equilibrium binding cannot be switched off.
+    # forward, and their only ways out, the two copies of half 1 taking P back up, vanish.
+    # The guard names the feed whose reverse is dead, B's binding: nothing runs back
+    # through it. The search admits it as it admits that ping-pong. Untagging that group
+    # joins EI to E, so I's rapid-equilibrium binding cannot be switched off.
     shared_half1 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -4496,13 +4496,14 @@ end
     built = D._built_reading(shared_half1)
     v = D._admission(shared_half1, built)
     @test v == EnzymeRates.Derivation._Verdict(
-        PU, U, 3, 2, _testhelper_edge(shared_half1, "EI_res_plusA_minusP + P <--> EAI"))
+        PU, U, 3, 2,
+        _testhelper_edge(shared_half1, "E_res_plusA_minusP + B <--> EB_res_plusA_minusP"))
     @test _testhelper_admission_agrees(
         PU, _testhelper_epath_verdict(shared_half1; rng,
                                       face = _testhelper_faces(shared_half1)[3]))
     @test D._admission_message(shared_half1, v, built) ==
           "Mechanism: at zero A and B, " *
-          "$(shared_line("EI_res_plusA_minusP + P <--> EAI")) feeds the " *
+          "$(shared_line("E_res_plusA_minusP + B <--> EB_res_plusA_minusP")) feeds the " *
           "forms EI_res_plusA_minusP, E_res_plusA_minusP of the inactive " *
           "conformation, which leave only through the vanishing steps " *
           "$(shared_line("EI_res_plusA_minusP + P <--> EAI")); " *
@@ -6143,6 +6144,31 @@ end
     @test D._guard_message(mirror) ==
           swapped(msg) * " Tag :OnlyA the steps that join its sides: " *
           "E + S <--> EP; EP + I ⇌ EIP; EI + P ⇌ EIP."
+    # The same graph with the substrate and product roles the other way round. The path
+    # the message offers is the first breadth-first in step order (`_kept_path`), here
+    # through the S binding E + S ⇌ ES: retagged :OnlyI it is pinned in its turn, and
+    # retagged :OnlyA it pins the mirror's, so neither image is offered a fix, though the
+    # path through the P release would pass for the mirror (ROADMAP, known issue).
+    p_release_path = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES            :: EqualAI
+            ES <--> E + P         :: EqualAI
+            E + I ⇌ EI            :: OnlyI
+            EI + S ⇌ EIS          :: EqualAI
+            ES + I ⇌ EIS          :: EqualAI
+        end
+    end
+    k = _testhelper_edge(p_release_path, "E + I ⇌ EI")
+    e = p_release_path.catalytic.steps[k]
+    @test [EnzymeRates.Mechanisms.step_text(p_release_path.catalytic, j)
+           for j in D._kept_path(p_release_path, 1, e.from, e.to)] ==
+          ["E + S ⇌ ES", "ES + I ⇌ EIS", "EI + S ⇌ EIS"]
+    msg = D._guard_message(p_release_path)
+    @test msg == _testhelper_pinned_cause(p_release_path, k, 1)
+    @test D._guard_message(_testhelper_mirror(p_release_path)) == swapped(msg)
 end
 
 @testset ":OnlyI on a step that does more than bind a modifier" begin

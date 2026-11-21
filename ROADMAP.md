@@ -238,6 +238,26 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   on six laws is more likely coverage counters, unproven. The investigation, with its
   scripts and scans, is `claude-scratchpad/loss-timing-investigation/report.md` on the
   maintainer's machine.
+- **A cycle that consumes a modifier passes as a Wegscheider cycle.**
+  The thermodynamic solve checks each fundamental cycle's net change over the substrates
+  and products only. In `E + S ⇌ ES`, `ES <--> E + P`, `E + I ⇌ EI`, `EI <--> E` (modifier
+  I) the cycle E → EI → E takes up I and gives it off nowhere; it is accepted, tied as a
+  Wegscheider cycle (`k_EI_to_E = K_EI_to_E_I · k_E_to_EI`), and the law derives
+  (`test/Derivation/test_joint_solve.jl`). Such a cycle is unphysical. Whether the guard
+  should refuse it, with a message in the user's terms, is the maintainer's call.
+- **A pumped-basin message can say "nothing runs back" of a feed that runs back.**
+  The guard's `_PUMPED` verdict names a feed into a stranded basin. It prefers a feed whose
+  reverse is dead; when every feed has a live reverse and enters from outside the basin and
+  the law network, it names one of those, and the message still says "while nothing runs
+  back the way it came" (`_admission_message`), which is then false.
+- **The guard's offered fix follows step order.**
+  For a rapid-equilibrium step that its conformation cannot switch off, the message offers
+  to tag the steps that join its sides, the path `_kept_path` finds first breadth-first in
+  step order, and offers the fix only when that path's retag passes. It tries no other
+  path. In `E + S ⇌ ES`, `ES <--> E + P`, `E + I ⇌ EI` (:OnlyI), `EI + S ⇌ EIS`,
+  `ES + I ⇌ EIS` neither the mechanism nor its mirror image is offered a fix, though the
+  path through the P release passes for the mirror (`test/Derivation/test_admission.jl`,
+  "the one rule that tells the states apart").
 
 ## Planned
 

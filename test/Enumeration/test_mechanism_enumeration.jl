@@ -17349,14 +17349,14 @@ end
         @test (v.fault, D._face_names(c.catalytic, D._faces(c.catalytic)[v.face])) ==
               (D._PUMPED, [:P, :Q])
     end
-    # The message names the first feed in step order.
+    # The message names the feed whose reverse is dead, the release of Q.
     @test D._guard_message(d_flip) ==
-          "Mechanism: at zero P and Q, EA_res_plusB_plusD_minusQ <--> EP feeds the " *
-          "forms EA_res_plusB_plusD_minusQ, E_res_plusB_plusD_minusQ of the inactive " *
-          "conformation, which leave only through the vanishing step " *
-          "EA_res_plusB_plusD_minusQ <--> EP while nothing runs back the way it came, " *
-          "so admission cannot show that their weight does not depend on how fast that " *
-          "step vanishes."
+          "Mechanism: at zero P and Q, E_res_plusB_plusD_minusQ + Q ⇌ " *
+          "EQ_res_plusB_plusD_minusQ feeds the forms EA_res_plusB_plusD_minusQ, " *
+          "E_res_plusB_plusD_minusQ of the inactive conformation, which leave only " *
+          "through the vanishing step EA_res_plusB_plusD_minusQ <--> EP while " *
+          "nothing runs back the way it came, so admission cannot show that their " *
+          "weight does not depend on how fast that step vanishes."
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, seed)
     @test length(kids) == 5
     @test Set(kids) == Set([b_flip, p_flip, a_flip, chemistry_flip, dq_flip])

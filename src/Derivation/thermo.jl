@@ -49,10 +49,13 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
             end
         end
     end
-    # Each metabolite's change in the net reaction, by its index; a modifier's is 0.
+    # Each reactant's change in the net reaction, by its index. The check reads the
+    # reactants alone: a cycle that takes up a modifier and gives it off nowhere passes
+    # as a Wegscheider cycle.
     net = zeros(Int, length(m.metabolites))
     net[m.substrates] .= -1
     net[m.products] .= 1
+    reactants = [m.substrates; m.products]
     x1 = first(m.substrates)
     rows, multiples = Vector{Int}[], Int[]
     for (j, k) in enumerate(flat)
@@ -67,7 +70,7 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
             foreach(x -> change[x] -= z[i], m.steps[kk].taken_up)
         end
         c = change[x1] * net[x1]
-        all(x -> change[x] == c * net[x], eachindex(net)) || error(
+        all(x -> change[x] == c * net[x], reactants) || error(
             "Cycle $(length(rows) + 1) produces metabolite change not proportional to " *
             "net reaction")
         push!(rows, z)
