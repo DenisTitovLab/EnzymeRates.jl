@@ -45,8 +45,8 @@ end
         @test [n.conformation for n in m.nodes] == fill(:E, 6)
     end
 
-    # Step numbers and directions follow canonical form: each step is stored
-    # physical-forward, so a product release is stored as the binding it reverses, and the
+    # Step numbers and directions follow canonical form: each step is stored the way the
+    # graph gives it, so a product release is stored as the binding it reverses, and the
     # steps are sorted by their stored ends.
     @testset "steps" begin
         @test length(m.steps) == 7
@@ -272,7 +272,7 @@ end
         end
     end)
     # Canonical form numbers the forms E, E(A), E(A, B), E(B), E(P, Q), E(Q) and stores
-    # each step physical-forward, a release as the binding it reverses.
+    # each step the way the graph gives it, a release as the binding it reverses.
     @test [M.form_text(m, x) for x in eachindex(m.nodes)] ==
           ["E", "E(A)", "E(A, B)", "E(B)", "E(P, Q)", "E(Q)"]
     @test [M.step_text(m, k) for k in eachindex(m.steps)] ==

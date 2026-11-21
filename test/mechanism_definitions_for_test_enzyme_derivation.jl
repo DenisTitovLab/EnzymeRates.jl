@@ -271,7 +271,7 @@ function _testhelper_random_independent_params(m; rng=Random.default_rng())
 end
 
 """
-Test that `m` stores its steps in the direction the orientation tiers give: `m` written
+Test that `m` stores its steps in the direction the reaction graph gives: `m` written
 back as nodes and steps (`_testhelper_written`), each step as stored, has no step that
 canonical form turns (`_canonicalize`), group by group, and writing every step the other
 way round, in the reverse order, builds the same mechanism.
@@ -431,7 +431,8 @@ edge takes up or gives off there (`_entry_label`, so a reactant's modifier copy 
 function _testhelper_edge_text(m, k::Int)
     g = EnzymeRates.Mechanisms.catalytic(_testhelper_lift(m))
     e = g.steps[k]
-    labels(list) = [EnzymeRates.Mechanisms._entry_label(g, x) for x in list]
+    labels(list) = [EnzymeRates.Mechanisms._entry_label(x, g.substrates, g.products)
+                    for x in list]
     side(f, list) = join([EnzymeRates.Mechanisms._form_name(g, f); labels(list)], " + ")
     side(e.from, e.taken_up) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
         side(e.to, e.given_off)

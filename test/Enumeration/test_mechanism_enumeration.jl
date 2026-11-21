@@ -13077,10 +13077,11 @@ end
 end
 
 @testset "_expand_split_kinetic_group: a split member of a tied group turns alone" begin
-    # E <--> D and E(S) <--> D(S) share their constants, and neither atom progression nor
-    # graph context orients them, so the group turns as one with its lead E → D:
-    # E(S) → D(S). Split by S, E(S) <--> D(S) is a group of its own and runs from the
-    # earlier form in form order, D(S). The child goes through the checked constructor,
+    # E <--> D and E(S) <--> D(S) share their constants. The reaction turns over through
+    # them in opposite directions, E → D and D(S) → E(S), so the group turns as one with
+    # its lead E → D, nearer free E, and stores E(S) → D(S) as written relative to it.
+    # Split by S, E(S) <--> D(S) is a group of its own and runs the way the reaction
+    # turns over through it, from D(S). The child goes through the checked constructor,
     # which turns it; a child built from the parent's stored directions would keep
     # E(S) → D(S).
     m = EnzymeRates.Mechanism(@enzyme_mechanism begin

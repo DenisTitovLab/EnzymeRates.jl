@@ -88,9 +88,8 @@ _testhelper_binding_of(x, t) = only(filter(_testhelper_binds_entry(x, t), x.step
         @test _testhelper_form_roles(mech, es_step.from) == (:E, [])
 
         # Second step: E(S) ⇌ E(P) — RE iso. The Mechanism constructor
-        # canonicalizes iso direction physical-forward (substrate-bound
-        # `from`, product-bound `to`) via `_orientation`, so E(S) is its
-        # `from` form and E(P) its `to` form.
+        # stores an isomerization the way the reaction turns over through it
+        # (`_orientation`), so E(S) is its `from` form and E(P) its `to` form.
         iso_step = only(filter(EnzymeRates.Mechanisms._is_iso, mech.steps))
         @test _testhelper_form_roles(mech, iso_step.from) == (:E, [(:S, :substrate)])
         @test _testhelper_form_roles(mech, iso_step.to) == (:E, [(:P, :product)])

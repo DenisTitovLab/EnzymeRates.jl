@@ -203,11 +203,9 @@ end
                EnzymeRates.Mechanisms.Metabolite(:P, false)]
     end
 
-    @testset "a step neither chemistry nor graph context orients runs from the \
-              earlier form (C9)" begin
-        # D <--> E is decided by neither atom progression nor graph context, so it runs
-        # from free E, the first form of the canonical form order, however it is
-        # written: its forward rate constant is k_E_to_D.
+    @testset "a step on no cycle runs away from free E (C9)" begin
+        # D <--> E lies on no cycle, so it runs away from free E, however it is written:
+        # its forward rate constant is k_E_to_D.
         m = EnzymeRates.Mechanism(@enzyme_mechanism begin
             substrates: S
             products: P
@@ -254,14 +252,12 @@ end
         _testhelper_check_stored_orientation(re)
     end
 
-    @testset "a tied group turns with the lead the form order ranks first (C9)" begin
-        # E <--> D and E(S) <--> D(S) share their constants, and neither atom progression
-        # nor graph context orients them. On its own, E(S) <--> D(S) would run from D(S),
-        # which precedes E(S) in the canonical form order, but the group turns as one with
-        # its lead, the tied step `_align_tied_groups!` ranks first: one that changes
-        # conformation, then the lower tier, then the earlier oriented edge. Both steps
-        # change conformation at tier 3, and E → D, which starts at free E, is the earlier
-        # edge. So both steps run from the E side to the D side.
+    @testset "a kinetic group turns with its member nearest free E (C9)" begin
+        # E <--> D and E(S) <--> D(S) share their constants. The reaction turns over
+        # through them in opposite directions, E → D (D takes up S) and D(S) → E(S), so on
+        # its own E(S) <--> D(S) would run from D(S). The group turns as one with its lead,
+        # E → D, the member nearest free E, and E(S) <--> D(S) keeps the direction it is
+        # written in relative to it. So both steps run from the E side to the D side.
         tied_mm = @enzyme_mechanism begin
             substrates: S
             products: P
@@ -451,15 +447,14 @@ end
         end
     end
 
-    @testset "every spec stores its steps in the direction the orientation tiers give" begin
-        # The solve reads each stored step as the physical-forward direction of its
-        # constants: the rate constant against the reaction is the reverse one, and the
-        # priority key reads the step as stored. The constructor orients every step by
-        # the tiers and turns each tied group with its lead, so orienting the stored
-        # steps again leaves each one as stored, and writing every step the other way
-        # round, in the reverse order, builds the same mechanism.
+    @testset "every spec stores its steps in the direction the reaction graph gives" begin
+        # The solve reads each stored step as the forward direction of its constants, and
+        # the priority key reads the step as stored. The constructor orients every step
+        # from the graph and turns each kinetic group with its lead, so orienting the
+        # stored steps again leaves each one as stored, and writing every step the other
+        # way round, in the reverse order, builds the same mechanism.
         # The C9 testsets above and the exchange testsets of test_types.jl check the same
-        # on steps that Tier 3 orients and on tied groups.
+        # on steps that free E's distance orients and on kinetic groups.
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
                 _testhelper_check_stored_orientation(spec.mechanism)

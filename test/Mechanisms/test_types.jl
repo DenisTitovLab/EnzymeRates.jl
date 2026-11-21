@@ -1573,9 +1573,10 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         @test_throws MethodError _testhelper_reaction(Bool[true])
     end
 
-    @testset "pure conformational isomerization runs product-exit to substrate-entry" begin
-        # Tier 2 (the Segel Iso Uni Uni case): the pure conformational F <--> E, tied
-        # on Tier 1 and decided by entry_kind, runs F → E however it is written.
+    @testset "the free enzyme's isomerization runs the way the reaction turns over" begin
+        # The Segel Iso Uni Uni case: P leaves at F and A enters at E, so the cycle that
+        # turns the reaction over runs F → E, and so does the isomerization, however it is
+        # written.
         s2 = @enzyme_mechanism begin
             substrates: A; products: P
             steps: begin
@@ -1586,8 +1587,8 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.AllostericMechanism(
         iso = only(e for e in m.steps
                    if ER.Mechanisms._is_iso(e) &&
                        ER.Mechanisms._form_name(m, e.from) in ("E", "F"))
-        @test ER.Mechanisms._form_name(m, iso.from) == "F"  # product-exit
-        @test ER.Mechanisms._form_name(m, iso.to)   == "E"  # substrate-entry
+        @test ER.Mechanisms._form_name(m, iso.from) == "F"  # where P leaves
+        @test ER.Mechanisms._form_name(m, iso.to)   == "E"  # where A enters
     end
 
     @testset "Mechanism canonicalizes step order" begin
@@ -1827,7 +1828,7 @@ end
     A_copy = ER.Mechanisms.Metabolite(:A, true)
     # Each written step (its two forms, what it takes up and gives off, its flag): whether
     # its edge is chemistry, whether it is a binding, and whether it is stored turned
-    # (`missing`: left to the orientation tiers).
+    # (`missing`: not pinned).
     cases = [
         # a plain binding, and a release stored as the binding it reverses, the label
         # free to change
@@ -1852,9 +1853,11 @@ end
         # the modifier copy of A binds apart from A
         ((E, _testhelper_form(A_copy), [A_copy], none, true), false,
          true, false),
-        # an isomerization may change how often a name is bound: E(P, S) → E(P, P)
+        # an isomerization may change how often a name is bound: E(P, S) → E(P, P); on no
+        # cycle and joined to no form of free E's, it runs from the form whose name comes
+        # first, EPP
         ((_testhelper_form(:P, :S), _testhelper_form(:P, :P), none, none, false),
-         true, false, false)]
+         true, false, true)]
     written = first.(cases)
     c = ER.Mechanisms._canonicalize(
         [:A, :B, :S], [:P, :Q], [n for (f, t) in written for n in (f, t)],
@@ -2060,9 +2063,9 @@ end
 end
 
 @testset "a competitive-inhibitor copy marks no reactant side" begin
-    # P's competitive-inhibitor copy binds E. Tiers 1 and 2 read metabolite roles, so the
-    # copy marks nothing at E, and the Iso Uni Uni isomerization still runs from F, where
-    # P leaves, to E, where A enters.
+    # P's competitive-inhibitor copy binds E. Its binding and release turn nothing over, so
+    # the Iso Uni Uni isomerization still runs the way the reaction does, from F, where P
+    # leaves, to E, where A enters.
     m = ER.Mechanism(@enzyme_mechanism begin
         substrates: A
         products: P
@@ -2082,13 +2085,136 @@ end
           ER.Mechanisms._form_name(m, iso.to) == "E"
 end
 
+@testset "the stored direction of a step" begin
+    stored(m) = Set(ER.Mechanisms.step_text(m, k) for k in eachindex(m.steps))
+    # The isomerization of the free enzyme runs F → E on the one cycle that turns the
+    # reaction over, E → E(A) → E(P) → F → E, however it is written.
+    iso = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            F + P <--> E(P)
+            F <--> E
+        end
+    end
+    @test stored(iso) ==
+          Set(["E + A <--> E(A)", "E(A) <--> E(P)", "F + P <--> E(P)", "F <--> E"])
+    @test (@_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            F + P <--> E(P)
+            E <--> F
+        end
+    end) == iso
+    # Two isomerizations of the free enzyme in a row, G → F → E, neither of whose forms
+    # takes up or gives off a metabolite at F: the cycle orients both.
+    chain = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            G + P <--> E(P)
+            F <--> G
+            E <--> F
+        end
+    end
+    @test stored(chain) == Set(["E + A <--> E(A)", "E(A) <--> E(P)", "G + P <--> E(P)",
+                                "G <--> F", "F <--> E"])
+    # A step that takes up one metabolite and gives off another runs the way the reaction
+    # runs: E(S) + P ⇌ E(P) + S gives off the substrate and takes up the product, so it is
+    # stored taking up S.
+    exchange = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E(S) + P ⇌ E(P) + S
+        end
+    end
+    @test "E(P) + S ⇌ E(S) + P" in stored(exchange)
+    # A dead-end isomerization lies on no cycle, so it runs away from free E, from the
+    # form fewer steps from it, whichever label sorts first.
+    dead_end = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + I ⇌ E(I)
+            Estar(I) <--> E(I)
+        end
+    end
+    @test "E(I) <--> Estar(I)" in stored(dead_end)
+    dead_end_d = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S <--> E(S)
+            E(S) <--> E(P)
+            E(P) <--> E + P
+            E + I ⇌ E(I)
+            D(I) <--> E(I)
+        end
+    end
+    @test "E(I) <--> D(I)" in stored(dead_end_d)
+    # The enzyme's isomerization at E and at E(A) shares one pair of constants, and the
+    # reaction runs through the two steps in opposite directions. The group turns with
+    # Estar → E, its member nearest free E, and the other member keeps the direction it was
+    # written in relative to it: writing both reversed changes nothing, and writing one
+    # reversed writes another mechanism.
+    mirrored = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A ⇌ E(A)
+            (E <--> Estar, E(A) <--> Estar(A))
+            Estar(A) <--> Estar(P)
+            Estar(P) ⇌ Estar + P
+        end
+    end
+    both_reversed = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A ⇌ E(A)
+            (Estar <--> E, Estar(A) <--> E(A))
+            Estar(A) <--> Estar(P)
+            Estar(P) ⇌ Estar + P
+        end
+    end
+    one_reversed = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        steps: begin
+            E + A ⇌ E(A)
+            (E <--> Estar, Estar(A) <--> E(A))
+            Estar(A) <--> Estar(P)
+            Estar(P) ⇌ Estar + P
+        end
+    end
+    @test both_reversed == mirrored && hash(both_reversed) == hash(mirrored)
+    @test one_reversed != mirrored
+    @test issubset(["Estar <--> E", "Estar(A) <--> E(A)"], stored(mirrored))
+    @test issubset(["Estar <--> E", "E(A) <--> Estar(A)"], stored(one_reversed))
+end
+
 @testset "the tied steps of one kinetic group turn as one" begin
     # Segel Iso Uni Uni with an inhibitor I binding E and F in one group and the
-    # isomerization mirrored at the I-bound forms. Tier 2 runs F → E; E(I) and F(I) mark
-    # nothing, so on its own the mirror would fall to Tier 3 and run E(I) → F(I), and the
-    # shared constant would tie F → E to the reverse of F(I) → E(I). Both run F-side to
-    # E-side, so the cycle E → E(I) → F(I) → F → E constrains nothing and no line
-    # forces k_F_to_E = k_E_to_F.
+    # isomerization mirrored at the I-bound forms. The group turns with F → E, its member
+    # nearest free E, which runs the way the reaction turns over, and the mirror keeps the
+    # direction it is written in relative to F → E. Both run F-side to E-side, so the cycle
+    # E → E(I) → F(I) → F → E constrains nothing and no line forces k_F_to_E = k_E_to_F.
     ss = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -2107,7 +2233,7 @@ end
                   if length(ks) == 2 && all(k -> ER.Mechanisms._is_iso(m.steps[k]), ks))
     @test all(e -> label(e.from) == :F && label(e.to) == :E, mirror)
     @test !occursin("Wegscheider", rate_equation_string(ss))
-    # The written direction and order of the mirrored steps do not matter.
+    # Writing both mirrored steps the other way round, in the other order, changes nothing.
     @test ER.Mechanism(@enzyme_mechanism begin
         substrates: A
         products: P
@@ -2136,18 +2262,6 @@ end
         end
     end
     @test :K_F_to_E in parameters(re)
-
-    # Tied steps that change different pairs of conformations share no orientation.
-    @test_throws "make different conformational changes" @enzyme_mechanism begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(P)
-            E(P) <--> E + P
-            (E ⇌ F, F ⇌ G, G ⇌ E)
-        end
-    end
 end
 
 # The edges of the one kinetic group of `mech`'s catalytic graph that neither binds nor
@@ -2162,9 +2276,11 @@ end
 
 @testset "a kinetic group ties one metabolite exchange at two conformations" begin
     # Segel Iso Uni Uni with an inhibitor I binding E and F, and J displacing I at both
-    # conformations in one group. Neither exchange changes conformation, so the group
-    # stores both to take up J and give off I, however the steps are written.
-    # The allosteric twin joins F to E at rapid equilibrium.
+    # conformations in one group. Neither exchange lies on a cycle that turns the reaction
+    # over. The one at E leads, nearer free E, and both its forms are one step from free E,
+    # so it runs from EI, whose name comes first, taking up J; the one at F takes up J with
+    # it, however the steps are written. The allosteric twin joins F to E at rapid
+    # equilibrium.
     # J binds E and F as well: without those bindings E(J) and F(J) are dead ends at zero
     # modifiers, a second closed class the guard rejects.
     I, J = ER.Mechanisms.Metabolite(:I, true), ER.Mechanisms.Metabolite(:J, true)
@@ -2238,21 +2354,6 @@ end
     _testhelper_check_law_against_oracle(plain)
     _testhelper_check_law_against_oracle(allo)
 
-    # Exchanges that switch conformation in opposite directions as J displaces I share no
-    # orientation.
-    @test_throws "make different conformational changes" @enzyme_mechanism begin
-        substrates: A
-        products: P
-        modifiers: I, J
-        steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(P)
-            E(P) <--> F + P
-            F <--> E
-            (E + I ⇌ E(I), F + I ⇌ F(I))
-            (E(I) + J <--> F(J) + I, F(I) + J <--> E(J) + I)
-        end
-    end
     # Without the J bindings the guard rejects the mechanism at zero modifiers.
     dead_ends = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A
@@ -2274,10 +2375,9 @@ end
 end
 
 @testset "a tied exchange turns to take up its lead's metabolites" begin
-    # The exchange fixture above plus A binding E(I) and P binding E(J). On its own, Tier 2
-    # runs the exchange at E from E(J), where P binds, to E(I), where A binds, while Tier 3
-    # runs the exchange at F from F(I) to F(J). The exchange at E leads, so the group
-    # turns the one at F to take up I and give off J as well.
+    # The exchange fixture above plus A binding E(I) and P binding E(J). The direction is
+    # read from the steps alone, and the new bindings close no cycle through either
+    # exchange, so the group still runs from E(I) and F(I), taking up J.
     # J binds E and F as well: without those bindings E(J) and F(J) are dead ends at zero
     # modifiers, a second closed class the guard rejects.
     I, J = ER.Mechanisms.Metabolite(:I, true), ER.Mechanisms.Metabolite(:J, true)
@@ -2315,7 +2415,7 @@ end
     end
     m, am = ER.Mechanism(plain), ER.AllostericMechanism(allo)
     for mech in (m, am)
-        @test _testhelper_exchanges(mech) == [([I], [J]), ([I], [J])]
+        @test _testhelper_exchanges(mech) == [([J], [I]), ([J], [I])]
         _testhelper_check_stored_orientation(mech)
     end
     # The written direction and order of the exchanges do not matter.
@@ -2351,16 +2451,17 @@ end
             (F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)  :: NonequalAI
         end
     end) == am
-    @test occursin("k_EJ_I_to_EI_J", rate_equation_string(plain))
+    @test occursin("k_EI_J_to_EJ_I", rate_equation_string(plain))
     allo_law = rate_equation_string(allo)
-    @test occursin("k_A_EJ_I_to_EI_J", allo_law)
-    @test occursin("k_I_EJ_I_to_EI_J", allo_law)
+    @test occursin("k_A_EI_J_to_EJ_I", allo_law)
+    @test occursin("k_I_EI_J_to_EJ_I", allo_law)
     _testhelper_check_law_against_oracle(plain)
     _testhelper_check_law_against_oracle(allo)
 
-    # An exchange that changes conformation leads its group. On its own, Tier 3 runs
-    # F(I) + J <--> E(J) + I from E(J) to F(I) and the exchange at E from E(I) to E(J);
-    # the group turns the exchange at E to take up I and give off J as the lead does.
+    # The exchange between conformations, F(I) + J <--> E(J) + I, lies on a cycle that
+    # turns the reaction over, F(I) → E(J) → E → E(A) → E(P) → F → F(I), so it runs from
+    # F(I), taking up J, and leads its group; the exchange at E, on no such cycle, takes up
+    # J with it.
     mixed = @enzyme_mechanism begin
         substrates: A
         products: P
@@ -2376,7 +2477,7 @@ end
         end
     end
     mm = ER.Mechanism(mixed)
-    @test _testhelper_exchanges(mm) == [([I], [J]), ([I], [J])]
+    @test _testhelper_exchanges(mm) == [([J], [I]), ([J], [I])]
     _testhelper_check_stored_orientation(mm)
     @test ER.Mechanism(@enzyme_mechanism begin
         substrates: A
@@ -2392,8 +2493,49 @@ end
             (E(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J)
         end
     end) == mm
-    @test occursin("k_EJ_I_to_EI_J", rate_equation_string(mixed))
+    @test occursin("k_EI_J_to_EJ_I", rate_equation_string(mixed))
     _testhelper_check_law_against_oracle(mixed)
+
+    # Neither exchange lies on a cycle, so each runs away from free E: on its own, the
+    # exchange at F runs from F(J), two steps from free E, to F(I), three steps away,
+    # taking up I. In one group with the exchange at E, which leads, nearer free E, and
+    # runs from E(I), taking up J, it turns to take up J too.
+    _testhelper_lone_f(ff) = only(e for e in ff.steps
+                                  if !isempty(e.taken_up) && !isempty(e.given_off) &&
+                                      startswith(ER.Mechanisms._form_name(ff, e.from), "F"))
+    apart = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            E + I ⇌ E(I)
+            F + J ⇌ F(J)
+            E(I) + J <--> E(J) + I
+            F(I) + J <--> F(J) + I
+        end
+    end
+    @test (_testhelper_lone_f(apart).taken_up, _testhelper_lone_f(apart).given_off) ==
+          ([I], [J])
+    tied = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A
+        products: P
+        modifiers: I, J
+        steps: begin
+            E + A <--> E(A)
+            E(A) <--> E(P)
+            E(P) <--> F + P
+            F <--> E
+            E + I ⇌ E(I)
+            F + J ⇌ F(J)
+            (E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I)
+        end
+    end
+    @test _testhelper_exchanges(tied) == [([J], [I]), ([J], [I])]
+    _testhelper_check_stored_orientation(tied)
 end
 
 @testset "each reaction appears once in a mechanism" begin

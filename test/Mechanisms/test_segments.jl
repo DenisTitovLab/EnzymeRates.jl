@@ -164,7 +164,7 @@ end
         end
     end)
     on = BitVector(k in [_testhelper_edge(b_only, t)
-                         for t in ("E + B <--> EB", "EB <--> E")]
+                         for t in ("E + B <--> EB", "E <--> EB")]
                    for k in eachindex(b_only.steps))
     @test !M.has_turnover_cycle(b_only, on)
     # A mask with fewer flags than steps is out of bounds.

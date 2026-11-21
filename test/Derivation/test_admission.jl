@@ -4606,7 +4606,7 @@ end
         end
     end
     rng = Random.MersenneTwister(43)
-    k = _testhelper_edge(am, "EI ⇌ FI")
+    k = _testhelper_edge(am, "FI ⇌ EI")
     @test EnzymeRates.Derivation._admission_interior(
         am, EnzymeRates.Derivation._built_reading(am)) ==
           EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._FAST_STEP_PINNED,
@@ -4633,7 +4633,7 @@ end
     @test EnzymeRates.Derivation._admission_message(am, w, built) ==
           "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, FI of " *
           "the inactive conformation, which leave only through the vanishing steps " *
-          "E(I) ⇌ F(I); F <--> E while nothing runs back the way it came, so admission " *
+          "F <--> E; F(I) ⇌ E(I) while nothing runs back the way it came, so admission " *
           "cannot show that their weight does not depend on how fast those steps vanish."
     # With E(I) <--> F(I) steady-state the first built reading stops it, the interior
     # passes, and the face condition rejects the pumped basin at zero P, the ε-path
@@ -4663,7 +4663,7 @@ end
     @test EnzymeRates.Derivation._admission_message(stranded_ss, v, built_ss) ==
           "AllostericMechanism: at zero P, F + P <--> E(S) feeds the forms F, FI of " *
           "the inactive conformation, which leave only through the vanishing steps " *
-          "E(I) <--> F(I); F <--> E while nothing runs back the way it came, so " *
+          "F <--> E; F(I) <--> E(I) while nothing runs back the way it came, so " *
           "admission cannot show that their weight does not depend on how fast those " *
           "steps vanish."
     @test EnzymeRates.Derivation._guard(stranded_ss) == EnzymeRates.Derivation._WELL_POSED
@@ -5679,7 +5679,7 @@ end
     end
     v = EnzymeRates.Derivation._guard(ssbind)
     @test (v.fault, v.conformation, v.edge) ==
-          (EnzymeRates.Derivation._FAST_STEP_PINNED, 2, _testhelper_edge(ssbind, "EI ⇌ FI"))
+          (EnzymeRates.Derivation._FAST_STEP_PINNED, 2, _testhelper_edge(ssbind, "FI ⇌ EI"))
     w = _testhelper_face_verdicts(ssbind)[2]
     @test w.face == 2 && w.limit === EnzymeRates.Derivation._LIMIT_SPEED
     @test _testhelper_respeed_verdicts(ssbind; rng = Random.MersenneTwister(64),
@@ -5727,7 +5727,7 @@ end
             E + P ⇌ E(P)                    :: OnlyA
         end
     end
-    k = _testhelper_edge(m, "EIJP ⇌ EP + I + J")
+    k = _testhelper_edge(m, "EP + I + J ⇌ EIJP")
     @test EnzymeRates.Derivation._admission_interior(
         m, EnzymeRates.Derivation._built_reading(m)) ==
           EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._FAST_STEP_PINNED,
@@ -5770,8 +5770,8 @@ end
     v = EnzymeRates.Derivation._guard(kept)
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._RE_TURNOVER, 0, 2)
     @test EnzymeRates.Derivation._guard_message(kept) ==
-          "AllostericMechanism: the rapid-equilibrium steps E(I, J, P) ⇌ E(P) + I + J, " *
-          "E + P ⇌ E(P), E + S ⇌ E(S), E(I, J, S) ⇌ E(S) + I + J and " *
+          "AllostericMechanism: the rapid-equilibrium steps E(P) + I + J ⇌ E(I, J, P), " *
+          "E + P ⇌ E(P), E + S ⇌ E(S), E(S) + I + J ⇌ E(I, J, S) and " *
           "E(I, J, S) ⇌ E(I, J, P) close a cycle in the inactive conformation that turns " *
           "the reaction over, so the mechanism has no finite rate. Make one step of the " *
           "cycle steady-state."

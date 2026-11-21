@@ -284,16 +284,14 @@ end
     @test c.flipped == [false, false, true]
     @test c.group_of == [2, 3, 1]
     @test c.node_of == [1, 3, 3, 2, 2, 1]
-    @test isempty(c.misaligned)
 end
 
-@testset "canonical form runs each step physical-forward, tied steps as one" begin
+@testset "canonical form stores each step the way the graph gives it, a group as one" begin
     _testhelper_flipped(block) = _testhelper_canonicalize(
         EnzymeRates.DSL.raw_mechanism(block, false)).flipped
-    # A step with one metabolite takes it up; a fused release F(P) → F + P too. Then the
-    # side with more substrates comes first (E(S) → E(P)); then the form where only
-    # products enter or leave (F → E); then the earlier form, F(S) → E(S) running E(S)
-    # → F(S), E(S) and F(S) seeing no metabolite enter or leave.
+    # A step with one metabolite takes it up, so the fused release F(P) → F + P is stored
+    # as F + P → F(P). The isomerizations lie on the one cycle that turns the reaction
+    # over, E → E(S) → F(S) → F(P) → F → E, and run its way.
     @test _testhelper_flipped(:(begin
         substrates: S
         products: P
@@ -316,10 +314,12 @@ end
             E <--> F
         end
     end)) == [true, false, true, false, true]
-    # The mirror of F → E at the I-bound forms would run E(I) → F(I) on its own (the
-    # earlier form); in one kinetic group with F → E it runs F(I) → E(I). The release
-    # of P is stored as the binding it reverses.
-    _testhelper_mirrored(iso) = EnzymeRates.DSL.raw_mechanism(:(begin
+    # F → E runs the way the reaction turns over and leads its kinetic group, nearer free
+    # E than its mirror at the I-bound forms, which keeps the direction it is written in
+    # relative to F → E. Both written the other way round, the group is stored the same
+    # way; written against each other, they write another mechanism. The release of P is
+    # stored as the binding it reverses.
+    _testhelper_mirrored(free, bound) = EnzymeRates.DSL.raw_mechanism(:(begin
         substrates: A
         products: P
         modifiers: I
@@ -327,30 +327,19 @@ end
             E + A <--> E(A)
             E(A) <--> E(P)
             E(P) <--> F + P
-            (F <--> E, $iso)
+            ($free, $bound)
             (E + I ⇌ E(I), F + I ⇌ F(I))
         end
     end), false)
-    c, d = _testhelper_canonicalize(_testhelper_mirrored(:(F(I) <--> E(I)))),
-           _testhelper_canonicalize(_testhelper_mirrored(:(E(I) <--> F(I))))
+    c = _testhelper_canonicalize(_testhelper_mirrored(:(F <--> E), :(F(I) <--> E(I))))
+    d = _testhelper_canonicalize(_testhelper_mirrored(:(E <--> F), :(E(I) <--> F(I))))
+    against = _testhelper_canonicalize(
+        _testhelper_mirrored(:(F <--> E), :(E(I) <--> F(I))))
     @test c.flipped == [false, false, true, false, false, false, false]
-    @test d.flipped == [false, false, true, false, true, false, false]
+    @test d.flipped == [false, false, true, true, true, false, false]
     @test c.mechanism == d.mechanism
-    # Tied steps that change different pairs of conformations: no orientation aligns
-    # them, and canonical form returns the lead and the first that misses it.
-    c = _testhelper_canonicalize(EnzymeRates.DSL.raw_mechanism(:(begin
-        substrates: A
-        products: P
-        steps: begin
-            E + A <--> E(A)
-            E(A) <--> E(P)
-            E(P) <--> E + P
-            (E ⇌ F, F ⇌ G, G ⇌ E)
-        end
-    end), false))
-    none = EnzymeRates.Mechanisms.Metabolite[]
-    @test c.misaligned == [ER.Mechanisms.Step(1, 4, none, none, true, 4),
-                           ER.Mechanisms.Step(4, 5, none, none, true, 4)]
+    @test against.flipped == [false, false, true, false, false, false, false]
+    @test against.mechanism != c.mechanism
 end
 
 """Bindings of each metabolite of `mets` to free E, node 1, each into a node of its own and
@@ -614,8 +603,9 @@ end
                      end
                  end))))
     # One copy of B taken up and two given off: the sides share B though their counts
-    # differ.
-    @test_throws(ErrorException("Step EA → EQ: B both consumed and released"),
+    # differ. The step gives off more substrate than it takes up, so it is stored the
+    # other way round.
+    @test_throws(ErrorException("Step EQ → EA: B both consumed and released"),
                  _testhelper_build(_testhelper_walk(:(begin
                      substrates: A, B
                      products: Q
@@ -646,21 +636,6 @@ end
         @test_throws(_testhelper_role_change(from, to),
                      _testhelper_build(_testhelper_walk(block)))
     end
-    # Tied steps that make different conformational changes.
-    @test_throws(ErrorException(
-        "Mechanism: a kinetic group holds E → F and F → G, which make different " *
-        "conformational changes; the steps of a kinetic group share their constants, so " *
-        "they must make the same conformational change"),
-        _testhelper_build(_testhelper_walk(:(begin
-            substrates: A
-            products: P
-            steps: begin
-                E + A <--> E(A)
-                E(A) <--> E(P)
-                E(P) <--> E + P
-                (E ⇌ F, F ⇌ G, G ⇌ E)
-            end
-        end))))
     # Two forms that render one name: bound names that concatenate, a label that holds a
     # bound name, a reactant's modifier copy beside a modifier named Xmod.
     _testhelper_one_name(a, b, name) = ErrorException(
@@ -750,9 +725,10 @@ end
             E(P) <--> E(S)
             E(P) <--> E + P
         end)))
-    # The tied pair stores E → F in group 3, the lone step F → E in group 6.
+    # The tied pair and the lone step both store F → E, which runs the way the reaction
+    # turns over, in groups 5 and 6.
     @test_throws(ErrorException(
-        "Mechanism: kinetic groups 3 and 6 both hold the reaction E ⇌ F; a reaction " *
+        "Mechanism: kinetic groups 5 and 6 both hold the reaction F ⇌ E; a reaction " *
         "belongs to one kinetic group, whose constants are named after it"),
         _testhelper_build(_testhelper_walk(:(begin
             substrates: A
@@ -1189,10 +1165,12 @@ end
 end
 end
 
-@testset "tier 3 and a tied group's lead orient steps alike in every writing" begin
-    # No spec and no census population holds a step that only form order orients or a
-    # tied group whose alignment turns a step, so these cases are checked here, each in
-    # two writings, against each case's pinned canonical text.
+@testset "cycles, distances and a group's lead orient steps alike in every writing" begin
+    # Isomerizations a turnover cycle orients, exchanges that run away from free E, and an
+    # isomerization that keeps its direction relative to its group's lead, each case in two
+    # writings, against each case's pinned canonical text. In the tied fixture neither
+    # exchange lies on a cycle: each runs from its form nearer free E, E(I) and F(I),
+    # taking up J.
     ss_text = ["substrates: S | products: P",
                "forms: E, ES, F, FP, FS",
                "1: E + S <--> ES | group 1",
@@ -1206,13 +1184,13 @@ end
                  "2: E + I ⇌ EI | group 2",
                  "3: EA <--> EP | group 3",
                  "4: EI + A ⇌ EAI | group 4",
-                 "5: EJ + I <--> EI + J | group 5",
+                 "5: EI + J <--> EJ + I | group 5",
                  "6: EJ + P ⇌ EJP | group 6",
                  "7: F <--> E | group 7",
                  "8: F + P <--> EP | group 8",
                  "9: F + I ⇌ FI | group 2",
                  "10: FI <--> EI | group 7",
-                 "11: FJ + I <--> FI + J | group 5"]
+                 "11: FI + J <--> FJ + I | group 5"]
     allosteric_text = ["substrates: A | products: P | modifiers: I, J",
                        "forms: E, EA, EI, EJ, EP, F, FI, FJ",
                        "1: E + A <--> EA | group 1 :: EqualAI",
@@ -1224,11 +1202,11 @@ end
                        "7: F + I ⇌ FI | group 2 :: EqualAI",
                        "8: FI + J <--> FJ + I | group 4 :: NonequalAI",
                        "oligomeric_state: 1"]
-    _testhelper_tied_steps(iso, exchange) = :(begin
+    _testhelper_tied_steps(free, bound, exchange) = :(begin
         E + A <--> E(A)
         E(A) <--> E(P)
         E(P) <--> F + P
-        ($iso, F(I) <--> E(I))
+        ($free, $bound)
         (E + I ⇌ E(I), F + I ⇌ F(I))
         E(I) + A ⇌ E(A, I)
         E(J) + P ⇌ E(J, P)
@@ -1257,14 +1235,16 @@ end
                 E <--> F
             end
         end)]
-    for (iso, exchange) in (
-            (:(F <--> E), :((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I))),
-            (:(E <--> F), :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J))))
+    for (free, bound, exchange) in (
+            (:(F <--> E), :(F(I) <--> E(I)),
+             :((E(I) + J <--> E(J) + I, F(I) + J <--> F(J) + I))),
+            (:(E <--> F), :(E(I) <--> F(I)),
+             :((F(J) + I <--> F(I) + J, E(J) + I <--> E(I) + J))))
         push!(blocks, :(begin
             substrates: A
             products: P
             modifiers: I, J
-            steps: $(_testhelper_tied_steps(iso, exchange))
+            steps: $(_testhelper_tied_steps(free, bound, exchange))
         end))
     end
     texts = [ss_text, ss_text, tied_text, tied_text]

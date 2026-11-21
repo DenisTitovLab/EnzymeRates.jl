@@ -7,19 +7,20 @@
 no copy, so it is not one."""
 _is_reactant_copy(m::Mechanism, x::Metabolite) = x.modifier && _is_reactant(m, x.name)
 
-"""`x` as names write it: its name, with `mod` on a reactant's modifier copy; a
-modifier-only name stays bare."""
-_entry_label(m::Mechanism, x::Metabolite) =
-    _is_reactant_copy(m, x) ? string(x.name, "mod") : String(x.name)
+"""`x` as names write it, among the sorted `substrates` and `products`: its name, with `mod`
+on a reactant's modifier copy; a modifier-only name stays bare."""
+_entry_label(x::Metabolite, substrates::Vector{Symbol}, products::Vector{Symbol}) =
+    x.modifier && (insorted(x.name, substrates) || insorted(x.name, products)) ?
+    string(x.name, "mod") : String(x.name)
 
-"""Enzyme form `f`'s name: its label, its bound metabolites' labels in sorted order, then
-any residual as `_res`, `_plus<name>` per substrate it adds and `_minus<name>` per product
-it subtracts (`E`, `EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
-function _form_name(m::Mechanism, f::Int)
-    x = m.nodes[f]
+"""The name of enzyme form `x` of a mechanism over the sorted `substrates` and `products`:
+its label, its bound metabolites' labels in sorted order, then any residual as `_res`,
+`_plus<name>` per substrate it adds and `_minus<name>` per product it subtracts (`E`,
+`EAB`, `EPmodQ`, `EB_res_plusA_minusP`)."""
+function _form_name(x::EnzymeForm, substrates::Vector{Symbol}, products::Vector{Symbol})
     io = IOBuffer()
     print(io, x.conformation)
-    foreach(y -> print(io, _entry_label(m, y)), x.bound)
+    foreach(y -> print(io, _entry_label(y, substrates, products)), x.bound)
     if _has_residual(x)
         print(io, "_res")
         foreach(n -> print(io, "_plus", n), x.added)
@@ -27,6 +28,8 @@ function _form_name(m::Mechanism, f::Int)
     end
     String(take!(io))
 end
+"""Enzyme form `f`'s name in `m`."""
+_form_name(m::Mechanism, f::Int) = _form_name(m.nodes[f], m.substrates, m.products)
 
 """`x` as a mechanism macro writes a metabolite of `m`: its name, with `::Mod` on a
 reactant's modifier copy; a modifier-only name stays bare."""
@@ -49,7 +52,8 @@ end
 """A step side: its node's name `form` and the labels of the free metabolites `free`,
 joined by `_` (`EA_B` for `E(A) + B`)."""
 _side_name(m::Mechanism, form::String, free::Vector{Metabolite}) =
-    foldl((side, x) -> string(side, '_', _entry_label(m, x)), free; init = form)
+    foldl((side, x) -> string(side, '_', _entry_label(x, m.substrates, m.products)), free;
+          init = form)
 """A step's two sides in its stored direction; every step constant is named after
 them."""
 _sides(m::Mechanism, e::Step) = (_side_name(m, _form_name(m, e.from), e.taken_up),

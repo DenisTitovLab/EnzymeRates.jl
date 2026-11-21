@@ -428,10 +428,10 @@ end
 """
     Step
 
-A step between nodes `from` and `to` of its mechanism, stored in its physical-forward
-direction: going `from → to` it takes up `taken_up` and gives off `given_off`, each list
-sorted. `rapid_equilibrium` marks a rapid-equilibrium step, and `group` is the step's
-kinetic group.
+A step between nodes `from` and `to` of its mechanism, stored in the direction the
+reaction graph gives it (`_orientation`): going `from → to` it takes up `taken_up` and
+gives off `given_off`, each list sorted. `rapid_equilibrium` marks a rapid-equilibrium
+step, and `group` is the step's kinetic group.
 """
 struct Step
     from::Int
@@ -447,8 +447,9 @@ end
 
 A mechanism as its reaction graph, in canonical form: two writings of one mechanism give
 equal fields. `substrates` and `products` are sorted; `nodes` hold free E first, then the
-other nodes in content order (`isless(::EnzymeForm)`); `steps` run physical-forward, in
-content order (`isless(::Step)`), the kinetic groups numbered by their first step.
+other nodes in content order (`isless(::EnzymeForm)`); `steps` run in the direction the
+reaction graph gives them (`_orientation`), in content order (`isless(::Step)`), the
+kinetic groups numbered by their first step.
 
 It also stores facts its canonical fields give, computed once when it is built:
 `enzyme_forms`, each node's name (`_form_name`), in node order; `modifiers`, every name
@@ -476,13 +477,16 @@ struct Mechanism
     toward_products::BitVector
     step_sides::Vector{Tuple{String, String}}
     # `graph` is partially initialised: it holds the canonical fields alone. The fact
-    # helpers may read only `substrates`, `products`, `nodes` and `steps` of it.
+    # helpers may read only `substrates`, `products`, `nodes` and `steps` of it. `forms`
+    # holds each node's name, passed in by a caller that has computed them already.
     global function _unchecked_mechanism(substrates::Vector{Symbol},
                                          products::Vector{Symbol},
                                          nodes::Vector{EnzymeForm},
-                                         steps::Vector{Step})
+                                         steps::Vector{Step},
+                                         forms::Vector{String} =
+                                             [_form_name(n, substrates, products)
+                                              for n in nodes])
         graph = new(substrates, products, nodes, steps)
-        forms = [_form_name(graph, f) for f in eachindex(nodes)]
         new(substrates, products, nodes, steps, Symbol.(forms),
             copy(_modifiers(nodes, steps)), _groups(steps),
             Symbol[_step_kind(graph, e) for e in steps],
@@ -576,35 +580,33 @@ _reversed(e::Step) =
 
 """
     _canonicalize(substrates, products, nodes, steps)
-        -> (; mechanism, edge_of, flipped, group_of, node_of, misaligned)
+        -> (; mechanism, edge_of, flipped, group_of, node_of)
 
 The canonical `Mechanism` that `nodes` and `steps` write, with no representation check:
 the nodes in any order, a node any number of times, each step between two of them in
 either direction, its `group` a written kinetic group label (1, 2, …, each used), and
-every list of a node or a step sorted. `edge_of[j]` is the step written step `j` became,
-`flipped[j]` whether that step runs against step `j` as written, `group_of[l]` the
-kinetic group written label `l` became, `node_of[i]` the node written node `i` became,
-and `misaligned` the lead and member of a tied kinetic group that no orientation aligns,
-or no step. Alignment stops at that group, so a result with a misaligned pair is not
-canonical. The checked constructors build on it. The nodes and steps share the lists of
-`nodes` and `steps`.
+every list of a node or a step sorted. Each step is stored in the direction
+`_orientation` gives. `edge_of[j]` is the step written step `j` became, `flipped[j]`
+whether that step runs against step `j` as written, `group_of[l]` the kinetic group
+written label `l` became, and `node_of[i]` the node written node `i` became. The checked
+constructors build on it. The nodes and steps share the lists of `nodes` and `steps`.
 """
 function _canonicalize(substrates::Vector{Symbol}, products::Vector{Symbol},
                        nodes::Vector{EnzymeForm}, steps::Vector{Step})
     distinct, node_of = _sorted_nodes(nodes)
     written = [Step(node_of[e.from], node_of[e.to], e.taken_up, e.given_off,
                     e.rapid_equilibrium, e.group) for e in steps]
-    substrates = sort(substrates)
-    fwd, misaligned = _orientation(distinct, written, substrates)
+    substrates, products = sort(substrates), sort(products)
+    forms = [_form_name(n, substrates, products) for n in distinct]
+    fwd = _orientation(written, forms, substrates, products)
     stored = [fwd[j] ? written[j] : _reversed(written[j]) for j in eachindex(written)]
     p = sortperm(stored)
     group, group_of = _number_groups([stored[i].group for i in p],
                                      maximum(e -> e.group, steps; init = 0))
     canonical = [Step(e.from, e.to, e.taken_up, e.given_off, e.rapid_equilibrium, group[k])
                  for (k, e) in enumerate(view(stored, p))]
-    m = _unchecked_mechanism(substrates, sort(products), distinct, canonical)
-    (; mechanism = m, edge_of = invperm(p), flipped = .!fwd, group_of, node_of,
-     misaligned)
+    m = _unchecked_mechanism(substrates, products, distinct, canonical, forms)
+    (; mechanism = m, edge_of = invperm(p), flipped = .!fwd, group_of, node_of)
 end
 
 """The distinct nodes of `written` in canonical order, free E (label `E`, nothing bound,
@@ -620,9 +622,10 @@ function _sorted_nodes(written::Vector{EnzymeForm})
     copy(nodes), node_of
 end
 
-"""Canonical form's tier-1 side order: substrates, bound plus free, then fewer products.
-`free` lists the metabolites a step takes up or gives off at node `n`; a modifier counts on
-neither side, and every other name that is no substrate counts as a product."""
+"""The side order `_runs_toward_products` reads: substrates, bound plus free, then fewer
+products. `free` lists the metabolites a step takes up or gives off at node `n`; a
+modifier counts on neither side, and every other name that is no substrate counts as a
+product."""
 function _side_score(n::EnzymeForm, free::Vector{Metabolite}, substrates::Vector{Symbol})
     s = p = 0
     for list in (n.bound, free), x in list
@@ -633,76 +636,164 @@ function _side_score(n::EnzymeForm, free::Vector{Metabolite}, substrates::Vector
 end
 
 """
-    _orientation(nodes, written, substrates) -> (fwd::BitVector, misaligned::Vector{Step})
+    _orientation(written, forms, substrates, products) -> BitVector
 
-Whether each written step runs in its physical-forward direction. A step with one
-metabolite in all takes it up (tier 0). Otherwise the side holding more substrates,
-bound plus free, then fewer products, comes first (tier 1); otherwise the step runs from
-a node where only products enter or leave to one where only substrates do (tier 2);
-otherwise from the earlier node (tier 3). A modifier counts on neither side. Entry
-sides are read over every step as written; reversing a step swaps its ends and lists
-together, so they do not depend on any written direction. Tied groups then turn as one
-(`_align_tied_groups!`).
+Whether to store each step of `written` as written, from the steps alone: their ends,
+which index `forms`, the forms' names with free E first, and the names they take up and
+give off. The first rule that decides gives a step's direction:
+
+1. A step that only takes up, or only gives off, metabolites runs as the uptake.
+2. A step that takes up some and gives off others runs the way that takes up more
+   substrates and gives off more products, net.
+3. Any other step, an isomerization or one that trades one modifier for another, runs
+   the way the shortest cycle through it that turns the reaction over runs
+   (`_turnover_directions!`).
+4. With no such cycle, or one each way of equal length, it runs away from free E, from
+   the form fewer steps from it.
+5. With both ends equally far, it runs from the form whose name comes first, free E
+   before every other.
+
+A metabolite takes its role from its name, so a reactant's modifier copy counts as the
+reactant. The steps of a kinetic group share their constants, so they turn together,
+after the member nearest free E among those rules 1 to 3 decide, or among all of them
+when they decide none (`_turn_groups_together!`).
 """
-function _orientation(nodes::Vector{EnzymeForm}, written::Vector{Step},
-                      substrates::Vector{Symbol})
-    substrate(x::Metabolite) = !x.modifier && x.name in substrates
-    product(x::Metabolite) = !x.modifier && !(x.name in substrates)
-    side(list::Vector{Metabolite}) = UInt8(any(substrate, list) + 2 * any(product, list))
-    enters = zeros(UInt8, length(nodes))
-    for e in written
-        enters[e.from] |= side(e.taken_up)
-        enters[e.to] |= side(e.given_off)
-    end
-    n = length(written)
-    fwd, tier = trues(n), zeros(Int, n)
+function _orientation(written::Vector{Step}, forms::Vector{String},
+                      substrates::Vector{Symbol}, products::Vector{Symbol})
+    nf = length(forms)
+    net(list::Vector{Metabolite}) =
+        count(x -> x.name in substrates, list) - count(x -> x.name in products, list)
+    # Rules 1 and 2: positive to store a step as written, negative to turn it, zero when
+    # neither decides, as for an isomerization.
+    verdict = [isempty(e.taken_up) || isempty(e.given_off) ?
+               length(e.taken_up) - length(e.given_off) :
+               net(e.taken_up) - net(e.given_off) for e in written]
+    _turnover_directions!(verdict, written, nf, substrates[1])
+    distance = _distance_from_free_E(written, nf)
+    # Each form's place: free E first, then the others by name. Rule 5 and the group rule
+    # break their ties by it, so a direction follows the forms' names and not the order
+    # the forms are stored in.
+    place = nf == 0 ? Int[] : invperm([1; sortperm(view(forms, 2:nf)) .+ 1])
+    fwd, decided = trues(length(written)), trues(length(written))
     for (k, e) in enumerate(written)
-        a = _side_score(nodes[e.from], e.taken_up, substrates)
-        b = _side_score(nodes[e.to], e.given_off, substrates)
-        if length(e.taken_up) + length(e.given_off) == 1
-            fwd[k] = !isempty(e.taken_up)
-        elseif a != b
-            fwd[k], tier[k] = a > b, 1
-        elseif (enters[e.from], enters[e.to]) in ((0x02, 0x01), (0x01, 0x02))
-            fwd[k], tier[k] = enters[e.from] == 0x02, 2
-        else
-            fwd[k], tier[k] = e.from < e.to, 3
+        decided[k] = verdict[k] != 0
+        a, b = distance[e.from], distance[e.to]
+        fwd[k] = decided[k] ? verdict[k] > 0 : a == b ? place[e.from] < place[e.to] : a < b
+    end
+    _turn_groups_together!(fwd, decided, written, distance, place)
+    fwd
+end
+
+"""How many steps of `written` separate each of its `nf` forms from free E, form 1, along
+steps taken either way; `typemax(Int)` for a form no steps join to it."""
+function _distance_from_free_E(written::Vector{Step}, nf::Int)
+    distance = fill(typemax(Int), nf)
+    nf == 0 && return distance
+    distance[1] = 0
+    queue, head = [1], 0
+    while head < length(queue)
+        u = queue[head += 1]
+        for e in written, (a, b) in ((e.from, e.to), (e.to, e.from))
+            a == u && distance[b] == typemax(Int) || continue
+            distance[b] = distance[u] + 1
+            push!(queue, b)
         end
     end
-    misaligned = _align_tied_groups!(fwd, tier, nodes, written)
-    fwd, misaligned
+    distance
 end
 
 """
-Turn the steps tiers 2 and 3 decide in each kinetic group (each written step's `group`
-label) with the group's lead: the tied step that changes conformation first, then by
-tier, then by its oriented step. A group's steps share their constants, so a
-conformational change and its mirror at other bound nodes must run the same way. Every
-other tied step that takes up and gives off the lead's metabolites takes the orientation
-that does, and, if it changes conformation, makes the lead's change; a step that fits both
-ways keeps its own. Returns the lead and the first step that fits the lead's metabolites
-but not its change, or no step.
+    _turnover_directions!(verdict, written, nf, s1) -> verdict
+
+Decide each step `k` of `written` (its ends among `nf` forms) that `verdict` leaves at
+`0`: `verdict[k]` becomes `1` when the shortest closed walk that takes step `k` once, as
+written, and takes up one of the first substrate `s1` net (a modifier copy counting as
+it) is shorter than any that takes the step the other way, `-1` when it is longer, and
+stays `0` when there is none either way or both are equally long. The walk may pass a
+form twice, so a step on a cycle that turns nothing over finds a walk each way of one
+length, round a turnover cycle in either direction, and is decided by neither.
 """
-function _align_tied_groups!(fwd::BitVector, tier::Vector{Int}, nodes::Vector{EnzymeForm},
-                             written::Vector{Step})
-    label_pair(e::Step) = (nodes[e.from].conformation, nodes[e.to].conformation)
-    turns(e::Step) = label_pair(e)[1] !== label_pair(e)[2]
-    oriented(k::Int) = fwd[k] ? written[k] : _reversed(written[k])
-    for l in unique(e.group for e in written)
-        tied = [k for k in eachindex(written) if written[k].group == l && tier[k] > 1]
-        length(tied) < 2 && continue
-        lead = oriented(argmin(k -> (!turns(oriented(k)), tier[k], oriented(k)), tied))
-        for k in tied
-            o = oriented(k)
-            same = [x for x in (o, _reversed(o))
-                    if (x.taken_up, x.given_off) == (lead.taken_up, lead.given_off)]
-            isempty(same) && continue
-            i = findfirst(x -> !turns(x) || label_pair(x) == label_pair(lead), same)
-            i === nothing && return [lead, same[1]]
-            fwd[k] = same[i] == written[k]
+function _turnover_directions!(verdict::Vector{Int}, written::Vector{Step}, nf::Int,
+                               s1::Symbol)
+    any(iszero, verdict) || return verdict
+    uptake = [count(x -> x.name === s1, e.taken_up) - count(x -> x.name === s1, e.given_off)
+              for e in written]
+    # The search runs breadth first over (form, net uptake of s1) and keeps the net uptake
+    # within ±span, as many as there are forms, so that it ends: a walk round a turnover
+    # cycle takes up more on every turn. Each queued state carries its walk's length.
+    span = nf
+    seen = falses(nf, 2span + 1)
+    queue = NTuple{3, Int}[]
+    for k in eachindex(written)
+        verdict[k] == 0 || continue
+        from, to = written[k].from, written[k].to
+        # The walk back from `to` to `from`, without step `k`, takes up `1 - uptake[k]`
+        # net when step `k` as written turns the reaction over, and `-1 - uptake[k]` when
+        # step `k` taken the other way does.
+        ahead, behind = 1 - uptake[k], -1 - uptake[k]
+        abs(ahead) <= span && abs(behind) <= span || continue
+        fill!(seen, false)
+        empty!(queue)
+        seen[to, span + 1] = true
+        push!(queue, (to, 0, 0))
+        a = b = typemax(Int)
+        head = 0
+        # Once the search reaches a state as far out as the shortest walk found, every
+        # walk of that length has been found.
+        while head < length(queue) && queue[head + 1][3] < min(a, b)
+            u, n, d = queue[head += 1]
+            for (j, e) in enumerate(written)
+                j == k && continue
+                v, x = e.from == u ? (e.to, uptake[j]) :
+                       e.to == u ? (e.from, -uptake[j]) : (0, 0)
+                (v == 0 || abs(n + x) > span || seen[v, n + x + span + 1]) && continue
+                seen[v, n + x + span + 1] = true
+                v == from && n + x == ahead && (a = d + 1)
+                v == from && n + x == behind && (b = d + 1)
+                push!(queue, (v, n + x, d + 1))
+            end
+        end
+        verdict[k] = a == b ? 0 : a < b ? 1 : -1
+    end
+    verdict
+end
+
+"""
+Turn the steps of each kinetic group (each written step's `group` label) with the
+group's lead, its member nearest free E among those `decided` marks, or among all of
+them when none is marked: nearest by the distances of its two ends from free E
+(`distance`), the nearer end first, then by the places of its two forms (`place`), the
+earlier first. A member that takes up or gives off metabolites takes the direction in
+which it takes up what the lead takes up; an isomerization keeps the direction it was
+written in relative to the lead. `fwd[k]` says whether written step `k` is stored as
+written.
+"""
+function _turn_groups_together!(fwd::BitVector, decided::BitVector, written::Vector{Step},
+                                distance::Vector{Int}, place::Vector{Int})
+    near(k::Int) = (e = written[k];
+                    (minmax(distance[e.from], distance[e.to])...,
+                     minmax(place[e.from], place[e.to])...))
+    for g in 1:maximum(e -> e.group, written; init = 0)
+        in_group(k::Int) = written[k].group == g
+        count(in_group, eachindex(written)) < 2 && continue
+        any_decided = any(k -> in_group(k) && decided[k], eachindex(written))
+        lead = 0
+        for k in eachindex(written)
+            in_group(k) && (decided[k] || !any_decided) || continue
+            (lead == 0 || near(k) < near(lead)) && (lead = k)
+        end
+        taken_up = fwd[lead] ? written[lead].taken_up : written[lead].given_off
+        for k in eachindex(written)
+            in_group(k) || continue
+            e = written[k]
+            if _is_iso(e)
+                fwd[k] = fwd[lead]
+            elseif e.taken_up == taken_up || e.given_off == taken_up
+                fwd[k] = e.taken_up == taken_up
+            end
         end
     end
-    Step[]
+    fwd
 end
 
 """Group labels in step order renumbered by first occurrence, and the number each
@@ -773,7 +864,7 @@ function _checked(substrates::Vector{Symbol}, products::Vector{Symbol},
     modifiers = _modifiers(nodes, steps)
     _check_declarations(substrates, products, modifiers, Int[e.group for e in steps])
     c = _canonicalize(substrates, products, nodes, steps)
-    _check_representation(c.mechanism, c.misaligned, modifiers)
+    _check_representation(c.mechanism, modifiers)
     c
 end
 
@@ -857,14 +948,12 @@ labels (`check_conformation_label`), none a metabolite's name; every name declar
 `modifiers`, the names bound as modifiers, or among its substrates and products), a plain
 entry only for a reactant, residuals that add substrates and subtract products; no step
 joining a node to itself, taking up and giving off one metabolite, or binding a
-metabolite into a node that holds it in another role; tied steps that make one
-conformational change (`misaligned`, from `_canonicalize`); no two nodes that render one
-name; each kinetic group one kind of step with one flag; each reaction once; free E; one
+metabolite into a node that holds it in another role; no two nodes that render one name;
+each kinetic group one kind of step with one flag; each reaction once; free E; one
 connected graph; and a step that exchanges each declared name and each name of
 `modifiers`, a modifier as a modifier.
 """
-function _check_representation(m::Mechanism, misaligned::Vector{Step},
-                               modifiers::Vector{Symbol})
+function _check_representation(m::Mechanism, modifiers::Vector{Symbol})
     table = _table(m)
     for c in sort!(unique!([n.conformation for n in m.nodes]))
         check_conformation_label(c, "Mechanism")
@@ -901,7 +990,6 @@ function _check_representation(m::Mechanism, misaligned::Vector{Step},
                   "$(only(e.taken_up).name) by name, not by role; write a " *
                   "modifier copy as X::Mod on both sides")
     end
-    _check_aligned(m, misaligned)
     _check_distinct_form_names(m)
     _check_uniform_groups(m, m.groups)
     _check_each_reaction_once(m, m.groups)
@@ -941,17 +1029,6 @@ function _check_declared_used(m::Mechanism, modifiers::Vector{Symbol})
     k === nothing ||
         error("Mechanism: modifier $(modifiers[k]) is bound at a node, " *
               "but no step binds it")
-end
-
-"""Error unless `misaligned`, from `_canonicalize`, is empty: it holds the lead and a member
-of a tied kinetic group that no orientation aligns."""
-function _check_aligned(m::Mechanism, misaligned::Vector{Step})
-    isempty(misaligned) ||
-        error("Mechanism: a kinetic group holds $(join(_sides(m, misaligned[1]), " → ")) " *
-              "and $(join(_sides(m, misaligned[2]), " → ")), which make different " *
-              "conformational changes; the steps of a kinetic group share their " *
-              "constants, so they must make the same conformational change")
-    nothing
 end
 
 """Error when two nodes of `m` render one name: every constant is named after the nodes
@@ -1280,11 +1357,11 @@ function _binds_by_name(m::Mechanism, e::Step)
 end
 """
 Whether step `e` of `m` runs, as stored, toward products: from the side that holds more
-substrates, bound or free, then fewer products, the order canonical form gives a step that
-exchanges several metabolites (`_orientation`). A step that takes up or gives off one
-metabolite is stored as its uptake, so a half-reaction that releases a product,
-`E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored direction.
-A step whose two sides tie, such as an isomerization of free forms, runs as stored.
+substrates, bound or free, then fewer products (`_side_score`). A step that takes up or
+gives off one metabolite is stored as its uptake, so a half-reaction that releases a
+product, `E(A) <--> E(; residual = A - P) + P`, runs toward products against its stored
+direction. A step whose two sides tie, such as an isomerization of free forms, runs as
+stored.
 """
 _runs_toward_products(m::Mechanism, e::Step) =
     _side_score(m.nodes[e.from], e.taken_up, m.substrates) >=

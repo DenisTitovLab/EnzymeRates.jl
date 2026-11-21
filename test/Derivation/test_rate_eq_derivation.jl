@@ -1763,7 +1763,8 @@ end
     @test _testhelper_reference_lines_match(folded)
     # S binds E and Estar under one constant, so the square of the two isomerizations
     # ties their equilibrium constants; the isomerization neither of whose forms is free E
-    # is the dependent one.
+    # is the dependent one. Both run the way the reaction turns over, E → Estar and
+    # Estar(S) → E(S), so round the square the bound one's constant is the inverse.
     iso_tie = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1775,7 +1776,7 @@ end
             E(P) ⇌ E + P
         end
     end
-    @test occursin("\nK_ES_to_EstarS = K_E_to_Estar\n", rate_equation_string(iso_tie))
+    @test occursin("\nK_EstarS_to_ES = 1 / K_E_to_Estar\n", rate_equation_string(iso_tie))
     _testhelper_check_law_against_oracle(iso_tie)
     @test _testhelper_reference_lines_match(iso_tie)
     # I binding E and I binding Estar share one group and run opposite ways around the
@@ -2470,9 +2471,10 @@ end
 
     # A modifier named minusQ imitates a residual: the side E(; residual = A - P) + minusQ
     # and the form E(; residual = A - P - Q) both render E_res_plusA_minusP_minusQ, so each
-    # constant of the minusQ binding takes the name of a constant of the step from
-    # E(minusQ; residual = A - P) to that form. The macro runs the guard, so it rejects
-    # the mechanism; the constructors build it.
+    # constant of the minusQ binding takes the name of a constant of the step between
+    # E(minusQ; residual = A - P) and that form; on no cycle, that step runs away from free
+    # E, from E(minusQ; residual = A - P). The macro runs the guard, so it rejects the
+    # mechanism; the constructors build it.
     residual_block = :(begin
         substrates: A, B
         products: P, Q
@@ -2491,8 +2493,8 @@ end
     residual_clash = _testhelper_build(EnzymeRates.DSL.raw_mechanism(residual_block, false))
     clash_residual = ErrorException(
         "Constants of this mechanism's rate equation share a name " *
-        "(k_EminusQ_res_plusA_minusP_to_E_res_plusA_minusP_minusQ, " *
-        "k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP); rename a metabolite " *
+        "(k_E_res_plusA_minusP_minusQ_to_EminusQ_res_plusA_minusP, " *
+        "k_EminusQ_res_plusA_minusP_to_E_res_plusA_minusP_minusQ); rename a metabolite " *
         "or a conformation label so that each constant has a name of its own")
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, residual_clash)
     @test_throws clash_residual eval(:(@enzyme_mechanism $residual_block))

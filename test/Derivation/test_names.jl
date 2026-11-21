@@ -804,10 +804,10 @@ end
     _testhelper_check_law_against_oracle(m)
 end
 
-@testset "Tier 2 reads the free metabolites at both ends of a step" begin
-    # F is where P leaves (the fused release E(S) → F + P) and E is where S
-    # enters, so the isomerization between them runs F → E however either step
-    # is written.
+@testset "an isomerization runs the way the reaction turns over through it" begin
+    # P leaves at F (the fused release E(S) → F + P) and S enters at E, so the cycle
+    # E → E(S) → F → E turns the reaction over and the isomerization between F and E runs
+    # F → E however either step is written.
     forward = @enzyme_mechanism begin
         substrates: S
         products: P

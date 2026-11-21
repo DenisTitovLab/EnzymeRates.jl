@@ -142,7 +142,7 @@ end
     @test _testhelper_graph(EnzymeRates.Mechanism(pingpong)) == g
 
     # A Theorell–Chance step takes up B and gives off P in one step, so its `released`
-    # holds a name; it runs physical-forward, B in and P out.
+    # holds a name; it runs the way the reaction does, B in and P out.
     theorell_chance = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

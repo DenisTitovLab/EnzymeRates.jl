@@ -249,7 +249,7 @@ only for a fact the fields do not store, such as `form_text(m, f)`.
 | `Mechanism` | `substrates::Vector{Symbol}` | the substrates, sorted |
 | | `products::Vector{Symbol}` | the products, sorted |
 | | `nodes::Vector{EnzymeForm}` | free E first, then the other forms in content order |
-| | `steps::Vector{Step}` | each step physical-forward, in content order |
+| | `steps::Vector{Step}` | each step in the direction the graph gives, in content order |
 | | `enzyme_forms::Vector{Symbol}` | stored: each node's name, such as `EA` |
 | | `modifiers::Vector{Symbol}` | stored: every name bound as a modifier, sorted |
 | | `groups::Vector{Vector{Int}}` | stored: each kinetic group's steps |
@@ -459,9 +459,9 @@ keeps (`steps_in_active_conformation(am)`, `steps_in_inactive_conformation(am)`;
 edge of a plain mechanism). Every edge keeps its stored direction, so both conformations
 share the mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
-in content order (conformation label, bound metabolites, residual); an edge that neither
-chemistry nor graph context orients runs from the earlier form; and a tied group's lead
-turns the group's other tied edges to match it (`_align_tied_groups!`). The forms' names
+in content order (conformation label, bound metabolites, residual); each edge runs in the
+direction the graph gives it (`_orientation`), and a kinetic group's edges turn with its
+lead (`_turn_groups_together!`). The forms' names
 and the step's metabolites, not its stored place, break the priority's last ties.
 Constants are named from the forms' names (`enzyme_forms`) and the bare names of the
 metabolites a step takes up or gives off, so a reactant's modifier copy reads as the
@@ -732,21 +732,27 @@ steps are written does not change the resulting mechanism. The canonical form is
 load-bearing: deduplication by `==` and `hash` works only because construction is
 canonical, and every constant is named after the stored sides of its class's kept member,
 so do not relax or reorder it. `_canonicalize` stores free E
-first and the other forms in content order, and stores every edge in its
-physical-forward direction (`_orientation`): a step with one metabolite takes it up, so a
-release is stored as the binding it reverses; otherwise the side holding more substrates,
-then fewer products, comes first, then the form where only products enter or leave, and
-failing those the earlier form. It sorts the edges and numbers the kinetic groups by
-their first edge. The edges of one group that metabolite progression leaves tied, such as
-a conformational change and its mirror at inhibitor-bound forms, turn as one
-(`_align_tied_groups!`): each takes up and gives off the same metabolites, and each that
-changes conformation runs between the same two conformations in the same order, so the
-group's shared constants describe one physical direction. A tied edge that keeps its
-conformation, such as one metabolite exchange at two conformations
-(`E(I) + J <--> E(J) + I` and `F(I) + J <--> F(J) + I`), turns by its metabolites alone.
-A group whose tied edges share no such direction is rejected. The `RegulatorySite`
-constructor sorts a site's ligands by name, and the `AllostericMechanism` constructor
-sorts the sites.
+first and the other forms in content order, and stores every edge in the direction the
+graph gives it (`_orientation`), reading only the edges, the forms' names, the substrates
+and the products: an edge that only takes up or only gives off metabolites runs as the
+uptake, so a release is stored as the binding it reverses; one that takes up some and
+gives off others runs the way that takes up more substrates and gives off more products;
+an isomerization, or an exchange of one modifier for another, runs the way the shortest
+cycle through it that turns the reaction over runs (`_turnover_directions!`, a
+breadth-first search over a form and the net uptake of the first substrate, which finds
+the shortest closed walk); failing that, away from free E, and failing that from the form
+whose name comes first, free E before every other, so that a direction follows the forms'
+names and not the order they are stored in. It sorts the edges and numbers the kinetic
+groups by their first edge. The edges of one group share their constants, so they turn
+together after the member nearest free E among those the first three rules decide, ties
+broken by the forms' names (`_turn_groups_together!`): an edge with metabolites takes up
+what that member takes up, and an isomerization keeps the direction it was written in
+relative to it. In
+`(Estar <--> E, Estar(A) <--> E(A))` the reaction runs through the two edges in opposite
+directions, so nothing in the graph says how the members correspond: the writer aligns
+the group, as the enumerator does, and turning one isomerization against its group
+writes another mechanism. The `RegulatorySite` constructor sorts a site's ligands by
+name, and the `AllostericMechanism` constructor sorts the sites.
 
 The constructors check representation only (`_check_declarations`, `_check_representation`,
 and for an allosteric mechanism `_check_tags` and `_check_ligands`): names a metabolite can
