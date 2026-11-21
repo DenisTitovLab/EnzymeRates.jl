@@ -586,8 +586,8 @@ end
     @test_throws(ErrorException("Mechanism: P is not declared; declare it under " *
                                 "substrates:, products: or modifiers:"),
                  _testhelper_uniuni(products = [:Q]))
-    @test _testhelper_binding(M.Metabolite(:P, true)) isa ER.Mechanism
-    @test _testhelper_binding(Imod) isa ER.Mechanism
+    @test !_testhelper_is_allosteric(_testhelper_binding(M.Metabolite(:P, true)))
+    @test !_testhelper_is_allosteric(_testhelper_binding(Imod))
     @test_throws(ErrorException("Mechanism: I is a modifier, so it binds only as a " *
                                 "modifier"),
                  _testhelper_uniuni([node(:E, Imod), node(:E, I)],

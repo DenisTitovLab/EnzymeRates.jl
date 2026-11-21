@@ -61,7 +61,7 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.Mechanism(
             E(P) ⇌ E + P
         end
     end
-    @test m isa EnzymeRates.Mechanism
+    @test !_testhelper_is_allosteric(m)
     @test m == @enzyme_mechanism begin
         substrates: S
         products: P
@@ -772,7 +772,6 @@ end
                 E(S) <--> E(P, Q)
             end
         end
-        @test m_ordered isa ER.Mechanism
         @test all(==(:agree),
                   _testhelper_respeed_verdicts(m_ordered; rng = Random.MersenneTwister(3)))
 
@@ -790,7 +789,6 @@ end
                 E(S) <--> E(P)
             end
         end
-        @test m_abortive isa ER.Mechanism
         @test all(==(:agree),
                   _testhelper_respeed_verdicts(m_abortive; rng = Random.MersenneTwister(4)))
     end
@@ -1228,7 +1226,7 @@ end
     end
 
     @testset "an allosteric kinetic group prints as one tagged tuple" begin
-        # A mechanism with no regulatory site prints no allosteric_regulators: line, but
+        # A mechanism with no regulatory site prints no `regulatory_site(n):` line, but
         # its oligomeric state always.
         am = @enzyme_mechanism begin
             substrates: S
@@ -2051,7 +2049,7 @@ end
                 E(R) + S ⇌ E(S, R)
             end
         end
-        @test m isa ER.Mechanism
+        @test !_testhelper_is_allosteric(m)
     end
 
     @testset "accepted: mirrored isomerizations" begin
@@ -2068,7 +2066,7 @@ end
                 Estar(P) ⇌ Estar + P
             end
         end
-        @test m isa ER.Mechanism
+        @test !_testhelper_is_allosteric(m)
     end
 end
 
@@ -2386,7 +2384,7 @@ end
     @test :K_F_to_E in parameters(re)
     # A group whose isomerizations join different pairs of conformations is a mechanism:
     # its members turn with the lead as written.
-    @test (@enzyme_mechanism begin
+    @test !_testhelper_is_allosteric(@enzyme_mechanism begin
         substrates: A
         products: P
         steps: begin
@@ -2395,7 +2393,7 @@ end
             E(P) <--> E + P
             (E ⇌ F, F ⇌ G, G ⇌ E)
         end
-    end) isa ER.Mechanism
+    end)
 end
 
 # The edges of the one kinetic group of `mech`'s catalytic graph that neither binds nor
@@ -2490,7 +2488,7 @@ end
 
     # Exchanges that switch conformation in opposite directions as J displaces I build;
     # without the J bindings the guard rejects them at zero I and J, for E(J).
-    @test (@_testhelper_unguarded @enzyme_mechanism begin
+    @test !_testhelper_is_allosteric(@_testhelper_unguarded @enzyme_mechanism begin
         substrates: A
         products: P
         modifiers: I, J
@@ -2502,7 +2500,7 @@ end
             (E + I ⇌ E(I), F + I ⇌ F(I))
             (E(I) + J <--> F(J) + I, F(I) + J <--> E(J) + I)
         end
-    end) isa ER.Mechanism
+    end)
     # Without the J bindings the guard rejects the mechanism at zero modifiers.
     dead_ends = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A

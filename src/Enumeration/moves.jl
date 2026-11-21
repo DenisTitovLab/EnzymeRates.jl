@@ -29,7 +29,7 @@ a new grouping can turn a tied step and renumber the steps.
 function _regrouped(c::CandidateMechanism, groups::Vector{Int}, re::BitVector)
     m = c.mechanism
     cm, a = m.catalytic, m.allosteric
-    _candidate(cm.substrates, cm.products, c.forms, _relabelled(cm, groups, re),
+    _candidate(cm.substrates, cm.products, c.forms, _regrouped_steps(cm, groups, re),
                Mechanisms.Allostery(_label_tags(m, groups), a.oligomeric_state,
                                     a.regulatory_sites))
 end
@@ -41,7 +41,7 @@ _with_flags(c::CandidateMechanism, re::BitVector) =
 
 """The steps of `m`, step `k` labelled `groups[k]` and at rapid equilibrium where `re[k]`
 holds."""
-_relabelled(m::Mechanisms.CatalyticScheme, groups::Vector{Int}, re::BitVector) =
+_regrouped_steps(m::Mechanisms.CatalyticScheme, groups::Vector{Int}, re::BitVector) =
     Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off, re[k], groups[k])
                     for (k, e) in enumerate(m.steps)]
 
@@ -837,7 +837,8 @@ either conformation's law fails the test: on a base that stops one half-reaction
 ping-pong's abortive complexes can give the inactive law a power the parent lacks.
 """
 function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
-    # The variants carry states and sites of their own; an allosteric parent's would be lost.
+    # The variants carry states and sites of their own; an allosteric parent's would be
+    # lost.
     _is_allosteric(c.mechanism) && throw(ArgumentError(
         "_expand_to_allosteric: the mechanism is allosteric; the move makes a plain one " *
         "allosteric"))

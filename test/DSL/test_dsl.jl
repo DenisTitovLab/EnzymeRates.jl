@@ -1,4 +1,4 @@
-# ABOUTME: Tests for the DSL module: the three macros, the walker's raw values and
+# ABOUTME: Tests for the DSL module: the two macros, the walker's raw values and
 # ABOUTME: parse_mechanism, which reads a mechanism back from its text.
 
 using CSV
@@ -17,7 +17,7 @@ using DataFrames
                 E(P) ⇌ E + P
             end
         end))
-        @test m isa EnzymeRates.Mechanism
+        @test !_testhelper_is_allosteric(m)
         rxn = Core.eval(importer, :(@enzyme_reaction begin
             substrates: S[C]
             products: P[C]
@@ -234,7 +234,6 @@ _testhelper_binding_of(x, t) =
                 Estar(B; residual = A - P) <--> E + P
             end
         end
-        @test m_res isa EnzymeRates.Mechanism
         @test length(m_res.catalytic.steps) == 6
 
         # Reject atom bracket syntax in substrates:
@@ -727,9 +726,7 @@ _testhelper_binding_of(x, t) =
         values = [eval(call) for call in calls]
         renamed, macros_only = Module(), Module()
         Core.eval(renamed, :(import EnzymeRates as ER2))
-        Core.eval(macros_only,
-                  :(using EnzymeRates: @enzyme_reaction, @enzyme_mechanism,
-                                       @enzyme_mechanism))
+        Core.eval(macros_only, :(using EnzymeRates: @enzyme_reaction, @enzyme_mechanism))
         for (call, value) in zip(calls, values)
             qualified = Expr(:macrocall, Expr(:., :ER2, QuoteNode(call.args[1])),
                              call.args[2:end]...)
@@ -1244,7 +1241,6 @@ _testhelper_binding_of(x, t) =
                 E(S) <--> E + P
             end
         end
-        @test m isa EnzymeRates.Mechanism
         @test length(m.catalytic.steps) == 2
         @test Set(_testhelper_graph(m).forms) == Set(["E", "ES"])
         @test Set(metabolites(m)) == Set([:S, :P])
@@ -1669,7 +1665,6 @@ end
                 E + P::Mod ⇌ E(P::Mod)
             end
         end
-        @test m isa EnzymeRates.Mechanism
         @test parameters(m) == (:K_EIS_to_ES_I, :K_EP_to_E_P,
             :K_EPmod_to_E_P, :K_ES_to_E_S, :k_ES_to_EP)
         @test metabolites(m) == [:S, :P, :I]

@@ -918,10 +918,7 @@ end
                                        reference=_testhelper_row_reference(data))
     optimizer = CMAEvolutionStrategyOpt()
     added = Int[]
-    # Typed as the pipeline types a mechanism, plain or allosteric, so each call dispatches
-    # on the mechanism's run-time type.
-    for m in EnzymeRates.Mechanism[re_binding,
-                                                                          ss_binding]
+    for m in EnzymeRates.Mechanism[re_binding, ss_binding]
         full = FittingProblem(m, prob.rate_data.data, prob.rate_data.Keq;
                               absolute=prob.rate_data.absolute,
                               reference=prob.rate_data.reference)

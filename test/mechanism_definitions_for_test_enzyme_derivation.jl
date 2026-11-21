@@ -906,12 +906,13 @@ end
 Whether the one-subunit variant `am` reproduces the family of its law at `L = 0` through the
 rescaling its certificate names (`EnzymeRates.Derivation._phantom_weights`): at 3 consistent
 points (`_testhelper_law_inputs`) for each `L` in {1/10, 10}, the exact steady-state rate of
-`am` equals that of `catalytic(am)` with every fitted constant θ scaled by (1 + L)^w, to
-1e-20 relative in 256-bit BigFloat (`_testhelper_steady_state_rate` on both sides). A
-dependent constant scales by the power product the solve gives it, and each step's
-equilibrium constant and forward rate are rebuilt from its scaled constants. False when `am`
-has no certificate. Errors unless the active conformation keeps every edge, since only then
-is the law at `L = 0` the law of `catalytic(am)`.
+`am` equals that of its plain mechanism (`_testhelper_plain_of(am)`) with every fitted
+constant θ scaled by (1 + L)^w, to 1e-20 relative in 256-bit BigFloat
+(`_testhelper_steady_state_rate` on both sides). A dependent constant scales by the power
+product the solve gives it, and each step's equilibrium constant and forward rate are
+rebuilt from its scaled constants. False when `am` has no certificate. Errors unless the
+active conformation keeps every edge, since only then is the law at `L = 0` the law of
+the plain mechanism.
 """
 function _testhelper_phantom_map_holds(am; rng)
     setprecision(BigFloat, 256) do
@@ -922,7 +923,7 @@ function _testhelper_phantom_map_holds(am; rng)
         all(EnzymeRates.Mechanisms.steps_in_active_conformation(am)) || error(
             "_testhelper_phantom_map_holds: " *
             "the active conformation drops an edge, so the law at L = 0 is not the law " *
-            "of catalytic(am)")
+            "of the plain mechanism")
         θ = [A.vars.names[v] for v in eachindex(A.vars.names)
              if !A.vars.conc[v] && !(A.vars.names[v] in (:Keq, :L))]
         μ = Dict{Symbol, Rational{Int}}(zip(θ, w))

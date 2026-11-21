@@ -272,7 +272,8 @@ inactive one's, whose one constant the inactive law reads; `kept_in_law[i]` whet
 enters the law as its class's kept member, the last of its class (`_class`) in
 elimination order, so that it stands for the class. `flat` holds the steps group by
 group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of the
-inactive conformation (`steps_in_inactive_conformation`; none for a plain mechanism).
+inactive conformation (`steps_in_inactive_conformation`; every step for a plain mechanism,
+whose one conformation runs them all).
 """
 function _constant_columns(m::Mechanisms.Mechanism)
     cols = _ordered_columns(m)

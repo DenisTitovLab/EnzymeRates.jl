@@ -120,8 +120,7 @@ end
     # single segment and both conformations weigh free E 1. The cross-weight regime, where
     # free E's weight differs between the conformations (fA ≠ fI), needs a steady-state
     # :OnlyA binding and is covered by the metabolite-bearing-D :OnlyA gate below.
-    am = onlyA
-    A = ER.Derivation._law(am)
+    A = ER.Derivation._law(onlyA)
     # single active segment
     @test A.active.trees[1] * A.active.shift == one(ER.Derivation._Poly)
     # one inactive segment
