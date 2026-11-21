@@ -25,7 +25,8 @@ const ER = EnzymeRates
                         col(1, 1, false)]
     @test c.names == [:k_EP_to_ES, :k_ES_to_EP, :K_ES_to_E_S, :K_EP_to_E_P]
     @test c.in_law == trues(4)
-    @test (c.flat, c.tags, c.law) == ([1, 2, 3], [:None, :None, :None], falses(3))
+    # A plain mechanism's one conformation runs every step.
+    @test (c.flat, c.tags, c.law) == ([1, 2, 3], [:None, :None, :None], trues(3))
 
     # Allosteric uni-uni: E + P → E(P) :EqualAI, E + S → E(S) :NonequalAI and
     # E(S) → E(P) :OnlyA, one group each. The :NonequalAI and :OnlyA groups get inactive

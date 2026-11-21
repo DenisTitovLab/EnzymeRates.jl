@@ -208,16 +208,15 @@ allosteric mechanism one more per slot of every edge of a `:NonequalAI`, `:OnlyA
 holds the edges group by group (`_flat_edges`), `tags` each group's tag (`_solve_tags`),
 `law[k]` whether edge `k` lies in the inactive conformation's law and `alaw[k]` whether it
 lies in the active conformation's law (`steps_in_active_conformation`; `_in_active_law`
-adds the `:EqualAI` constants the inactive law reads). A plain mechanism has no inactive
-law.
+adds the `:EqualAI` constants the inactive law reads). A plain mechanism's one
+conformation runs every step, so both masks hold every edge.
 """
 function _ordered_columns(m::Mechanisms.Mechanism)
     cm = m.catalytic
     flat = _flat_edges(cm)
     tags = _solve_tags(m)
     allosteric = _is_allosteric(m)
-    law = allosteric ? Mechanisms.steps_in_inactive_conformation(m) :
-          falses(length(cm.steps))
+    law = Mechanisms.steps_in_inactive_conformation(m)
     alaw = Mechanisms.steps_in_active_conformation(m)
     columns = _StepParameter[]
     for k in flat, inactive in (false, true)
