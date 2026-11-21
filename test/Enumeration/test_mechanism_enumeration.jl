@@ -387,6 +387,45 @@ function _testhelper_enumerate_all_mechanism(rxn; max_params::Int=typemax(Int))
     results
 end
 
+@testset "_candidate merges a record given twice and refuses two records of one name" begin
+    R, Step = EnzymeRates.Enumeration._FormRecord, EnzymeRates.Mechanisms.Step
+    none = Symbol[]
+    E, ES, EP = R(:E, none, none, none, none), R(:E, [:S], none, none, none),
+                R(:E, [:P], none, none, none)
+    steps = [Step(1, 2, [1], Int[], true, 1), Step(2, 3, Int[], Int[], false, 2),
+             Step(4, 3, [2], Int[], true, 3)]
+    # E is given twice, as forms 1 and 4: one form.
+    c = EnzymeRates.Enumeration._candidate([:S, :P], [E, ES, EP, E], [1], [2], steps)
+    @test c.mechanism.catalytic.enzyme_forms == [:E, :EP, :ES]
+    @test c.forms == [E, EP, ES]
+    # The conformation Estar with nothing bound and E with a metabolite star bound both
+    # take the name Estar.
+    Estar, Ewithstar = R(:Estar, none, none, none, none), R(:E, none, [:star], none, none)
+    @test_throws(ErrorException("_candidate: two different form records are both named " *
+                                "Estar"),
+                 EnzymeRates.Enumeration._candidate(
+                     [:S, :P, :star], [E, ES, EP, Estar, Ewithstar], [1], [2],
+                     [steps; Step(1, 4, Int[], Int[], false, 4);
+                      Step(1, 5, [3], Int[], true, 5)]))
+end
+
+@testset "the test reader's records of a seed equal the enumerator's" begin
+    # An aggregate check over whole seed sets (CLAUDE.md enumeration rule 1's exception):
+    # the records `_testhelper_candidate` reads from each seed's form names equal the
+    # records the enumerator built the seed from, the copies of A and the inhibitor I
+    # among them.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        competitive_inhibitors: A, I
+    end
+    seeds = [EnzymeRates.Enumeration.init_mechanisms(rxn);
+             EnzymeRates.Enumeration.seed_mechanisms(rxn, Set{Symbol}(), Set([:A, :I]))]
+    @test any(c -> any(f -> :A in f.copies, c.forms), seeds) &&
+          any(c -> any(f -> :I in f.copies, c.forms), seeds)
+    @test all(c -> _testhelper_candidate(c.mechanism).forms == c.forms, seeds)
+end
+
 @testset "Canonical-by-construction representation independence" begin
     # One kinetic group holding two bindings of the same metabolite S (context-
     # shared: S binds free E, and S binds A-bound E, with the same K), A's binding, the
@@ -1163,7 +1202,8 @@ end
 # copies.
 _testhelper_binds_both(f) = :A in f.productive && :P in f.productive
 @test !any(_testhelper_binds_both(f)
-           for c in EnzymeRates.Enumeration.init_mechanisms(rxn) for f in c.forms)
+           for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
+           for f in _testhelper_candidate(m).forms)
 end
 
 @testset "shared_catalytic_site strictly reduces mechanism count" begin
@@ -4067,7 +4107,7 @@ end
         c = _testhelper_candidate(r)
         @test any(k -> _testhelper_binds_copy(c, k) &&
                        r.catalytic.metabolites[only(r.catalytic.steps[k].taken_up)] === :A,
-                  eachindex(r.catalytic.steps))
+                  first.(_testhelper_group_members(r.catalytic)))
         @test length(_testhelper_group_members(r.catalytic)) ==
               length(_testhelper_group_members(m.catalytic)) + 1
         fitted = _testhelper_fitted(r)
@@ -14098,11 +14138,13 @@ end
         products: P[C], Q[N]
     end
     c = _testhelper_candidate(m)
-    plain(k) = (e = m.catalytic.steps[k];
-                EnzymeRates.Enumeration._is_binding(e) && !_testhelper_is_fused(c, e))
-    chemistry = [ks for ks in _testhelper_group_members(m.catalytic) if !all(plain, ks)]
+    _testhelper_plain(k) = (e = m.catalytic.steps[k];
+                            EnzymeRates.Enumeration._is_binding(e) &&
+                                !_testhelper_is_fused(c, e))
+    chemistry = [ks for ks in _testhelper_group_members(m.catalytic)
+                 if !all(_testhelper_plain, ks)]
     @test length(chemistry) == 2
-    @test all(ks -> plain(first(ks)), chemistry)
+    @test all(ks -> _testhelper_plain(first(ks)), chemistry)
     only_q = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin

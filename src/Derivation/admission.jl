@@ -513,7 +513,7 @@ end
 """
     _potential_on_sccs(net, keep, x) -> Bool
 
-T0+: whether the uptake of name `x` (a `change` row, `_turnover_name`) is a potential on
+T0+: whether the uptake of metabolite `x` (a `change` row) is a potential on
 every strongly connected part (`_strong_components`) of the transitions `keep` flags, so
 no cycle of them turns the reaction over.
 """
@@ -594,7 +594,7 @@ end
 
 Admission's face condition, on face `face` of the ε-network `net` of an allosteric
 mechanism, whose law network holds the nodes `law_nodes`; `x` is the `change` row of its
-first substrate (`_turnover_name`). In order:
+first substrate (`first(m.substrates)`). In order:
 - `_EPS_NONUNIQUE`: the alive transitions leave two closed classes, so at every ε the
   steady state depends on where the enzyme starts; the verdict names the closed class
   outside the law network (`_class_outside_law`);
@@ -788,7 +788,7 @@ never set aside, and free E still feeds it through the transition that pumps it.
 """
 function _admission_face(am::Mechanisms.Mechanism, eps::_Network, law::_Network,
                          faces::Vector{UInt64}, i::Int)
-    x = _turnover_name(am.catalytic)
+    x = first(am.catalytic.substrates)
     v = _face_condition(eps, law.present, faces[i], x)
     if v.fault === _BRIDGE
         # A second route between two forms already in equilibrium changes nothing, and with

@@ -3,11 +3,16 @@
 
 const ER = EnzymeRates
 
+"""Whether every leaf of the nested tuple `x`, a Sig or a part of one, is a Symbol, an Int
+or a Bool."""
+_testhelper_sig_leaves(x) =
+    x isa Tuple ? all(_testhelper_sig_leaves, x) : x isa Union{Symbol, Int, Bool}
+
 @testset "a mechanism's Sig decodes to the mechanism" begin
     @testset "$(spec.name)" for spec in MECHANISM_TEST_SPECS
         x = _testhelper_build(spec.raw)
         sig = ER.Derivation._sig_of(x)
-        @test sig isa Tuple
+        @test sig isa Tuple && _testhelper_sig_leaves(sig)
         @test _testhelper_decode(sig) == x
         rate = compile_rate_equation(x)
         @test typeof(rate).parameters[1] === sig
@@ -89,7 +94,11 @@ end
     end)))
 
     sig = ER.Derivation._sig_of(m)
-    @test sig isa Tuple
+    @test sig isa Tuple && _testhelper_sig_leaves(sig)
+    # Its leaves are Symbols for the names, Ints for indices and the oligomeric state, and
+    # Bools for the rapid-equilibrium flags.
+    @test sig[1] === (:A, :B, :P, :Q, :I) && sig[7] === 1
+    @test all(s -> s[5] isa Bool, sig[5])
     @test ER.Derivation._mechanism_from_sig(sig) == m   # roundtrip
 
     # The Sig is the compiled rate law's only parameter.

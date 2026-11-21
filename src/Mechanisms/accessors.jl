@@ -1,5 +1,5 @@
-# ABOUTME: What a mechanism's graph gives that two modules read: its kinetic groups and
-# ABOUTME: the steps each conformation runs.
+# ABOUTME: What a mechanism's graph gives: the steps each conformation runs, which two
+# ABOUTME: modules read, and its kinetic groups, read inside Mechanisms.
 
 """Each kinetic group's steps of `steps`, in step order, by the steps' `kinetic_group`
 labels; each list stored at its length."""

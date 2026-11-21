@@ -1051,7 +1051,7 @@ end
     D = EnzymeRates.Derivation
     eps = D._eps_network(am, D._re_flags(am.catalytic), D._built_reading(am))
     w = D._face_condition(eps, D._law_network(am).present, UInt64(0),
-                          D._turnover_name(am.catalytic))
+                          first(am.catalytic.substrates))
     @test (w.fault, w.conformation, w.edge) ==
           (D._BRIDGE, 2, _testhelper_edge(am, "EB + P ⇌ EBP"))
     @test D._admission_message(am, D._Verdict(w.fault, w.limit, 1, w.conformation, w.edge),
@@ -2885,7 +2885,7 @@ end
     function _testhelper_passes_only_set_aside(am, r, i)
         eps = D._eps_network(am, D._re_flags(am.catalytic), r)
         law, faces = D._law_network(am), D._faces(am.catalytic)
-        v = D._face_condition(eps, law.present, faces[i], D._turnover_name(am.catalytic))
+        v = D._face_condition(eps, law.present, faces[i], first(am.catalytic.substrates))
         v.fault === BR && D._admission_face(am, eps, law, faces, i) == D._WELL_POSED
     end
     # `set_aside`: a ping-pong whose chemistry steps and the bindings of A and of P are
@@ -2924,7 +2924,7 @@ end
     @test _testhelper_faces(set_aside)[4] == Set([:A])
     let eps = D._eps_network(set_aside, D._re_flags(set_aside.catalytic), r),
         law = D._law_network(set_aside), faces = D._faces(set_aside.catalytic)
-        x = D._turnover_name(set_aside.catalytic)
+        x = first(set_aside.catalytic.substrates)
         @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
               [BR, NO, NO, BR, NO, NO, NO]
     end
@@ -3000,7 +3000,7 @@ end
     @test _testhelper_faces(one_touch)[6] == Set([:P])
     let eps = D._eps_network(one_touch, D._re_flags(one_touch.catalytic), o),
         law = D._law_network(one_touch), faces = D._faces(one_touch.catalytic)
-        x = D._turnover_name(one_touch.catalytic)
+        x = first(one_touch.catalytic.substrates)
         @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
               [BR, BR, NO, BR, NO, BR, BR]
     end
@@ -3036,7 +3036,7 @@ end
     let reading = D._built_reading(first_try)
         eps = D._eps_network(first_try, D._re_flags(first_try.catalytic), reading)
         law, faces = D._law_network(first_try), D._faces(first_try.catalytic)
-        x = D._turnover_name(first_try.catalytic)
+        x = first(first_try.catalytic.substrates)
         @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
               [BR, NO, BR, BR, BR, BR, NO, NO, NO]
         @test D._admission(first_try, reading) == D._WELL_POSED
@@ -4822,7 +4822,7 @@ end
             x, EnzymeRates.Derivation._re_flags(x.catalytic),
             EnzymeRates.Derivation._built_reading(x))
         law = EnzymeRates.Derivation._law_network(x)
-        row = EnzymeRates.Derivation._turnover_name(x.catalytic)
+        row = first(x.catalytic.substrates)
         for face in EnzymeRates.Derivation._faces(x.catalytic)[1:3]
             s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
             nodes = s.fed .& .!s.stranded
@@ -4889,7 +4889,7 @@ end
     eps = EnzymeRates.Derivation._eps_network(am, EnzymeRates.Derivation._re_flags(m),
                                               EnzymeRates.Derivation._built_reading(am))
     law = EnzymeRates.Derivation._law_network(am)
-    row = EnzymeRates.Derivation._turnover_name(m)
+    row = first(m.substrates)
     faces = EnzymeRates.Derivation._faces(m)
     by_potential = map(faces) do face
         s = EnzymeRates.Derivation._face_sets(eps, law.present, face)
@@ -6403,7 +6403,7 @@ end
         @test EnzymeRates.Derivation._fewest_slow(eps, nodes, s.alive) == 3
         @test EnzymeRates.Derivation._face_condition(
             eps, law.present, faces[i],
-            EnzymeRates.Derivation._turnover_name(am.catalytic)) ==
+            first(am.catalytic.substrates)) ==
               EnzymeRates.Derivation._Verdict(BR, U, 0, 0, 0)
     end
     # The face condition's message names the vanishing steps a cheapest in-tree needs: the

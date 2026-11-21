@@ -77,9 +77,10 @@ named after its record (`_form_name`), and the steps `steps` (`from` and `to` in
 `forms`, the lists `metabolites`), with the allostery `allostery`, whose
 `allosteric_states[l]` is the state of written kinetic group `l`, built and checked by the
 `Mechanism` constructor; a plain mechanism by default. A record given twice names one
-form. The second gives `parent`'s catalytic scheme, with its records, the allosteric
-states, oligomeric state and regulatory sites given. The only place in `Enumeration` that
-builds a mechanism; the candidate holds each form's record in the order the constructor
+form; two different records that take one name are an internal error. The second gives
+`parent`'s catalytic scheme, with its records, the allosteric states, oligomeric state and
+regulatory sites given. The only place in `Enumeration` that builds a mechanism; the
+candidate holds each form's record in the order the constructor
 stores the forms.
 """
 function _candidate(metabolites::Vector{Symbol}, forms::Vector{_FormRecord},
@@ -89,7 +90,11 @@ function _candidate(metabolites::Vector{Symbol}, forms::Vector{_FormRecord},
                         Mechanisms.Allostery(Symbol[], 1, Mechanisms.RegulatorySite[]))
     reactants = metabolites[[substrates; products]]
     names = Symbol[_form_name(f, reactants) for f in forms]
-    record = Dict{Symbol, _FormRecord}(zip(names, forms))
+    record = Dict{Symbol, _FormRecord}()
+    for (n, f) in zip(names, forms)
+        get!(record, n, f) == f ||
+            error("_candidate: two different form records are both named $n")
+    end
     distinct = unique(names)
     if length(distinct) < length(names)
         at = Dict{Symbol, Int}(n => i for (i, n) in enumerate(distinct))

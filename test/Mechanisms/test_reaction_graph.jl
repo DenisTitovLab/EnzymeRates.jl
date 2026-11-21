@@ -335,6 +335,12 @@ end
     end
 end
 
+@testset "a step turned round swaps its ends and its lists" begin
+    e = ER.Mechanisms.Step(2, 5, [1, 3], [4], true, 7)
+    @test ER.Mechanisms._reversed(e) == ER.Mechanisms.Step(5, 2, [4], [1, 3], true, 7)
+    @test ER.Mechanisms._reversed(ER.Mechanisms._reversed(e)) == e
+end
+
 """The raw value of `block`, a mechanism macro's block, read by the DSL walker."""
 _testhelper_walk(block) = EnzymeRates.DSL.raw_mechanism(block)
 
@@ -522,6 +528,13 @@ end
                                 "but there are 2 metabolites; a step's lists index the " *
                                 "metabolites"),
                  _testhelper_uniuni([:EI], M.Step(1, 4, [3], none, true, 4)))
+    # The substrates and the products index the metabolites too.
+    @test_throws(ErrorException("Mechanism: substrates [3], but there are 2 metabolites; " *
+                                "the substrates and products index the metabolites"),
+                 _testhelper_uniuni(substrates = [3]))
+    @test_throws(ErrorException("Mechanism: products [0], but there are 2 metabolites; " *
+                                "the substrates and products index the metabolites"),
+                 _testhelper_uniuni(products = [0]))
     # Names a metabolite cannot take: no identifier, a keyword, E, a reserved name, a
     # name holding `_`.
     _testhelper_unwritable(x) = ErrorException(
@@ -548,19 +561,20 @@ end
     _testhelper_read_as(who, x, read) = ErrorException(
         "$who: Julia reads the name \"$x\" as \"$read\", so no DSL text can write it; " *
         "use \"$read\"")
-    @test_throws(_testhelper_read_as("Mechanism", "µM", "μM"),
-                 _testhelper_binding(Symbol("µM")))
-    @test_throws(_testhelper_read_as("Mechanism", "é", "é"),
-                 _testhelper_uniuni(metabolites = [:S, :P, Symbol("é")],
+    @test_throws(_testhelper_read_as("Mechanism", "\u00b5M", "\u03bcM"),
+                 _testhelper_binding(Symbol("\u00b5M")))
+    @test_throws(_testhelper_read_as("Mechanism", "e\u0301", "\u00e9"),
+                 _testhelper_uniuni(metabolites = [:S, :P, Symbol("e\u0301")],
                                     substrates = [1, 3]))
-    @test_throws(_testhelper_read_as("Mechanism", "ɛ", "ε"),
-                 _testhelper_allosteric(tags, 2, [site([Symbol("ɛ")], 2, [:OnlyA])]))
+    @test_throws(_testhelper_read_as("Mechanism", "\u025b", "\u03b5"),
+                 _testhelper_allosteric(tags, 2, [site([Symbol("\u025b")], 2, [:OnlyA])]))
     # Form names: no identifier, read as another, given twice, a metabolite's name.
     @test_throws(ErrorException("Mechanism: \"1E\" cannot name an enzyme form; an " *
                                 "enzyme form name is an identifier that is no keyword"),
                  _testhelper_uniuni([Symbol("1E")], M.Step(1, 4, none, none, false, 4)))
-    @test_throws(_testhelper_read_as("Mechanism", "Eµ", "Eμ"),
-                 _testhelper_uniuni([Symbol("Eµ")], M.Step(1, 4, none, none, false, 4)))
+    @test_throws(_testhelper_read_as("Mechanism", "E\u00b5", "E\u03bc"),
+                 _testhelper_uniuni([Symbol("E\u00b5")],
+                                    M.Step(1, 4, none, none, false, 4)))
     @test_throws(ErrorException("Mechanism: two enzyme forms are named ES"),
                  _testhelper_uniuni([:ES], M.Step(1, 4, none, none, false, 4)))
     @test_throws(ErrorException("Mechanism: S names both an enzyme form and a " *
@@ -603,12 +617,12 @@ end
                  E + A <--> EA
                  (EA + B <--> EAB, EA + B <--> EQ + P)
                  EQ <--> E + Q
-             end), "EA_B → EAB (SS) and EA_B → EQ_P (SS)"),
+             end), "EA + B <--> EAB and EA + B <--> EQ + P"),
             (:(begin
                  (E + A ⇌ EA, EQ + A <--> EAQ)
                  EA <--> EQ + P
                  EQ <--> E + Q
-             end), "E_A → EA (RE) and EQ_A → EAQ (SS)"))
+             end), "E + A ⇌ EA and EQ + A <--> EAQ"))
         @test_throws(ErrorException(
             "Mechanism: a kinetic group holds $text, which differ in kind or in RE/SS; " *
             "the steps of a kinetic group share their constants, so they must be the " *
@@ -627,9 +641,9 @@ end
         steps: $steps
     end)))
     @test_throws(ErrorException(
-        "Mechanism: kinetic groups 2 and 3 both hold the reaction E_S ⇌ ES (SS in group " *
-        "2, RE in group 3); a reaction belongs to one kinetic group, whose constants are " *
-        "named after it"),
+        "Mechanism: kinetic groups 2 and 3 both hold the reaction E + S <--> ES (SS in " *
+        "group 2, RE in group 3); a reaction belongs to one kinetic group, whose " *
+        "constants are named after it"),
         _testhelper_twice(:(begin
             E + S <--> ES
             E + S ⇌ ES
@@ -637,7 +651,7 @@ end
             EP ⇌ E + P
         end)))
     @test_throws(ErrorException(
-        "Mechanism: kinetic groups 3 and 4 both hold the reaction ES ⇌ EP; a reaction " *
+        "Mechanism: kinetic groups 3 and 4 both hold the reaction ES <--> EP; a reaction " *
         "belongs to one kinetic group, whose constants are named after it"),
         _testhelper_twice(:(begin
             E + S <--> ES
@@ -648,7 +662,7 @@ end
     # The tied pair and the lone step both store F → E, which runs the way the reaction
     # turns over, in groups 5 and 6.
     @test_throws(ErrorException(
-        "Mechanism: kinetic groups 5 and 6 both hold the reaction F ⇌ E; a reaction " *
+        "Mechanism: kinetic groups 5 and 6 both hold the reaction F <--> E; a reaction " *
         "belongs to one kinetic group, whose constants are named after it"),
         _testhelper_build(_testhelper_walk(:(begin
             substrates: A
@@ -667,8 +681,8 @@ end
             end
         end))))
     @test_throws(ErrorException(
-        "Mechanism: kinetic group 2 holds the reaction E_S ⇌ ES twice; a mechanism holds " *
-        "each reaction once"),
+        "Mechanism: kinetic group 2 holds the reaction E + S <--> ES twice; a mechanism " *
+        "holds each reaction once"),
         _testhelper_twice(:(begin
             (E + S <--> ES, ES <--> E + S)
             ES <--> EP
@@ -899,7 +913,7 @@ let population = _testhelper_census_population(),
         @warn "bootstrapped canonical text golden fixture; commit it" fixture
     end
     @test text == readlines(fixture)
-    # Free E comes first, also where another label sorts before E.
+    # Free E comes first, also where another form's name sorts before E.
     raw = _testhelper_walk(:(begin
         substrates: A
         products: P

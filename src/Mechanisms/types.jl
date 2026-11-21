@@ -363,10 +363,11 @@ other forms by name; each step in the direction the graph gives it (`_orientatio
 steps sorted. Each step keeps the kinetic group label it is written with;
 [`Mechanism`](@ref) reads the labels to give each group its allosteric state, then numbers
 the groups by their first step. It throws an `ArgumentError` when no form is named `E`,
-and an `ErrorException` when an index is out of range, a name is listed twice or cannot be
-written, a step joins a form to itself or takes up and gives off one metabolite, a form is
-not joined to `E`, a kinetic group mixes kinds of step, a reaction appears twice, or a
-metabolite takes part in no step.
+and an `ErrorException` when an index is out of range, the substrates or the products are
+empty, a name is listed twice or cannot be written, a form is named like a metabolite,
+the kinetic group labels do not run from 1 with each used, a step joins a form to itself
+or takes up and gives off one metabolite, a form is not joined to `E`, a kinetic group
+mixes kinds of step, a reaction appears twice, or a metabolite takes part in no step.
 """
 struct CatalyticScheme
     metabolites::Vector{Symbol}
@@ -650,7 +651,8 @@ function _check_written(metabolites::Vector{Symbol}, enzyme_forms::Vector{Symbol
     for (list, kind) in ((substrates, "substrate"), (products, "product"))
         isempty(list) && error("Mechanism: $(kind)s must not be empty")
         all(in(1:nm), list) ||
-            error("Mechanism: the $(kind)s $list index $nm metabolites")
+            error("Mechanism: $(kind)s $list, but there are $nm metabolites; the " *
+                  "substrates and products index the metabolites")
         allunique(metabolites[list]) || error("Mechanism: duplicate $kind names")
     end
     both = findfirst(in(metabolites[products]), metabolites[substrates])
@@ -729,17 +731,16 @@ end
 """Error unless the steps of each kinetic group (`groups`) of `c` take up and give off the
 same metabolites and carry one flag: they share their constants."""
 function _check_uniform_groups(c::CatalyticScheme, groups::Vector{Vector{Int}})
-    label(e::Step) = join(_sides(c, e), " → ") * (e.rapid_equilibrium ? " (RE)" : " (SS)")
     for members in groups
         e1 = c.steps[first(members)]
         for k in members
             e = c.steps[k]
             (e.taken_up, e.given_off, e.rapid_equilibrium) ==
                 (e1.taken_up, e1.given_off, e1.rapid_equilibrium) && continue
-            error("Mechanism: a kinetic group holds $(label(e1)) and $(label(e)), " *
-                  "which differ in kind or in RE/SS; the steps of a kinetic group " *
-                  "share their constants, so they must be the same kind of step " *
-                  "with the same flag")
+            error("Mechanism: a kinetic group holds $(step_text(c, first(members))) and " *
+                  "$(step_text(c, k)), which differ in kind or in RE/SS; the steps of a " *
+                  "kinetic group share their constants, so they must be the same kind of " *
+                  "step with the same flag")
         end
     end
 end
@@ -757,7 +758,7 @@ function _check_each_reaction_once(c::CatalyticScheme, groups::Vector{Vector{Int
         if haskey(seen, key)
             g0, k0 = seen[key]
             e0 = c.steps[k0]
-            text = join(_sides(c, e0), " ⇌ ")
+            text = step_text(c, k0)
             g0 == g && error("Mechanism: kinetic group $g holds the reaction $text " *
                              "twice; a mechanism holds each reaction once")
             flags = flag(e0) == flag(e) ? "" :
@@ -769,12 +770,6 @@ function _check_each_reaction_once(c::CatalyticScheme, groups::Vector{Vector{Int
         seen[key] = (g, k)
     end
 end
-
-"""The two sides of step `e` of `c` in its stored direction, as names: each side its form's
-name and the metabolites the step takes up or gives off there, joined by `_` (`EA_B`)."""
-_sides(c::CatalyticScheme, e::Step) =
-    (join([c.enzyme_forms[e.from]; c.metabolites[e.taken_up]], "_"),
-     join([c.enzyme_forms[e.to]; c.metabolites[e.given_off]], "_"))
 
 """
     Allostery(allosteric_states, oligomeric_state, regulatory_sites)

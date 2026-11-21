@@ -65,7 +65,7 @@ include("type_stability_harness.jl")
         oligomeric_state: 2
         steps: begin
             E + S ⇌ ES     :: EqualAI
-            ES <--> EP   :: OnlyA
+            ES <--> EP     :: OnlyA
             EP ⇌ E + P     :: EqualAI
         end
         regulatory_site(2): X::OnlyA

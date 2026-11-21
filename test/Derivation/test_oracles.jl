@@ -1219,26 +1219,30 @@ end
 (`_testhelper_written`) with `rewrite` applied to it."""
 _testhelper_rebuilt(m, rewrite) = _testhelper_build(rewrite(_testhelper_written(m)))
 
-"""`m` with every metabolite renamed by `rename`, built by the constructors from its
-written form (`_testhelper_written`), without the guard. The forms keep their names."""
+"""`m` with every metabolite renamed by `rename`, and every form but `E` renamed so that the
+forms' name order reverses (`F000` the last by name, `F001` the one before), built by the
+constructors from its written form (`_testhelper_written`), without the guard. The
+forms' stored order then reverses but for `E`, which stays first."""
 function _testhelper_renamed(m, rename::Dict{Symbol, Symbol})
     r(xs::Vector{Symbol}) = Symbol[get(rename, x, x) for x in xs]
+    others = sort(filter(!=(:E), m.catalytic.enzyme_forms))
+    form = Dict(f => Symbol("F", lpad(length(others) - i, 3, '0'))
+                for (i, f) in enumerate(others))
     site(s) = EnzymeRates.Mechanisms.RegulatorySite(r(s.ligands), s.multiplicity,
                                                     s.allosteric_states)
-    sites(w) = hasproperty(w, :regulatory_sites) ?
-        (; regulatory_sites = site.(w.regulatory_sites)) : (;)
     _testhelper_rebuilt(m, w -> (; w..., substrates = r(w.substrates),
                                  products = r(w.products), modifiers = r(w.modifiers),
-                                 sites(w)...))
+                                 forms = Symbol[get(form, f, f) for f in w.forms],
+                                 regulatory_sites = site.(w.regulatory_sites)))
 end
 
-"""The renaming of `m`'s metabolites that reverses their name order, so the table order and
-the first substrate change. In sorted order the names become `Z`, `Y`, `X`, `W`, `U`, `T`,
-`R`, `M`, `H` and `G`, so `m` holds at most ten metabolites (with more, the slice throws a
-`BoundsError`). The letters descend, so the order reverses. None of them is a name no
-metabolite may take (`E`, `L`, `N`) or a form's name (`F`), and none is a metabolite
-name of the population sample or of the fixtures below (`A`, `B`, `P`, `Q`, `S`, `ATP`,
-`F6P`, `ADP` and `F16BP`), so every name changes."""
+"""The renaming of `m`'s metabolites that reverses their name order, so the stored order
+of the metabolites and the first substrate change. In sorted order the names become `Z`,
+`Y`, `X`, `W`, `U`, `T`, `R`, `M`, `H` and `G`, so `m` holds at most ten metabolites (with
+more, the slice throws a `BoundsError`). The letters descend, so the order reverses. None
+of them is a name no metabolite may take (`E`, `L`, `N`) or a form's name (`F`), and none
+is a metabolite name of the population sample or of the fixtures below (`A`, `B`, `P`,
+`Q`, `S`, `ATP`, `F6P`, `ADP` and `F16BP`), so every name changes."""
 function _testhelper_reversing_rename(m)
     names = sort(EnzymeRates.metabolites(m))
     Dict(zip(names, [:Z, :Y, :X, :W, :U, :T, :R, :M, :H, :G][1:length(names)]))

@@ -144,8 +144,9 @@ holds. Transitions come in pairs: `2j - 1` runs an edge (`edge`; 0 for the flip 
 E) in its stored direction in copy `conformation` (0 for the flip), and `2j` runs it in
 reverse; `forward` marks the first of each pair. `fast` marks a rapid-equilibrium
 transition and `vanishing` one whose rate goes to zero in the ε-network. `change[n, t]`
-counts the copies of metabolite name `n` (`_guard_names`) that transition `t` takes up
-less those it gives off; bit `n - 1` of `takes[t]` is set when it takes up name `n`.
+counts the copies of metabolite `n` (an index into `m.metabolites`) that transition `t`
+takes up less those it gives off; bit `n - 1` of `takes[t]` is set when it takes up
+metabolite `n`.
 """
 struct _Network
     nforms::Int
@@ -161,14 +162,6 @@ struct _Network
     change::Matrix{Int}
     takes::Vector{UInt64}
 end
-
-"""The metabolite names of `m`: the guard's name `n` (a row of a network's `change`, a bit
-of its `takes` and of a face) is metabolite `n` of `m`."""
-_guard_names(m::Mechanisms.CatalyticScheme) = m.metabolites
-
-"""The guard's name (`_guard_names`) of `m`'s first substrate, whose uptake counts
-turnover."""
-_turnover_name(m::Mechanisms.CatalyticScheme) = first(m.substrates)
 
 """The node of form `f` in copy `c` of `net`."""
 _node(net::_Network, f::Int, c::Int) = (c - 1) * net.nforms + f
@@ -218,12 +211,11 @@ gives off nothing.
 function _network(m::Mechanisms.CatalyticScheme, present::BitVector, use::BitMatrix,
                   fast::BitMatrix, vanish_forward::BitMatrix, vanish_reverse::BitMatrix)
     nf, ncopies = length(m.enzyme_forms), size(use, 2)
-    names = _guard_names(m)
     nt = 2 * count(use) + (ncopies == 2 ? 2 : 0)
     from, to, edge, conformation = zeros(Int, nt), zeros(Int, nt), zeros(Int, nt),
                                    zeros(Int, nt)
     forward, isfast, vanishing = falses(nt), falses(nt), falses(nt)
-    change, takes = zeros(Int, length(names), nt), zeros(UInt64, nt)
+    change, takes = zeros(Int, length(m.metabolites), nt), zeros(UInt64, nt)
     t = 0
     for c in 1:ncopies, k in eachindex(m.steps)
         use[k, c] || continue
@@ -303,11 +295,11 @@ end
 
 """
 The faces the guard checks (spec section 8) of `m`, each a mask of the metabolite names it
-zeroes (bit `n - 1` for name `n` of `_guard_names`), in order: the interior (0), every
-product, every substrate, each substrate and then each product alone on a side of two or
-more; then each of these with every modifier too. A regulatory-site ligand is zeroed only
-when it also binds the catalytic site. No face zeroes a substrate together with a
-product.
+zeroes (bit `n - 1` for metabolite `n` of `m.metabolites`), in order: the interior (0),
+every product, every substrate, each substrate and then each product alone on a side of
+two or more; then each of these with every modifier too. A regulatory-site ligand is
+zeroed only when it also binds the catalytic site. No face zeroes a substrate together
+with a product.
 """
 function _faces(m::Mechanisms.CatalyticScheme)
     substrates, products = m.substrates, m.products
@@ -321,12 +313,13 @@ function _faces(m::Mechanisms.CatalyticScheme)
     mods == 0 ? base : [base; base .| mods]
 end
 
-"""Whether face `face` (`_faces`) zeroes metabolite name `n` of `_guard_names`."""
+"""Whether face `face` (`_faces`) zeroes metabolite `n`, an index into a scheme's
+`metabolites`."""
 _zeroes(face::UInt64, n::Int) = (face >> (n - 1)) & 1 == 1
 
 """The metabolite names that face `face` of `m` zeroes (`_faces`), sorted."""
 _face_names(m::Mechanisms.CatalyticScheme, face::UInt64) =
-    sort!([x for (n, x) in enumerate(_guard_names(m)) if _zeroes(face, n)])
+    sort!([x for (n, x) in enumerate(m.metabolites) if _zeroes(face, n)])
 
 """The tree transitions from node `x` up to its root in the forest `parent` (each node's
 tree transition, 0 at a root)."""
@@ -357,7 +350,8 @@ end
 The rapid-equilibrium segments of `net`, walked breadth-first along its fast transitions
 from each present node no earlier walk reached, in node order: `segment[u]`, node `u`'s
 (0 for a node `net` does not hold); `segments`, each one's nodes in walk order;
-`offset[n, u]`, the copies of name `n` (`_guard_names`) the walk takes up from the
+`offset[n, u]`, the copies of metabolite `n` (an index into `m.metabolites`) the walk
+takes up from the
 segment's first node to `u`; and `cycle`, the transitions of the first fast cycle that
 takes up some name net, which the first transition whose offsets disagree closes with its
 tree path, in cycle order.

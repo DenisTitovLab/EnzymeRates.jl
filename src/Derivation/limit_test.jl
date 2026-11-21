@@ -196,8 +196,7 @@ concentrations `conc` per name, zero on the face.
 function _model_point(mech::Mechanisms.Mechanism, ncopies::Int, face::UInt64,
                       rng::_ResidueStream)
     m = mech.catalytic
-    nf, names = length(m.enzyme_forms), _guard_names(m)
-    nnames = length(names)
+    nf, nnames = length(m.enzyme_forms), length(m.metabolites)
     nv = ncopies * nf + nnames
     excluded = [_excluded_steps(mech, c) for c in 1:ncopies]
     equal_ai(g) = _is_allosteric(mech) && mech.allosteric.allosteric_states[g] === :EqualAI
@@ -252,8 +251,8 @@ function _model_point(mech::Mechanisms.Mechanism, ncopies::Int, face::UInt64,
     (; K, ss, re, flip, L, conc)
 end
 
-"""`r` times `value[n]` once for each copy of metabolite `n` (`_guard_names`) that `held`
-holds, mod p."""
+"""`r` times `value[n]` once for each copy of metabolite `n` (an index into a scheme's
+`metabolites`) that `held` holds, mod p."""
 function _mul_held(r::Int64, held::Vector{Int}, value::AbstractVector{Int64})
     for n in held
         r = _mulp(r, value[n])
@@ -432,7 +431,7 @@ function _face_limit_check(mech::Mechanisms.Mechanism, net::_Network, s, face::U
                            seed::UInt64)
     m = mech.catalytic
     rng = _ResidueStream(seed)
-    x1 = _turnover_name(m)
+    x1 = first(m.substrates)
     # Class 2, which runs first, leaves no fast cycle that takes `x1` up: a potential.
     h = s.offset[x1, :]
     limit(pt) = _limit_by_interpolation(m, net, s, pt, h, x1, rng)

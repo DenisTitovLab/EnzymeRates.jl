@@ -44,6 +44,9 @@ _testhelper_tagged_uniuni(steps, tags, n, sites) = ER.Mechanism(
                                   _testhelper_uniuni_labelled(steps)),
     ER.Mechanisms.Allostery(tags, n, sites))
 
+"""Whether the macro builds mechanism `m` again from the text `show` prints for it."""
+_testhelper_builds_back(m) = eval(Meta.parse(sprint(show, m))) == m
+
 @testset "a mechanism is a graph of form names and steps by index" begin
     M = ER.Mechanisms
     # Spec decision 4's example: every name on a step side that is no declared metabolite
@@ -428,8 +431,7 @@ end
     end
 
     @testset "a mechanism prints as the text of the macro that builds it" begin
-        # The macro builds the same mechanism from the text.
-        _testhelper_builds_back(m) = eval(Meta.parse(sprint(show, m))) == m
+        # The macro builds the same mechanism from the text (`_testhelper_builds_back`).
         # One step per line in stored order, a release written as the binding it
         # reverses, a form with nothing bound as its bare label.
         m = @enzyme_mechanism begin
@@ -561,9 +563,8 @@ end
             end"""
         @test _testhelper_builds_back(m_fb)
 
-        # The modifiers: line lists the names the steps bind as modifiers, a reactant's
-        # copy by its name; a kinetic group of several steps prints as a tuple, a
-        # reactant's copy as X.
+        # The modifiers: line lists the metabolites that are neither substrates nor
+        # products; a kinetic group of several steps prints as a tuple.
         @test !contains(sprint(show, _testhelper_re_mm), "modifiers")
         m_reg = @enzyme_mechanism begin
             substrates: S
@@ -1315,6 +1316,7 @@ end
                 regulatory_site(2): I::NonequalAI
                 regulatory_site(2): J::OnlyI
             end"""
+        @test _testhelper_builds_back(m)
         # Every catalytic state appears in allosteric_states line
         for g in eachindex(m.allosteric.allosteric_states)
             @test occursin(string(m.allosteric.allosteric_states[g]), s)
@@ -1336,8 +1338,8 @@ end
             oligomeric_state: 2
             steps: begin
                 (E + S ⇌ ES, EP + S ⇌ EPS)  :: EqualAI
-                ES <--> EP                      :: EqualAI
-                EP ⇌ E + P                        :: EqualAI
+                ES <--> EP                  :: EqualAI
+                EP ⇌ E + P                  :: EqualAI
             end
         end
         @test repr(am) == """
@@ -1351,6 +1353,7 @@ end
                     ES <--> EP :: EqualAI
                 end
             end"""
+        @test _testhelper_builds_back(am)
     end
 
     # ─── Concrete type hierarchy ──────────────────────────────────────
@@ -1926,7 +1929,7 @@ end
             end
         end
         @test err isa ErrorException
-        @test occursin("a kinetic group holds EA_B → EAB (SS) and EA_B → EQ_P (SS)",
+        @test occursin("a kinetic group holds EA + B <--> EAB and EA + B <--> EQ + P",
                        err.msg)
     end
 
@@ -1943,7 +1946,7 @@ end
             end
         end
         @test err isa ErrorException
-        @test occursin("a kinetic group holds E_S → ES (RE) and EP_S → EPS (SS)", err.msg)
+        @test occursin("a kinetic group holds E + S ⇌ ES and EP + S <--> EPS", err.msg)
     end
 
     @testset "one reaction written RE and SS in one group" begin
@@ -1959,7 +1962,7 @@ end
             end
         end
         @test err isa ErrorException
-        @test occursin("a kinetic group holds E_S → ES (SS) and E_S → ES (RE)", err.msg)
+        @test occursin("a kinetic group holds E + S <--> ES and E + S ⇌ ES", err.msg)
     end
 
     @testset "bindings of two different metabolites in one group" begin
@@ -1974,7 +1977,7 @@ end
             end
         end
         @test err isa ErrorException
-        @test occursin("a kinetic group holds E_A → EA (SS) and EA_B → EAB (SS)", err.msg)
+        @test occursin("a kinetic group holds E + A <--> EA and EA + B <--> EAB", err.msg)
     end
 
     @testset "accepted: context-shared bindings of one metabolite" begin
@@ -2043,15 +2046,15 @@ end
     # The two bindings in one group: different metabolites.
     err = _testhelper_rebuild([bind_s, bind_p, iso], [1, 1, 2])
     @test err isa ErrorException
-    @test occursin("a kinetic group holds E_P → EP (RE) and E_S → ES (RE)", err.msg)
+    @test occursin("a kinetic group holds E + P ⇌ EP and E + S ⇌ ES", err.msg)
     # The isomerization in two groups.
     err = _testhelper_rebuild([bind_s, iso, iso, bind_p], [1, 2, 3, 4])
     @test err isa ErrorException
-    @test occursin("both hold the reaction ES ⇌ EP", err.msg)
+    @test occursin("both hold the reaction ES <--> EP", err.msg)
     # The isomerization twice in one group.
     err = _testhelper_rebuild([bind_s, iso, iso, bind_p], [1, 2, 2, 3])
     @test err isa ErrorException
-    @test occursin("holds the reaction ES ⇌ EP twice", err.msg)
+    @test occursin("holds the reaction ES <--> EP twice", err.msg)
 end
 
 @testset "a competitive-inhibitor copy marks no reactant side" begin
@@ -2132,7 +2135,7 @@ end
     end
     @test "EP + S ⇌ ES + P" in stored(exchange)
     # A dead-end isomerization lies on no cycle, so it runs away from free E, from the
-    # form fewer steps from it, whichever label sorts first.
+    # form fewer steps from it, whichever name sorts first.
     dead_end = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2647,14 +2650,14 @@ end
                             :(E + P <--> EP))
     end
     @test err isa ErrorException
-    @test occursin("both hold the reaction E_A ⇌ EA", err.msg)
+    @test occursin("both hold the reaction E + A <--> EA", err.msg)
     # The same isomerization in two groups: both would be k_EA_to_EP.
     err = _testhelper_thrown() do
         _testhelper_written(:(E + A <--> EA), :(EA <--> EP), :(EP <--> EA),
                             :(E + P <--> EP))
     end
     @test err isa ErrorException
-    @test occursin("both hold the reaction EA ⇌ EP", err.msg)
+    @test occursin("both hold the reaction EA <--> EP", err.msg)
     # The same binding written RE in one group and SS in another: one reaction
     # cannot be both fast and slow.
     err = _testhelper_thrown() do
@@ -2670,7 +2673,7 @@ end
         end
     end
     @test err isa ErrorException
-    @test occursin("both hold the reaction E_S ⇌ ES (SS in group 2, RE in group 3)",
+    @test occursin("both hold the reaction E + S <--> ES (SS in group 2, RE in group 3)",
                    err.msg)
     # The same binding twice in one group, once written as its release: the
     # derivation would count its edge twice.
@@ -2686,7 +2689,7 @@ end
         end
     end
     @test err isa ErrorException
-    @test occursin("kinetic group 2 holds the reaction E_S ⇌ ES twice", err.msg)
+    @test occursin("kinetic group 2 holds the reaction E + S <--> ES twice", err.msg)
 end
 
 @testset "EI and EIinh, EPmod and EPinh name their constants apart" begin

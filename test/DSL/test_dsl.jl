@@ -184,7 +184,7 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
         @test _testhelper_ends(m_multi, _testhelper_binding_of(m_multi, :I)) == [:E, :EI]
     end
 
-    @testset "@enzyme_mechanism call-form grammar" begin
+    @testset "@enzyme_mechanism step grammar: groups, forms by name, modifiers" begin
         m = @enzyme_mechanism begin
             substrates: S
             products:   P
@@ -962,7 +962,9 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
     @testset "an undeclared metabolite on a step side reads as a second form" begin
         # A name on a step side that is no declared metabolite names an enzyme form, so an
         # undeclared `ATP` beside the form E is a second form on its side.
-        two_forms = "step side has more than one enzyme-form term (E, ATP)"
+        two_forms = "@enzyme_mechanism: step side has more than one enzyme-form term " *
+                    "(E, ATP); each elementary step has exactly one enzyme form per " *
+                    "side, and a name that is no declared metabolite names an enzyme form."
         @test_throws two_forms eval(
             :(@enzyme_mechanism begin
                 substrates: S
@@ -1333,14 +1335,17 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
 
     @testset "a step side holds one enzyme form" begin
         # A side with two enzyme forms is rejected.
-        @test_throws "more than one enzyme-form term" eval(:(@enzyme_mechanism begin
+        @test_throws("@enzyme_mechanism: step side has more than one enzyme-form term " *
+                     "(EA, EB); each elementary step has exactly one enzyme form per " *
+                     "side, and a name that is no declared metabolite names an enzyme " *
+                     "form.", eval(:(@enzyme_mechanism begin
             substrates: A, B
             products:   P
             steps: begin
                 EA + EB <--> EAB
                 EAB <--> E + P
             end
-        end))
+        end)))
     end
 
     @testset "a binding written as its release is one step, its state at the end" begin

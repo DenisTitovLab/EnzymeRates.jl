@@ -2389,16 +2389,16 @@ _testhelper_second_bound_block(prefix) = :(begin
 end)
 
 @testset "constants that would share a name are rejected by the guard" begin
-    built(prefix) = _testhelper_build(
+    _testhelper_built(prefix) = _testhelper_build(
         EnzymeRates.DSL.raw_mechanism(_testhelper_second_bound_block(prefix)))
-    clash(name) = ErrorException("Mechanism: constants of this mechanism's rate " *
-                                 "equation share a name ($name). Rename a metabolite or " *
-                                 "an enzyme form so that each constant has a name of " *
-                                 "its own.")
+    _testhelper_clash(name) = ErrorException(
+        "Mechanism: constants of this mechanism's rate equation share a name ($name). " *
+        "Rename a metabolite or an enzyme form so that each constant has a name of its " *
+        "own.")
     # The :EqualAI step A_ES <--> EP has the constant k_A_ES_to_EP, the name of the
     # active constant of the :NonequalAI step ES <--> EP.
-    conformation_a = built(:A)
-    clash_a = clash("k_A_ES_to_EP")
+    conformation_a = _testhelper_built(:A)
+    clash_a = _testhelper_clash("k_A_ES_to_EP")
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, conformation_a)
     @test_throws clash_a EnzymeRates.Derivation.check_valid_rate_equation(conformation_a)
     @test_throws clash_a eval(:(@enzyme_mechanism $(_testhelper_second_bound_block(:A))))
@@ -2413,8 +2413,8 @@ end)
 
     # Named I_ES, the :EqualAI constant k_I_ES_to_EP is the name of the :NonequalAI step's
     # inactive constant.
-    conformation_i = built(:I)
-    clash_i = clash("k_I_ES_to_EP")
+    conformation_i = _testhelper_built(:I)
+    clash_i = _testhelper_clash("k_I_ES_to_EP")
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, conformation_i)
     @test_throws clash_i parameters(conformation_i)
     @test_throws clash_i rate_equation_string(conformation_i)
@@ -2423,7 +2423,7 @@ end)
     renamed = eval(:(@enzyme_mechanism $(_testhelper_second_bound_block(:F))))
     @test parameters(renamed) == (:K_EP_to_E_P, :K_ES_to_E_S, :K_F_ES_to_E_S, :k_A_ES_to_EP,
                                   :k_F_ES_to_EP, :k_I_ES_to_EP, :L)
-    @test renamed == built(:F)
+    @test renamed == _testhelper_built(:F)
 
     # A modifier named minusQ imitates a residual: the side E_res_plusA_minusP + minusQ
     # and the form E_res_plusA_minusP_minusQ both render E_res_plusA_minusP_minusQ, so each
