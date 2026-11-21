@@ -2,8 +2,8 @@
 # ABOUTME: straight-line locals in greedy Horner form, reading its inputs by name.
 
 """
-A rate law as straight-line code, `v = E_total·num/den`. `vars` lists the law's inputs
-(concentrations and parameters, read by name), then its locals; `defs[i] = v => p`
+A rate law as straight-line code, `v = num/den`, the rate per unit enzyme. `vars` lists
+the law's inputs (concentrations, constants and `Keq`), then its locals; `defs[i] = v => p`
 defines local `v` as the polynomial `p` over the inputs and earlier locals. Every term of
 `num` and `den` holds each concentration to a nonnegative power.
 """
@@ -140,10 +140,11 @@ end
     _body(p) -> Expr
 
 The body of `rate_equation` for the program `p`: each variable it reads, in variable
-order, bound to a positional local, an input read by name (`getfield(concs, :X)`,
-`getfield(params, :k)`) or a local in greedy Horner form, followed by the reciprocals and
-roots the body reads (`_power`); then `E_total·num/den`. `x^e` reads `x` to the integer
-part of `e` and `x^(±1/q)` to the rest (`x^(3/2) = x·sqrt(x)`).
+order, bound to a positional local, an input (a concentration or a constant read by name,
+`getfield(concs, :X)`, `getfield(params, :k)`, or the argument `Keq`) or a local in greedy
+Horner form, followed by the reciprocals and roots the body reads (`_power`); then
+`num/den`. `x^e` reads `x` to the integer part of `e` and `x^(±1/q)` to the rest
+(`x^(3/2) = x·sqrt(x)`).
 """
 function _body(p::_Program)
     used = Set{Tuple{Int, _Exp}}()
@@ -165,15 +166,17 @@ function _body(p::_Program)
     num, den = _emit(p.num, atoms), _emit(p.den, atoms)
     lines = Expr[]
     for v in sort!(unique!([first(u) for u in used]))
+        name = p.vars.names[v]
         x = get(def, v) do
-            :(getfield($(p.vars.conc[v] ? :concs : :params), $(QuoteNode(p.vars.names[v]))))
+            name === :Keq ? :Keq :
+                :(getfield($(p.vars.conc[v] ? :concs : :params), $(QuoteNode(name))))
         end
         push!(lines, :($(_loc(v, 1 // 1)) = $x))
         for d in sort!([d for (w, d) in used if w == v && d != 1])
             push!(lines, :($(_loc(v, d)) = $(_power(_loc(v, 1 // 1), d))))
         end
     end
-    Expr(:block, lines..., :(return getfield(params, :E_total) * $num / $den))
+    Expr(:block, lines..., :(return $num / $den))
 end
 
 """The body of the generated `rate_equation` of `m`: the program's code (`_body`) of its
@@ -184,27 +187,28 @@ _rate_body(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
 # ─── rate_equation ─────────────────────────────────────────────────────────────
 
 """
-    rate_equation(m, concs, params)
+    rate_equation(m, concs, params, Keq)
 
-Return the net reaction rate of mechanism `m` at the metabolite concentrations
-`concs` and parameters `params` (both `NamedTuple`s). The rate equation itself
-is derived from the mechanism's elementary steps by the King–Altman/Cha method:
-rapid-equilibrium steps collapse to binding constants, steady-state steps are
-assembled into the King–Altman determinant, and the two combine into the
-quasi-steady-state flux through the whole mechanism — so one call returns the
-overall turnover, not the rate of a single step.
+Return the net reaction rate per unit enzyme of mechanism `m` at the metabolite
+concentrations `concs` and the constants `params` (both `NamedTuple`s), with the
+equilibrium constant `Keq`. The rate equation itself is derived from the mechanism's
+elementary steps by the King–Altman/Cha method: rapid-equilibrium steps collapse to
+binding constants, steady-state steps are assembled into the King–Altman determinant, and
+the two combine into the quasi-steady-state flux through the whole mechanism — so one call
+returns the overall turnover, not the rate of a single step. Multiply by the enzyme
+concentration for an absolute rate.
 
-`params` holds the independent constants (`parameters(m)`: the fitted constants, `Keq`
-and `E_total`); the rate law computes each dependent constant from them by its
-Haldane or Wegscheider relation. Both are read by name, so their fields may come in any
-order, and fields the law does not read are ignored.
+`params` holds the constants a fit estimates ([`parameters`](@ref)`(m)`); the rate law
+computes each dependent constant from them and `Keq` by its Haldane or Wegscheider
+relation. Both `NamedTuple`s are read by name, so their fields may come in any order, and
+fields the law does not read are ignored.
 
 The derivation runs once, at compile time: the body is generated as straight-line
 arithmetic with no allocations, loops, or matrix operations. Use
 [`rate_equation_string`](@ref) to inspect the derived equation symbolically.
 """
-@generated function rate_equation(m::M_type, concs::NamedTuple,
-        params::NamedTuple) where {M_type <: Mechanisms.AbstractEnzymeMechanism}
+@generated function rate_equation(m::M_type, concs::NamedTuple, params::NamedTuple,
+        Keq::Real) where {M_type <: Mechanisms.AbstractEnzymeMechanism}
     # The generator decodes the mechanism and checks its rate law once
     # (`_derivation_input`).
     _rate_body(_derivation_input(M_type))
@@ -212,5 +216,5 @@ end
 
 # Concrete-mechanism convenience: lift to the singleton (allocates, not the hot path).
 rate_equation(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, concs,
-              params) =
-    rate_equation(Mechanisms.compile_mechanism(m), concs, params)
+              params, Keq) =
+    rate_equation(Mechanisms.compile_mechanism(m), concs, params, Keq)

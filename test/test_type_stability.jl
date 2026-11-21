@@ -47,7 +47,7 @@ include("type_stability_harness.jl")
     draws_a_figure = (;
         reason = "prepares a figure from a mechanism it does not specialize on and draws " *
                  "it through the Makie extension, once per call",
-        functions = [:plot_rate_equation_on_data, :rate_equation_panels])
+        functions = [:plot_rate_equation_on_data, :rate_equation_panels, :_panels])
     exemption_sets = (error_messages, value_to_type, solver_boundary, pmap_and_tables,
                       expr_walk, prints_to_stdout, checks_user_input, draws_a_figure)
 
@@ -80,7 +80,7 @@ include("type_stability_harness.jl")
     Reaction = Mech.EnzymeReaction
     floats(names) = NamedTuple{Tuple(names)}(ntuple(_ -> 1.0, length(names)))
     table(m) = (; group = ["g"], Rate = [1.0], (x => [1.0] for x in metabolites(m))...)
-    problem(m) = Fit.FittingProblem(m, table(m); Keq = 2.0)
+    problem(m) = Fit.FittingProblem(m, table(m), 2.0)
     optimizer = CMAEvolutionStrategyOpt()
     plain_table = table(plain)
 
@@ -129,19 +129,13 @@ include("type_stability_harness.jl")
         @testset "$form" for (form, m) in pairs(singleton_forms)
             # The hot path: each data row of each evaluation calls `rate_equation` here.
             @_testhelper_no_dispatch rate_equation(
-                m, floats(metabolites(m)), floats(parameters(m)))
+                m, floats(metabolites(m)), floats(parameters(m)), 2.0)
             @_testhelper_no_dispatch parameters(m)
-            @_testhelper_no_dispatch parameters(m, FittedParameters())
-            @_testhelper_no_dispatch parameters(m, IndependentParameters())
-            @_testhelper_no_dispatch parameters(m, AllParameters())
         end
         @testset "$form" for (form, m) in pairs(concrete_forms)
             @_testhelper_dispatches_in value_to_type rate_equation(
-                m, floats(metabolites(m)), floats(parameters(m)))
+                m, floats(metabolites(m)), floats(parameters(m)), 2.0)
             @_testhelper_dispatches_in error_messages parameters(m)
-            @_testhelper_dispatches_in error_messages parameters(m, FittedParameters())
-            @_testhelper_dispatches_in error_messages parameters(m, IndependentParameters())
-            @_testhelper_dispatches_in error_messages parameters(m, AllParameters())
             @_testhelper_dispatches_in error_messages Deriv.check_valid_rate_equation(m)
             @_testhelper_no_dispatch Deriv.check_valid_rate_equation(Bool, m)
             @_testhelper_no_dispatch Deriv.fitted_parameter_count(m)
@@ -159,7 +153,7 @@ include("type_stability_harness.jl")
             @_testhelper_dispatches_in error_messages rate_equation_string(
                 m; coefficients = true, coefficient_values = true)
             @_testhelper_dispatches_in error_messages dependent_parameter_values(
-                m, floats(parameters(m)))
+                m, floats(parameters(m)), 2.0)
         end
         @_testhelper_no_dispatch Deriv.name(::Deriv.RegulatorParameter, allosteric_concrete)
         @_testhelper_no_dispatch Deriv.name(
@@ -197,18 +191,17 @@ include("type_stability_harness.jl")
         @_testhelper_dispatches_in error_messages solver_boundary fit_rate_equation(
             ::Fit.FittingProblem, optimizer)
         @testset "$form" for (form, m) in pairs(every_form)
-            @_testhelper_dispatches_in value_to_type Fit.FittingProblem(
-                m, table(m); Keq = 2.0)
+            @_testhelper_dispatches_in value_to_type Fit.FittingProblem(m, table(m), 2.0)
             @_testhelper_dispatches_in value_to_type Fit.test_rate_equation(
-                m, floats(parameters(m)), table(m))
+                m, floats(parameters(m)), table(m), 2.0)
         end
     end
 
     @testset "Data and DSL" begin
         @_testhelper_dispatches_in value_to_type EnzymeRates.Data.RateData(
-            plain_table, ::Vector{Symbol}; Keq = 2.0)
+            plain_table, ::Vector{Symbol}, 2.0)
         @_testhelper_dispatches_in value_to_type EnzymeRates.Data.RateData(
-            plain_table, ::Vector{Symbol}; Keq = 2.0, reference = [(S = 1.0,) => 1.0])
+            plain_table, ::Vector{Symbol}, 2.0; reference = [(S = 1.0,) => 1.0])
         @_testhelper_dispatches_in error_messages expr_walk EnzymeRates.DSL.parse_mechanism(
             "the mechanism's text")
     end
@@ -219,12 +212,11 @@ include("type_stability_harness.jl")
         solver_options = (; optimizer, n_restarts = 1, maxtime = 1.0, maxiters = 1,
                           abstol = nothing, reltol = nothing, callback = nothing,
                           solver_kwargs = (;))
-        without_reference = (; Keq = 2.0, absolute = false, solver_options...)
-        with_reference = (; Keq = 2.0, absolute = false, reference = anchors,
-                          solver_options...)
+        without_reference = (; absolute = false, solver_options...)
+        with_reference = (; absolute = false, reference = anchors, solver_options...)
 
         @_testhelper_dispatches_in value_to_type IdentifyRateEquationProblem(
-            ::Reaction, plain_table; Keq = 2.0)
+            ::Reaction, plain_table, 2.0)
         @_testhelper_no_dispatch EnzymeRates._fit_order(::EnzymeRates._Candidate)
         # The print, the tables and the CSV are what a search's master does between sweeps.
         @_testhelper_dispatches_in(
@@ -243,28 +235,32 @@ include("type_stability_harness.jl")
             @_testhelper_dispatches_in(
                 error_messages, value_to_type, solver_boundary,
                 EnzymeRates._cross_validation_loss(
-                    m, table(m), "g"; without_reference...))
+                    m, table(m), "g", 2.0; without_reference...))
             @_testhelper_dispatches_in(
                 error_messages, value_to_type, solver_boundary, checks_user_input,
-                EnzymeRates._cross_validation_loss(m, table(m), "g"; with_reference...))
+                EnzymeRates._cross_validation_loss(m, table(m), "g", 2.0;
+                                                   with_reference...))
             @_testhelper_dispatches_in value_to_type EnzymeRates._fit_keywords(
                 m, ::IdentifyRateEquationProblem{typeof(table(m))})
             @_testhelper_dispatches_in(
                 value_to_type, checks_user_input,
-                EnzymeRates._fold_problem(m, table(m), ::BitVector; Keq = 2.0,
+                EnzymeRates._fold_problem(m, table(m), ::BitVector, 2.0;
                                           absolute = false, reference = anchors))
         end
     end
 
     @testset "plot_rate_equation_on_data" begin
-        # It takes a `@nospecialize` mechanism and parameters, so this is what compiles. The
-        # row reads the same whether or not a Makie backend is loaded.
+        # It takes a `@nospecialize` mechanism or rate function and parameters, so this is
+        # what compiles. The rows read the same whether or not a Makie backend is loaded.
         @_testhelper_dispatches_in(
-            value_to_type, draws_a_figure,
+            draws_a_figure,
             plot_rate_equation_on_data(
                 ::Union{Mech.AbstractEnzymeMechanism, EnzymeRates.Mechanism,
-                        EnzymeRates.AllostericMechanism, Function},
-                ::NamedTuple, plain_table))
+                        EnzymeRates.AllostericMechanism},
+                ::NamedTuple, plain_table, 2.0))
+        @_testhelper_dispatches_in(
+            value_to_type, draws_a_figure,
+            plot_rate_equation_on_data(::Function, ::NamedTuple, plain_table))
     end
 
     # ── What the rows must cover ──────────────────────────────────────────────

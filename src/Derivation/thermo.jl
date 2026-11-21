@@ -213,7 +213,7 @@ elimination order, and `names` each column's name, that of its class's kept memb
 edge's inactive constant reads its active column. `independents` lists the law's free
 columns, sorted by name (`isless` on the strings, so `K_…` precedes `k_…`), and
 `dependents` every pivot column of the law, in column order. `info` holds the fitted
-parameters in `FittedParameters` order: the independents' columns, then an allosteric
+parameters in `parameters` order: the independents' columns, then an allosteric
 mechanism's regulator parameters (`_regulator_parameters`: those of the active
 conformation, then the inactive conformation's own, site by site) and
 `AllostericParameter()`. `fitted` holds their names.
@@ -299,7 +299,7 @@ _pivot_row_exponents(M::Matrix{<:Rational}, r::Int, keq_column::Int, free::Vecto
      Pair{Int, Rational{Int}}[f => Rational{Int}(-M[r, f])
                               for f in free if !iszero(M[r, f])])
 
-"""The regulator parameters of `m` in `FittedParameters` order: those of the active
+"""The regulator parameters of `m` in `parameters` order: those of the active
 conformation, then the inactive conformation's own, site by site; an `:EqualAI` ligand's
 one parameter is listed with the active ones, and a ligand has none in a conformation it
 is absent from. A plain mechanism has none."""

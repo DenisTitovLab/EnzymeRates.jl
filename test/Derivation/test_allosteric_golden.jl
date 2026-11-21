@@ -35,20 +35,12 @@ end
     for (c, r) in zip(current, reference)
         @test c == r
     end
-    # The RATE_EQUATION_STRING header pins the fitted parameters; this pins the
-    # exported `parameters(m)` wrapper to the fitted parameters plus Keq and E_total.
-    for spec in MECHANISM_TEST_SPECS
-        m = spec.mechanism
-        m isa EnzymeRates.AllostericEnzymeMechanism || continue
-        @test parameters(m) ==
-              (parameters(m, FittedParameters())..., :Keq, :E_total)
-    end
     # The fitted parameters list the catalytic constants by name, so rate-equivalent
     # mechanisms render one params line, then the regulator constants, then L.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         m isa EnzymeRates.AllostericEnzymeMechanism || continue
-        fp = parameters(m, FittedParameters())
+        fp = parameters(m)
         am = EnzymeRates.AllostericMechanism(m)
         reg = Tuple(K for st in (:A, :I) for K in _testhelper_regulator_constants(am, st))
         cat = fp[1:end - 1 - count(in(fp), reg)]

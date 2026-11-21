@@ -2,7 +2,7 @@
 # ABOUTME: the reference anchors that set a relative fit's scale.
 
 """
-    RateData(table, metabolite_names; Keq, absolute = false, reference = nothing,
+    RateData(table, metabolite_names, Keq; absolute = false, reference = nothing,
         owner = "mechanism")
 
 A rate table that has passed its checks, with the constants that go with it.
@@ -30,7 +30,7 @@ struct RateData{D<:NamedTuple}
     reference::Vector{Pair{NamedTuple, Float64}}
 end
 
-function RateData(table, metabolite_names; Keq::Real, absolute::Bool = false,
+function RateData(table, metabolite_names, Keq::Real; absolute::Bool = false,
         reference = nothing, owner::String = "mechanism")
     data = _rate_table(table, metabolite_names, Keq)
     RateData{typeof(data)}(data, Keq, absolute,

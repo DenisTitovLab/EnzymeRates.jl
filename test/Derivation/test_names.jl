@@ -110,7 +110,7 @@ end
         m = _testhelper_lift(spec.mechanism)
         info = ER.Derivation.parameter_info(m)
         @test [ER.Derivation.name(p, m) for p in info] ==
-              collect(parameters(m, FittedParameters()))
+              collect(parameters(m))
         @test all(p -> p isa ER.Derivation.Parameter, info)
         empty!(info)
         @test !isempty(ER.Derivation.parameter_info(m))
@@ -129,7 +129,7 @@ end
     P = ER.Derivation.StepParameter
     @test ER.Derivation.parameter_info(m) ==
           [P(1, 2, false), P(2, 2, false), P(2, 1, false)]
-    @test parameters(m, FittedParameters()) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
+    @test parameters(m) == (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES)
 end
 
 @testset "parameter_info ends an allosteric mechanism with its regulators and L" begin
@@ -152,7 +152,7 @@ end
     @test [ER.Derivation.name(p, m) for p in info[(end - 2):end]] ==
           [:K_A_Rreg, :K_I_Rreg, :L]
     @test [ER.Derivation.name(p, m) for p in info] ==
-          collect(parameters(m, FittedParameters()))
+          collect(parameters(m))
 end
 
 @testset "name(p, ::AllostericMechanism) chokepoint" begin

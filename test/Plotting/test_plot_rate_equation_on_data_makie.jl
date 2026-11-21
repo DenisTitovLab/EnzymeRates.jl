@@ -15,8 +15,8 @@ const _testhelper_makie_table = _testhelper_plot_table(
      [(1e-3, b, 0.0, 0.0) for b in (1e-4, 2e-4, 5e-4)]])
 
 _testhelper_makie_plot(table = _testhelper_makie_table; keywords...) =
-    plot_rate_equation_on_data(_testhelper_plot_m, _testhelper_plot_params, table;
-        keywords...)
+    plot_rate_equation_on_data(_testhelper_plot_m, _testhelper_plot_params, table,
+        _testhelper_plot_Keq; keywords...)
 
 _testhelper_blocks(T, fig) = filter(b -> b isa T, fig.content)
 _testhelper_figure_size(fig) = Tuple(widths(fig.scene.viewport[]))
@@ -37,8 +37,8 @@ end
         @test [ax.title[] for ax in panel_axes] == ["exp 1", "exp 2", "exp 3"]
         @test [ax.xlabel[] for ax in panel_axes] == ["A (mM)", "A (µM)", "B (µM)"]
         panels = rate_equation_panels(_testhelper_plot_m, _testhelper_plot_params,
-            _testhelper_makie_table; absolute = false, concentration_unit = "M",
-            xscale = identity)
+            _testhelper_makie_table, _testhelper_plot_Keq; absolute = false,
+            concentration_unit = "M", xscale = identity)
         @test [ax.limits[][2] for ax in panel_axes] == [p.rate_limits for p in panels]
         for (ax, p) in zip(panel_axes, panels)
             @test [l[1][] for l in _testhelper_plots(Lines, ax)] ==
@@ -46,6 +46,18 @@ end
             @test [points[1][] for points in _testhelper_plots(Scatter, ax)] ==
                   [Point2.(s.x, s.rate) for s in p.series]
         end
+    end
+
+    @testset "a params that holds Keq and E_total draws the same curves" begin
+        # As a fit saved by an earlier version does: the curves are drawn at the Keq
+        # argument.
+        extra = merge(_testhelper_plot_params, (Keq = 99.0, E_total = 99.0))
+        curves(fig) = [l[1][] for ax in _testhelper_blocks(Makie.Axis, fig)
+                       for l in _testhelper_plots(Lines, ax)]
+        @test curves(plot_rate_equation_on_data(_testhelper_plot_m, extra,
+                                                _testhelper_makie_table,
+                                                _testhelper_plot_Keq)) ==
+              curves(_testhelper_makie_plot())
     end
 
     @testset "grid" begin
@@ -101,9 +113,11 @@ end
             @test_throws(ArgumentError("columns must be at least 1; got $columns"),
                 _testhelper_makie_plot(; columns))
         end
-        # A wrong `rate` or `params` is refused by the exported function itself.
+        # A wrong `rate` or `params`, or a mechanism without its Keq, is refused by the
+        # exported function itself.
         rate(concs, p) = p[1] * concs.A
-        for arguments in (("A", _testhelper_plot_params), (rate, [1.0]))
+        for arguments in (("A", _testhelper_plot_params), (rate, [1.0]),
+                          (_testhelper_plot_m, _testhelper_plot_params))
             refusal = try
                 plot_rate_equation_on_data(arguments..., _testhelper_makie_table)
             catch err

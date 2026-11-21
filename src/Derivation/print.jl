@@ -147,10 +147,10 @@ function _coefficient_sum(prefix::String, ts::Vector{_Term}, names::Vector{Symbo
     sum, lines
 end
 
-"""The `v` line, `v = E_total * (Q) * (H) / (D)`: `Q` bare when it is one name."""
+"""The `v` line, `v = (Q) * (H) / (D)`: `Q` bare when it is one name."""
 function _v_line(q::AbstractString, h::AbstractString, d::AbstractString)
     lead = occursin(r"^[^ ()*/+^-]+$", q) ? q * " * " : "(" * q * ") * "
-    "v = E_total * $(lead)($h) / ($d)"
+    "v = $(lead)($h) / ($d)"
 end
 
 const _COEFFICIENTS_COMMENT =
@@ -183,7 +183,7 @@ _concs_line(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}) =
 
 """The `params` and `concs` destructuring lines of `m`'s printed law over the solve `s`."""
 _header_lines(m::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}, s::_Solve) =
-    String["(; $(join([s.fitted; :Keq; :E_total], ", "))) = params", _concs_line(m)]
+    String["(; $(join(s.fitted, ", "))) = params", _concs_line(m)]
 
 # ─── Plain and MWC laws ──────────────────────────────────────────────────────
 
@@ -250,7 +250,7 @@ own normalizer `N_c`, which prints as a line when it has a factor that is not a 
 term, or an integer to a fractional power; `F_A` and `F_I`, the free-E weights over the
 normalizers, print only when they differ and each only when it is not 1; `W_A` and `W_I`
 multiply the regulatory sites' factors. The `v` line is
-`E_total·H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
+`H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
 (F_I^n·D_A^n·W_A + L·F_A^n·D_I^n·W_I)` without its factors of 1. Both forms open with the
 header and end with `v`, in the order they evaluate. In full, the reference lines and the
 definitions come between; with `coefficients`, the coefficient comment, the normalizers,
@@ -319,12 +319,14 @@ Return the rate law of mechanism `m` as a multi-line `String` (it returns the te
 not print). Pass a concrete `Mechanism` / `AllostericMechanism` or its compiled
 [`EnzymeMechanism`](@ref EnzymeRates.Mechanisms.EnzymeMechanism) singleton.
 
-The text runs as Julia code once `params` and `concs` are bound. It destructures
-[`parameters`](@ref)`(m)` from `params` and the metabolites from `concs`, lists each
-dependent constant under `# Wegscheider constraints:` or `# Haldane constraints:` as a
-reference line in `Keq` and the independent constants, and ends with
-`v = E_total * (Q) * (H) / (D)` in the independent constants. `H = Π[S] − Π[P]/Keq`
-vanishes at equilibrium; `Q` and `D` have positive terms. Numerator and denominator are
+The text runs as Julia code once `params`, `concs` and `Keq` are bound, as they are in
+[`rate_equation`](@ref)`(m, concs, params, Keq)`. It destructures
+[`parameters`](@ref)`(m)` from `params` and the metabolites from `concs`, reads the
+equilibrium constant `Keq` as an input of its own, lists each dependent constant under
+`# Wegscheider constraints:` or `# Haldane constraints:` as a reference line in `Keq` and
+the independent constants, and ends with `v = (Q) * (H) / (D)`, the rate per unit enzyme,
+in the independent constants. `H = Π[S] − Π[P]/Keq` vanishes at equilibrium; `Q` and `D`
+have positive terms. Numerator and denominator are
 divided by a normalizer that makes every term of `D` dimensionless, when one exists: `D`'s
 constant term when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when
 `D` holds the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the
@@ -342,7 +344,7 @@ An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denom
 and regulatory-site factor `W_A`, `W_I`, then the MWC combination.
 
 With `coefficients = true` the law reads in named coefficients,
-`v = E_total * n_0 * (H) / (1 + d_S * S + …)`, each named by the concentrations it
+`v = n_0 * (H) / (1 + d_S * S + …)`, each named by the concentrations it
 multiplies (`d_A²_B` for `A^2 * B`). That text runs as Julia code too: it destructures
 `params` and `concs`, prints the coefficient comment, `N` (`N_A`, `N_I`) when the
 normalizer prints, each coefficient's value in the fitted constants, one line each, for an
@@ -369,24 +371,24 @@ julia> m = @enzyme_mechanism begin
        end;
 
 julia> print(rate_equation_string(m))
-(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP) = params
 (; S, P) = concs
 # Haldane constraints:
 k_EP_to_ES = K_EP_to_E_P * k_ES_to_EP / (K_ES_to_E_S * Keq)
-v = E_total * (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
+v = (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
 
 julia> print(rate_equation_string(m; coefficients = true))
-(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP) = params
 (; S, P) = concs
 # The coefficients are functions of the fitted constants, not parameters:
 n_0 = k_ES_to_EP / K_ES_to_E_S
 d_S = 1 / K_ES_to_E_S
 d_P = 1 / K_EP_to_E_P
-v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 
 julia> print(rate_equation_string(m; coefficients = true, coefficient_values = false))
 (; S, P) = concs
-v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 """
 function rate_equation_string(m::Union{Mechanisms.Mechanism,

@@ -268,7 +268,7 @@ end
         point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
         concs = Dict(:S => big"0.7", :P => big"1.3")
         params = Dict{Symbol, BigFloat}(k => point.vals[k]
-                                        for k in parameters(m, FittedParameters()))
+                                        for k in parameters(m))
         params[:Keq] = point.Keq
         law = _testhelper_law_value(m, params, concs)
         err(Λ) = abs(_testhelper_steady_state_rate(m, point, concs; Λ) - law) / abs(law)
@@ -412,9 +412,8 @@ end
             _, pconcs, pparams = _testhelper_law_inputs(mech, s.fitted,
                                                         Random.MersenneTwister(1000 + i))
             law = _testhelper_evaluate_law(L, merge(pparams, pconcs))
-            p = merge(pparams, Dict(:E_total => big(1)))
-            @test all(t -> abs(_testhelper_eval_rate_string(t, p, pconcs) - law) <=
-                           big(10)^-20 * abs(law), (full, coef))
+            printed(t) = _testhelper_eval_rate_string(t, pparams, pconcs, pparams[:Keq])
+            @test all(t -> abs(printed(t) - law) <= big(10)^-20 * abs(law), (full, coef))
         end
     end
 end
@@ -463,7 +462,7 @@ const _testhelper_sample_regroupings =
                          _testhelper_declared_dimension(m)]
         @test isempty(miscounted)
         for m in _testhelper_population_sample[1:10]
-            @test length(parameters(m, FittedParameters())) ==
+            @test length(parameters(m)) ==
                   _testhelper_declared_dimension(m)
         end
     end
@@ -517,10 +516,10 @@ const _testhelper_sample_regroupings =
                 E(S) + I ⇌ E(I, S)       :: NonequalAI
             end
         end
-        @test parameters(island, FittedParameters()) ==
+        @test parameters(island) ==
               (:K_A_EIS_to_ES_I, :K_EP_to_E_P, :k_A_ES_to_EP, :k_A_ES_to_E_S,
                :k_A_E_S_to_ES, :L)
-        @test length(parameters(island, FittedParameters())) ==
+        @test length(parameters(island)) ==
               _testhelper_declared_dimension(island)
         _testhelper_check_law_against_oracle(island)
     end
@@ -1121,12 +1120,12 @@ end
         @testset "$label" begin
             em = EnzymeRates.compile_mechanism(am)
             fitted = _testhelper_dependent_param_exprs(am)[2]
-            @test parameters(em, FittedParameters()) == fitted
+            @test parameters(em) == fitted
             point, concs, params = _testhelper_law_inputs(am, fitted,
                                                           Random.MersenneTwister(600 + i))
-            c64, p64 = _testhelper_float64_inputs(fitted, params, concs,
-                                                  EnzymeRates.metabolites(em))
-            @test isapprox(rate_equation(em, c64, p64),
+            c64, p64, keq64 = _testhelper_float64_inputs(fitted, params, concs,
+                                                         EnzymeRates.metabolites(em))
+            @test isapprox(rate_equation(em, c64, p64, keq64),
                            Float64(_testhelper_law_value(am, params, concs)); rtol = 1e-12)
         end
     end

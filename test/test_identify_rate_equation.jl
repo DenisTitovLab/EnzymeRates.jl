@@ -31,9 +31,9 @@ end)
 
 # A BatchEntry of the uni seed with rate-law key `key`; selection reads only the key, the
 # loss and the count.
-# The fitted constants of `params` as `loss!` takes them; a fit's `params` also hold Keq.
+# The fitted constants of `params` as `loss!` takes them.
 _testhelper_log_fitted(m, params) =
-    Float64[log(params[k]) for k in parameters(m, FittedParameters())]
+    Float64[log(params[k]) for k in parameters(m)]
 
 _testhelper_entry(key, loss, n = 3) =
     EnzymeRates.BatchEntry(_testhelper_uni_seed, n, loss, :Success, key, key, (;))
@@ -44,7 +44,7 @@ function _testhelper_uni_prob(data_form)
     data = data_form === DataFrame ?
            DataFrame(merge(columns, (group = [1, 1, 2, 2],))) :
            merge((group = ["G1", "G1", "G2", "G2"],), columns)
-    return IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+    return IdentifyRateEquationProblem(_testhelper_uni_rxn, data, 10.0;
                                        reference=_testhelper_row_reference(data))
 end
 
@@ -79,8 +79,7 @@ end
     # 5 fitted params: K_A_EP_to_E_P, K_A_ES_to_E_S, k_A_ES_to_EP, K_I_Rreg, L
     true_params = (
         K_A_EP_to_E_P = 1.0, K_A_ES_to_E_S = 0.5, k_A_ES_to_EP = 5.0,
-        K_I_Rreg = 2.0, L = 0.1,
-        Keq = Keq_val, E_total = 1.0)
+        K_I_Rreg = 2.0, L = 0.1)
 
     function _testhelper_make_test_data(
         mechanism, params;
@@ -98,7 +97,7 @@ end
                 r = 0.1 + 9.9 * rand()
                 concs = (S = s, P = p, R = r)
                 v = rate_equation(
-                    mechanism, concs, params)
+                    mechanism, concs, params, Keq_val)
                 push!(groups, "G$g")
                 push!(rates, v)
                 push!(S_vals, s)
@@ -121,7 +120,7 @@ end
     @testset "construction" begin
         ref = _testhelper_row_reference(test_data)
         prob = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, reference=ref)
+            test_rxn, test_data, Keq_val; reference=ref)
         @test prob.reaction === test_rxn
         @test typeof(prob) === IdentifyRateEquationProblem{typeof(prob.rate_data.data)}
         @test prob.rate_data.Keq == Keq_val
@@ -134,36 +133,36 @@ end
         @test prob.rate_data.reference == ref
         @test prob.rate_data.reference isa Vector{Pair{NamedTuple, Float64}}
         prob_abs = IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, absolute=true)
+            test_rxn, test_data, Keq_val; absolute=true)
         @test prob_abs.rate_data.absolute === true && isempty(prob_abs.rate_data.reference)
-        prob_none = IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val)
+        prob_none = IdentifyRateEquationProblem(test_rxn, test_data, Keq_val)
         @test prob_none.rate_data.absolute === false
         @test isempty(prob_none.rate_data.reference)
         @test_throws(
             ErrorException("reference applies only to relative mode; absolute turnover " *
                            "data set the rate scale themselves"),
-            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val, absolute=true,
+            IdentifyRateEquationProblem(test_rxn, test_data, Keq_val; absolute=true,
                                         reference=ref))
         # The anchors name the reaction's metabolites, each at a finite concentration
         # ≥ 0, with a finite, nonzero turnover.
         @test_throws(
             ErrorException("reference: X is not a metabolite of the reaction " *
                            "(metabolites: S, P, R)"),
-            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val,
+            IdentifyRateEquationProblem(test_rxn, test_data, Keq_val;
                                         reference=[(X = 1.0,) => 1.0]))
         @test_throws(
             ErrorException("reference: concentration of R must be a finite number ≥ 0; " *
                            "got -1.0"),
-            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val,
+            IdentifyRateEquationProblem(test_rxn, test_data, Keq_val;
                                         reference=[(S = 1.0, R = -1.0) => 1.0]))
         @test_throws(
             ErrorException("reference: turnover must be a finite, nonzero number; got 0.0"),
-            IdentifyRateEquationProblem(test_rxn, test_data; Keq=Keq_val,
+            IdentifyRateEquationProblem(test_rxn, test_data, Keq_val;
                                         reference=[(S = 1.0,) => 0.0]))
         @test_throws MethodError IdentifyRateEquationProblem(
-            test_rxn, test_data; Keq=Keq_val, reference=ref, scale_k_to_kcat=1.0)
+            test_rxn, test_data, Keq_val; reference=ref, scale_k_to_kcat=1.0)
         # An integer Keq converts to the Float64 field.
-        @test IdentifyRateEquationProblem(test_rxn, test_data; Keq=10,
+        @test IdentifyRateEquationProblem(test_rxn, test_data, 10;
                                           reference=ref).rate_data.Keq === 10.0
 
         # Missing metabolite column
@@ -171,8 +170,7 @@ end
             ErrorException,
             IdentifyRateEquationProblem(
                 test_rxn,
-                (group = ["G1"], Rate = [1.0]);
-                Keq=1.0, reference=ref))
+                (group = ["G1"], Rate = [1.0]), 1.0; reference=ref))
 
         # Missing regulator column
         @test_throws(
@@ -182,8 +180,7 @@ end
                 (group = ["G1", "G2"],
                  Rate = [1.0, 2.0],
                  S = [1.0, 2.0],
-                 P = [0.1, 0.1]);
-                Keq=1.0, reference=ref))
+                 P = [0.1, 0.1]), 1.0; reference=ref))
 
         # Zero rate
         @test_throws(
@@ -194,8 +191,7 @@ end
                  Rate = [0.0, 1.0],
                  S = [1.0, 1.0],
                  P = [0.1, 0.1],
-                 R = [1.0, 1.0]);
-                Keq=1.0, reference=ref))
+                 R = [1.0, 1.0]), 1.0; reference=ref))
 
         # A non-finite or missing rate, a concentration that is not a finite number
         # ≥ 0 or a Keq that is not positive and finite: each error names the column (with
@@ -207,7 +203,7 @@ end
             @test_throws(
                 ErrorException("Rate at row 2 must be a finite number; got $shown"),
                 IdentifyRateEquationProblem(
-                    test_rxn, merge(two_groups, (Rate = [1.0, bad],)); Keq=1.0,
+                    test_rxn, merge(two_groups, (Rate = [1.0, bad],)), 1.0;
                     reference=ref))
         end
         for (bad, shown) in ((NaN, "NaN"), (Inf, "Inf"), (-1.0, "-1.0"),
@@ -216,15 +212,15 @@ end
                 ErrorException(
                     "Concentration S at row 2 must be a finite number ≥ 0; got $shown"),
                 IdentifyRateEquationProblem(
-                    test_rxn, merge(two_groups, (S = [1.0, bad],)); Keq=1.0,
+                    test_rxn, merge(two_groups, (S = [1.0, bad],)), 1.0;
                     reference=ref))
         end
         @test IdentifyRateEquationProblem(
-            test_rxn, merge(two_groups, (S = [0.0, 1.0],)); Keq=1.0, reference=ref) isa
+            test_rxn, merge(two_groups, (S = [0.0, 1.0],)), 1.0; reference=ref) isa
               IdentifyRateEquationProblem
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
-                IdentifyRateEquationProblem(test_rxn, two_groups; Keq=bad, reference=ref))
+                IdentifyRateEquationProblem(test_rxn, two_groups, bad; reference=ref))
         end
 
         # A metabolite named after a required column would read that column, here the
@@ -238,8 +234,8 @@ end
             ErrorException("Metabolite group has the name of the required group " *
                            "column; rename the metabolite"),
             IdentifyRateEquationProblem(group_named_rxn,
-                (group = [1, 2], Rate = [1.0, 2.0], S = [1.0, 1.0], P = [0.1, 0.1]);
-                Keq=1.0, reference=[(S = 1.0,) => 1.0]))
+                (group = [1, 2], Rate = [1.0, 2.0], S = [1.0, 1.0], P = [0.1, 0.1]), 1.0;
+                reference=[(S = 1.0,) => 1.0]))
 
         # Every search fits allosteric mechanisms, whose rate equations take the
         # conformational constant L, so a metabolite named L would fail every allosteric
@@ -262,8 +258,7 @@ end
                  Rate = [1.0, 2.0],
                  S = [1.0, 2.0],
                  P = [0.1, 0.1],
-                 R = [1.0, 1.0]);
-                Keq=1.0, reference=ref))
+                 R = [1.0, 1.0]), 1.0; reference=ref))
     end
 
     # ── Helper unit tests (cheap, no fitting) ────────
@@ -390,7 +385,7 @@ end
 
     # ── Run pipeline ONCE, test everything ───────────
     prob = IdentifyRateEquationProblem(
-        test_rxn, test_data; Keq=Keq_val, reference=_testhelper_row_reference(test_data))
+        test_rxn, test_data, Keq_val; reference=_testhelper_row_reference(test_data))
     save_dir = mktempdir()
     # Smoke-test settings: greedy beam (min_beam_width=1 +
     # tightest thresholds) so only the strictly-best mechanism
@@ -648,12 +643,12 @@ end
             Rate = [0.5, 0.8, 1.0, 1.1, 1.2, 1.3],
             group = [1, 1, 2, 2, 3, 3],
         )
-        prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+        prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data, 10.0;
                                            reference=_testhelper_row_reference(data))
 
         groups = unique(prob.rate_data.data.group)
-        scores = [EnzymeRates._cross_validation_loss(m, prob.rate_data.data, g;
-            EnzymeRates._fit_keywords(m, prob)...,
+        scores = [EnzymeRates._cross_validation_loss(m, prob.rate_data.data, g,
+            prob.rate_data.Keq; EnzymeRates._fit_keywords(m, prob)...,
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=2, maxtime=2.0, maxiters=500) for g in groups]
 
@@ -670,7 +665,8 @@ end
         # `fit_rate_equation` call throw; `_cross_validation_loss` must propagate that
         # error, not swallow it (a corrupted CV must abort model selection).
         @test_throws Exception EnzymeRates._cross_validation_loss(
-            m, prob.rate_data.data, first(groups); EnzymeRates._fit_keywords(m, prob)...,
+            m, prob.rate_data.data, first(groups), prob.rate_data.Keq;
+            EnzymeRates._fit_keywords(m, prob)...,
             optimizer=CMAEvolutionStrategyOpt(),
             n_restarts=1, maxtime=1.0, beam_fraction=0.5)
     end
@@ -683,12 +679,12 @@ end
     em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
     for data_form in (NamedTuple, DataFrame)
         prob = _testhelper_uni_prob(data_form)
-        full = FittingProblem(em, prob.rate_data.data; Keq=prob.rate_data.Keq,
+        full = FittingProblem(em, prob.rate_data.data, prob.rate_data.Keq;
                               absolute=prob.rate_data.absolute,
                               reference=prob.rate_data.reference)
         fold = EnzymeRates._fold_problem(em, prob.rate_data.data,
-            prob.rate_data.data.group .== prob.rate_data.data.group[3];
-            EnzymeRates._fit_keywords(em, prob)...)
+            prob.rate_data.data.group .== prob.rate_data.data.group[3],
+            prob.rate_data.Keq; EnzymeRates._fit_keywords(em, prob)...)
         @test typeof(fold) === typeof(full)
         @test fold.rate_data.data.S == [3.0, 4.0]
         @test fold.rate_data.data.P == [0.3, 0.4]
@@ -696,11 +692,11 @@ end
         # A fold copies the problem's mode and reference.
         @test fold.rate_data.Keq === 10.0 && fold.rate_data.absolute === false &&
               fold.rate_data.reference == [(S = 1.0, P = 0.1) => 0.5]
-        prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.rate_data.data;
-                                               Keq=prob.rate_data.Keq, absolute=true)
+        prob_abs = IdentifyRateEquationProblem(prob.reaction, prob.rate_data.data,
+                                               prob.rate_data.Keq; absolute=true)
         fold_abs = EnzymeRates._fold_problem(em, prob_abs.rate_data.data,
-            prob.rate_data.data.group .== prob.rate_data.data.group[3];
-            EnzymeRates._fit_keywords(em, prob_abs)...)
+            prob.rate_data.data.group .== prob.rate_data.data.group[3],
+            prob_abs.rate_data.Keq; EnzymeRates._fit_keywords(em, prob_abs)...)
         @test fold_abs.rate_data.absolute === true &&
               isempty(fold_abs.rate_data.reference)
     end
@@ -737,20 +733,20 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4], R = [0.5, 0.5, 1.0, 1.0])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 10.0;
                                        reference=[(S = 2.0, R = 0.5) => 0.8])
     @test EnzymeRates._fit_keywords(plain, prob) ==
-          (; Keq = 10.0, absolute = false, reference = [(S = 2.0,) => 0.8])
+          (; absolute = false, reference = [(S = 2.0,) => 0.8])
     @test EnzymeRates._fit_keywords(regulated, prob) ==
-          (; Keq = 10.0, absolute = false, reference = [(S = 2.0, R = 0.5) => 0.8])
+          (; absolute = false, reference = [(S = 2.0, R = 0.5) => 0.8])
     # So the fit of the mechanism without R takes the problem's reference.
-    @test EnzymeRates._fold_problem(plain, prob.rate_data.data, trues(4);
+    @test EnzymeRates._fold_problem(plain, prob.rate_data.data, trues(4), 10.0;
               EnzymeRates._fit_keywords(plain, prob)...).rate_data.reference ==
           [(S = 2.0,) => 0.8]
-    prob_abs = IdentifyRateEquationProblem(rxn, data; Keq=10.0, absolute=true)
-    @test EnzymeRates._fit_keywords(plain, prob_abs) == (; Keq = 10.0, absolute = true)
-    prob_none = IdentifyRateEquationProblem(rxn, data; Keq=10.0)
-    @test EnzymeRates._fit_keywords(plain, prob_none) == (; Keq = 10.0, absolute = false)
+    prob_abs = IdentifyRateEquationProblem(rxn, data, 10.0; absolute=true)
+    @test EnzymeRates._fit_keywords(plain, prob_abs) == (; absolute = true)
+    prob_none = IdentifyRateEquationProblem(rxn, data, 10.0)
+    @test EnzymeRates._fit_keywords(plain, prob_none) == (; absolute = false)
 end
 
 @testset "_cross_validation_loss: the held-out loss of the fit on the other groups" begin
@@ -761,15 +757,15 @@ end
     reference = _testhelper_row_reference(data)
     fit_options = (; n_restarts = 1, maxiters = 50)
     Random.seed!(7)
-    cv = EnzymeRates._cross_validation_loss(em, data, "G2";
-        Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+    cv = EnzymeRates._cross_validation_loss(em, data, "G2", 2.0;
+        absolute = false, reference, optimizer, fit_options...)
     Random.seed!(7)
     g1 = map(col -> col[data.group .== "G1"], data)
     g2 = map(col -> col[data.group .== "G2"], data)
-    fit = fit_rate_equation(FittingProblem(em, g1; Keq = 2.0, reference),
+    fit = fit_rate_equation(FittingProblem(em, g1, 2.0; reference),
                             optimizer; fit_options...)
     expected = EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
-        FittingProblem(em, g2; Keq = 2.0, reference))
+        FittingProblem(em, g2, 2.0; reference))
     @test cv isa Float64
     @test cv == expected
 end
@@ -784,15 +780,15 @@ end
                 S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
         reference = _testhelper_row_reference(data)
         Random.seed!(7)
-        cv = EnzymeRates._cross_validation_loss(em, data, blank;
-            Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+        cv = EnzymeRates._cross_validation_loss(em, data, blank, 2.0;
+            absolute = false, reference, optimizer, fit_options...)
         Random.seed!(7)
         held = isequal.(data.group, blank)
         fit = fit_rate_equation(
-            FittingProblem(em, map(col -> col[.!held], data); Keq = 2.0, reference),
+            FittingProblem(em, map(col -> col[.!held], data), 2.0; reference),
             optimizer; fit_options...)
         expected = EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
-            FittingProblem(em, map(col -> col[held], data); Keq = 2.0, reference))
+            FittingProblem(em, map(col -> col[held], data), 2.0; reference))
         @test cv == expected
     end
 end
@@ -807,41 +803,41 @@ end
     reference = [(S = 1.0,) => -0.5]
     fit_options = (; n_restarts = 1, maxiters = 50)
     Random.seed!(7)
-    cv = EnzymeRates._cross_validation_loss(em, data, "G2";
-        Keq = 2.0, absolute = false, reference, optimizer, fit_options...)
+    cv = EnzymeRates._cross_validation_loss(em, data, "G2", 2.0;
+        absolute = false, reference, optimizer, fit_options...)
     Random.seed!(7)
     g1 = map(col -> col[data.group .== "G1"], data)
     g2 = map(col -> col[data.group .== "G2"], data)
-    fit = fit_rate_equation(FittingProblem(em, g1; Keq = 2.0, reference),
+    fit = fit_rate_equation(FittingProblem(em, g1, 2.0; reference),
                             optimizer; fit_options...)
     @test fit.retcode === :ReferenceFailed
     @test isfinite(cv)
     @test cv == EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
-        FittingProblem(em, g2; Keq = 2.0, reference))
+        FittingProblem(em, g2, 2.0; reference))
 end
 
 # In absolute mode `_fit_keywords` passes no reference, so a fold takes none.
 @testset "_cross_validation_loss in absolute mode is the uncentered held-out loss" begin
     em = EnzymeRates.compile_mechanism(_testhelper_uni_seed)
     data = _testhelper_uni_prob(NamedTuple).rate_data.data
-    prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+    prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data, 10.0;
                                            absolute=true)
     optimizer = CMAEvolutionStrategyOpt()
     fit_options = (; n_restarts = 1, maxiters = 50)
     Random.seed!(11)
-    cv = EnzymeRates._cross_validation_loss(em, data, "G1";
+    cv = EnzymeRates._cross_validation_loss(em, data, "G1", 10.0;
         EnzymeRates._fit_keywords(em, prob_abs)..., optimizer, fit_options...)
     Random.seed!(11)
     on(g) = map(col -> col[data.group .== g], data)
-    fit = fit_rate_equation(FittingProblem(em, on("G2"); Keq=10.0, absolute=true),
+    fit = fit_rate_equation(FittingProblem(em, on("G2"), 10.0; absolute=true),
                             optimizer; fit_options...)
     @test cv == EnzymeRates.Fitting.loss!(_testhelper_log_fitted(em, fit.params),
-        FittingProblem(em, on("G1"); Keq=10.0, absolute=true))
+        FittingProblem(em, on("G1"), 10.0; absolute=true))
 end
 
 @testset "identify_rate_equation selects a mechanism in absolute mode" begin
     data = _testhelper_uni_prob(NamedTuple).rate_data.data
-    prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0,
+    prob_abs = IdentifyRateEquationProblem(_testhelper_uni_rxn, data, 10.0;
                                            absolute=true)
     res = mktempdir() do tmp
         identify_rate_equation(prob_abs; optimizer=CMAEvolutionStrategyOpt(),
@@ -856,7 +852,7 @@ end
 
 @testset "identify_rate_equation selects a mechanism in relative mode, no reference" begin
     data = _testhelper_uni_prob(NamedTuple).rate_data.data
-    prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data; Keq=10.0)
+    prob = IdentifyRateEquationProblem(_testhelper_uni_rxn, data, 10.0)
     @test isempty(prob.rate_data.reference)
     res = mktempdir() do tmp
         identify_rate_equation(prob; optimizer=CMAEvolutionStrategyOpt(),
@@ -914,20 +910,21 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             Sfold = [1.0, 2.0, 3.0, 4.0], Pfold = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=10.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 10.0;
                                        reference=_testhelper_row_reference(data))
     optimizer = CMAEvolutionStrategyOpt()
     added = Int[]
     # Typed as the abstract mechanism, as in the pipeline, so each call dispatches on the
     # mechanism's run-time type.
     for em in EnzymeRates.Mechanisms.AbstractEnzymeMechanism[re_binding, ss_binding]
-        full = FittingProblem(em, prob.rate_data.data; Keq=prob.rate_data.Keq,
+        full = FittingProblem(em, prob.rate_data.data, prob.rate_data.Keq;
                               absolute=prob.rate_data.absolute,
                               reference=prob.rate_data.reference)
         fit_rate_equation(full, optimizer; n_restarts=1, maxiters=10)
         n = _testhelper_enzymerates_method_instances()
-        EnzymeRates._cross_validation_loss(em, prob.rate_data.data, "G1";
-            EnzymeRates._fit_keywords(em, prob)..., optimizer, n_restarts=1, maxiters=10)
+        EnzymeRates._cross_validation_loss(em, prob.rate_data.data, "G1",
+            prob.rate_data.Keq; EnzymeRates._fit_keywords(em, prob)..., optimizer,
+            n_restarts=1, maxiters=10)
         push!(added, _testhelper_enzymerates_method_instances() - n)
     end
     # The first mechanism's fold compiles the fold path for every mechanism.
@@ -1438,7 +1435,7 @@ end
         S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
         P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
         Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference=_testhelper_row_reference(data))
     random_bibi = @enzyme_mechanism begin        # V×τ = 336 — the ceiling; must pass
         substrates: S1, S2
@@ -1490,7 +1487,7 @@ end
         S1 = [1.0, 2.0], S2 = [1.0, 2.0], S3 = [1.0, 2.0],
         P1 = [0.1, 0.2], P2 = [0.1, 0.2], P3 = [0.1, 0.2],
         Rate = [0.5, 0.8], group = [1, 2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference=_testhelper_row_reference(data))
     m = EnzymeRates.Mechanism(_testhelper_random_terter())
     @test EnzymeRates.Derivation.rate_equation_term_count(m) >
@@ -1521,7 +1518,7 @@ end
         S1 = [1.0, 2.0, 1.0, 2.0], S2 = [1.0, 1.0, 2.0, 2.0],
         P1 = [0.1, 0.2, 0.1, 0.2], P2 = [0.1, 0.1, 0.2, 0.2],
         Rate = [0.5, 0.8, 0.9, 1.1], group = [1, 1, 2, 2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference=_testhelper_row_reference(data))
     ktype = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
         substrates: S1, S2
@@ -1797,7 +1794,7 @@ end
                                          EnzymeRates.Derivation._law(m2),
                                          c1.order, c2.order;
                                          rng = Random.MersenneTwister(1))
-    @test parameters(em1, FittedParameters()) == parameters(em2, FittedParameters())
+    @test parameters(em1) == parameters(em2)
 
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
@@ -1806,7 +1803,7 @@ end
         products: P[C]
         oligomeric_state: 2
     end
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference=_testhelper_row_reference(data))
     pair = Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m1, m2]
 
@@ -1838,7 +1835,7 @@ end
     # canonical order, so both rows carry the fit's values under their own names.
     fit = memo[c1.key]
     @test fit.source == m1
-    fkeys = parameters(em1, FittedParameters())
+    fkeys = parameters(em1)
     for (e, c) in zip(entries, (c1, c2))
         @test keys(e.row.params) == fkeys
         @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
@@ -1859,8 +1856,7 @@ end
     # the first data row's rate.
     @test !all(v -> v ≈ 5.0, entries[1].row.params)
     for (em, e) in zip((em1, em2), entries)
-        @test rate_equation(em, (S = 1.0, P = 0.1),
-                            merge(e.row.params, (Keq = 2.0, E_total = 1.0))) ≈ 0.5 rtol=1e-9
+        @test rate_equation(em, (S = 1.0, P = 0.1), e.row.params, 2.0) ≈ 0.5 rtol=1e-9
     end
 
     # Cross-batch memo hit: a later batch with the same key refits NOTHING.
@@ -1941,7 +1937,7 @@ function _testhelper_unibi_pair()
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
     equal, only_active,
-        IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+        IdentifyRateEquationProblem(rxn, data, 2.0;
                                     reference = _testhelper_row_reference(data))
 end
 
@@ -1951,7 +1947,7 @@ end
     # row carries its own names and both rows compute one rate.
     a, b, prob = _testhelper_unibi_pair()
     ca, cb = _testhelper_pass1_canonical.((a, b))
-    fa, fb = parameters(a, FittedParameters()), parameters(b, FittedParameters())
+    fa, fb = parameters(a), parameters(b)
     @test ca.key == cb.key
     @test Set(fa) != Set(fb)
     # The canonical map sends a constant to another fitted position, so a fit copied by
@@ -1970,8 +1966,8 @@ end
     rng = Random.MersenneTwister(10)
     for _ in 1:3
         concs = (A = exp(randn(rng)), P = exp(randn(rng)), Q = exp(randn(rng)))
-        rates = [rate_equation(EnzymeRates.compile_mechanism(e.mech), concs,
-                               merge(e.row.params, (Keq = 2.0, E_total = 1.0)))
+        rates = [rate_equation(EnzymeRates.compile_mechanism(e.mech), concs, e.row.params,
+                               2.0)
                  for e in entries]
         @test isapprox(rates[1], rates[2]; rtol = 1e-12)
     end
@@ -2021,7 +2017,7 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference = _testhelper_row_reference(data))
     memo = Dict{String, EnzymeRates._Fit}()
     entries, _ = EnzymeRates._process_batch(
@@ -2102,7 +2098,7 @@ end
     end)
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 10.0;
                                        reference = _testhelper_row_reference(data))
     id = EnzymeRates._mechanism_id(sprint(show, pinwheel))
     batch_log = String[]
@@ -2174,8 +2170,7 @@ end
     for _ in 1:3
         concs = (S = exp(randn(rng)), P = exp(randn(rng)))
         _testhelper_rate(e) =
-            rate_equation(EnzymeRates.compile_mechanism(e.mech), concs,
-                          merge(e.row.params, (Keq = 10.0, E_total = 1.0)))
+            rate_equation(EnzymeRates.compile_mechanism(e.mech), concs, e.row.params, 10.0)
         @test isapprox(_testhelper_rate(p), _testhelper_rate(f); rtol = 1e-12)
     end
     frontier = Dict{Int, Vector{EnzymeRates.BatchEntry}}()
@@ -2214,7 +2209,7 @@ end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             A = [1.0, 2.0, 1.0, 2.0], B = [0.5, 0.5, 1.0, 1.0],
             P = [0.1, 0.2, 0.1, 0.2], Q = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference = _testhelper_row_reference(data))
     opt = _testhelper_SpreadStubOpt()
     entries, failures = EnzymeRates._process_batch(
@@ -2267,7 +2262,7 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 3.0, 4.0], P = [0.1, 0.2, 0.3, 0.4], R = [0.5, 1.0, 0.5, 1.0])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 10.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 10.0;
                                        reference = _testhelper_row_reference(data))
     opt = _testhelper_SpreadStubOpt()
     entries, failures = EnzymeRates._process_batch(
@@ -2338,15 +2333,15 @@ end
                          :fit_source_id => String))
         @test best.L[1] == 0.0 && best.L_phantom[1] === true
         @test best.fit_source_id[1] == f.row.mechanism_id
-        fp = parameters(res.best, FittedParameters())
-        params = merge(NamedTuple{fp}(Tuple(Float64(best[1, x]) for x in fp)),
-                       (Keq = prob.rate_data.Keq, E_total = 1.0))
-        source = merge(f.row.params, (Keq = prob.rate_data.Keq, E_total = 1.0))
+        fp = parameters(res.best)
+        params = NamedTuple{fp}(Tuple(Float64(best[1, x]) for x in fp))
+        Keq = prob.rate_data.Keq
         rng = Random.MersenneTwister(14)
         for _ in 1:3
             concs = (S = exp(randn(rng)), P = exp(randn(rng)))
-            v = rate_equation(res.best, concs, params)
-            v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, source)
+            v = rate_equation(res.best, concs, params, Keq)
+            v0 = rate_equation(EnzymeRates.compile_mechanism(parent), concs, f.row.params,
+                               Keq)
             @test isfinite(v) && isapprox(v, v0; rtol = 1e-12)
         end
         scaled = EnzymeRates.Fitting._scale_rate_constants(res.best, params, 2.0)
@@ -2541,7 +2536,7 @@ end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             NADH = [1.0, 2.0, 1.0, 2.0], Pyruvate = [0.5, 0.5, 1.0, 1.0],
             Lactate = [0.1, 0.2, 0.1, 0.2], NAD = [0.3, 0.3, 0.4, 0.4])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference = _testhelper_row_reference(data))
     opt = _testhelper_CountingStubOpt(; uval = 0.0)
     entries, failures = EnzymeRates._process_batch(
@@ -2608,8 +2603,8 @@ end
     @test EnzymeRates.Derivation.fitted_parameter_count(am1) ==
           EnzymeRates.Derivation.fitted_parameter_count(am2) == 7
     @test _testhelper_declared_dimension(am1) == _testhelper_declared_dimension(am2) == 7
-    @test parameters(EnzymeRates.compile_mechanism(am1), FittedParameters()) ==
-          parameters(EnzymeRates.compile_mechanism(am2), FittedParameters())
+    @test parameters(EnzymeRates.compile_mechanism(am1)) ==
+          parameters(EnzymeRates.compile_mechanism(am2))
 end
 
 
@@ -2636,7 +2631,7 @@ end
     data_bad = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
                 S = [1.0, 2.0, 1.0, 2.0], T = [0.5, 0.5, 1.0, 1.0],
                 P = [0.1, 0.2, 0.1, 0.2])
-    prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad; Keq=2.0,
+    prob_bad = IdentifyRateEquationProblem(rxn_bad, data_bad, 2.0;
                                            reference=_testhelper_row_reference(data_bad))
     e1, f1 = EnzymeRates._process_batch(
         Union{EnzymeRates.Mechanism, EnzymeRates.AllostericMechanism}[m_bad],
@@ -2669,7 +2664,7 @@ end
     end
     data = (group = ["G1", "G1", "G2", "G2"], Rate = [0.5, 0.8, 1.0, 1.1],
             S = [1.0, 2.0, 1.0, 2.0], P = [0.1, 0.2, 0.1, 0.2])
-    prob = IdentifyRateEquationProblem(rxn, data; Keq = 2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference = _testhelper_row_reference(data))
     opt = _testhelper_CountingStubOpt()
     entries, failures = EnzymeRates._process_batch(
@@ -2948,14 +2943,14 @@ end
         substrates: A[C], B[N]
         products: P[C], Q[N]
     end
-    prob = IdentifyRateEquationProblem(rxn, data; Keq=2.0,
+    prob = IdentifyRateEquationProblem(rxn, data, 2.0;
                                        reference=_testhelper_row_reference(data))
     # The pool as `_beam_search` hands it over: each candidate with its row and key, and
     # the memo holding each key's fit with the candidate as its source.
     memo = Dict{String, EnzymeRates._Fit}()
     function _testhelper_pool_entry(m, loss)
         em = EnzymeRates.compile_mechanism(m)
-        fkeys = parameters(em, FittedParameters())
+        fkeys = parameters(em)
         text = sprint(show, m)
         id = EnzymeRates._mechanism_id(sprint(show, m))
         key = EnzymeRates.Derivation.rate_equation_dedup_key(m).key
@@ -2986,8 +2981,8 @@ end
     for r in eachrow(res.cv_results)
         m = only(e.mech for e in pool if sprint(show, e.mech) == r.mechanism)
         em = EnzymeRates.compile_mechanism(m)
-        serial = [EnzymeRates._cross_validation_loss(em, prob.rate_data.data, g;
-            EnzymeRates._fit_keywords(em, prob)...,
+        serial = [EnzymeRates._cross_validation_loss(em, prob.rate_data.data, g,
+            prob.rate_data.Keq; EnzymeRates._fit_keywords(em, prob)...,
             optimizer=stub(), n_restarts=1, maxtime=1.0) for g in groups]
         @test folds(r) == serial
         @test r.cv_score == mean(serial)

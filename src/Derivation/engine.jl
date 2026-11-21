@@ -2,8 +2,9 @@
 # ABOUTME: divided out), the MWC law on both conformations, V×τ and the summed term cap.
 
 """
-The rate law of one conformation, `v = E_total·H·Q/D`, over `vars`: the concentrations,
-then the solve's independent constants (`_Solve.independents` order), then `:Keq`.
+The rate law of one conformation, `v = H·Q/D` per unit enzyme, over `vars`: the
+concentrations, then the solve's independent constants (`_Solve.independents` order), then
+`:Keq`.
 `H = ΠS − ΠP/Keq`, and `Q` has positive coefficients. `D = shift·Σ_g sigma[g]·trees[g]`:
 `sigma[g]` sums the weights of rapid-equilibrium segment `g`'s forms, `trees[g]` is its
 spanning-tree sum, and `shift`, the concentration monomial that brings `Q` and `D` to
@@ -248,13 +249,13 @@ independents of both conformations and `:Keq`), then the regulator constants (in
 (0 and 1 for a conformation that is free E alone, `_flip_only_law`), and
 `WA = Π_s sites[s][1]^sites[s][3]`, `WI = Π_s sites[s][2]^sites[s][3]`:
 
-    v = E_total·H·(fI^n·QA·DA^(n−1)·WA + L·fA^n·QI·DI^(n−1)·WI) /
-                  (fI^n·DA^n·WA + L·fA^n·DI^n·WI)
+    v = H·(fI^n·QA·DA^(n−1)·WA + L·fA^n·QI·DI^(n−1)·WI) /
+          (fI^n·DA^n·WA + L·fA^n·DI^n·WI)
 
 `fA` and `fI` are free E's weights in the two laws over their common factor
 (`_cross_weights`); `n` is the oligomeric state.
 
-The law is per active site: `E_total` is the active-site concentration, so `n` enters
+The law is per active site: `v` is the rate per catalytic site, so `n` enters
 only as an exponent (of `DA`, `DI` and the free-E weights), never as a leading factor, and
 each regulatory site's factor enters numerator and denominator at the site's own
 multiplicity, whatever `n` is.

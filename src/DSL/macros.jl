@@ -154,8 +154,6 @@ K_EP_to_E_P
 K_ESSmod_to_ES_Smod
 K_ES_to_E_S
 k_ES_to_EP
-Keq
-E_total
 ```
 """
 macro enzyme_mechanism(block)
@@ -248,8 +246,6 @@ k_A_EAB_to_EPQ
 K_A_Xreg
 K_I_Yreg
 L
-Keq
-E_total
 ```
 """
 macro allosteric_mechanism(block)

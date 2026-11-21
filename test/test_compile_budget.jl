@@ -176,7 +176,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         params = NamedTuple{Tuple(EnzymeRates.parameters(m))}(
             ntuple(_ -> 1.0, length(EnzymeRates.parameters(m))))
         concs = (S = 1.0, P = 0.5)
-        t = @elapsed EnzymeRates.rate_equation(m, concs, params)
+        t = @elapsed EnzymeRates.rate_equation(m, concs, params, 2.0)
         println("ELAPSED:", t)
         """
     fit_script = """
@@ -190,7 +190,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             (group = repeat(["G1", "G2"], inner = 4),
              Rate = [0.3, 0.5, 0.6, 0.8, 0.2, 0.4, 0.7, 0.9],
              A = repeat([0.5, 1.0, 2.0, 4.0], 2), B = repeat([1.0, 2.0], 4),
-             P = fill(0.1, 8), Q = fill(0.2, 8)); Keq = 2.0,
+             P = fill(0.1, 8), Q = fill(0.2, 8)), 2.0;
             reference = [(A = 0.5, B = 1.0, P = 0.1, Q = 0.2) => 0.3])
         const OPT = CMAEvolutionStrategyOpt()
         const FIT_KW = (; n_restarts = 1, maxtime = 10.0, maxiters = 20, abstol = nothing,
@@ -214,9 +214,10 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
             rec isa ER._Candidate || error("PASS1 gave \$(repr(rec))")
             s1 = _testhelper_instances(methods(show))
             em = ER.compile_mechanism(m)
-            fp = FittingProblem(em, PROB.rate_data.data; ER._fit_keywords(em, PROB)...)
+            fp = FittingProblem(em, PROB.rate_data.data, PROB.rate_data.Keq;
+                                ER._fit_keywords(em, PROB)...)
             fit_rate_equation(fp, OPT; FIT_KW...)
-            ER._cross_validation_loss(em, PROB.rate_data.data, "G1";
+            ER._cross_validation_loss(em, PROB.rate_data.data, "G1", PROB.rate_data.Keq;
                              ER._fit_keywords(em, PROB)..., optimizer = OPT, FIT_KW...)
             fit = (_testhelper_all_instances() - n0, Base.jit_total_bytes() - b0,
                    (Base.cumulative_compile_time_ns()[1] - t0) / 1e9)
@@ -300,8 +301,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
         end
         ems = ER.compile_mechanism.(picks)
         println("FIT_SHAPES:", length(unique(em -> typeof(typeof(em).parameters[1]), ems)))
-        fitted_names(em) = ER.parameters(em, ER.FittedParameters())
-        println("FIT_NAMES:", length(unique(fitted_names, ems)))
+        println("FIT_NAMES:", length(unique(ER.parameters, ems)))
         """
     n, trace_out = _testhelper_count_relevant_precompiles(trace_script)
     t_uni_warm, t_uni_warm_compile =

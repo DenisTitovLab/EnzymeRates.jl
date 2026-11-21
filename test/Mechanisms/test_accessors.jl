@@ -15,16 +15,16 @@
         end
     end
     params_mono = parameters(m_mono)
-    @test :E_total in params_mono
-    @test :Keq in params_mono
-    # dependent_parameter_values(m, values) is exactly the dependent constants to the
+    @test isdisjoint(params_mono, (:Keq, :E_total))
+    # dependent_parameter_values(m, values, Keq) is exactly the dependent constants to the
     # parameters.
     values_mono = NamedTuple{params_mono}(ntuple(_ -> 1.0, length(params_mono)))
     dep_mono, _ = _testhelper_dependent_param_exprs(EnzymeRates.Mechanism(m_mono))
     @test !isempty(dep_mono)
-    @test Set(keys(dependent_parameter_values(m_mono, values_mono))) == Set(keys(dep_mono))
-    @test issubset(keys(dependent_parameter_values(m_mono, values_mono)),
-                   parameters(m_mono, AllParameters()))
+    @test Set(keys(dependent_parameter_values(m_mono, values_mono, 1.0))) ==
+          Set(keys(dep_mono))
+    @test isdisjoint(keys(dependent_parameter_values(m_mono, values_mono, 1.0)),
+                     params_mono)
 
     base = EnzymeRates.Mechanism(@enzyme_mechanism begin
         substrates: S
@@ -44,20 +44,20 @@
     @test any(occursin("_I_", string(p)) for p in params_allo)
     @test any(occursin("reg", string(p)) for p in params_allo)
     @test :L in params_allo
-    @test :Keq in params_allo
-    @test :E_total in params_allo
+    @test isdisjoint(params_allo, (:Keq, :E_total))
     values_allo = NamedTuple{params_allo}(ntuple(_ -> 1.0, length(params_allo)))
     dep_allo, _ = _testhelper_dependent_param_exprs(am)
     @test !isempty(dep_allo)
-    @test Set(keys(dependent_parameter_values(m_allo, values_allo))) == Set(keys(dep_allo))
-    @test issubset(keys(dependent_parameter_values(m_allo, values_allo)),
-                   parameters(m_allo, AllParameters()))
+    @test Set(keys(dependent_parameter_values(m_allo, values_allo, 1.0))) ==
+          Set(keys(dep_allo))
+    @test isdisjoint(keys(dependent_parameter_values(m_allo, values_allo, 1.0)),
+                     params_allo)
 end
 
 @testset "fitted parameters of a concrete mechanism equal its compiled form's" begin
     for spec in MECHANISM_TEST_SPECS
-        @test parameters(_testhelper_lift(spec.mechanism), FittedParameters()) ===
-              parameters(spec.mechanism, FittedParameters())
+        @test parameters(_testhelper_lift(spec.mechanism)) ===
+              parameters(spec.mechanism)
     end
 end
 
@@ -71,24 +71,25 @@ end
             E(P) ⇌ E + P
         end
     end
-    p = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0, Keq = 4.0, E_total = 1.0)
-    deps = dependent_parameter_values(m, p)
+    p = (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0)
+    deps = dependent_parameter_values(m, p, 4.0)
     # The Haldane relation: k_EP_to_ES = K_EP_to_E_P · k_ES_to_EP / (K_ES_to_E_S · Keq).
     @test deps == (k_EP_to_ES = 1.0 * 3.0 / (2.0 * 4.0),)
     @test keys(deps) == (:k_EP_to_ES,)
     # A dependent constant already in params is ignored and recomputed.
-    @test dependent_parameter_values(m, merge(p, (k_EP_to_ES = 99.0,))) == deps
-    @test dependent_parameter_values(m, merge((k_EP_to_ES = 99.0,), p)) == deps
-    # The concrete mechanism gives the same values, E_total may be left out, and BigFloat
-    # values stay BigFloat.
-    @test dependent_parameter_values(EnzymeRates.Mechanism(m), p) == deps
-    @test dependent_parameter_values(m, Base.structdiff(p, (E_total = 0,))) == deps
-    @test dependent_parameter_values(m, map(big, p)).k_EP_to_ES == big(3) / 8
-    @test dependent_parameter_values(m, map(big, p)).k_EP_to_ES isa BigFloat
+    @test dependent_parameter_values(m, merge(p, (k_EP_to_ES = 99.0,)), 4.0) == deps
+    @test dependent_parameter_values(m, merge((k_EP_to_ES = 99.0,), p), 4.0) == deps
+    # The concrete mechanism gives the same values, the argument Keq wins over a Keq in
+    # params, and BigFloat values stay BigFloat.
+    @test dependent_parameter_values(EnzymeRates.Mechanism(m), p, 4.0) == deps
+    @test dependent_parameter_values(m, merge(p, (Keq = 99.0, E_total = 99.0)), 4.0) ==
+          deps
+    @test dependent_parameter_values(m, map(big, p), big(4.0)).k_EP_to_ES == big(3) / 8
+    @test dependent_parameter_values(m, map(big, p), big(4.0)).k_EP_to_ES isa BigFloat
     @test_throws ErrorException(
         "dependent_parameter_values: params must hold every name of " *
-        "parameters(m) except E_total; it lacks K_ES_to_E_S, Keq",
-    ) dependent_parameter_values(m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0))
+        "parameters(m); it lacks K_ES_to_E_S",
+    ) dependent_parameter_values(m, (K_EP_to_E_P = 1.0, k_ES_to_EP = 3.0), 4.0)
 end
 
 @testset "dependent_parameter_values reproduces the dependents of a consistent point" begin
@@ -119,13 +120,13 @@ end
     rng = Random.MersenneTwister(12)
     for m in [[s.mechanism for s in MECHANISM_TEST_SPECS]; half; cube]
         point = setprecision(() -> _testhelper_consistent_point(m, rng), BigFloat, 256)
-        fitted = parameters(m, FittedParameters())
-        p = NamedTuple{(fitted..., :Keq)}((getindex.(Ref(point.vals), fitted)...,
-                                           point.Keq))
-        deps = setprecision(() -> dependent_parameter_values(m, p), BigFloat, 256)
+        fitted = parameters(m)
+        p = NamedTuple{fitted}(getindex.(Ref(point.vals), fitted))
+        deps = setprecision(() -> dependent_parameter_values(m, p, point.Keq), BigFloat,
+                            256)
         all_p = merge(p, deps)
         @test all(isapprox(all_p[k], point.vals[k]; rtol = big(10)^-40)
-                  for k in keys(all_p) if k !== :Keq)
+                  for k in keys(all_p))
         @test issorted(collect(keys(all_p))[length(p) + 1:end])
         # Every step constant the law reads, in each conformation, is among the keys; the
         # regulator constants and L are fitted, so p holds them.
@@ -152,8 +153,9 @@ end
         end
     end
     p = (k_E_to_F = 1.0, k_E_P_to_FS = 1.0, k_FS_to_E_P = 1.0, k_ES_to_F_S = 4.0,
-         k_F_S_to_ES = 1.0, Keq = 4.0)
-    @test dependent_parameter_values(half, p).k_F_to_E == 0.25
-    @test dependent_parameter_values(half, merge(p, (k_F_S_to_ES = 16.0,))).k_F_to_E == 1.0
-    @test dependent_parameter_values(half, map(big, p)).k_F_to_E == big(0.25)
+         k_F_S_to_ES = 1.0)
+    @test dependent_parameter_values(half, p, 4.0).k_F_to_E == 0.25
+    @test dependent_parameter_values(half, merge(p, (k_F_S_to_ES = 16.0,)), 4.0).k_F_to_E ==
+          1.0
+    @test dependent_parameter_values(half, map(big, p), big(4.0)).k_F_to_E == big(0.25)
 end

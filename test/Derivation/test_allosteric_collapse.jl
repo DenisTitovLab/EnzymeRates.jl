@@ -41,15 +41,15 @@ function _testhelper_ro_bibi(states)
 end
 function _testhelper_evalrate(am; seed=1, split=nothing)
     cem=ER.compile_mechanism(am); rng=MersenneTwister(seed)
-    fp=parameters(am, FittedParameters())
+    fp=parameters(am)
     mets=collect(ER.metabolites(cem))
     base=[(k===:L ? 0.6 : 0.4+2rand(rng)) for k in fp]
     split!==nothing && (base=[(fp[i]===split[1] ? split[2] : base[i]) for i in 1:length(fp)])
-    prm=NamedTuple{(fp...,:Keq,:E_total)}((base...,3.0,1.0))
+    prm=NamedTuple{fp}(Tuple(base))
     c=NamedTuple{Tuple(mets)}(ntuple(i->0.4+2rand(rng),length(mets)))
-    v=real(ER.rate_equation(cem,c,prm))
+    v=real(ER.rate_equation(cem,c,prm,3.0))
     ec=NamedTuple{Tuple(mets)}(ntuple(i->(mets[i]===:P ? 3.0 : 1.0),length(mets)))
-    veq=real(ER.rate_equation(cem,ec,prm))
+    veq=real(ER.rate_equation(cem,ec,prm,3.0))
     (fp, v, veq)
 end
 

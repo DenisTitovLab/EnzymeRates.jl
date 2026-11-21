@@ -45,15 +45,15 @@ function _testhelper_check_centres_match_law(mechanism, rng)
     keq_factor = prod(f[x] for x in catalytic.products) /
                  prod(f[x] for x in catalytic.substrates)
     centre = EnzymeRates.Fitting._log_centre
-    params = _testhelper_random_independent_params(m; rng)
-    scaled = merge(params, (Keq = params.Keq * keq_factor,), NamedTuple(
+    params, Keq = _testhelper_random_independent_params(m; rng)
+    scaled = merge(params, NamedTuple(
         EnzymeRates.Derivation.name(p, m) => params[EnzymeRates.Derivation.name(p, m)] *
             exp(centre(p, m, sf, g * r) - centre(p, m, s, r))
         for p in EnzymeRates.Derivation.parameter_info(m)))
     concs = NamedTuple{mets}(Tuple(exp(randn(rng)) for _ in mets))
     concs_scaled = NamedTuple{mets}(Tuple(concs[x] * f[x] for x in mets))
-    @test rate_equation(compiled, concs_scaled, scaled) ≈
-          g * rate_equation(compiled, concs, params) rtol = 1e-9
+    @test rate_equation(compiled, concs_scaled, scaled, Keq * keq_factor) ≈
+          g * rate_equation(compiled, concs, params, Keq) rtol = 1e-9
 end
 
 # A noiseless table of `mechanism` at the fitted constants `params` and `Keq`: one row, in
@@ -61,9 +61,9 @@ end
 function _testhelper_noiseless_table(mechanism, params, Keq, axes)
     mets = keys(axes)
     rows = vec(collect(Iterators.product(values(axes)...)))
-    p = merge(params, (Keq = Keq, E_total = 1.0))
     (; group = fill("G1", length(rows)),
-       Rate = [rate_equation(mechanism, NamedTuple{mets}(row), p) for row in rows],
+       Rate = [rate_equation(mechanism, NamedTuple{mets}(row), params, Keq)
+               for row in rows],
        NamedTuple{mets}(Tuple(getindex.(rows, i) for i in eachindex(mets)))...)
 end
 
@@ -229,7 +229,7 @@ end
             (S = [2e-8, 1e-7, 2e-7, 5e-7, 2e-6, 1e-5], P = [1e-7, 1e-5]))
         for absolute in (false, true)
             Random.seed!(97)
-            fp = FittingProblem(rapid_binding, table; Keq = 1000.0, absolute)
+            fp = FittingProblem(rapid_binding, table, 1000.0; absolute)
             fit = fit_rate_equation(fp, optimizer; n_restarts = 2, maxtime = 5.0)
             @test fit.params.K_ES_to_E_S ≈ K_true rtol = 0.01
             @test abs(log(fit.params.K_ES_to_E_S) - (-15.0)) > 0.01
@@ -250,7 +250,7 @@ end
             fits = map((1.0, 1e3, 1e6)) do unit
                 scaled = merge(table, (S = table.S .* unit, P = table.P .* unit))
                 Random.seed!(11)
-                fp = FittingProblem(law, scaled; Keq = 2.0, absolute)
+                fp = FittingProblem(law, scaled, 2.0; absolute)
                 fit_rate_equation(fp, optimizer; n_restarts = 2, maxtime = 10.0).params
             end
             for (fit, unit) in zip(fits, (1.0, 1e3, 1e6)), k in keys(powers)
@@ -263,8 +263,8 @@ end
         table = _testhelper_noiseless_table(steady_state, steady_state_params, 2.0,
                                             steady_state_axes)
         problems = (
-            FittingProblem(steady_state, table; Keq = 2.0, absolute = true),
-            FittingProblem(steady_state, table; Keq = 2.0,
+            FittingProblem(steady_state, table, 2.0; absolute = true),
+            FittingProblem(steady_state, table, 2.0;
                            reference = _testhelper_row_reference(table)),
         )
         for fp in problems
@@ -287,12 +287,12 @@ end
             end
         end
         params = (k_E_A_B_to_EAB = 1e10, k_EAB_to_E_A_B = 100.0, k_EAB_to_E_P_Q = 300.0)
-        @test issetequal(keys(params), parameters(two_in, FittedParameters()))
+        @test issetequal(keys(params), parameters(two_in))
         table = _testhelper_noiseless_table(two_in, params, 20.0,
             (A = [1e-5, 3e-5, 1e-4, 3e-4], B = [1e-4, 1e-3], P = [1e-4, 1e-3],
              Q = [1e-4, 1e-3]))
         Random.seed!(29)
-        fit = fit_rate_equation(FittingProblem(two_in, table; Keq = 20.0, absolute = true),
+        fit = fit_rate_equation(FittingProblem(two_in, table, 20.0; absolute = true),
                                 optimizer; n_restarts = 3, maxtime = 10.0)
         @test fit.loss < 1e-6
         for k in keys(params)
@@ -305,7 +305,7 @@ end
             table = _testhelper_noiseless_table(rapid_binding,
                 (K_ES_to_E_S = 1e-4, k_ES_to_E_P = 5.0), 2.0,
                 (S = [1e-5, 1e-4, 1e-3], P = [0.0]))
-            fp = FittingProblem(rapid_binding, table; Keq = 2.0)
+            fp = FittingProblem(rapid_binding, table, 2.0)
             @test concentration_scales(fp)[:P] ≈ 1e-4 rtol = 1e-12
             Random.seed!(31)
             fit = fit_rate_equation(fp, optimizer; n_restarts = 2, maxtime = 5.0)
@@ -326,7 +326,7 @@ end
             table = (group = fill("G1", 4), Rate = [1.0, 2.0, 3.0, 4.0],
                      A = [1.0, 0.0, 0.0, 0.0], B = [10.0, 10.0, 10.0, 10.0],
                      P = zeros(4), Q = zeros(4), Dose = fill(1e6, 4))
-            s = concentration_scales(FittingProblem(two_in, table; Keq = 2.0))
+            s = concentration_scales(FittingProblem(two_in, table, 2.0))
             @test s[:A] == 1.0
             @test s[:B] ≈ 10.0 rtol = 1e-12
             @test s[:P] ≈ 10.0^0.8 rtol = 1e-12
@@ -336,7 +336,7 @@ end
         @testset "a table with no positive concentration centres on 1" begin
             table = (group = fill("G1", 3), Rate = [0.5, 0.8, 1.0],
                      S = zeros(3), P = zeros(3))
-            fp = FittingProblem(rapid_binding, table; Keq = 2.0)
+            fp = FittingProblem(rapid_binding, table, 2.0)
             @test concentration_scales(fp) == Dict(:S => 1.0, :P => 1.0)
         end
 
@@ -350,9 +350,9 @@ end
             @test any(>(0.0), table.P) && any(train)
             train_table = (group = table.group[train], Rate = table.Rate[train],
                            S = table.S[train], P = table.P[train])
-            fp = FittingProblem(rapid_binding, train_table; Keq = 2.0)
+            fp = FittingProblem(rapid_binding, train_table, 2.0)
             @test concentration_scales(fp)[:P] ≈ 1e-4 rtol = 1e-12
-            whole = FittingProblem(rapid_binding, table; Keq = 2.0)
+            whole = FittingProblem(rapid_binding, table, 2.0)
             @test concentration_scales(whole)[:P] ≈ 1e-2 rtol = 1e-12
             Random.seed!(37)
             fit = fit_rate_equation(fp, optimizer; n_restarts = 2, maxtime = 5.0)
@@ -366,8 +366,8 @@ end
                     S = [1, 2, 5, 10], P = [1, 1, 0, 2])
         floats = (group = integers.group, Rate = Float64.(integers.Rate),
                   S = Float64.(integers.S), P = Float64.(integers.P))
-        fp_int = FittingProblem(rapid_binding, integers; Keq = 2.0)
-        fp_float = FittingProblem(rapid_binding, floats; Keq = 2.0)
+        fp_int = FittingProblem(rapid_binding, integers, 2.0)
+        fp_float = FittingProblem(rapid_binding, floats, 2.0)
         @test log_centres(fp_int) == log_centres(fp_float)
         Random.seed!(41)
         fit = fit_rate_equation(fp_int, optimizer; n_restarts = 1, maxiters = 20)
@@ -377,12 +377,12 @@ end
     @testset "Search box" begin
         table = (group = ["G1", "G1", "G2", "G2"], Rate = [2.0, 8.0, -2.0, 8.0],
                  S = [1e-9, 1e-7, 1e-9, 1e-7], P = [1e-5, 1e-5, 1e-5, 1e-5])
-        fp = FittingProblem(steady_state, table; Keq = 2.0)
+        fp = FittingProblem(steady_state, table, 2.0)
         @test rate_scale(fp) ≈ 4.0 rtol = 1e-12
         s = concentration_scales(fp)
         @test s[:S] ≈ 1e-8 rtol = 1e-12
         @test s[:P] ≈ 1e-5 rtol = 1e-12
-        names = parameters(steady_state, FittedParameters())
+        names = parameters(steady_state)
         centre = log_centres(fp)
         expected = (k_E_S_to_ES = log(4.0) - log(1e-8), k_ES_to_E_S = log(4.0),
                     k_ES_to_E_P = log(4.0))
@@ -419,8 +419,8 @@ end
     @testset "At-bound flag" begin
         table = (group = ["G1", "G1", "G2", "G2"], Rate = [2.0, 8.0, -2.0, 8.0],
                  S = [1e-9, 1e-7, 1e-9, 1e-7], P = [1e-5, 1e-5, 1e-5, 1e-5])
-        fp = FittingProblem(steady_state, table; Keq = 2.0)
-        names = parameters(steady_state, FittedParameters())
+        fp = FittingProblem(steady_state, table, 2.0)
+        names = parameters(steady_state)
         centre = log_centres(fp)
         lb, ub = centre .- 15.0, centre .+ 15.0
         fit_at(u; objective = 1.0, problem = fp, kwargs...) = fit_rate_equation(
@@ -468,7 +468,7 @@ end
             # The scale moves every fitted rate constant by a large factor, past the box.
             tight_lb, tight_ub = centre .- 1.0, centre .+ 1.0
             reference = [(S = 1e-6, P = 1e-9) => 1e6]
-            fit = fit_at(centre; problem = FittingProblem(steady_state, table; Keq = 2.0,
+            fit = fit_at(centre; problem = FittingProblem(steady_state, table, 2.0;
                                                           reference),
                          lb = tight_lb, ub = tight_ub)
             @test fit.retcode === :Success
@@ -483,7 +483,7 @@ end
         end
 
         @testset "a failed reference scale still reports the best point" begin
-            wrong_sign = FittingProblem(steady_state, table; Keq = 2.0,
+            wrong_sign = FittingProblem(steady_state, table, 2.0;
                                         reference = [(P = 1e-5,) => 1.0])
             u = copy(centre)
             u[2] = ub[2]

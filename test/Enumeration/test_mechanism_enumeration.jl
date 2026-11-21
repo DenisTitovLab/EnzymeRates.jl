@@ -83,16 +83,17 @@ grows without bound as the substrates scale (10⁹ against 10⁶), or the mirror
 products."""
 function _testhelper_degenerate(m; ndraws = 2)
     em = EnzymeRates.compile_mechanism(m)
-    fp = collect(parameters(em, FittedParameters()))
+    fp = collect(parameters(em))
     g = _testhelper_graph(em)
     subs, prods = g.substrates, g.products
     mets = sort(collect(EnzymeRates.metabolites(em)))
     rng = MersenneTwister(7)
     for _ in 1:ndraws
         θ = exp.(randn(rng, length(fp)))
-        p = NamedTuple{(fp..., :Keq, :E_total)}((θ..., exp(randn(rng)), 1.0))
+        p = NamedTuple{Tuple(fp)}(Tuple(θ))
+        keq = exp(randn(rng))
         _testhelper_v(d) = rate_equation(
-            em, NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p)
+            em, NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p, keq)
         for side in (subs, prods)
             base = _testhelper_v(Dict(x => 1.0 for x in side))
             for x in side
@@ -115,7 +116,7 @@ _testhelper_segment_count(m) =
 
 # Ground truth for the parameter counts the enumeration moves report: the number of
 # fitted parameters of the compiled rate equation.
-_testhelper_fitted(x) = length(parameters(x, FittedParameters()))
+_testhelper_fitted(x) = length(parameters(x))
 
 # Sorted fitted-parameter count of each child minus its parent's.
 function _testhelper_param_deltas(parent, kids)
@@ -3603,7 +3604,7 @@ end
         @test Set(result) == Set(EnzymeRates.Mechanism(em) for em in expected)
 
         # 2. Δ params: +1 each (one new K_I parameter), measured against ground-truth
-        # `parameters(compile_mechanism(...), FittedParameters())` — the canonical source
+        # `parameters(compile_mechanism(...))` — the canonical source
         # for exact parameter counts.
         @test _testhelper_param_deltas(m, result) == fill(1, n_variants)
 
@@ -4984,7 +4985,7 @@ end
     @test length(result) == 1
 
     # 2. Δ params: +1 (:EqualAI new group → one shared K), measured
-    # against ground-truth `parameters(compile_mechanism(...), FittedParameters())` —
+    # against ground-truth `parameters(compile_mechanism(...))` —
     # exact parameter counts come from the compiled mechanism.
     base_fitted = _testhelper_fitted(am)
     for r in result
@@ -7007,7 +7008,7 @@ end
         regulatory_site(1): ATP::NonequalAI
     end
     _testhelper_assert_mechanism_invariants(EnzymeRates.AllostericMechanism(am))
-    @test parameters(am, FittedParameters()) ==
+    @test parameters(am) ==
           (:K_A_EATP_to_E_ATP, :K_EP_to_E_P, :K_ES_to_E_S, :k_A_ES_to_EP, :K_A_ATPreg,
            :K_I_ATPreg, :L)
     _testhelper_check_law_against_oracle(am)
@@ -7491,7 +7492,7 @@ end
     end
     @test length(r_removal) == 1
 
-    # 3. ground-truth Δ params via compiled `FittedParameters`: the
+    # 3. ground-truth Δ params via the compiled `parameters`: the
     # R-ligand :OnlyA → :NonequalAI flip adds exactly one new
     # independent parameter (Δ=+1).
     seed_truth = _testhelper_fitted(am)
@@ -7528,7 +7529,7 @@ end
     # 1. count: 3 cat-group relaxations + 1 reg-ligand relaxation.
     @test length(result) == 4
 
-    # 2. ground-truth Δ multiset via `FittedParameters`. Under strict
+    # 2. ground-truth Δ multiset via `parameters`. Under strict
     # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
     # partners stay :EqualAI is degenerate: a thermodynamic cycle forbids
     # that affinity split, so it collapses (K_I = K_A) and adds NO fitted
@@ -7577,7 +7578,7 @@ end
     # 1. count: 3 cat-group relaxations + 2 reg-ligand relaxations = 5.
     @test length(result) == 5
 
-    # 2. ground-truth Δ multiset via `FittedParameters`. Under strict
+    # 2. ground-truth Δ multiset via `parameters`. Under strict
     # `:EqualAI`, relaxing a single binding group to :NonequalAI while its
     # partners stay :EqualAI collapses that affinity (K_I = K_A) and adds NO
     # fitted parameter (a thermodynamic cycle forbids the split). The two
@@ -8249,17 +8250,17 @@ merged = EnzymeRates.AllostericMechanism(@allosteric_mechanism begin
     end
     regulatory_site(4): A::OnlyA, I::OnlyI
 end)
-fps = parameters(separate, FittedParameters())
-fpm = parameters(merged, FittedParameters())
+fps = parameters(separate)
+fpm = parameters(merged)
 @test Set(fps) == Set(fpm)
 Random.seed!(42)
 for _ in 1:25
     vals = Dict(p => exp(randn()) for p in union(fps, fpm))
-    ps = (; (p => vals[p] for p in fps)..., Keq=100.0, E_total=1.0)
-    pm = (; (p => vals[p] for p in fpm)..., Keq=100.0, E_total=1.0)
+    ps = (; (p => vals[p] for p in fps)...)
+    pm = (; (p => vals[p] for p in fpm)...)
     c = (; S=exp(randn()), P=exp(randn()), A=exp(randn()), I=exp(randn()))
-    vs = real(EnzymeRates.rate_equation(separate, c, ps))
-    vm = real(EnzymeRates.rate_equation(merged, c, pm))
+    vs = real(EnzymeRates.rate_equation(separate, c, ps, 100.0))
+    vm = real(EnzymeRates.rate_equation(merged, c, pm, 100.0))
     @test isapprox(vs, vm; rtol=1e-9)
 end
 end
@@ -14696,11 +14697,12 @@ end
     mets = [:A, :B, :P, :Q]
     for m in unique!(collect(EnzymeRates.Enumeration.init_mechanisms(bi_bi_pp_rxn)))
         cm = EnzymeRates.compile_mechanism(m)
-        params = _testhelper_random_independent_params(cm; rng = Random.MersenneTwister(1))
+        params, Keq =
+            _testhelper_random_independent_params(cm; rng = Random.MersenneTwister(1))
         for zeroed in mets
             cvals = Tuple(n == zeroed ? 0.0 : 1.0 for n in mets)
             concs = NamedTuple{Tuple(mets)}(cvals)
-            v = rate_equation(cm, concs, params)
+            v = rate_equation(cm, concs, params, Keq)
             @test isfinite(v)
         end
     end
@@ -14896,7 +14898,7 @@ end
         @test length(inits) == 1
         base_count = _testhelper_fitted(inits[1])
         for s in seeds[1:min(2, length(seeds))]
-            fp = parameters(s, FittedParameters())
+            fp = parameters(s)
             @test length(fp) == base_count + 1
             @test !(:L in fp)
         end
@@ -15945,12 +15947,12 @@ end
     # conformation runs no chemistry, so no form holds the enzyme there.
     for k in kept
         cm = EnzymeRates.compile_mechanism(k)
-        fp = parameters(cm, FittedParameters())
-        prm = NamedTuple{(fp..., :Keq, :E_total)}(((1.3 for _ in fp)..., 3.0, 1.0))
+        fp = parameters(cm)
+        prm = NamedTuple{fp}(Tuple(1.3 for _ in fp))
         @test EnzymeRates.rate_equation(cm, (A = 1.3, B = 1.3, P = 0.0, Q = 0.0,
-                                             R = 1.0), prm) > 0
+                                             R = 1.0), prm, 3.0) > 0
         @test EnzymeRates.rate_equation(cm, (A = 1.3, B = 1.3, P = 0.1, Q = 0.1,
-                                             R = 1.0), prm) > 0
+                                             R = 1.0), prm, 3.0) > 0
     end
 end
 

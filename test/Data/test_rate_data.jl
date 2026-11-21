@@ -12,7 +12,7 @@
     @testset "RateData stores Rate and each metabolite as a Vector{Float64}" begin
         table = (group = ["a", "a"], Rate = Union{Missing, Float64}[1.0, 2.0],
                  S = Any[1.0, 2.0], P = [1, 2], Note = ["x", "y"])
-        rd = RateData(table, (:S, :P); Keq = 2.0)
+        rd = RateData(table, (:S, :P), 2.0)
         @test rd.data.Rate isa Vector{Float64}
         @test rd.data.S isa Vector{Float64}
         @test rd.data.P isa Vector{Float64}
@@ -24,31 +24,31 @@
     end
 
     @testset "RateData holds the validated table" begin
-        rd = RateData(table, (:S, :P); Keq = 2.0, reference = [(S = 1.0,) => 3])
+        rd = RateData(table, (:S, :P), 2.0; reference = [(S = 1.0,) => 3])
         @test rd.Keq === 2.0
         @test rd.absolute === false
         @test rd.data.Rate == table.Rate
         @test rd.reference == [(S = 1.0,) => 3.0]
         @test rd.reference isa Vector{Pair{NamedTuple, Float64}}
         # An integer Keq converts to the Float64 field.
-        @test RateData(table, (:S, :P); Keq = 2, reference = ref).Keq === 2.0
-        abs_rd = RateData(table, (:S, :P); Keq = 2.0, absolute = true)
+        @test RateData(table, (:S, :P), 2; reference = ref).Keq === 2.0
+        abs_rd = RateData(table, (:S, :P), 2.0; absolute = true)
         @test abs_rd.absolute === true && isempty(abs_rd.reference)
     end
 
     @testset "reference is optional in relative mode and refused in absolute mode" begin
-        rd = RateData(table, (:S, :P); Keq = 2.0)
+        rd = RateData(table, (:S, :P), 2.0)
         @test !rd.absolute && rd.reference isa Vector{Pair{NamedTuple, Float64}}
         @test isempty(rd.reference)
         @test_throws(ErrorException("reference applies only to relative mode; absolute " *
                                     "turnover data set the rate scale themselves"),
-                     RateData(table, (:S, :P); Keq = 2.0, absolute = true,
+                     RateData(table, (:S, :P), 2.0; absolute = true,
                               reference = [(S = 10.0,) => 3.0]))
     end
 
     @testset "reference anchors are validated at construction" begin
         _testhelper_rate_data(reference; owner = "mechanism") =
-            RateData(table, (:S, :P); Keq = 2.0, reference, owner)
+            RateData(table, (:S, :P), 2.0; reference, owner)
         @test_throws(ErrorException("reference must be a vector of (concentrations => " *
                                     "turnover) pairs; got (S = 10.0,) => 3.0"),
                      _testhelper_rate_data((S = 10.0,) => 3.0))
@@ -75,7 +75,7 @@
     end
 
     @testset "table validation" begin
-        _testhelper_rate_data(table) = RateData(table, (:S, :P); Keq = 1.0, reference = ref)
+        _testhelper_rate_data(table) = RateData(table, (:S, :P), 1.0; reference = ref)
         @test_throws ErrorException _testhelper_rate_data(
             (group = ["G1"], S = [1.0], P = [0.1]))
         @test_throws ErrorException _testhelper_rate_data(
@@ -119,13 +119,13 @@
         @test_throws(
             ErrorException("Metabolite Rate has the name of the required Rate column; " *
                            "rename the metabolite"),
-            RateData((group = ["G1"], Rate = [1.0], P = [0.1]), (:Rate, :P); Keq = 1.0,
+            RateData((group = ["G1"], Rate = [1.0], P = [0.1]), (:Rate, :P), 1.0;
                      reference = [(P = 0.1,) => 1.0]))
 
         # A Keq that is not positive and finite
         for (bad, shown) in ((0, "0"), (-1, "-1"), (Inf, "Inf"), (NaN, "NaN"))
             @test_throws(ErrorException("Keq must be positive and finite; got $shown"),
-                RateData(table, (:S, :P); Keq = bad, reference = ref))
+                RateData(table, (:S, :P), bad; reference = ref))
         end
     end
 end

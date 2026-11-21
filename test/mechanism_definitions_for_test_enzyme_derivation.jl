@@ -265,15 +265,12 @@ function _testhelper_row_reference(data; row = 1)
          Float64(data.Rate[row])]
 end
 
-"""Generate random independent (fitted) params + Keq + E_total for a mechanism."""
+"""Random fitted constants of `m` by name (`parameters(m)`), then a random `Keq`, each
+drawn between 0.1 and 10: `(params, Keq)`."""
 function _testhelper_random_independent_params(m; rng=Random.default_rng())
-    fp = parameters(m, FittedParameters())
-    vals = Tuple(0.1 + 9.9 * rand(rng) for _ in fp)
-    Keq_val = 0.1 + 9.9 * rand(rng)
-    E_total_val = 0.1 + 9.9 * rand(rng)
-    keys_out = (fp..., :Keq, :E_total)
-    vals_out = (vals..., Keq_val, E_total_val)
-    NamedTuple{keys_out}(vals_out)
+    fp = parameters(m)
+    params = NamedTuple{fp}(Tuple(0.1 + 9.9 * rand(rng) for _ in fp))
+    params, 0.1 + 9.9 * rand(rng)
 end
 
 """
@@ -670,17 +667,16 @@ function _testhelper_law_inputs(m, fitted, rng)
 end
 
 """
-    _testhelper_float64_inputs(fitted, params, concs, mets) -> (c64, p64)
+    _testhelper_float64_inputs(fitted, params, concs, mets) -> (c64, p64, keq64)
 
 The Float64 arguments of a compiled `rate_equation` at a draw of `_testhelper_law_inputs`,
-in its order: the concentrations of the metabolites `mets`, then the fitted constants
-`fitted`, `Keq` and `E_total = 1`.
+in its order: the concentrations of the metabolites `mets`, the fitted constants `fitted`,
+and `Keq`.
 """
 function _testhelper_float64_inputs(fitted, params, concs, mets)
     c64 = NamedTuple{mets}(Tuple(Float64(concs[x]) for x in mets))
-    p64 = NamedTuple{(fitted..., :Keq, :E_total)}(
-        (Float64.(getindex.(Ref(params), fitted))..., Float64(params[:Keq]), 1.0))
-    c64, p64
+    p64 = NamedTuple{Tuple(fitted)}(Float64.(getindex.(Ref(params), fitted)))
+    c64, p64, Float64(params[:Keq])
 end
 
 """
@@ -705,13 +701,12 @@ function _testhelper_check_law_against_oracle(m; n_points = 3, seed = 1,
         oracle = _testhelper_steady_state_rate(mech, point, concs)
         @test abs(_testhelper_law_value(em, params, concs) - oracle) <=
               rtol * abs(oracle)
-        c64, p64 = _testhelper_float64_inputs(fitted, params, concs, mets)
-        @test isapprox(rate_equation(em, c64, p64), Float64(oracle); rtol = 1e-8)
+        c64, p64, keq64 = _testhelper_float64_inputs(fitted, params, concs, mets)
+        @test isapprox(rate_equation(em, c64, p64, keq64), Float64(oracle); rtol = 1e-8)
         bigfloat || continue
-        pbig = NamedTuple{(fitted..., :Keq, :E_total)}(
-            (getindex.(Ref(params), fitted)..., point.Keq, big(1)))
+        pbig = NamedTuple{Tuple(fitted)}(getindex.(Ref(params), fitted))
         cbig = NamedTuple{mets}(Tuple(concs[x] for x in mets))
-        @test abs(rate_equation(em, cbig, pbig) - oracle) <= rtol * abs(oracle)
+        @test abs(rate_equation(em, cbig, pbig, point.Keq) - oracle) <= rtol * abs(oracle)
     end
 end
 
@@ -874,12 +869,12 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     fitted = _testhelper_dependent_param_exprs(mech)[2]
     rate = if _testhelper_is_valid(mech)
         em = EnzymeRates.compile_mechanism(mech)
-        (c, p) -> rate_equation(em, c, p)
+        (c, p, keq) -> rate_equation(em, c, p, keq)
     else
         L = EnzymeRates.Derivation._law(mech)
-        function _testhelper_unchecked_rate(c, p)
+        function _testhelper_unchecked_rate(c, p, keq)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
-                                         for (k, v) in pairs(merge(p, c)))
+                                         for (k, v) in pairs(merge(p, c, (Keq = keq,))))
             Float64(_testhelper_evaluate_law(L, env))
         end
     end
@@ -897,9 +892,9 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
         J = zeros(npts, length(fp))
         for j in eachindex(fp), sgn in (1, -1)
             θp = copy(θ); θp[j] *= exp(sgn * h)
-            p = NamedTuple{(fp..., :Keq, :E_total)}((θp..., keq, 1.0))
+            p = NamedTuple{Tuple(fp)}(Tuple(θp))
             for (i, c) in enumerate(concs)
-                J[i, j] += sgn * rate(c, p) / (2h)
+                J[i, j] += sgn * rate(c, p, keq) / (2h)
             end
         end
         all(isfinite, J) || continue
@@ -2157,8 +2152,8 @@ parameters (`_testhelper_random_independent_params`) at the concentrations of ev
 function _testhelper_finite_on_every_face(mech; rng = Random.default_rng())
     m = mech isa EnzymeRates.Mechanisms.AbstractEnzymeMechanism ? mech :
         EnzymeRates.compile_mechanism(_testhelper_lift(mech))
-    params = _testhelper_random_independent_params(m; rng)
-    all(concs -> isfinite(rate_equation(m, concs, params)),
+    params, Keq = _testhelper_random_independent_params(m; rng)
+    all(concs -> isfinite(rate_equation(m, concs, params, Keq)),
         _testhelper_face_concentrations(mech; rng))
 end
 
@@ -2515,7 +2510,7 @@ end
 
 The units, as (concentration, time) exponents, of every name a rate law of `m` (concrete or
 compiled) reads, from the graph alone (`_testhelper_graph`), never from the law: each
-concentration and `E_total` (1, 0); `Keq` (product copies − substrate copies, 0); a
+concentration (1, 0); `Keq` (product copies − substrate copies, 0); a
 steady-state rate constant (−copies its step takes up in its direction, −1); a
 rapid-equilibrium binding's dissociation constant (1, 0); any other rapid-equilibrium
 constant (copies released − copies consumed, 0); a regulator's dissociation constant
@@ -2526,7 +2521,6 @@ function _testhelper_name_units(m)
     g = _testhelper_graph(mech)
     u = Dict{Symbol, Tuple{Rational{Int}, Rational{Int}}}(
         x => (1 // 1, 0 // 1) for x in EnzymeRates.metabolites(mech))
-    u[:E_total] = (1 // 1, 0 // 1)
     u[:Keq] = (length(g.products) - length(g.substrates), 0 // 1)
     for st in g.steps, names in (st.names, st.inactive_names), (slot, x) in enumerate(names)
         u[x] = !st.rapid_equilibrium ?
@@ -2690,21 +2684,22 @@ function _testhelper_names_read(ex)
 end
 
 """
-    _testhelper_eval_rate_lines(s, params, concs) -> Dict{Symbol, BigFloat}
+    _testhelper_eval_rate_lines(s, params, concs, Keq) -> Dict{Symbol, BigFloat}
 
 Every name a printed law `s` (`rate_equation_string`, in full or in coefficients) binds,
 evaluated in 256-bit BigFloat without `eval`, at `params` and `concs` (NamedTuples or
-dictionaries by name). The law runs as Julia runs it, top to bottom: its destructuring
-lines bind their names from `params` and `concs`, and a line that reads a name no earlier
-line binds is an error. Comment lines are skipped.
+dictionaries by name) and the equilibrium constant `Keq`. The law runs as Julia runs it,
+top to bottom, with `Keq` bound before its first line: its destructuring lines bind their
+names from `params` and `concs`, and a line that reads a name no earlier line binds is an
+error. Comment lines are skipped.
 """
-function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
+function _testhelper_eval_rate_lines(s::AbstractString, params, concs, Keq)
     setprecision(BigFloat, 256) do
         given = Dict{Symbol, BigFloat}(k => BigFloat(x) for (k, x) in pairs(params))
         for (k, x) in pairs(concs)
             given[k] = BigFloat(x)
         end
-        env = Dict{Symbol, BigFloat}()
+        env = Dict{Symbol, BigFloat}(:Keq => BigFloat(Keq))
         for l in split(s, '\n')
             (isempty(strip(l)) || startswith(lstrip(l), "#")) && continue
             ex = Meta.parse(l)
@@ -2721,10 +2716,10 @@ function _testhelper_eval_rate_lines(s::AbstractString, params, concs)
     end
 end
 
-"""The rate `v` a printed law `s` gives at `params` and `concs`, in 256-bit BigFloat
-(`_testhelper_eval_rate_lines`)."""
-_testhelper_eval_rate_string(s::AbstractString, params, concs) =
-    _testhelper_eval_rate_lines(s, params, concs)[:v]
+"""The rate `v` a printed law `s` gives at `params`, `concs` and `Keq`, in 256-bit
+BigFloat (`_testhelper_eval_rate_lines`)."""
+_testhelper_eval_rate_string(s::AbstractString, params, concs, Keq) =
+    _testhelper_eval_rate_lines(s, params, concs, Keq)[:v]
 
 const _testhelper_artifact_patterns = (r"\^1(?![\d/.)])", r"(?<![\w.)])1 \^",
                                        r"\* 1(?![\d./])", r"L \* 1(?!\d)", r"\(1\)",
@@ -2754,10 +2749,9 @@ function _testhelper_printed_law_error(m; points::Int = 2, seed::Int = 31)
         _, concs, params = _testhelper_law_inputs(_testhelper_single_subunit(mech), fitted,
                                                   rng)
         law = _testhelper_evaluate_law(L, merge(params, concs))
-        p = merge(params, Dict(:E_total => big(1)))
         for text in texts
-            worst = max(worst, abs(_testhelper_eval_rate_string(text, p, concs) - law) /
-                               abs(law))
+            v = _testhelper_eval_rate_string(text, params, concs, params[:Keq])
+            worst = max(worst, abs(v - law) / abs(law))
         end
     end
     worst
@@ -5131,7 +5125,7 @@ function _testhelper_loss_table(mets; rows = 64)
 end
 
 _testhelper_loss_problem(m; absolute = false) =
-    FittingProblem(m, _testhelper_loss_table(metabolites(m)); Keq = 2.0, absolute)
+    FittingProblem(m, _testhelper_loss_table(metabolites(m)), 2.0; absolute)
 
 # Measured inside a function so the count excludes boxing the Float64 return of a
 # dynamically dispatched call (Julia < 1.12 `@allocated` counts it).
@@ -5139,7 +5133,7 @@ _testhelper_loss_allocated(x, fp) = @allocated EnzymeRates.Fitting.loss!(x, fp)
 
 """Allocations of one `loss!` call on `fp` at random parameters."""
 function _testhelper_loss_allocations(fp)
-    x = 0.1 .* randn(length(parameters(fp.mechanism, FittedParameters())))
+    x = 0.1 .* randn(length(parameters(fp.mechanism)))
     _testhelper_loss_allocated(x, fp)  # warmup
     _testhelper_loss_allocated(x, fp)
 end
@@ -5165,15 +5159,16 @@ const _testhelper_plot_m = @enzyme_mechanism begin
 end
 
 const _testhelper_plot_params = let
-    fitted = parameters(_testhelper_plot_m, FittedParameters())
+    fitted = parameters(_testhelper_plot_m)
     rng = MersenneTwister(7)
-    merge(NamedTuple{fitted}(Tuple(1e5 * (0.1 + 9.9 * rand(rng)) for _ in fitted)),
-        (Keq = 4.0,))
+    NamedTuple{fitted}(Tuple(1e5 * (0.1 + 9.9 * rand(rng)) for _ in fitted))
 end
 
-# The rate equation at E_total = 1, the quantity the plot's curves show.
-_testhelper_plot_rate(concs) = rate_equation(_testhelper_plot_m, concs,
-    merge(_testhelper_plot_params, (E_total = 1.0,)))
+const _testhelper_plot_Keq = 4.0
+
+# The rate equation per unit enzyme, the quantity the plot's curves show.
+_testhelper_plot_rate(concs) =
+    rate_equation(_testhelper_plot_m, concs, _testhelper_plot_params, _testhelper_plot_Keq)
 
 # A table of rows (A, B, P, Q) per group whose Rate is `factor` times the rate equation.
 function _testhelper_plot_table(groups, rows; factor = 1.0, rates = nothing)

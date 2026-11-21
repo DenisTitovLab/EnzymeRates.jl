@@ -42,17 +42,17 @@ flowchart TB
   top -->|"<b>★#nbsp;plot_rate_equation_on_data()</b>"| plot
   top -->|"expand_mechanisms()<br/>starting_mechanisms()"| enum
   top -->|"<b>★#nbsp;fit_rate_equation()</b><br/><b>★#nbsp;FittingProblem</b><br/>test_rate_equation()"| fit
-  top -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/><b>★#nbsp;IndependentParameters</b><br/><b>★#nbsp;FittedParameters</b><br/><b>★#nbsp;AllParameters</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
+  top -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;rate_equation_string()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;dependent_parameter_values()</b><br/>check_valid_rate_equation()<br/>rate_equation_dedup_key()<br/>rate_equation_term_count()"| der
   top -->|"RateData"| data
   top -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   dsl -->|"check_valid_rate_equation()"| der
   dsl -->|"check_conformation_label()<br/>check_decodable_names()<br/>compile_mechanism()"| mech
-  plot -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b>"| der
+  plot -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b>"| der
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b><br/>compile_mechanism()"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()"| der
   enum -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
-  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/><b>★#nbsp;FittedParameters</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
+  fit -->|"<b>★#nbsp;rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>AllostericParameter<br/>RegulatorParameter<br/>StepParameter<br/>name()<br/>parameter_info()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()"| mech
   der -->|"<b>★#nbsp;metabolites()</b><br/>catalytic()<br/>compile_mechanism()<br/>form_text()<br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()"| mech
@@ -176,13 +176,10 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 
 | Name | What it does | Used by | Exported |
 |:-----|:-------------|:--------|:---------|
-| `rate_equation` | Evaluates the rate law, allocation-free | Fitting, Plotting, top level | ✓ |
+| `rate_equation` | Evaluates the rate law per unit enzyme, allocation-free | Fitting, Plotting, top level | ✓ |
 | `rate_equation_string` | The rate law as text | top level | ✓ |
-| `parameters` | Parameter names by kind | Fitting, Plotting, top level | ✓ |
-| `dependent_parameter_values` | The dependent constants' values from the independent ones | top level | ✓ |
-| `IndependentParameters` | Kind: fitted constants, `Keq`, `E_total` | top level | ✓ |
-| `FittedParameters` | Kind: the constants a fit estimates | Fitting, Plotting, top level | ✓ |
-| `AllParameters` | Kind: every constant, the dependent ones last | top level | ✓ |
+| `parameters` | The names of the constants a fit estimates | Fitting, Plotting, top level | ✓ |
+| `dependent_parameter_values` | The dependent constants' values from the fitted ones and `Keq` | top level | ✓ |
 | `StepParameter` | A constant of a step: its step, slot and conformation | Fitting | |
 | `RegulatorParameter` | A regulator ligand's constant in one conformation | Fitting | |
 | `AllostericParameter` | The allosteric constant `L` | Fitting | |
@@ -302,14 +299,14 @@ place: its canonical form, stored facts, hash, compiled Sig and memo entries dep
 fit:
 
 1. **The problem.** `@enzyme_reaction` (`DSL`) builds the `EnzymeReaction`
-   (`Mechanisms`). `IdentifyRateEquationProblem(reaction, table; Keq)` (top level) checks
+   (`Mechanisms`). `IdentifyRateEquationProblem(reaction, table, Keq)` (top level) checks
    the table into a `Data.RateData`.
 2. **The starting mechanisms.** `Enumeration.starting_mechanisms` writes each seed as nodes and
    steps, and the `Mechanism` constructor puts it in canonical form. A seed whose rate law
    is undefined fails `Derivation.check_valid_rate_equation(Bool, m)` and is
    dropped.
 3. **One fit per law.** The top level asks `Derivation` five questions about each new
-   mechanism: `rate_equation_term_count` and `parameters(m, FittedParameters())` skip a
+   mechanism: `rate_equation_term_count` and `parameters(m)` skip a
    mechanism too large to fit, `check_valid_rate_equation` rejects an undefined law,
    `rate_equation_string` prints the law, and `rate_equation_dedup_key` gives its key.
    Mechanisms with one key share one law, so one mechanism per key is fitted.
@@ -354,7 +351,7 @@ during precompilation rather than at every call.
 
 This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves
-`rate_equation(m, conc, params)` as straight-line arithmetic, written in Horner
+`rate_equation(m, conc, params, Keq)` as straight-line arithmetic, written in Horner
 form (`_horner`), that must be
 **allocation-free and fast**: under 50 ns + 0.5 ns × denominator terms per call for every
 gated law, including the three largest enumerated bi-bi laws (396 denominator terms each)
@@ -397,7 +394,7 @@ they compile once for all mechanisms. Each mechanism type then pays for its gene
 and the derivation they run, and for the methods that specialize on it:
 `dependent_parameter_values`, Base's `text/plain` display, and `FittingProblem` and `loss!`
 below. `FittingProblem` and `loss!` specialize on the type on purpose: `loss!` then reads
-`parameters(m, FittedParameters())` and `metabolites` as constants and calls the generated
+`parameters(m)` and `metabolites` as constants and calls the generated
 `rate_equation` without dispatch. The optimizer never sees that type. `fit_rate_equation`
 takes its `FittingProblem` `@nospecialize` and hands `Optimization.solve` a `FitObjective`,
 which holds `x -> loss!(x, fp)` behind a `FunctionWrapper`, so every mechanism gives the
@@ -408,7 +405,7 @@ mechanism.
 
 One type family in `src/Derivation/names.jl` describes every constant a fit estimates, and
 `parameter_info(m)` lists them for a concrete mechanism in
-`parameters(m, FittedParameters())` order:
+`parameters(m)` order:
 
 | Type | What it points at |
 |:-----|:------------------|
@@ -464,7 +461,7 @@ decides the dependents and so the fitted names: a change to it changes fitted na
 `src/Derivation/poly.jl` holds sparse polynomials over integer-indexed variables (`_Poly`),
 with rational exponents for constants and checked `Int64` coefficients: under the term cap
 no coefficient leaves `Int64`, so an overflow is an internal error. `_law(m, s, mask)`
-(`src/Derivation/engine.jl`) derives one conformation's law, `_Law`, as `v = E_total·H·Q/D`.
+(`src/Derivation/engine.jl`) derives one conformation's law, `_Law`, as `v = H·Q/D`.
 It contracts each rapid-equilibrium segment to a node rooted at its first form (free E roots
 its own), sums the spanning trees of the segment graph, builds the numerator from each
 steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − Π[P]/Keq`

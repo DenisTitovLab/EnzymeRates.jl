@@ -89,9 +89,11 @@ end
     end
     @test EnzymeRates.Derivation._guard(EnzymeRates.AllostericMechanism(am)) ===
           EnzymeRates.Derivation._WELL_POSED
-    params = _testhelper_random_independent_params(am; rng = Random.MersenneTwister(1))
-    @test isnan(rate_equation(am, (A = 1.0, B = 0.0, D = 1.0, P = 0.0, Q = 0.0), params))
-    @test rate_equation(am, (A = 0.0, B = 1.0, D = 1.0, P = 0.0, Q = 0.0), params) == 0.0
+    params, Keq = _testhelper_random_independent_params(am; rng = Random.MersenneTwister(1))
+    @test isnan(rate_equation(am, (A = 1.0, B = 0.0, D = 1.0, P = 0.0, Q = 0.0), params,
+                              Keq))
+    @test rate_equation(am, (A = 0.0, B = 1.0, D = 1.0, P = 0.0, Q = 0.0), params, Keq) ==
+          0.0
     # A fit scores the NaN as it scores the 0 a well-defined law predicts there: a zero rate
     # is refused, and a nonzero rate costs the same at the corner as at A = P = Q = 0, where
     # the law is 0.
@@ -100,11 +102,10 @@ end
          P = [0.1, 0.0], Q = [0.1, 0.0])
     reference = _testhelper_row_reference(_testhelper_table(0.5, 1.0, 0.0))
     @test_throws(ErrorException("Zero rate at row 2: log(0) is undefined"),
-                 FittingProblem(am, _testhelper_table(0.0, 1.0, 0.0); Keq = 1.0,
-                                reference))
-    x = [log(params[p]) for p in parameters(am, FittedParameters())]
-    at_nan = FittingProblem(am, _testhelper_table(0.5, 1.0, 0.0); Keq = 1.0, reference)
-    at_zero = FittingProblem(am, _testhelper_table(0.5, 0.0, 1.0); Keq = 1.0, reference)
+                 FittingProblem(am, _testhelper_table(0.0, 1.0, 0.0), 1.0; reference))
+    x = [log(params[p]) for p in parameters(am)]
+    at_nan = FittingProblem(am, _testhelper_table(0.5, 1.0, 0.0), 1.0; reference)
+    at_zero = FittingProblem(am, _testhelper_table(0.5, 0.0, 1.0), 1.0; reference)
     @test EnzymeRates.Fitting.loss!(x, at_nan) == EnzymeRates.Fitting.loss!(x, at_zero)
 end
 
@@ -5257,7 +5258,7 @@ end
           fill(:agree, 5)
     @test EnzymeRates.Derivation._guard(x) == EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_finite_on_every_face(spec.mechanism; rng = Random.MersenneTwister(5))
-    @test length(parameters(spec.mechanism, FittedParameters())) == 6
+    @test length(parameters(spec.mechanism)) == 6
     # The fix the message prints, the feeding step steady-state, passes as well.
     fed = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S1, S2
@@ -5322,7 +5323,7 @@ end
           fill(:agree, 7)
     @test EnzymeRates.Derivation._guard(x) == EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_finite_on_every_face(spec.mechanism; rng = Random.MersenneTwister(5))
-    @test length(parameters(spec.mechanism, FittedParameters())) == 10
+    @test length(parameters(spec.mechanism)) == 10
 end
 
 # ── The guard wired: macros, exits, flip move and parser ──────────────────────

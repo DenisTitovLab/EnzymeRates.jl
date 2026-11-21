@@ -19,11 +19,11 @@ _testhelper_n_text(m) =
     chopprefix(only(filter(startswith("N = "), split(rate_equation_string(m), '\n'))),
                "N = ")
 
-# Both printed forms of `m`, pasted into a fresh module where `params` and `concs` are
-# bound at random values drawn from `rng`, run top to bottom and give the compiled law's
-# value. `at_zero`, when a metabolite name, sets that concentration to 0.
+# Both printed forms of `m`, pasted into a fresh module where `params`, `concs` and `Keq`
+# are bound at random values drawn from `rng`, run top to bottom and give the compiled
+# law's value. `at_zero`, when a metabolite name, sets that concentration to 0.
 function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
-    params = _testhelper_random_independent_params(m; rng)
+    params, Keq = _testhelper_random_independent_params(m; rng)
     concs = NamedTuple{metabolites(m)}(
         Tuple(x === at_zero ? 0.0 : 0.1 + 9.9 * rand(rng) for x in metabolites(m)))
     for coefficients in (false, true)
@@ -39,8 +39,9 @@ function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
         mod = Module()
         Core.eval(mod, :(params = $params))
         Core.eval(mod, :(concs = $concs))
+        Core.eval(mod, :(Keq = $Keq))
         @test isapprox(Base.include_string(mod, text),
-                       rate_equation(m, concs, params); rtol = 1e-10)
+                       rate_equation(m, concs, params, Keq); rtol = 1e-10)
     end
 end
 
@@ -413,9 +414,9 @@ end
         end
     end
     c1 = split(rate_equation_string(f1; coefficients = true), '\n')
-    @test c1[1:2] == ["(; k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A, Keq, E_total) = params",
+    @test c1[1:2] == ["(; k_E_A_to_F_P, k_F_A_to_E_P, k_F_P_to_E_A) = params",
                       "(; A, P) = concs"]
-    @test last(c1) == "v = E_total * (n_A * A + n_P * P) * (A - P / Keq) / " *
+    @test last(c1) == "v = (n_A * A + n_P * P) * (A - P / Keq) / " *
                       "(d_A * A + d_P * P)"
     @test c1[3] == "# The coefficients are functions of the fitted constants, not " *
                    "parameters:"
@@ -438,7 +439,7 @@ end
         end
     end
     c3 = split(rate_equation_string(f3; coefficients = true), '\n')
-    @test last(c3) == "v = E_total * n_0 * (A * B - P * Q / Keq) / (d_B * B + d_P * P + " *
+    @test last(c3) == "v = n_0 * (A * B - P * Q / Keq) / (d_B * B + d_P * P + " *
                       "d_A_B * A * B + d_A_P * A * P + d_B_Q * B * Q + d_P_Q * P * Q)"
     @test "n_0 = k_EA_to_E_A * k_E_Q_to_EQ * Keq" in c3
     @test "d_B = k_EA_to_E_A * k_E_Q_to_EQ * Keq / k_E_A_to_EA" in c3
@@ -665,7 +666,7 @@ end
         @test "D_A = 1 + S / K_ES_to_E_S" in split(full, '\n')
         @test d_i in split(full, '\n')
         @test last(split(full, '\n')) ==
-              "v = E_total * (Q_A + L * Q_I) * (S - P / Keq) / (D_A + L * D_I)"
+              "v = (Q_A + L * Q_I) * (S - P / Keq) / (D_A + L * D_I)"
         @test "D_A = 1 + dA_S * S" in split(coef, '\n')
         @test d_i_coefficient in split(coef, '\n')
         am = _testhelper_lift(m)
@@ -685,10 +686,9 @@ end
             exact = setprecision(BigFloat, 256) do
                 _testhelper_limit_law(am, point, concs, Set{Symbol}(); rng)
             end
-            p = merge(params, Dict(:E_total => big(1)))
             for text in (full, coef)
-                @test abs(_testhelper_eval_rate_string(text, p, concs) - exact) <=
-                      big(10)^-20 * abs(exact)
+                v = _testhelper_eval_rate_string(text, params, concs, params[:Keq])
+                @test abs(v - exact) <= big(10)^-20 * abs(exact)
             end
         end
         @test _testhelper_printed_law_error(m) <= big(10)^-20
@@ -768,7 +768,7 @@ end
     @test "F_I = F16BP / " *
           "(K_EF16BP_res_plusATP_minusF16BP_to_E_res_plusATP_minusF16BP_F16BP * " *
           "k_EATP_to_EF16BP_res_plusATP_minusF16BP * N_I)" in split(t2, '\n')
-    @test last(split(t2, '\n')) == "v = E_total * (F_I * Q_A) * (ATP * F6P - ADP * " *
+    @test last(split(t2, '\n')) == "v = (F_I * Q_A) * (ATP * F6P - ADP * " *
                                     "F16BP / Keq) / (F_I * D_A + L * F_A * D_I)"
     ti = rate_equation_string(inert)
     _testhelper_short_heads(m) = [l[1:3] for l in split(_testhelper_short_law(m), '\n')
@@ -776,7 +776,7 @@ end
     @test _testhelper_short_heads(two_site) == ["Q_A", "D_A", "Q_I", "D_I", "W_A", "W_I"]
     @test _testhelper_short_heads(half2) == ["Q_A", "D_A", "D_I", "F_A", "F_I"]
     @test heads(ti) == ["Q_A", "D_A"]
-    @test last(split(ti, '\n')) == "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
+    @test last(split(ti, '\n')) == "v = (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
     for m in (two_site, half2, inert)
         @test _testhelper_printed_law_error(m) <= big(10)^-20
         @test isempty(_testhelper_print_artifacts(rate_equation_string(m))) &&
@@ -796,16 +796,16 @@ end
         end
     end
     s = rate_equation_string(m)
-    p = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(1))
+    p, Keq = _testhelper_random_independent_params(m; rng = Random.MersenneTwister(1))
     c = (S = 0.4, P = 0.9)
-    @test isapprox(_testhelper_eval_rate_string(s, p, c), rate_equation(m, c, p);
+    @test isapprox(_testhelper_eval_rate_string(s, p, c, Keq), rate_equation(m, c, p, Keq);
                    rtol = 1e-12)
     # A name the params or concs line leaves out, and a line read before the lines that
     # bind its names, fail as they do in Julia.
     for t in (replace(s, "K_ES_to_E_S, " => ""; count = 1),
               replace(s, "(; S, P) = concs" => "(; S) = concs"),
               join(reverse(split(s, '\n')), '\n'))
-        @test_throws "before it binds it" _testhelper_eval_rate_string(t, p, c)
+        @test_throws "before it binds it" _testhelper_eval_rate_string(t, p, c, Keq)
     end
 end
 
@@ -820,7 +820,7 @@ end
         end
     end
     @test _testhelper_short_law(m) == "(; S, P) = concs\n" *
-        "v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)"
+        "v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)"
     @test rate_equation_string(_testhelper_lift(m); coefficients = true,
                                coefficient_values = false) == _testhelper_short_law(m)
     @test_throws ArgumentError rate_equation_string(m; coefficient_values = false)
@@ -841,7 +841,7 @@ end
     @test _testhelper_short_law(inert) == "(; S, P) = concs\n" *
         "Q_A = nA_0\n" *
         "D_A = 1 + dA_S * S + dA_P * P\n" *
-        "v = E_total * (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
+        "v = (Q_A * D_A) * (S - P / Keq) / (D_A^2 + L)"
 
     # Two conformations that differ, with a regulatory site: each prints its Q and D, and
     # each site factor is the binding polynomial (1 + R / K)^2 of a two-site homodimer.
@@ -864,7 +864,7 @@ end
         "D_I = 1 + dI_S * S + dI_P * P\n" *
         "W_A = (1 + R / K_A_Rreg)^2\n" *
         "W_I = (1 + R / K_I_Rreg)^2\n" *
-        "v = E_total * (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / " *
+        "v = (Q_A * D_A * W_A + L * Q_I * D_I * W_I) * (S - P / Keq) / " *
         "(D_A^2 * W_A + L * D_I^2 * W_I)"
 
     # An aggregate check over every spec and both large-law lists, concrete and compiled:

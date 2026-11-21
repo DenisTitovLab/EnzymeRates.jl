@@ -21,13 +21,13 @@ constant for rate equation identification.
   and metabolite columns), `Keq` (fixed equilibrium constant), `absolute` and
   `reference`, as a `RateData`. `absolute = false` (the default) treats the data as
   relative and scales every fit to the reference turnovers, or, without any, so the
-  largest rate it predicts over the data rows (`E_total = 1`) is 1; `true` treats it as
+  largest rate per unit enzyme it predicts over the data rows is 1; `true` treats it as
   absolute per-enzyme turnover (see `FittingProblem`).
   `reference` holds the anchors `concentrations => turnover` that set every relative
   fit's scale (see `FittingProblem`), keyed by the reaction's metabolites, with any
   metabolite left out at zero; empty in absolute mode and when a relative table gives none
 
-Construct it with `IdentifyRateEquationProblem(reaction, table; Keq, absolute = false,
+Construct it with `IdentifyRateEquationProblem(reaction, table, Keq; absolute = false,
 reference)`; `reference` is optional in relative mode and refused in absolute mode.
 Each fit reads the anchors' concentrations of the metabolites its mechanism binds, so a
 mechanism that leaves out an optional regulator ignores that regulator's concentration.
@@ -44,12 +44,12 @@ _metabolite_names(rxn::Mechanisms.EnzymeReaction) =
                    [reg.name for reg in rxn.regulators]])
 
 function IdentifyRateEquationProblem(
-    reaction::Mechanisms.EnzymeReaction, table; Keq::Real,
+    reaction::Mechanisms.EnzymeReaction, table, Keq::Real;
     absolute::Bool=false, reference=nothing
 )
     mnames = _metabolite_names(reaction)
     # Every metabolite the reaction declares needs a concentration column.
-    rate_data = Data.RateData(table, mnames; Keq, absolute, reference, owner = "reaction")
+    rate_data = Data.RateData(table, mnames, Keq; absolute, reference, owner = "reaction")
 
     # Validate at least 2 groups for CV
     n_groups = length(unique(rate_data.data.group))
@@ -61,18 +61,17 @@ function IdentifyRateEquationProblem(
 end
 
 """
-The `FittingProblem` keywords of `prob` for `mechanism`: `Keq`, `absolute` and, in
-relative mode with a reference, `prob.rate_data.reference` with each anchor's
-concentrations limited to the metabolites `mechanism` binds (it does not respond to the
-others). The reference keeps the problem's element type, so every fit and fold passes
-keywords of one type.
+The `FittingProblem` keywords of `prob` for `mechanism`: `absolute` and, in relative mode
+with a reference, `prob.rate_data.reference` with each anchor's concentrations limited to
+the metabolites `mechanism` binds (it does not respond to the others). The reference keeps
+the problem's element type, so every fit and fold passes keywords of one type.
 """
 function _fit_keywords(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
                        prob::IdentifyRateEquationProblem)
-    (; Keq, absolute, reference) = prob.rate_data
-    (absolute || isempty(reference)) && return (; Keq, absolute)
+    (; absolute, reference) = prob.rate_data
+    (absolute || isempty(reference)) && return (; absolute)
     mets = Mechanisms.metabolites(mechanism)
-    (; Keq, absolute,
+    (; absolute,
        reference = Pair{NamedTuple, Float64}[
            NamedTuple{Tuple(filter(in(mets), keys(concs)))}(concs) => turnover
            for (concs, turnover) in reference])
@@ -125,7 +124,7 @@ and data using beam search.
   thresholds via `min`; `min_beam_width` is a cumulative
   per-count budget (see "Beam selection" below). `Inf` disables it.
 - `max_param_count::Int = 20`: skip, before fitting, any mechanism with
-  more fitted constants than this (`FittedParameters`), so the search stops
+  more fitted constants than this (`parameters`), so the search stops
   at this parameter count
 - `eq_complexity_filter::Int = 337`: skip (before fitting, before any
   derivation) any mechanism whose rate equation is more complex than this —
@@ -419,7 +418,7 @@ end
 const _LawKey = @NamedTuple{key::String, order::Vector{Symbol}}
 
 """
-A mechanism `_pass1_record` derived: its fitted constants in `FittedParameters`
+A mechanism `_pass1_record` derived: its fitted constants in `parameters`
 order, its text and the text's id (`mechanism_id`), its printed law, its law's key
 (`canon`), whether it is an L phantom that reads another law's fit
 (`rate_equation_dedup_key` gives it a fit key other than its key), `canon0`, the key of the
@@ -449,7 +448,7 @@ _fit_order(c::_Candidate) =
     c.mech isa Mechanisms.AllostericMechanism ? [c.canon0.order; :L] : c.canon0.order
 
 """
-The parameters of candidate `c` as its row holds them, in its `FittedParameters` order: a
+The parameters of candidate `c` as its row holds them, in its `parameters` order: a
 fit's `values`, stored at canonical positions, read through `order`, the candidate's own
 order for those positions.
 """
@@ -574,7 +573,7 @@ PASS 1 of `_process_batch` (on the workers) for mechanism `m`, from the concrete
 alone and compiling nothing. Skip it over `eq_complexity_filter` (`:complexity_skip`,
 `rate_equation_term_count`, checked before any derivation); check it with the guard
 (`check_valid_rate_equation`); skip it over `max_param_count` by its fitted constants
-(`FittedParameters`, `:param_skip`); else print its law (`rate_equation_string` in named
+(`parameters`, `:param_skip`); else print its law (`rate_equation_string` in named
 coefficients, without their values), take its text and the text's id (`mechanism_id`), and
 read its law's key and the key of the fit it reads (`rate_equation_dedup_key`; a law whose
 labelling reaches the leaf cap gets a key of its own, and an L phantom reads the fit of its
@@ -586,7 +585,7 @@ function _pass1_record(m, eq_complexity_filter::Int, max_param_count::Int)
         Derivation.rate_equation_term_count(m) > eq_complexity_filter &&
             return :complexity_skip
         Derivation.check_valid_rate_equation(m)
-        fitted = Derivation.parameters(m, Derivation.FittedParameters())
+        fitted = Derivation.parameters(m)
         length(fitted) > max_param_count && return :param_skip
         eq_text = Derivation.rate_equation_string(m; coefficients = true,
                                                     coefficient_values = false)
@@ -692,7 +691,8 @@ function _process_batch(
         rep_fits = _pmap_to_vector(Union{_Fit, String}, reps) do r
             try
                 em = Mechanisms.compile_mechanism(r.mech)
-                fp = FittingProblem(em, prob.rate_data.data; _fit_keywords(em, prob)...)
+                fp = FittingProblem(em, prob.rate_data.data, prob.rate_data.Keq;
+                                    _fit_keywords(em, prob)...)
                 fit = fit_rate_equation(fp, optimizer; kwargs...)
                 order = _fit_order(r)
                 _Fit(Float64[fit.params[x] for x in order], fit.loss, fit.retcode,
@@ -1033,31 +1033,31 @@ function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)::Int
 end
 
 """
-    _fold_problem(mechanism, data, mask; keywords...) → FittingProblem
+    _fold_problem(mechanism, data, mask, Keq; keywords...) → FittingProblem
 
-The `FittingProblem` of `mechanism` on the rows of `data` that `mask` selects, with the
-`FittingProblem` `keywords`. The fold copies its rows rather than viewing them, so its
-problem has the full fit's type and `loss!` does not compile a second time for it; the
+The `FittingProblem` of `mechanism` on the rows of `data` that `mask` selects, with `Keq`
+and the `FittingProblem` `keywords`. The fold copies its rows rather than viewing them, so
+its problem has the full fit's type and `loss!` does not compile a second time for it; the
 copy is small next to a fit.
 """
 function _fold_problem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-                       data::NamedTuple, mask; keywords...)
-    FittingProblem(mechanism, map(col -> col[mask], data); keywords...)
+                       data::NamedTuple, mask, Keq::Real; keywords...)
+    FittingProblem(mechanism, map(col -> col[mask], data), Keq; keywords...)
 end
 
 _single_row_dataframe(df::DataFrame, i::Int) = df[[i], :]
 
 """
-    _cross_validation_loss(mechanism, data, held_out; Keq, absolute, reference = nothing,
+    _cross_validation_loss(mechanism, data, held_out, Keq; absolute, reference = nothing,
         optimizer, kwargs...) → Float64
 
 The loss on the rows of `data` whose `group` is `held_out` of `mechanism` fitted to the
 other rows: `fit_rate_equation(problem, optimizer; kwargs...)` on a `FittingProblem` with
 `Keq`, `absolute` and `reference`, which absolute mode leaves `nothing`, scored by
-`test_rate_equation`. A training fit that fails its reference (`:ReferenceFailed`) keeps
-its parameters unscaled, and the relative loss, blind to the scale, still scores them. A
-non-finite loss raises (naming the held-out group): a corrupted fold must abort model
-selection rather than propagate a bad score.
+`test_rate_equation` with `Keq`. A training fit that fails its reference
+(`:ReferenceFailed`) keeps its parameters unscaled, and the relative loss, blind to the
+scale, still scores them. A non-finite loss raises (naming the held-out group): a
+corrupted fold must abort model selection rather than propagate a bad score.
 
 This function and `_fold_problem` take `mechanism` `@nospecialize`. Cross-validation runs a
 candidate's folds after its full fit, which compiled `loss!` for that type, so a fold
@@ -1065,14 +1065,14 @@ infers and compiles nothing for the mechanism.
 """
 function _cross_validation_loss(
     @nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-    data::NamedTuple, held_out;
-    Keq, absolute, reference = nothing, optimizer, kwargs...)
+    data::NamedTuple, held_out, Keq::Real;
+    absolute, reference = nothing, optimizer, kwargs...)
     held = isequal.(data.group, held_out)
     fit = fit_rate_equation(
-        _fold_problem(mechanism, data, .!held; Keq, absolute, reference),
+        _fold_problem(mechanism, data, .!held, Keq; absolute, reference),
         optimizer; kwargs...)
-    test_loss = test_rate_equation(mechanism, fit.params, map(col -> col[held], data);
-                                   absolute)
+    test_loss = test_rate_equation(mechanism, fit.params, map(col -> col[held], data),
+                                   Keq; absolute)
     # A non-finite fold loss means the fit is unusable; aborting model
     # selection is correct (re-run CV from the saved CSVs after fixing
     # the fit).
@@ -1123,7 +1123,7 @@ function _cv_model_selection(
                                             for k in fit_keys for g in groups]
     fold_losses = _pmap_to_vector(Float64, folds) do (m, g)
         mechanism = Mechanisms.compile_mechanism(m)
-        _cross_validation_loss(mechanism, prob.rate_data.data, g;
+        _cross_validation_loss(mechanism, prob.rate_data.data, g, prob.rate_data.Keq;
             _fit_keywords(mechanism, prob)..., optimizer, kwargs...)
     end
     by_fit = reshape(fold_losses, length(groups), :)

@@ -5,10 +5,14 @@ using Test
 using EnzymeRates
 using EnzymeRates.Plotting: rate_equation_panels
 
+# The panels of a mechanism at `params` and `Keq`, or of a rate function at `params`.
 function _testhelper_plot_panels(table; rate = _testhelper_plot_m,
-                                 params = _testhelper_plot_params, absolute = false,
+                                 params = _testhelper_plot_params,
+                                 Keq = _testhelper_plot_Keq, absolute = false,
                                  unit = "M", xscale = identity)
-    rate_equation_panels(rate, params, table; absolute, concentration_unit = unit, xscale)
+    keywords = (; absolute, concentration_unit = unit, xscale)
+    rate isa Function ? rate_equation_panels(rate, params, table; keywords...) :
+                        rate_equation_panels(rate, params, table, Keq; keywords...)
 end
 
 # Group "exp_1": A at four values for each B in (1e-3, 2e-3), Q = 5e-5, P = 0.
@@ -337,16 +341,20 @@ _testhelper_plot_exp1(; factor = 3.0) =
         table = _testhelper_plot_exp1()
         no_group = Base.structdiff(table, NamedTuple{(:group,)})
         @test_throws ErrorException _testhelper_plot_panels(no_group)
-        for absent in (first(keys(_testhelper_plot_params)), :Keq)
-            params = Base.structdiff(_testhelper_plot_params, NamedTuple{(absent,)})
-            @test_throws ErrorException("params is missing $absent") begin
-                _testhelper_plot_panels(table; params)
-            end
+        absent = first(keys(_testhelper_plot_params))
+        params = Base.structdiff(_testhelper_plot_params, NamedTuple{(absent,)})
+        @test_throws ErrorException("params is missing $absent") begin
+            _testhelper_plot_panels(table; params)
         end
         @test_throws ErrorException("Keq must be positive and finite; got -4.0") begin
-            _testhelper_plot_panels(table;
-                params = merge(_testhelper_plot_params, (Keq = -4.0,)))
+            _testhelper_plot_panels(table; Keq = -4.0)
         end
+        # A fit saved by an earlier version holds Keq and E_total: the panels ignore them
+        # and draw at the Keq argument.
+        curves(panels) = [[s.curve_rate for s in p.series] for p in panels]
+        extra = merge(_testhelper_plot_params, (Keq = 99.0, E_total = 99.0))
+        @test curves(_testhelper_plot_panels(table; params = extra)) ==
+              curves(_testhelper_plot_panels(table))
 
         no_rows = map(column -> column[1:0], table)
         @test_throws ErrorException("Table has no rows") _testhelper_plot_panels(no_rows)
@@ -359,8 +367,8 @@ end
     message = "plot_rate_equation_on_data needs a Makie backend: run `using CairoMakie` " *
               "(or another Makie backend) first"
     @test_throws ErrorException(message) plot_rate_equation_on_data(_testhelper_plot_m,
-        _testhelper_plot_params, _testhelper_plot_exp1())
+        _testhelper_plot_params, _testhelper_plot_exp1(), _testhelper_plot_Keq)
     # A table the preparation would reject gets the same error, so the check comes first.
     @test_throws ErrorException(message) plot_rate_equation_on_data(_testhelper_plot_m,
-        _testhelper_plot_params, (; Rate = [1.0]))
+        _testhelper_plot_params, (; Rate = [1.0]), _testhelper_plot_Keq)
 end
