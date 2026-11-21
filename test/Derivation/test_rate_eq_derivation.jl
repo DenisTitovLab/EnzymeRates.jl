@@ -2531,6 +2531,10 @@ end
     @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, residual_clash)
     @test_throws clash_residual eval(:(@enzyme_mechanism $residual_block))
     @test_throws clash_residual parameters(residual_clash)
+    # The compiled law derives on its first call, which raises the guard's error.
+    names = Tuple(metabolites(residual_clash))
+    concs = NamedTuple{names}(ntuple(_ -> 1.0, length(names)))
+    @test_throws clash_residual compile_rate_equation(residual_clash)(concs, (;), 2.0)
 end
 
 # The names no metabolite takes: Keq, L, N, params, concs, v and every name
