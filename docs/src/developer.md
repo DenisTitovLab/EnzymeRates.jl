@@ -324,8 +324,10 @@ source file `<file>.jl` whose functions its testsets are about, in the mirrored 
 `src/<Module>/` → `test/<Module>/`, `src/` → `test/`, `ext/` → `test/ext/`. A test file
 directly in `test/` may instead check a package-wide rule (`test_boundaries.jl`,
 `test_type_stability.jl`, `test_compile_budget.jl`, `test_aqua_jet.jl`, `test_oracles.jl`).
-The test fails on a test file that names no source file, and on a source file other than a
-module's header that has no test file.
+The test fails on a test file that names no source file; on a file in a module's test
+folder or `test/ext/` that is not named `test_<file>.jl` or sits in a folder below it; on a
+folder of `test/` that mirrors no source folder (`ext`, `fixtures` and `reference` aside);
+and on a source file other than a module's header that has no test file.
 
 ## Derivation architecture
 

@@ -393,28 +393,57 @@ end
     end
 end
 
-"""Where the files of the tree at `root` break the test-file naming rule, one line each: a
-`test/<M>/test_<x>.jl` with no `src/<M>/<x>.jl`, a `test/ext/test_<x>.jl` with no
-`ext/<x>.jl`, a `test/test_<x>.jl` with no `src/<x>.jl` that checks no package-wide rule,
-and a source file, module headers aside, with no test file."""
+"""Where the files under `test/` of the tree at `root` break the test-file naming rule, one
+line each: a folder of `test/` that mirrors no source folder; in a module's test folder or
+`test/ext/`, a file not named `test_<file>.jl` or a file in a folder below; a test file
+`test_<file>.jl` with no source file `<file>.jl` in the mirrored folder (directly in
+`test/`, one that checks no package-wide rule either); and a source file, module headers
+aside, with no test file."""
 function _testhelper_test_name_problems(root)
-    rules = ("boundaries", "type_stability", "compile_budget", "aqua_jet", "oracles")
-    jl(dir) = isdir(joinpath(root, dir)) ?
-              filter(endswith(".jl"), readdir(joinpath(root, dir))) : String[]
-    folders = [("src", "test"), ("ext", "test/ext")]
-    for m in readdir(joinpath(root, "src"))
-        isdir(joinpath(root, "src", m)) && push!(folders, ("src/$m", "test/$m"))
-    end
+    package_wide_rules = ("boundaries", "type_stability", "compile_budget", "aqua_jet",
+                          "oracles")
+    data_folders = ("fixtures", "reference")
+    entries(dir) = isdir(joinpath(root, dir)) ? readdir(joinpath(root, dir)) : String[]
+    jl_files(dir) = filter(endswith(".jl"), entries(dir))
+    folders(dir) = filter(name -> isdir(joinpath(root, dir, name)), entries(dir))
+    modules = folders("src")
     problems = String[]
-    for (src, test) in folders
-        sources = setdiff(jl(src), ["$(basename(src)).jl", "EnzymeRates.jl"])
-        for f in filter(startswith("test_"), jl(test))
-            x = f[6:end]
-            x in sources || (test == "test" && chop(x; tail = 3) in rules) ||
-                push!(problems, "$test/$f names no $src/$x")
+    for folder in folders("test")
+        if !(folder in modules || folder == "ext" || folder in data_folders)
+            push!(problems, "test/$folder mirrors no source folder")
         end
-        for x in sources
-            "test_$x" in jl(test) || push!(problems, "$src/$x has no $test/test_$x")
+    end
+    mirrored = [("src", "test"), ("ext", "test/ext")]
+    append!(mirrored, [("src/$m", "test/$m") for m in modules])
+    for (source_folder, test_folder) in mirrored
+        header = basename(source_folder) * ".jl"
+        sources = filter(f -> f != header && f != "EnzymeRates.jl", jl_files(source_folder))
+        test_files = jl_files(test_folder)
+        if test_folder != "test"
+            for file in filter(!startswith("test_"), test_files)
+                push!(problems, "$test_folder/$file is not named test_<file>.jl")
+            end
+            for below in folders(test_folder)
+                for (dir, _, files) in walkdir(joinpath(root, test_folder, below))
+                    for file in filter(endswith(".jl"), files)
+                        path = relpath(joinpath(dir, file), root)
+                        push!(problems, "$path is in a folder below $test_folder")
+                    end
+                end
+            end
+        end
+        for file in filter(startswith("test_"), test_files)
+            source = chopprefix(file, "test_")
+            checks_a_rule = test_folder == "test" &&
+                            chopsuffix(source, ".jl") in package_wide_rules
+            if !(source in sources || checks_a_rule)
+                push!(problems, "$test_folder/$file names no $source_folder/$source")
+            end
+        end
+        for source in sources
+            if !("test_$source" in test_files)
+                push!(problems, "$source_folder/$source has no $test_folder/test_$source")
+            end
         end
     end
     problems
