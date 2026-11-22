@@ -456,9 +456,10 @@ only reweights each enzyme form and adds no power of its own, so such a
 mechanism may carry any catalytic scheme. The test is structural
 (`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
 the rapid-equilibrium segment graph without deriving it. On an allosteric
-mechanism it reads each conformation's law (`steps_in_active_conformation`,
-`steps_in_inactive_conformation`), since a conformation that runs part of the
-catalytic graph can carry a power the whole graph lacks: once the inactive
+mechanism it reads each conformation's law
+(`steps_running_in_allosteric_conformations`), since a conformation that
+runs part of the catalytic graph can carry a power the whole graph lacks: once
+the inactive
 conformation stops one half-reaction of a ping-pong, its abortive complexes can
 put A² into its law. Every binding of a
 substrate or product at its catalytic site counts, abortive complexes included,

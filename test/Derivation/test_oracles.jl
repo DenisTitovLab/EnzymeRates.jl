@@ -1639,8 +1639,9 @@ end
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
     @test length(kids) == 247
-    @test count(am -> !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)),
-                kids) == 93
+    @test count(kids) do am
+        !any(EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(am).inactive)
+    end == 93
     flagged = [am for am in kids
                if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(am))]
     @test length(flagged) == 111

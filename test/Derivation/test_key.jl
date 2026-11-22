@@ -413,9 +413,11 @@ end
     for am in (two_subunits, p_relaxed, onlyi_site, onlya_site)
         @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(am))
     end
-    @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(onlya_site))
+    @test !any(EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+        onlya_site).inactive)
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(only_a))
-    @test any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(only_a))
+    @test any(EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+        only_a).inactive)
     @test _testhelper_phantom_map_holds(only_a; rng = Random.MersenneTwister(23))
 end
 

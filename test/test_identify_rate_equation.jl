@@ -2625,8 +2625,9 @@ end
             FX + S <--> EX + P    :: EqualAI
         end
     end
-    cm, on = tc_route.catalytic,
-             EnzymeRates.Mechanisms.steps_in_active_conformation(tc_route)
+    cm = tc_route.catalytic
+    on = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+        tc_route).active
     re = _testhelper_flags(cm)
     @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
     @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
@@ -2650,8 +2651,9 @@ end
             FX <--> EX            :: EqualAI
         end
     end
-    cm, on = merged_route.catalytic,
-             EnzymeRates.Mechanisms.steps_in_active_conformation(merged_route)
+    cm = merged_route.catalytic
+    on = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+        merged_route).active
     re = _testhelper_flags(cm)
     subs = cm.substrates
     @test cm.enzyme_forms[EnzymeRates.Enumeration._merged_complexes(
@@ -2682,8 +2684,9 @@ end
             FX <--> EX            :: EqualAI
         end
     end
-    cm, on = re_tc_route.catalytic,
-             EnzymeRates.Mechanisms.steps_in_active_conformation(re_tc_route)
+    cm = re_tc_route.catalytic
+    on = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+        re_tc_route).active
     re = _testhelper_flags(cm)
     @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
         _testhelper_candidate(cm), re)

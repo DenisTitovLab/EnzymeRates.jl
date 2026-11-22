@@ -321,23 +321,23 @@ end
 
 The law of mechanism `m` over the independents of its solve `s`: a plain mechanism's law
 on every step, a `_Law`; an allosteric mechanism's MWC law, an `_AlloLaw`: each
-conformation's law on its steps (`steps_in_active_conformation`,
-`steps_in_inactive_conformation`), `_flip_only_law` for an inactive conformation that runs
-none, both over the concentrations of `metabolites(m)`, so their polynomials multiply
-directly; free E's weight in each over their common factor; and each regulatory site's
-binding polynomials. Free E roots segment 1, so its weight is that segment's tree sum times
-the law's shift. A law over the term cap (`rate_equation_term_count`,
-`MAX_RATE_EQUATION_TERMS`) throws a `RateEquationTooLargeError` before any polynomial is
-built. `m` passes the guard, which rejects an active conformation that runs no step
-(`_NO_ACTIVE_TURNOVER`).
+conformation's law on its steps (`steps_running_in_allosteric_conformations`),
+`_flip_only_law` for an inactive conformation that runs none, both over the concentrations
+of `metabolites(m)`, so their polynomials multiply directly; free E's weight in each over
+their common factor; and each regulatory site's binding polynomials. Free E roots segment 1,
+so its weight is that segment's tree sum times the law's shift. A law over the term cap
+(`rate_equation_term_count`, `MAX_RATE_EQUATION_TERMS`) throws a `RateEquationTooLargeError`
+before any polynomial is built. `m` passes the guard, which rejects an active conformation
+that runs no step (`_NO_ACTIVE_TURNOVER`).
 """
 function _law(am::Mechanisms.Mechanism, s::_Solve)
     rate_equation_term_count(am) > MAX_RATE_EQUATION_TERMS &&
         throw(RateEquationTooLargeError())
     _is_allosteric(am) || return _law(am, s, trues(length(am.catalytic.steps)))
-    imask = Mechanisms.steps_in_inactive_conformation(am)
-    LA = _law(am, s, Mechanisms.steps_in_active_conformation(am))
-    LI = any(imask) ? _law(am, s, imask; inactive = true) : _flip_only_law(LA)
+    runs = Mechanisms.steps_running_in_allosteric_conformations(am)
+    LA = _law(am, s, runs.active)
+    LI = any(runs.inactive) ? _law(am, s, runs.inactive; inactive = true) :
+         _flip_only_law(LA)
     vars = copy(LA.vars)
     for x in view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1))
         _var!(vars, x)
@@ -415,10 +415,10 @@ and identify's `eq_complexity_filter` read it.
 """
 function rate_equation_term_count(am::Mechanisms.Mechanism)
     m = am.catalytic
-    a = _term_count(m, Mechanisms.steps_in_active_conformation(am))
+    (; active, inactive) = Mechanisms.steps_running_in_allosteric_conformations(am)
+    a = _term_count(m, active)
     _is_allosteric(am) || return a
-    imask = Mechanisms.steps_in_inactive_conformation(am)
-    i = any(imask) ? _term_count(m, imask) : 0
+    i = any(inactive) ? _term_count(m, inactive) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end
 

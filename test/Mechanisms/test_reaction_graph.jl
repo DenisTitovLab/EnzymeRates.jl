@@ -862,10 +862,11 @@ end
 
 """
 Whether the sub-graph reads of `x` (`rapid_equilibrium_segments`,
-`steps_in_inactive_conformation`) give what the oracles read off its test reader's steps
-give (`_testhelper_re_segments`, `_testhelper_inactive_reach`): the catalytic graph's
-segments, form by form and breadth-first, with each form's positive offsets, and, for an
-allosteric mechanism, the inactive conformation's edges and their segments.
+`steps_running_in_allosteric_conformations`) give what the oracles read off its test
+reader's steps give (`_testhelper_re_segments`, `_testhelper_inactive_reach`): the
+catalytic graph's segments, form by form and breadth-first, with each form's positive
+offsets, and, for an allosteric mechanism, the inactive conformation's edges and their
+segments.
 """
 function _testhelper_subgraphs_agree(x)
     m, g = x.catalytic, _testhelper_graph(x)
@@ -882,7 +883,7 @@ function _testhelper_subgraphs_agree(x)
     end
     _testhelper_segments_agree(trues(length(m.steps)), trues(length(flat))) || return false
     _testhelper_is_allosteric(x) || return true
-    inactive = ER.Mechanisms.steps_in_inactive_conformation(x)
+    inactive = ER.Mechanisms.steps_running_in_allosteric_conformations(x).inactive
     kept = _testhelper_inactive_reach(g)
     inactive[flat] == kept && _testhelper_segments_agree(inactive, kept)
 end
@@ -1082,17 +1083,16 @@ end
     @test isempty([i for (i, x) in enumerate(init) if !_testhelper_round_trips(x)])
 end
 
-"""Whether the steps each conformation of `am` runs (`steps_in_active_conformation`,
-`steps_in_inactive_conformation`) are those its tags do not exclude
+"""Whether the steps each conformation of `am` runs
+(`steps_running_in_allosteric_conformations`) are those its tags do not exclude
 (`_testhelper_excludes`), on the forms they join to free E (`_testhelper_exclusion`). True
 for a plain mechanism, whose one conformation runs every step."""
 function _testhelper_conformations_hold(am::ER.Mechanism)
     cm = am.catalytic
     M = ER.Mechanisms
-    _testhelper_is_allosteric(am) ||
-        return M.steps_in_active_conformation(am) == trues(length(cm.steps))
-    all(((1, M.steps_in_active_conformation(am)),
-         (2, M.steps_in_inactive_conformation(am)))) do (c, runs)
+    (; active, inactive) = M.steps_running_in_allosteric_conformations(am)
+    _testhelper_is_allosteric(am) || return active == trues(length(cm.steps))
+    all(((1, active), (2, inactive))) do (c, runs)
         excluded = BitVector([_testhelper_excludes(am, k, c) for k in eachindex(cm.steps)])
         component = _testhelper_exclusion(am, c).component
         runs == BitVector([!excluded[k] && component[e.from] == 1

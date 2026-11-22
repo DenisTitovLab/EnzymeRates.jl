@@ -50,11 +50,11 @@ flowchart TB
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b>"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()<br/>rate_equation_term_count()"| der
-  enum -->|"has_nonzero_weight_cycle()<br/>has_turnover_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
+  enum -->|"has_nonzero_weight_cycle()<br/>has_turnover_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_running_in_allosteric_conformations()"| mech
   fit -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b>"| mech
-  der -->|"<b>★#nbsp;metabolites()</b><br/>has_nonzero_weight_cycle()<br/>has_turnover_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>has_nonzero_weight_cycle()<br/>has_turnover_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_running_in_allosteric_conformations()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
 ```
@@ -159,8 +159,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `metabolites` | The rate law's concentration names | Derivation, Fitting, | ✓ |
 | | | Plotting, top level | |
 | `step_text` | A step as the macro writes it: `E + A ⇌ EA` | Derivation, Enumeration | |
-| `steps_in_active_conformation` | The steps the active conformation runs | Derivation, Enumeration | |
-| `steps_in_inactive_conformation` | The steps the inactive conformation runs | Derivation, Enumeration | |
+| `steps_running_in_allosteric_conformations` | The steps each conformation runs | Derivation, Enumeration | |
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
 | | steady-state steps between them | | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
@@ -452,9 +451,9 @@ in `test/Derivation/test_names.jl` walks `src/` and fails on a `Symbol("K…")`,
 and on a renderer outside that file. The
 engine (`_law`,
 `src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
-keeps (`steps_in_active_conformation(am)`, `steps_in_inactive_conformation(am)`; every
-edge of a plain mechanism). Every edge keeps its stored direction, so both conformations
-share the mechanism's orientation and names. The canonical form
+keeps (`steps_running_in_allosteric_conformations(am)`; every edge of a plain mechanism).
+Every edge keeps its stored direction, so both conformations share the mechanism's
+orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 by name; each edge runs in the direction the graph gives it (`_orientation`), and a kinetic
 group's edges turn with its lead (`_turn_groups_together!`). The forms' names and the
@@ -542,8 +541,8 @@ without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)`
 
 The guard builds three networks (`_Network`). Two are of one catalytic subunit whose
 conformations flip at free E: the **law network**, each conformation's kept steps on the
-forms free E reaches through them (`steps_in_active_conformation`,
-`steps_in_inactive_conformation`), and the **ε-network**, every step of both
+forms free E reaches through them (`steps_running_in_allosteric_conformations`), and the
+**ε-network**, every step of both
 conformations, each excluded step switched off as a **reading** says (`_Reading`,
 `_eps_network`). The third is one copy of every step, each marked fast, on which the guard
 checks, before any class, that every cycle of the catalytic scheme balances each
@@ -877,7 +876,7 @@ parent at oligomeric state 1 only, and above one subunit the tagging and change-
 moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
 (`_expand_re_to_ss`), drop a child that fails the predicate. On an
 allosteric mechanism the predicate reads each conformation's law
-(`steps_in_active_conformation`, `steps_in_inactive_conformation`), since a conformation
+(`steps_running_in_allosteric_conformations`), since a conformation
 that runs part of the catalytic graph can carry a power the whole graph lacks. The
 predicate scores the rapid-equilibrium segment graph of the catalytic scheme, leaving out
 every edge that touches a form holding a modifier, a reactant's modifier copy included: for

@@ -100,8 +100,7 @@ include("type_stability_harness.jl")
 
         @testset "$form" for (form, m) in pairs(forms)
             @_testhelper_no_dispatch metabolites(m)
-            @_testhelper_no_dispatch Mech.steps_in_active_conformation(m)
-            @_testhelper_no_dispatch Mech.steps_in_inactive_conformation(m)
+            @_testhelper_no_dispatch Mech.steps_running_in_allosteric_conformations(m)
         end
     end
 

@@ -15,7 +15,7 @@ random.
 function _testhelper_solve_point(m, rng)
     g = _testhelper_graph(m)
     sys = _testhelper_JS.Derivation._joint_system(m)
-    law = _testhelper_JS.Mechanisms.steps_in_inactive_conformation(m)
+    law = _testhelper_JS.Mechanisms.steps_running_in_allosteric_conformations(m).inactive
     tags = _testhelper_JS.Derivation._solve_tags(m)
     edges = _testhelper_JS.Derivation._flat_edges(m.catalytic)
     M, pivots = _testhelper_JS.Derivation._reduce_joint_system(sys.A, sys.rhs)
@@ -440,7 +440,8 @@ end
             @testset "$(spec.name)" begin
                 mech = spec.mechanism
                 sys = EnzymeRates.Derivation._joint_system(mech)
-                law = EnzymeRates.Mechanisms.steps_in_inactive_conformation(mech)
+                law = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+                    mech).inactive
                 _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
                 excluded = (EnzymeRates.Derivation._excluded_steps(mech, 1),
                             EnzymeRates.Derivation._excluded_steps(mech, 2))

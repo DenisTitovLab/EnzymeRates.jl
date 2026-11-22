@@ -740,12 +740,13 @@ _valid_tagging(c::CandidateMechanism, tags::Vector{Symbol}) =
 
 Whether the tags `tags` leave the inactive conformation of the plain mechanism `m` of
 candidate `c` no catalytic cycle: no cycle of the steps it runs
-(`steps_in_inactive_conformation`) turns the reaction over (`has_turnover_cycle`).
+(`steps_running_in_allosteric_conformations`) turns the reaction over
+(`has_turnover_cycle`).
 """
 function _stops_inactive_turnover(c::CandidateMechanism, tags::Vector{Symbol})
     am = _candidate(c, tags, 1, Mechanisms.RegulatorySite[]).mechanism
-    !Mechanisms.has_turnover_cycle(am.catalytic,
-                                   Mechanisms.steps_in_inactive_conformation(am))
+    !Mechanisms.has_turnover_cycle(
+        am.catalytic, Mechanisms.steps_running_in_allosteric_conformations(am).inactive)
 end
 
 """

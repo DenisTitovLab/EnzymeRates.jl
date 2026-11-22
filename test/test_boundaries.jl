@@ -374,9 +374,9 @@ end
     # turnover cycles of a step mask.
     @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Step, :Mechanism,
         :CatalyticScheme, :Allostery, :RegulatorySite, :Reactant, :Regulator,
-        :EnzymeReaction, :metabolites, :step_text, :steps_in_active_conformation,
-        :steps_in_inactive_conformation, :rapid_equilibrium_segments, :has_turnover_cycle,
-        :has_nonzero_weight_cycle])
+        :EnzymeReaction, :metabolites, :step_text,
+        :steps_running_in_allosteric_conformations, :rapid_equilibrium_segments,
+        :has_turnover_cycle, :has_nonzero_weight_cycle])
 end
 
 @testset "documented internal paths resolve" begin

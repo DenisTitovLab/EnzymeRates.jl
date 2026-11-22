@@ -136,9 +136,9 @@ active conformation of `am`, its law network still holds a cycle that turns the 
 over (`_NO_ACTIVE_TURNOVER`, led by the first edge it excludes); `_WELL_POSED` otherwise."""
 function _active_turnover_verdict(am::Mechanisms.Mechanism)
     k = something(findfirst(_excluded_steps(am, 1)), 0)
-    k != 0 &&
-        !Mechanisms.has_turnover_cycle(am.catalytic,
-                                       Mechanisms.steps_in_active_conformation(am)) &&
+    k == 0 && return _WELL_POSED
+    runs = Mechanisms.steps_running_in_allosteric_conformations(am)
+    Mechanisms.has_turnover_cycle(am.catalytic, runs.active) ||
         return _Verdict(_NO_ACTIVE_TURNOVER, _LIMIT_UNTESTED, 0, 1, k)
     _WELL_POSED
 end

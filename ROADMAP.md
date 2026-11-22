@@ -293,8 +293,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Shrink the module interfaces.**
   The package aims at deep modules: few public names, simple arguments, the complexity
   inside (`.claude/CLAUDE.md`). The lean mechanism took `Mechanisms` from 25 public names
-  to 15, `Derivation` from 16 to 9 and `Enumeration` to two, `CandidateMechanism` and
-  `candidate_mechanisms`. Six places still fall short. Priority: high.
+  to 15, and one function for both conformations' steps to 14; it took `Derivation` from
+  16 to 9 and `Enumeration` to two, `CandidateMechanism` and `candidate_mechanisms`. Seven
+  places still fall short. Priority: high.
   - **`has_nonzero_weight_cycle` takes six vectors.**
     `Mechanisms.has_nonzero_weight_cycle(from, to, weight, on, parent, offset)` is a
     union-find whose two callers outside `Mechanisms` pass the working arrays it fills. The
@@ -319,7 +320,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     The count of substrates taken up and products given off that orients a step is made
     in `Mechanisms` (`_orientation`, the second row of the table of stored directions),
     again in `Derivation` (`_priority_key`, "stored against the reaction") and a third time
-    in `Enumeration` (`_uptake_weight`). One owner needs a sixteenth public name in
+    in `Enumeration` (`_uptake_weight`). One owner needs a fifteenth public name in
     `Mechanisms`, or `_priority_key` reading the direction another way, which moves fitted
     names.
   - **Small facts of a mechanism are read in several modules.**
@@ -338,6 +339,32 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     (`src/Derivation/key.jl`); keying a capped law by the whole text instead would change
     every capped key once. Each copy is a line or two; one owner of each would cost a public
     name.
+  - **Store allosteric states as what runs.** Deferred by the maintainer on 2026-11-22.
+    `steps_running_in_allosteric_conformations` derives which steps each conformation runs
+    from the written states and from which forms the running steps join to free E: a step
+    between two cut-off forms does not run, whatever its state. The constructor could
+    store states that are already true of what runs (a cut-off `:EqualAI` or `:NonequalAI`
+    step stored as `:OnlyA` or `:OnlyI`), so that the masks are a read of the states, with
+    no function shared across modules and no stored mask. Checked on one pair only, at
+    oligomeric state 2: `E + S ⇌ ES :: OnlyA`, `ES <--> EX` and `EX <--> E + P :: OnlyA`,
+    the steady-state step `ES <--> EX`, between two forms cut off in the inactive
+    conformation, written `:: EqualAI` in one and `:: OnlyA` in the other. The guard
+    admits both, the laws are equal where evaluated, the dedup keys (`key`, `fit_key`) are
+    equal, and one constant's name differs (`k_ES_to_EX` against `k_A_ES_to_EX`). The design
+    must answer three questions. States are stored per kinetic group, and a step is cut off
+    on its own: in a group such as `(E + I ⇌ EI, ES + I ⇌ EIS) :: EqualAI` with `ES` cut
+    off, one member runs and one does not, and both share constants. The written state
+    carries intent the result does not: whether a step is cut off depends on other groups'
+    states, so a move that reconnects the forms needs the written state; the enumerator
+    would keep it in its record, which reopens the decision to keep proposing same-law
+    taggings because their children differ; and a user who writes `:: EqualAI` would see
+    `:: OnlyA` printed. The guard treats "excluded by its state" (`_excluded_steps`) and
+    "does not run" in separate code, so its verdicts would need checking again on the gate's
+    mechanisms. Storing whether each conformation turns the reaction over would serve two of
+    the four callers of `has_turnover_cycle` (admission's `_active_turnover_verdict` and the
+    tagging move's `_stops_inactive_turnover`); the guard's class 1 asks about every step,
+    and the enumerator's maximal-rate test (`_has_vmax`) about a hypothetical subset of
+    steps, so the function stays shared.
   - **`rate_equation_panels` takes a `Keq` it only passes on.**
     `Plotting.rate_equation_panels` hands `Keq` to `Data.RateData` and reads it nowhere
     else, and the method of `plot_rate_equation_on_data` for a rate function passes a

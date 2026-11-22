@@ -3403,13 +3403,14 @@ end
             E + P ⇌ EP      :: EqualAI
         end
     end
-    @test texts(example, M.steps_in_active_conformation(example)) ==
-          Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
-    @test texts(example, M.steps_in_inactive_conformation(example)) == Set(["E + P ⇌ EP"])
+    runs = @inferred M.steps_running_in_allosteric_conformations(example)
+    @test runs isa NamedTuple{(:active, :inactive), Tuple{BitVector, BitVector}}
+    @test texts(example, runs.active) == Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
+    @test texts(example, runs.inactive) == Set(["E + P ⇌ EP"])
     # A plain mechanism runs every step in both conformations.
     plain = _testhelper_plain_of(example)
-    @test M.steps_in_active_conformation(plain) == trues(3)
-    @test M.steps_in_inactive_conformation(plain) == trues(3)
+    @test @inferred(M.steps_running_in_allosteric_conformations(plain)) ==
+          (; active = trues(3), inactive = trues(3))
 
     # An :EqualAI step between two cut-off forms does not run: the inactive conformation
     # excludes the :OnlyA binding of I, which cuts EI and EIP off, and with them the
@@ -3426,10 +3427,10 @@ end
             EI + P ⇌ EIP    :: EqualAI
         end
     end
-    @test texts(dead_end, M.steps_in_active_conformation(dead_end)) ==
+    runs = M.steps_running_in_allosteric_conformations(dead_end)
+    @test texts(dead_end, runs.active) ==
           Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP", "E + I ⇌ EI", "EI + P ⇌ EIP"])
-    @test texts(dead_end, M.steps_in_inactive_conformation(dead_end)) ==
-          Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
+    @test texts(dead_end, runs.inactive) == Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
 
     # A ping-pong, F the modified enzyme E_res_plusA_minusP. The inactive
     # conformation excludes both :OnlyA chemistries, which cuts F, FP and FB off as one
@@ -3452,8 +3453,8 @@ end
     chemistry = Set(["EA <--> EP_res_plusA_minusP", "EB_res_plusA_minusP <--> EQ"])
     island = Set(["E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP",
                   "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP"])
-    @test texts(pingpong, M.steps_in_active_conformation(pingpong)) ==
+    runs = M.steps_running_in_allosteric_conformations(pingpong)
+    @test texts(pingpong, runs.active) ==
           union(Set(["E + A ⇌ EA", "E + Q ⇌ EQ"]), chemistry, island)
-    @test texts(pingpong, M.steps_in_inactive_conformation(pingpong)) ==
-          Set(["E + A ⇌ EA", "E + Q ⇌ EQ", "E + I ⇌ EI"])
+    @test texts(pingpong, runs.inactive) == Set(["E + A ⇌ EA", "E + Q ⇌ EQ", "E + I ⇌ EI"])
 end

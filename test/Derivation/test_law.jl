@@ -148,10 +148,9 @@ end
     end
     s = EnzymeRates.Derivation._solve(am)
     mets = EnzymeRates.metabolites(am)
-    active = EnzymeRates.Derivation._law(
-        am, s, EnzymeRates.Mechanisms.steps_in_active_conformation(am))
-    inactive = EnzymeRates.Derivation._law(
-        am, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am); inactive = true)
+    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(am)
+    active = EnzymeRates.Derivation._law(am, s, runs.active)
+    inactive = EnzymeRates.Derivation._law(am, s, runs.inactive; inactive = true)
     @test active.vars == inactive.vars
     @test active.vars.names == [mets; s.names[s.independents]; :Keq]
     rng = Random.MersenneTwister(71)
@@ -460,7 +459,7 @@ end
     # active conformation runs no step): each law equals the rapid-equilibrium limit of
     # the oracle's own deletion network (`_testhelper_limit_law`) at 3 points, and the
     # active conformation's denominator holds no constant of an :OnlyI group, since the
-    # conformation's steps (`steps_in_active_conformation`) drop them.
+    # conformation's steps (`steps_running_in_allosteric_conformations`) drop them.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         label === :essential_activator && continue
         @testset "$label" begin
@@ -502,7 +501,8 @@ end
             E + P ⇌ EP      :: OnlyA
         end
     end
-    @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(inert))
+    @test !any(EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
+        inert).inactive)
     s = EnzymeRates.Derivation._solve(inert)
     A = EnzymeRates.Derivation._law(inert, s)
     @test EnzymeRates.Derivation._flip_only(A.inactive) &&
@@ -567,11 +567,10 @@ end
         end
     end
     cm = am.catalytic
-    amask, imask = EnzymeRates.Mechanisms.steps_in_active_conformation(am),
-        EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)
-    @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), amask) == 4320
-    @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), imask) == 4320
-    @test EnzymeRates.Derivation._term_count(cm, amask) <=
+    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(am)
+    @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), runs.active) == 4320
+    @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), runs.inactive) == 4320
+    @test EnzymeRates.Derivation._term_count(cm, runs.active) <=
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     @test EnzymeRates.Derivation.rate_equation_term_count(am) == 8640
     @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,

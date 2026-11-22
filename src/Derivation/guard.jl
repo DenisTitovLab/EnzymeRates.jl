@@ -246,8 +246,8 @@ end
 """
 The law network L of `m`: a plain mechanism's forms and edges as they are; an allosteric
 mechanism's two copies, copy `c` holding the steps of its conformation
-(`steps_in_active_conformation`, `steps_in_inactive_conformation`) and the forms they
-touch, free E always, joined by the flip at free E.
+(`steps_running_in_allosteric_conformations`) and the forms they touch, free E always,
+joined by the flip at free E.
 """
 function _law_network(am::Mechanisms.Mechanism)
     m = am.catalytic
@@ -257,8 +257,8 @@ function _law_network(am::Mechanisms.Mechanism)
         return _network(m, trues(nf), trues(n, 1), reshape(re, n, 1), falses(n, 1),
                         falses(n, 1))
     use, fast, present = falses(n, 2), falses(n, 2), falses(2 * nf)
-    for (c, mask) in enumerate((Mechanisms.steps_in_active_conformation(am),
-                                Mechanisms.steps_in_inactive_conformation(am)))
+    runs = Mechanisms.steps_running_in_allosteric_conformations(am)
+    for (c, mask) in enumerate((runs.active, runs.inactive))
         use[:, c] .= mask
         fast[:, c] .= mask .& re
         shift = (c - 1) * nf

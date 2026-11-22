@@ -2238,10 +2238,9 @@ end
         end
         regulatory_site(2): I::OnlyI
     end
-    @test _testhelper_laplacian_tree_count(
-        allo.catalytic, EnzymeRates.Mechanisms.steps_in_active_conformation(allo)) == 9
-    @test _testhelper_laplacian_tree_count(
-        allo.catalytic, EnzymeRates.Mechanisms.steps_in_inactive_conformation(allo)) == 9
+    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(allo)
+    @test _testhelper_laplacian_tree_count(allo.catalytic, runs.active) == 9
+    @test _testhelper_laplacian_tree_count(allo.catalytic, runs.inactive) == 9
     @test EnzymeRates.Derivation.rate_equation_term_count(allo) == 18
 end
 

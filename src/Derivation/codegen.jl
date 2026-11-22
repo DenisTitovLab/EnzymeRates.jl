@@ -74,11 +74,10 @@ conformation terms `xA = fI·DA` and `xI = fA·DI` and each site's two binding p
 function _program(am::Mechanisms.Mechanism, s::_Solve, A::_AlloLaw)
     m, n = am.catalytic, A.n
     vars, defs = copy(A.vars), Pair{Int, _Poly}[]
-    QA, DA = _state!(vars, defs, m, s, A.active,
-                     Mechanisms.steps_in_active_conformation(am), false)
+    runs = Mechanisms.steps_running_in_allosteric_conformations(am)
+    QA, DA = _state!(vars, defs, m, s, A.active, runs.active, false)
     QI, DI = _flip_only(A.inactive) ? (zero(_Poly), one(_Poly)) :
-             _state!(vars, defs, m, s, A.inactive,
-                     Mechanisms.steps_in_inactive_conformation(am), true)
+             _state!(vars, defs, m, s, A.inactive, runs.inactive, true)
     f(p) = _factor!(vars, defs, p)
     pw(p, k) = foldl(*, (p for _ in 1:k); init = one(_Poly))
     fA, fI = f(A.fA), f(A.fI)
