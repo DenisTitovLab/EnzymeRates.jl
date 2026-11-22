@@ -41,11 +41,10 @@ const _Parameter = Union{_StepParameter, _RegulatorParameter, _AllostericParamet
 # function.
 
 """
-State token — placed right after the type prefix:
-  :A       → "A_"  (allosteric active branch; distinguishes allosteric from non-)
-  :I       → "I_"  (allosteric inactive branch: OnlyI or NonequalAI-inactive)
-  :EqualAI → ""    (allosteric shared symbol; shared between A and I state)
-  :None    → ""    (non-allosteric mechanism)
+The text a constant's name takes after its type prefix (`K_`, `k_`) for conformation tag
+`state` (`_conformation_tag`): `A_` for `:A`, an allosteric mechanism's active constant;
+`I_` for `:I`, an inactive one; none for `:EqualAI`, one constant of both conformations,
+or for `:None`, a plain mechanism's.
 """
 _state_tag(state::Symbol) = state === :A ? "A_" : state === :I ? "I_" : ""
 
@@ -112,10 +111,10 @@ function _name(p::_StepParameter, m::Mechanisms.Mechanism, kept = _kept_members(
 end
 
 """
-Regulator-site parameter: state tag + ligand name + "reg". No site index —
-the Mechanism constructor enforces that each ligand appears at most
-once across all sites. An `:EqualAI` ligand has one bare name in both conformations
-(`K_<ligand>reg`); any other ligand takes its conformation's `K_A_` or `K_I_` name.
+The name of regulator constant `p` of `am`: `K_`, the conformation's tag, the ligand's
+name and `reg`. An `:EqualAI` ligand has one name in both conformations (`K_<ligand>reg`);
+any other ligand takes its conformation's `K_A_` or `K_I_` name. The name holds no site,
+since a ligand sits at one site (`_RegulatorParameter`).
 """
 function _name(p::_RegulatorParameter, am::Mechanisms.Mechanism)
     tag = only(t for site in am.allosteric.regulatory_sites
@@ -130,22 +129,26 @@ _name(::_AllostericParameter, ::Mechanisms.Mechanism) = :L
 # ─── Kept members of kinetic classes ─────────────────────────────────
 
 """
-The priority key of constant `slot` of step `k` of `m` in conformation block `block` (2:
-a copy outside its conformation's law, 1: an inactive copy in the law, 0: an active copy
-in the law), read from the graph alone. The solve eliminates the larger key first, so a
-column with a larger key becomes dependent sooner. In turn: the block; the step's shape
-(3 an isomerization, which takes up and gives off nothing; 2 a step that takes up or
-gives off more than one metabolite; 1 a binding); whether neither of its forms is free E;
-steady state before rapid equilibrium; a steady-state constant that runs against the
-reaction (for a step stored against the reaction, the forward rate: as stored, it takes
-up fewer substrates and gives off fewer products than it gives off substrates and takes
-up products, as a product binding or a release of products, stored as its uptake, does;
-for every other step its reverse rate, since the constructor stores it the way the
-reaction runs, or the reaction gives it no direction); then its two forms' indices, the
-smaller first, and its metabolites' indices, sorted; last its stored place `k`. The
-indices follow the forms' and metabolites' names (`CatalyticScheme`), so the key does not
-change with the order in which a writing gives them. The key decides which constants are
-fitted, never the law.
+The priority key of constant `slot` of step `k` of `m` in conformation block `block`, read
+from the graph alone. The solve eliminates the larger key first, so a column with a larger
+key becomes dependent sooner. The key decides which constants are fitted, never the law.
+Its entries, in turn:
+1. the block: 2 for a copy outside its conformation's law, 1 for an inactive copy in the
+   law, 0 for an active copy in the law;
+2. the step's shape: 3 for an isomerization, which takes up and gives off nothing; 2 for
+   a step that takes up or gives off more than one metabolite; 1 for a binding;
+3. whether neither of its forms is free E;
+4. steady state before rapid equilibrium;
+5. whether it is a steady-state constant that runs against the reaction: the forward rate
+   of a step stored against the reaction, the reverse rate of any other step;
+6. its two forms' indices, the smaller first, then its metabolites' indices, sorted;
+7. its stored place `k`.
+A step is stored against the reaction when, as stored, it takes up fewer substrates and
+gives off fewer products than it gives off substrates and takes up products, as a product
+binding or a release of products stored as its uptake does. The constructor stores every
+other step the way the reaction runs, or the reaction gives it no direction. The indices
+follow the forms' and metabolites' names (`CatalyticScheme`), so the key does not change
+with the order in which a writing gives them.
 """
 function _priority_key(m::Mechanisms.CatalyticScheme, k::Int, slot::Int, block::Int)
     e = m.steps[k]
@@ -218,11 +221,11 @@ end
 
 """
 The kept member of each kinetic class of `m`, keyed by `(group, slot, inactive)`: the
-edge whose column comes last in elimination order (`cols`, `_ordered_columns(m)`), its
-smallest `_priority_key`, so the solve keeps it whenever it keeps one of the class (the
-tests call this rule E3). A `:NonequalAI` or `:OnlyI` group has an inactive class, kept
+edge whose column comes last in elimination order (`cols`, `_ordered_columns(m)`), the
+one of smallest `_priority_key`. The solve keeps it whenever it keeps one of the class;
+the tests call this rule E3. A `:NonequalAI` or `:OnlyI` group has an inactive class, kept
 by a member in the inactive law when it has one; an `:EqualAI` group's edges share their
-active class; the copy of an edge in the conformation that excludes it (an `:OnlyA` edge's
+active class. The copy of an edge in the conformation that excludes it (an `:OnlyA` edge's
 inactive copy, an `:OnlyI` edge's active one) is a class of its own, so neither of these
 appears.
 """
@@ -241,21 +244,14 @@ end
 """
     _constant_columns(m) -> (; columns, names, in_law, kept_in_law, flat)
 
-The constants of the steps of `m` as the joint solve's columns, in elimination order
-(`_ordered_columns`), with the name each column takes. `columns[i]` is a `_StepParameter`:
-slot `slot` of step `step` of the catalytic graph, in the inactive conformation when
-`inactive`. A plain mechanism has one column per slot of every step; an allosteric
-mechanism also has one per slot of every step of a `:NonequalAI`, `:OnlyA` or `:OnlyI`
-group, for its inactive copy.
-
-`names[i]` is the name of the column's kinetic class, that of its kept member
-(`_kept_members`, through the `_name(p, m)` chokepoint); `in_law[i]` whether the column
-enters the law: an inactive copy when its step lies in the inactive conformation's law,
-an active column when its step lies in the active one's or is an `:EqualAI` step of the
-inactive one's, whose one constant the inactive law reads; `kept_in_law[i]` whether it
-enters the law as its class's kept member, the last of its class (`_class`) in
-elimination order, so that it stands for the class. `flat` holds the steps group by
-group.
+The constants of the steps of `m` as the joint solve's columns and `flat`, as
+`_ordered_columns` gives them, with:
+- `names[i]`, the name of column `i`'s kinetic class, that of its kept member
+  (`_kept_members`, through the `_name(p, m)` chokepoint);
+- `in_law[i]`, whether the column enters the law: an inactive copy when its step lies in
+  the inactive conformation's law, an active column when `_in_active_law` holds;
+- `kept_in_law[i]`, whether it enters the law as its class's kept member, the last of its
+  class (`_class`) in elimination order, so that it stands for the class.
 """
 function _constant_columns(m::Mechanisms.Mechanism)
     cols = _ordered_columns(m)
@@ -292,13 +288,10 @@ end
 """
     _regulator_constant(am, lig, tag, inactive) -> Union{Symbol, Nothing}
 
-The dissociation-constant name of the ligand named `lig` (allosteric state `tag`) of `am`
-in the active (`inactive = false`) or inactive conformation, or `nothing` when the
-ligand is absent from that conformation (`:OnlyI` in the active state, `:OnlyA` in the
-inactive one). An `:EqualAI` ligand has one bare name in both conformations
-(`K_<ligand>reg`); an `:OnlyA`, `:OnlyI` or `:NonequalAI` ligand has its conformation's
-`K_A_` or `K_I_` name. Renders the name via the `_name(::_RegulatorParameter, am)`
-chokepoint.
+The name of the dissociation constant (`_name`) of the ligand named `lig` (allosteric
+state `tag`) of `am` in the active (`inactive = false`) or inactive conformation, or
+`nothing` when the ligand is absent from that conformation (`:OnlyI` in the active state,
+`:OnlyA` in the inactive one).
 """
 function _regulator_constant(am::Mechanisms.Mechanism, lig::Symbol, tag::Symbol,
                              inactive::Bool)
@@ -320,7 +313,7 @@ The names of the constants of the rate law of `m` that a fit estimates, as a tup
 Symbols: the independent constants in name order, then an allosteric mechanism's regulator
 constants and `L`. These are the names `params` holds in a call of
 [`compile_rate_equation`](@ref)`(m)`, whose result `rate` gives the same names as a
-compile-time constant; the equilibrium constant `Keq` is not among them, since it is
+compile-time constant. The equilibrium constant `Keq` is not among them, since it is
 given, never fitted. The rate law computes every other constant from these and `Keq` (see
 [`dependent_parameter_values`](@ref)). Errors when the rate law of `m` is not defined
 (`check_valid_rate_equation`).
@@ -341,8 +334,7 @@ metabolite the step takes up in its direction. Every other constant has `rate` 0
 rapid-equilibrium binding's dissociation constant +1 for the metabolite that binds, any
 other rapid-equilibrium constant +1 for each metabolite given off and −1 for each taken
 up, a regulator's constant +1 for its ligand, and `L` none. Errors when the rate law of
-`m` is not defined
-(`check_valid_rate_equation`).
+`m` is not defined (`check_valid_rate_equation`).
 """
 function parameter_units(m::Mechanisms.Mechanism)
     check_valid_rate_equation(m)
@@ -450,13 +442,12 @@ _class(m::Mechanisms.Mechanism, excluded::NTuple{2, BitVector}, c::_StepParamete
 """
     _fundamental_cycles(m, flat) -> (Z, multiples)
 
-The fundamental cycles of a spanning forest of the graph of graph `m`'s edges `flat`,
-grown over the edges in that order: row `i` of `Z` counts each edge of cycle `i` (column
-`j` is edge `flat[j]`) with its sign in the edge's stored direction, and `multiples[i]`
-is the multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). Errors
-on a cycle whose net change is no multiple of the net reaction, a modifier's included,
-which no mechanism the guard admits holds (`_unbalanced_cycle`). Integer arithmetic
-throughout.
+The fundamental cycles of a spanning forest of the graph of `m`'s edges `flat`, grown over
+the edges in that order: row `i` of `Z` counts each edge of cycle `i` (column `j` is edge
+`flat[j]`) with its sign in the edge's stored direction, and `multiples[i]` is the
+multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). Errors on a cycle
+whose net change is no multiple of the net reaction, a modifier's included, which no
+mechanism the guard admits holds (`_unbalanced_cycle`).
 
 The net change reads what each edge takes up (-1) and gives off (+1) only. A form's name
 holds no metabolites, so an isomerization, which takes up and gives off nothing,
@@ -515,14 +506,15 @@ end
 The thermodynamic system of `m`, `A · log(constants) = rhs · log(Keq)`, over one column
 per bare constant in elimination order (`_constant_columns`).
 
-Rows: every fundamental cycle (`_fundamental_cycles`) once per conformation, the inactive
-rows over the whole graph (islands included) with an `:EqualAI` edge reading its active
-column; a cycle row sums, over its edges, the log of each edge's forward equilibrium ratio
-(`kf/kr` at steady state, `1/K` for a constant named after the reverse, such as a
-binding's dissociation constant, `K` otherwise), and its right side is the cycle's
-multiple of the net reaction. Then one row per further
-member of each kinetic class (`_class`), setting it equal to the class's first member,
-slot by slot.
+Rows:
+- every fundamental cycle (`_fundamental_cycles`) once per conformation, the inactive rows
+  over the whole graph (islands included), an `:EqualAI` edge reading its active column.
+  A cycle row sums, over its edges, the log of each edge's forward equilibrium ratio:
+  `kf/kr` at steady state, `1/K` for a constant named after the reverse (such as a
+  binding's dissociation constant), `K` otherwise. Its right side is the cycle's multiple
+  of the net reaction;
+- one row per further member of each kinetic class (`_class`), setting it equal to the
+  class's first member, slot by slot.
 """
 function _joint_system(m::Mechanisms.Mechanism, cols = _constant_columns(m))
     cm = m.catalytic
@@ -567,7 +559,7 @@ end
 """
 Bring `M` to reduced row echelon form in place over its first `n` columns and return the
 pivot columns, in row order. `Rational{Int}` arithmetic throws `OverflowError` rather than
-wrap, which `_reduce_joint_system` catches.
+wrap.
 """
 function _rref!(M::Matrix{<:Rational}, n::Int)
     pivots = Int[]

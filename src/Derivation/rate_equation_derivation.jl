@@ -60,10 +60,10 @@ end
 _mpow(a::_Mono, e::Union{Integer, _Exp}) =
     iszero(e) ? _Mono() : _Mono([v => x * e for (v, x) in a])
 
-"""The monomial of the `variable => exponent` pairs `ps`; a variable may repeat. A plain
-loop: a reduction over the tuple would build iterator types from the tuple's runtime
-length and compile again for each new number of pairs."""
+"""The monomial of the `variable => exponent` pairs `ps`; a variable may repeat."""
 function _monomial(ps::Pair{Int}...)
+    # A plain loop: a reduction over the tuple would build iterator types from the tuple's
+    # runtime length and compile again for each new number of pairs.
     m = _Mono()
     for (v, e) in ps
         iszero(e) || (m = _mmul(m, _Mono([v => _Exp(e)])))
@@ -262,9 +262,8 @@ Base.hash(L::_Law, h::UInt) = hash((L.vars, L.H, L.Q, L.D), hash(:_Law, h))
     _spanning_trees(n, pairs) -> trees
 
 The spanning trees of the graph on the nodes `1:n` with the edges `pairs`, each as a list
-of positions in `pairs`: each edge is included or left out in turn, and a union-find
-rejects a cycle. A disconnected graph has none; a graph of at most one node has one, with
-no edge.
+of positions in `pairs`. A disconnected graph has none; a graph of at most one node has
+one, with no edge.
 """
 function _spanning_trees(n::Int, pairs::Vector{Tuple{Int, Int}})
     n <= 1 && return [Int[]]
@@ -617,12 +616,9 @@ end
 """
     _term_count(m, mask) -> Int
 
-The term count V×τ of the law of the edges of catalytic scheme `m` that `mask` keeps, read
-off its segment graph (`Mechanisms.rapid_equilibrium_segments`) without deriving the law:
-`V` is the number of rapid-equilibrium segments, `τ` the spanning trees of the segment
-graph whose edges are the kept steady-state edges between segments, parallel ones counted
-apart (`_tree_count`). V×τ is the number of spanning-tree products in the law's
-denominator before kinetic grouping, so it bounds fit cost. Saturates at `typemax(Int)`.
+The term count V×τ (`rate_equation_term_count`) of the law of the edges of catalytic
+scheme `m` that `mask` keeps, read off its segment graph
+(`Mechanisms.rapid_equilibrium_segments`, `_tree_count`). Saturates at `typemax(Int)`.
 """
 function _term_count(m::Mechanisms.CatalyticScheme, mask::BitVector)
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
@@ -641,11 +637,14 @@ end
 """
     rate_equation_term_count(m) -> Int
 
-The size of `m`'s rate law in spanning-tree products, V×τ (`_term_count`): over every
-edge of a plain mechanism; for an allosteric one, the active law's count plus the inactive
-law's, a conformation that is free E alone counting 0, saturated at `typemax(Int)`. The
-term cap (`MAX_RATE_EQUATION_TERMS`, which `_law` checks before it builds any polynomial)
-and identify's `eq_complexity_filter` read it.
+The size of `m`'s rate law in spanning-tree products, V×τ, read off its graph without
+deriving the law. `V` is the number of rapid-equilibrium segments, and `τ` the number of
+spanning trees of the segment graph, whose edges are the steady-state steps between
+segments, parallel ones counted apart. V×τ is the number of spanning-tree products in the
+law's denominator before kinetic grouping, so it bounds fit cost. A plain mechanism's
+count reads every step; an allosteric one's is the active law's count plus the inactive
+law's, a conformation that is free E alone counting 0. Saturates at `typemax(Int)`. The
+term cap, `MAX_RATE_EQUATION_TERMS`, bounds this count.
 """
 function rate_equation_term_count(am::Mechanisms.Mechanism)
     m = am.catalytic
@@ -711,11 +710,11 @@ end
     _state!(vars, defs, m, s, L, mask, inactive) -> (Q, D)
 
 The terms over `vars` of the law `L` of the edges `mask` of `m`, in the inactive
-conformation's constants when `inactive`, with locals added to `defs`: each bare constant
+conformation's constants when `inactive`, with locals added to `defs`. Each bare constant
 reads its column's value (`_column_values`), a dependent's from a local unless it is one
-symbol, the locals defined by column so a body's numbering never follows a hash; each
-segment's weight sum `σ_g` and tree sum `T_g` and `Q` get a local (`_factor!`). Returns `Q`
-as one term and `D = shift·Σ_g σ_g·T_g`.
+symbol; those locals are defined by column, so a body's numbering never follows a hash.
+Each segment's weight sum `σ_g` and tree sum `T_g`, and `Q`, get a local (`_factor!`).
+Returns `Q` as one term and `D = shift·Σ_g σ_g·T_g`.
 """
 function _state!(vars::_Vars, defs::Vector{Pair{Int, _Poly}}, m::Mechanisms.CatalyticScheme,
                  s::_Solve, L::_Law, mask::BitVector, inactive::Bool)
@@ -1182,13 +1181,8 @@ _header_lines(m::Mechanisms.Mechanism, s::_Solve) =
 """
     _law_text(m, s, L; coefficients = false, coefficient_values = true) -> String
 
-The printed law `L` of `m` over the solve `s` (`rate_equation_string`), in the order it
-evaluates. In full: the header (`_header_lines`), the reference lines (`_reference_lines`),
-`N = …` when the normalizer has a factor that is not a single term, or an integer to a
-fractional power, and the `v` line (`_v_line`) with `Q` and `D` over the normalizer. With
-`coefficients`: the header, the coefficient comment, `N` when it prints, one line per
-coefficient giving its value, and the `v` line in the named coefficients. Without
-`coefficient_values`, only the `concs` line and the `v` line.
+The printed law `L` of `m` over the solve `s`, laid out line by line as
+`rate_equation_string` describes, in the order the lines evaluate.
 """
 function _law_text(m::Mechanisms.Mechanism, s::_Solve, L::_Law; coefficients::Bool = false,
                    coefficient_values::Bool = true)
@@ -1236,20 +1230,22 @@ function _site_line!(defs::Vector{String}, tag::String, ws::Vector{Tuple{_Poly, 
 end
 
 """
-The printed MWC law `A` of `am` over the solve `s`. Each conformation `c` (`A`, then `I`
-unless it is free E alone) defines `Q_c` (unless it turns nothing over) and `D_c`, over its
-own normalizer `N_c`, which prints as a line when it has a factor that is not a single
-term, or an integer to a fractional power; `F_A` and `F_I`, the free-E weights over the
-normalizers, print only when they differ and each only when it is not 1; `W_A` and `W_I`
-multiply the regulatory sites' factors. The `v` line is
-`H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
+The printed MWC law `A` of `am` over the solve `s`, as `rate_equation_string` describes,
+with these definitions:
+- each conformation `c`, `A` and then `I` unless it is free E alone, defines `Q_c` (unless
+  it turns nothing over) and `D_c` over its own normalizer `N_c`, which prints as a line
+  when it has a factor that is not a single term, or an integer to a fractional power;
+- `F_A` and `F_I`, the free-E weights over the normalizers, print only when they differ,
+  and each only when it is not 1;
+- `W_A` and `W_I` multiply the regulatory sites' factors.
+The `v` line is `H·(F_I^n·Q_A·D_A^(n−1)·W_A + L·F_A^n·Q_I·D_I^(n−1)·W_I) /
 (F_I^n·D_A^n·W_A + L·F_A^n·D_I^n·W_I)` without its factors of 1. Both forms open with the
 header and end with `v`, in the order they evaluate. In full, the reference lines and the
-definitions come between; with `coefficients`, the coefficient comment, the normalizers,
+definitions come between. With `coefficients`, the coefficient comment, the normalizers,
 one line per coefficient, named by conformation (`nA_0`, `dA_S`, `fI_B`), and the
-definitions: `Q_c`, `D_c` and `F_c` read in those coefficients, `W_A` and `W_I` in the
-fitted constants. Without `coefficient_values`, the `concs` line, the definitions and `v`:
-the lines that name coefficients without defining them.
+definitions come between: `Q_c`, `D_c` and `F_c` read in those coefficients, `W_A` and
+`W_I` in the fitted constants. Without `coefficient_values`, the `concs` line, the
+definitions and `v`: the lines that name coefficients without defining them.
 """
 function _law_text(am::Mechanisms.Mechanism, s::_Solve, A::_AlloLaw;
                    coefficients::Bool = false, coefficient_values::Bool = true)
@@ -1308,22 +1304,14 @@ not print).
 
 The text runs as Julia code once `params`, `concs` and `Keq` are bound, as they are in
 a call of [`compile_rate_equation`](@ref)`(m)`. It destructures
-[`parameters`](@ref)`(m)` from `params` and the metabolites from `concs`, reads the
-equilibrium constant `Keq` as an input of its own, lists each dependent constant under
+[`parameters`](@ref)`(m)` from `params` and the metabolites from `concs`, and reads the
+equilibrium constant `Keq` as an input of its own. It lists each dependent constant under
 `# Wegscheider constraints:` or `# Haldane constraints:` as a reference line in `Keq` and
-the independent constants, and ends with `v = (Q) * (H) / (D)`, the rate per unit enzyme,
+the independent constants. It ends with `v = (Q) * (H) / (D)`, the rate per unit enzyme,
 in the independent constants. `H = Π[S] − Π[P]/Keq` vanishes at equilibrium; `Q` and `D`
-have positive terms. Numerator and denominator are
-divided by a normalizer that makes every term of `D` dimensionless, when one exists: `D`'s
-constant term when it has one, so `D` reads `1 + S/K…`; otherwise Cleland's normalizer when
-`D` holds the terms `ΠS/X` for every substrate `X` and `ΠS`, `ΠS` the product of the
-substrates, so each substrate term reads as its concentrations over their Michaelis
-constants; otherwise a product of powers of `D`'s coefficients with `D`'s unit, each
-concentration counting as a dimension of its own. When no such product exists, some
-weighting of the concentrations gives every term of `D` the same nonzero degree. In
-`E + A <--> EA`, `EA + B ⇌ EQ + P`, `EQ <--> E + Q`, for example, the
-rapid-equilibrium Theorell–Chance step makes every term carry exactly one of `B` and `P`.
-The law then prints as derived, and its terms keep their units.
+have positive terms. Numerator and denominator are divided by a normalizer that makes
+every term of `D` dimensionless, when one exists, chosen by the rules of
+[Normalization](@ref); a law with none prints as derived, and its terms keep their units.
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once as `N = …`.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
@@ -1332,11 +1320,11 @@ and regulatory-site factor `W_A`, `W_I`, then the MWC combination.
 
 With `coefficients = true` the law reads in named coefficients,
 `v = n_0 * (H) / (1 + d_S * S + …)`, each named by the concentrations it
-multiplies (`d_A²_B` for `A^2 * B`). That text runs as Julia code too: it destructures
-`params` and `concs`, prints the coefficient comment, `N` (`N_A`, `N_I`) when the
-normalizer prints, each coefficient's value in the fitted constants, one line each, for an
-allosteric law `Q_c`, `D_c` and `F_c` in those coefficients and the site factors `W_c`,
-and ends with the `v` line; the reference lines print only in the full law.
+multiplies (`d_A²_B` for `A^2 * B`). That text runs as Julia code too. It destructures
+`params` and `concs`, then prints the coefficient comment, `N` (`N_A`, `N_I`) when the
+normalizer prints, and each coefficient's value in the fitted constants, one line each.
+For an allosteric law it prints `Q_c`, `D_c` and `F_c` in those coefficients and the site
+factors `W_c`. It ends with the `v` line; the reference lines print only in the full law.
 
 `coefficient_values = false` (with `coefficients = true`; `ArgumentError` otherwise) leaves
 out everything that defines a coefficient: the `params` line, the comment, `N` and each

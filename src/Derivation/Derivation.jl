@@ -1,5 +1,5 @@
-# ABOUTME: The Derivation module: the well-posedness guard, the joint thermodynamic solve
-# ABOUTME: and each mechanism's rate law (engine, unit rule, printer, key, generated code).
+# ABOUTME: The Derivation module: its public names, its files in load order, and what the
+# ABOUTME: files share: the types _SwitchOff and _Reading, _excluded_steps, other helpers.
 """Derives a mechanism's rate equation and compiles it."""
 module Derivation
 
@@ -10,6 +10,8 @@ using SHA: sha256
 public check_valid_rate_equation, compile_rate_equation, dependent_parameter_values,
     fitted_parameter_count, parameter_units, parameters, rate_equation_term_count,
     rate_equation_dedup_key, rate_equation_string
+
+# ─── Helpers several files use ──────────────────────────────────────────
 
 _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
 
@@ -30,8 +32,6 @@ function _kinetic_groups(m::Mechanisms.CatalyticScheme)
     [findall(e -> e.kinetic_group == g, m.steps) for g in 1:G]
 end
 
-# ─── Excluded steps and union-find, which several files use ─────────────
-
 """The steps conformation `c` of `m` (1 active, 2 inactive) excludes by their kinetic
 group's allosteric state, one flag per catalytic step: the active conformation those of
 `:OnlyI` groups, the inactive one those of `:OnlyA` groups. A plain mechanism excludes
@@ -51,12 +51,14 @@ end
 # ─── A reading: how each conformation switches off a step ───────────────
 
 """
-How a reading switches off a catalytic step in one conformation (`_Reading`): the
-conformation keeps the step (`_RUNS`); the step loses the rate of its stored direction
-(`_LOSES_FORWARD`) or of its reverse (`_LOSES_REVERSE`), the direction that runs uphill,
-into the step's higher side, while the other keeps its rate, so a rapid-equilibrium step
-stays fast; it is stopped, both its rates vanishing (`_STOPPED`); or it cannot be switched
-off (`_CANNOT_SWITCH_OFF`).
+How a reading switches off a catalytic step in one conformation (`_Reading`):
+- `_RUNS`: the conformation keeps the step;
+- `_LOSES_FORWARD`, `_LOSES_REVERSE`: the step loses the rate of its stored direction, or
+  of its reverse, the direction that runs uphill, into the step's higher side. The other
+  direction keeps its rate, so a rapid-equilibrium step stays fast;
+- `_STOPPED`: both its rates vanish;
+- `_CANNOT_SWITCH_OFF`: it cannot be switched off.
+The developer page, "Well-posedness guard", says which readings the guard accepts.
 """
 @enum _SwitchOff::UInt8 _RUNS _LOSES_FORWARD _LOSES_REVERSE _STOPPED _CANNOT_SWITCH_OFF
 

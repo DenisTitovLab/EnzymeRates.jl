@@ -2,14 +2,12 @@
 # ABOUTME: verdict, joint solve and law, so consecutive questions about it derive once.
 
 """
-The derivation memo of a task (`_memo`): the mechanism `m` last asked about, and
-its guard verdict (`_guard`), joint solve (`_solve`) and law (`_law`), each filled on
-first need. Identify's PASS 1 asks one mechanism three questions in a row (`parameters`,
-`rate_equation_string`, `rate_equation_dedup_key`); through the memo they run the solve
-and the law once.
-The memo holds one mechanism, replaced by the next one asked about (compared by `===`),
-and lives in the task's local storage, so tasks share nothing. A compiled rate law's
-generated methods (`compile_rate_equation`, `_derivation_input`) never read it.
+The derivation memo of a task (`_memo`): the mechanism `m` last asked about, and its guard
+verdict (`_guard`), joint solve (`_solve`) and law (`_law`), each filled on first need. It
+holds one mechanism, replaced by the next one asked about (compared by `===`), and lives
+in the task's local storage, so tasks share nothing. A compiled rate law's generated
+methods (`_derivation_input`) never read it. The developer page ("The law, its code, its
+text and its key") says why the memo exists.
 """
 mutable struct _Memo
     m::Union{Nothing, Mechanisms.Mechanism}

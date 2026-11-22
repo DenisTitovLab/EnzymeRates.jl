@@ -2,12 +2,15 @@
 # ABOUTME: and the rescaling certificate that flags a one-subunit L phantom.
 
 """
-A rate law's canonical form: `order`, its fitted constants in canonical order, the
-constants no term holds last by name (`L`, a fixed variable, is not listed); `text`, the
-canonical text; `key`, the text's SHA-256 in 64 hex digits; `leaves`, the labellings the
-search compared; `capped`, whether the search stopped at `_KEY_LEAF_CAP`, in which case
-`text` is the mechanism's own (`"mechanism|"` and its id) and `order` is the variable
-order. Below the cap, two laws get one key exactly when one is the other with its fitted
+A rate law's canonical form:
+- `order`, its fitted constants in canonical order, the constants no term holds last by
+  name (`L`, a fixed variable, is not listed);
+- `text`, the canonical text;
+- `key`, the text's SHA-256 in 64 hex digits;
+- `leaves`, the labellings the search compared;
+- `capped`, whether the search stopped at `_KEY_LEAF_CAP`. Then `text` is the mechanism's
+  own (`"mechanism|"` and its id), and `order` is the variable order.
+Below the cap, two laws get one key exactly when one is the other with its fitted
 constants renamed, each brought to lowest terms unit by unit; concentrations count by
 metabolite name.
 """
@@ -246,13 +249,13 @@ _is_phantom(::_Law) = false
 """
     rate_equation_dedup_key(m) -> (; key, parameters, fit_key, fit_parameters, capped)
 
-The rate-law key of the well-posed mechanism `m` and the key of the fit it reads, from its
-law (through the memo, `_Memo`). `key` and `parameters` are its law's canonical key and its
-fitted constants in canonical order (`_canonical`); `capped` says that the labelling
-reached the leaf cap, so the law took the key of `m`'s text id (`_canonical`).
-`fit_key` and `fit_parameters` name the law whose fit `m` reads: its own, except for an L
-phantom (`_is_phantom`), which reads its active law, its law at `L = 0`, when that law
-holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
+The rate-law key of mechanism `m` and the key of the fit it reads. `key` and `parameters`
+are its law's canonical key and its fitted constants in canonical order (`_canonical`);
+`capped` says that the labelling reached the leaf cap, so the law took the key of `m`'s
+text id. `fit_key` and `fit_parameters` name the law whose fit `m` reads: its own, except
+for an L phantom (`_is_phantom`), which reads its active law, its law at `L = 0`, when that
+law holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
+Errors when the rate law of `m` is not defined (`check_valid_rate_equation`).
 """
 function rate_equation_dedup_key(m::Mechanisms.Mechanism)
     check_valid_rate_equation(m)
