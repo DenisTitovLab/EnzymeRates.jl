@@ -50,9 +50,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     on `main` and on the branch, 19-30 s of it in garbage collection, so the gain on macOS
     is in memory. Two branch runs are not a distribution: the runner's time differed by
     more than a factor of two between them, on nearly the same code. The enumeration test
-    file now bounds the bytes the enumeration holds and allocates, which do not depend on
-    the runner, and logs the ter-ter call's time, garbage collection, bytes allocated and
-    the process's peak resident memory.
+    file now bounds the bytes the enumeration holds and allocates, and logs the ter-ter
+    call's time, garbage collection, bytes allocated and the process's peak resident
+    memory. On aarch64 Linux the bytes were the same in every process on a Julia version,
+    and the allocations differ by about 10% between Julia 1.11.9 and 1.13.4. In the CI run
+    on dc936ab2 (45001777789 and 45001777786) each candidate held 1,594 bytes on every
+    platform, and the bi-bi starting set, one expansion and the ter-ter call allocated
+    38.86 MB, 13.84 MB and 81.24 GiB on Ubuntu, 38.87 MB, 13.86 MB and 80.67 GiB on
+    Windows, 38.94 MB, 14.17 MB and 80.93 GiB on macOS (1.13.4), and 42.62 MB, 12.69 MB
+    and 89.40 GiB on Ubuntu with Julia 1.11.9. In that run macOS took 286.0 s for the
+    ter-ter call, 116.1 s of it in garbage collection, and 35 minutes for the suite, against
+    103-128 s and 14-18 minutes elsewhere, with a peak resident memory of 2.8 GiB against
+    3.0-3.6 GiB.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `EI + J <--> EJ + I` does when `EJ` binds nothing more, no net flux crosses it, so

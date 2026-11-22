@@ -1421,16 +1421,21 @@ end
     end
 end
 
-"""The bytes one call of `f()` allocates, after a warm-up call that compiles it."""
-_testhelper_allocated_bytes(f) = (f(); @allocated f())
+"""The value of one call of `f()` and the bytes the call allocates, after a warm-up call
+that compiles it."""
+function _testhelper_value_and_bytes(f)
+    f()
+    run = @timed f()
+    run.value, run.bytes
+end
 
 @testset "the enumeration holds and allocates a bounded number of bytes" begin
     # Aggregate check over the whole bi-bi starting set. macOS CI runners have 7 GiB, and
-    # the tests there slowed by tens of minutes, most of it in garbage collection, when
-    # each mechanism stored facts derived from its steps (ROADMAP). Time and peak memory
-    # depend on the machine, so these bounds gate their causes, which do not: the same
-    # bytes in every process on a Julia version. Each bound sits about 25% above the
-    # largest value measured on Julia 1.11.9 and 1.13.4.
+    # the tests there spent far less time in garbage collection once mechanisms stopped
+    # storing facts derived from their steps; that memory was the cause is inferred
+    # (ROADMAP). Time and peak memory depend on the machine, so these bounds gate what
+    # does not: the same bytes in every process on a Julia version, measured on Julia
+    # 1.11.9 and 1.13.4.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -1446,21 +1451,27 @@ _testhelper_allocated_bytes(f) = (f(); @allocated f())
             EAB <--> EPQ
         end
     end
-    start = EnzymeRates.Enumeration.candidate_mechanisms(rxn)
-    held = Base.summarysize(start) / length(start)
-    start_bytes = _testhelper_allocated_bytes(
+    start, start_bytes = _testhelper_value_and_bytes(
         () -> EnzymeRates.Enumeration.candidate_mechanisms(rxn))
+    held = Base.summarysize(start) / length(start)
     candidate = _testhelper_candidate(parent)
-    expand_bytes = _testhelper_allocated_bytes(
+    children, expand_bytes = _testhelper_value_and_bytes(
         () -> EnzymeRates.Enumeration.candidate_mechanisms(rxn, candidate))
     @info "bi-bi enumeration: $(round(Int, held)) bytes held per candidate; " *
           "$start_bytes bytes allocated by the starting set, $expand_bytes by one expansion"
-    # 1,594 bytes on both versions. A field derived from the steps and stored on
-    # `Mechanism`, `Step` or the candidate's record of a form raises it.
-    @test held < 2_000
-    # 42,545,112 bytes on 1.11, 38,788,376 on 1.13; more work per seed or variant raises it.
+    # The bounds hold for a known amount of work: fewer candidates or children would
+    # allocate less and pass.
+    @test length(start) == 239
+    @test length(children) == 21
+    # 1,593.6 bytes, the same in every process on Julia 1.11.9 and 1.13.4, so the margin
+    # of 3.5% only allows for an untested Julia version. A field derived from the steps
+    # and stored on `Mechanism`, `Step` or the candidate's record of a form raises it: one
+    # `Int` vector on `Mechanism` takes it to 1,700.
+    @test held < 1_650
+    # Each allocation bound sits 25% above the larger of its two values; more work per
+    # candidate raises it. 42,545,112 bytes on 1.11, 38,788,376 on 1.13:
     @test start_bytes < 53_000_000
-    # 13,750,248 bytes on 1.13, 12,683,288 on 1.11; more work per child raises it.
+    # 13,750,248 bytes on 1.13, 12,683,288 on 1.11:
     @test expand_bytes < 17_200_000
 end
 
@@ -1470,9 +1481,9 @@ end
     # the heap, from about 23% of the call on CI to about 70% under a local heap-size hint,
     # so the budget excludes it. Without it the call takes 38 s in a full local suite and
     # 59-109 s on a CI runner; a macOS runner that took 430 s in all would be near 330 s.
-    # The bytes the call allocates depend neither on the machine nor on garbage
-    # collection; peak resident memory depends on how the collector sizes the heap, so it
-    # is logged and not bounded.
+    # The bytes the call allocates do not depend on garbage collection and were the same
+    # in every process on a Julia version; peak resident memory depends on how the
+    # collector sizes the heap, so it is logged and not bounded.
     run = @timed _testhelper_mechanisms(
         EnzymeRates.Enumeration.init_mechanisms(ter_ter_rxn))
     @info "init_mechanisms on ter-ter: $(round(run.time; digits = 1)) s, " *
