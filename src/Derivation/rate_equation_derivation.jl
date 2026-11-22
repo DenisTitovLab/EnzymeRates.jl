@@ -671,7 +671,8 @@ unlikely to be useful for fitting. Calling the law that `compile_rate_equation` 
 throws it, as do `rate_equation_string` and `rate_equation_dedup_key`. To avoid it, check
 the term count, which derives nothing, before asking for the law;
 `identify_rate_equation` proposes no law with more terms than its `eq_complexity_filter`.
-The error has no fields; its message states the cap.
+The error has no fields; its message states the cap. The type is public, not exported:
+catch it as `EnzymeRates.Derivation.RateEquationTooLargeError`.
 """
 struct RateEquationTooLargeError <: Exception end
 

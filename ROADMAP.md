@@ -232,22 +232,22 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   in nine, on several laws at once, each at 26-38 ns per row, while its 20 batches shared
   one stack depth. It no longer fails from stack placement: each batch times `loss!` a
   different number of frames deeper. With address-space randomization off, the gate as it
-  was failed in all three runs at one placement, on two or three laws each, and the gate
-  as it is passed there twice and at seven placements 512 bytes apart. On the slowest class
-  of CI runner, where a small law takes 29-36 ns, the compiled law's gate failed in two
-  jobs of five, each on one law, 22 and 31 ns over that law's usual time.
-  `_testhelper_test_rate_equation_performance` therefore runs each of its five batches 50
-  frames deeper than the last, with its own copy of the inputs. The effect was measured on
-  aarch64 only, where this removes it, so the x86 runners will show whether these failures
-  are gone. A fit still runs `loss!` at one depth, so the effect on a real fit remains; that
-  a fit in such a process evaluates `loss!` slower for its whole life is inferred. The
-  second fix, inlining the rate law in `loss!`, is under investigation. Not measured: 16 KB
-  pages (macOS on Apple Silicon), x86, and the cost to a whole fit. The earlier observations
-  may be this effect: three large laws 15-25% over the gate in one local process, and one
-  `FittingProblem` up to about 40% slower than a fresh one. Windows CI running up to 5% over
-  on six laws is more likely coverage counters, unproven. The investigation, with its
-  scripts and scans, is `claude-scratchpad/loss-timing-investigation/report.md` on the
-  maintainer's machine.
+  was failed in all three runs at one placement, on two or three laws each, and the gate as
+  it is passed there twice and at seven placements 512 bytes apart. On the slowest class of
+  CI runner, where a small law takes 29-36 ns, the compiled law's gate failed in two jobs of
+  five, each on one law, 22 and 31 ns over that law's usual time. Those failures resemble
+  this effect; their cause on x86 is not measured.
+  `_testhelper_test_rate_equation_performance` runs each of its five batches 50 frames
+  deeper than the last, with its own copy of the inputs, which removes every placement
+  effect measured on aarch64. The x86 runners will show whether the failures are gone. A fit
+  still runs `loss!` at one depth, so the effect on a real fit remains; that a fit in such a
+  process evaluates `loss!` slower for its whole life is inferred. The second fix, inlining
+  the rate law in `loss!`, is under investigation. Not measured: 16 KB pages (macOS on Apple
+  Silicon), x86, and the cost to a whole fit. The earlier observations may be this effect:
+  three large laws 15-25% over the gate in one local process, and one `FittingProblem` up to
+  about 40% slower than a fresh one. Windows CI running up to 5% over on six laws is more
+  likely coverage counters, unproven. The investigation, with its scripts and scans, is
+  `claude-scratchpad/loss-timing-investigation/report.md` on the maintainer's machine.
 - **The fit-cost pin failed once in a full suite.**
   "A fit costs about its loss! calls" (`test/Fitting/test_fit_rate_equation.jl`) failed once
   in a full suite on the allosteric bi-bi mechanism, at 0.387 s against 0.265 s allowed; its
