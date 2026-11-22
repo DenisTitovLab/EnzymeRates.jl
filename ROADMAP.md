@@ -244,9 +244,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   law, 22 and 31 ns over that law's usual time; those failures resemble the first effect,
   and their cause on x86 is not measured. Those jobs timed the law in the test process,
   under coverage counters and `--check-bounds=yes`. The gate reads its times in a child
-  process without either (Developer page, What a fit costs), where the first effect
-  measured 7 and 17 ns on aarch64 rather than 18 and 29; whether that ends the failures on
-  CI is not known. Not measured: x86 and 16 KB pages (macOS on Apple Silicon). The
+  process without either (Developer page, What a fit costs). Without coverage the effects
+  of the first bullet measured 7 and 17 ns rather than 18 and 29, in scans in one process
+  on aarch64, not in the child; whether reading the times in the child ends the failures
+  on CI is not known. Not measured: x86 and 16 KB pages (macOS on Apple Silicon). The
   investigations, with their scripts and scans, are on the maintainer's machine:
   `claude-scratchpad/loss-timing-investigation/`, and `lawgate/`, `inline-memory/`,
   `compiled-loss/`, `loss-two-loops/`, `loss-guard/` and `nocov-gate/` in

@@ -5420,8 +5420,7 @@ leaves room for a slowdown once seen on three large laws in one process, 15-25% 
 law's cost; whether the frame's place on the stack caused it was not tested. The eight
 `log` calls are room the gate does not use where it runs, in the speed child without
 coverage counters (`_testhelper_speed_readings`): over ten such processes on aarch64,
-`loss!` took 0.11-0.30 of the most it may take. The bound is tightened only once CI's
-readings without coverage are known (ROADMAP). Returns the batch with the smallest
+`loss!` took 0.11-0.30 of the most it may take. Returns the batch with the smallest
 `per_row / allowed`."""
 function _testhelper_loss_time_per_row(m)
     table = _testhelper_loss_table(metabolites(m))
@@ -5506,8 +5505,8 @@ const _testhelper_loss_ir_mechanisms = [
 
 """The lines of the basic blocks of the LLVM IR `ir` whose label starts `vector.body`: the
 body of a loop that LLVM's loop vectorizer vectorized. The SLP vectorizer also packs
-`loss!`'s straight-line code into vector instructions, `fdiv <2 x double>` among them, but
-never into such a block."""
+`loss!`'s straight-line code into vector instructions, `fdiv <2 x double>` among them, but,
+in `loss!` on the laws of `_testhelper_loss_ir_mechanisms`, not into such a block."""
 function _testhelper_vector_loop_lines(ir)
     lines, inside = String[], false
     for line in eachline(IOBuffer(ir))
@@ -5525,7 +5524,7 @@ time per call, on the same rows and parameters. Each of 20 batches times `loss!`
 divides `loss!`'s best batch by the law's, so a slow placement of either in some batches
 does not move it. The best batch's own ratio with the law timed at one depth, as
 `_testhelper_loss_time_per_row` takes it, let slower variants of `loss!` pass a bound of
-0.75 on aarch64."""
+0.75 times the law plus two `log` calls on aarch64."""
 function _testhelper_loss_over_law(m)
     table = _testhelper_loss_table(metabolites(m))
     rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
@@ -5540,7 +5539,8 @@ function _testhelper_loss_over_law(m)
     best(f) = minimum(@elapsed(f()) for _ in 1:10) / length(rows)
     t_loss, t_law, kept = Inf, Inf, Any[]
     for depth in 1:20
-        # Each problem and copy stays alive, so the next batch's get new addresses.
+        # Each problem and copy stays alive, so the next batch's problem and copy get new
+        # addresses.
         fresh, inputs = _testhelper_loss_problem(m), Ref((copy(rows), params))
         push!(kept, (fresh, inputs))
         t_loss = min(t_loss, _testhelper_at_depth(depth) do

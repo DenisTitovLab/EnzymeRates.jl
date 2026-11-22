@@ -934,7 +934,8 @@ predictions in a vectorized loop with the law inlined"
 - On the 858-term law, `loss!`'s time per row must be at most 0.7 of the law's time per
   call, each the best over 20 batches at 20 stack depths with the law timed at each batch's
   depth (`_testhelper_loss_over_law`). The gate's statistic, the best batch's ratio with the
-  law at one depth, let slower variants pass a bound of 0.75.
+  law at one depth, let slower variants pass a bound of 0.75 times the law plus two `log`
+  calls.
 
 Run on copies of the package on aarch64, the testset fails each of four variants of `loss!`.
 With the law called once per row in one loop, or without `@inline` on the law, all three
