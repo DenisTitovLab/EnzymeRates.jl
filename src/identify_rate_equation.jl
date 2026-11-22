@@ -102,9 +102,10 @@ end
 Find the best rate equation for the reaction and data of `prob` and return an
 `IdentifyRateEquationResults`. A beam search fits candidate mechanisms in order of
 parameter count and expands the mechanisms whose rate-law key enters its beam. A key enters
-when its loss is at most the loss cutoff, the smaller of the two bounds below, or when it
-ranks within the `min_beam_width` floor. Leave-one-group-out cross-validation then selects
-one mechanism by the one-standard-error rule. [Best mechanism selection](@ref) states both
+when its loss is at most the loss cutoff or when it ranks within the `min_beam_width` floor.
+The cutoff is the first of the two bounds below, or the smaller of the two once a smaller
+parameter count has a fitted loss. Leave-one-group-out cross-validation then selects one
+mechanism by the one-standard-error rule. [Best mechanism selection](@ref) states both
 rules and the files the search writes to `save_dir`.
 
 # Keyword Arguments
@@ -157,8 +158,9 @@ Errors when
 - `save_dir` already holds a `.csv` file or a `progress.log`, so that the results of two
   runs never mix;
 - the starting mechanisms cannot be built: the reaction's metabolite names spell one
-  string two ways (such as `Ac`, `CoA` and `AcCoA`), the reaction has no catalytic cycle,
-  or no mechanism binds every required regulator;
+  string two ways (such as `Ac`, `CoA` and `AcCoA`); every catalytic cycle would need an
+  isomerization converting more than three substrates, or more than three products
+  counting a covalent residue as one; or no mechanism binds every required regulator;
 - no mechanism is fitted to a finite loss (when every starting mechanism throws, the error
   quotes the first failure);
 - a cross-validation fold's loss is not finite;
@@ -514,9 +516,9 @@ workers (`_pass1_record`). Pass 2 fits one mechanism per rate-law key not in `me
 workers, and stores the fit in `memo` (`_Fit`). Every mechanism with that key, in this
 batch or a later one, reads that fit under its own names. A fit that throws fails every
 mechanism with its key. An L phantom is a mechanism to which `rate_equation_dedup_key`
-gives a fit key other than its key. It reads the fit of its law at `L = 0`, with `L = 0`,
-from `memo` or from this batch. When neither holds that fit, or that fit throws, the
-phantom is fitted under its own key.
+gives a fit key other than its key. It reads, from `memo` or from this batch, the fit of
+the law it has at `L = 0`, and its row adds `L = 0` to that fit's values. When neither
+holds that fit, or that fit throws, the phantom is fitted under its own key.
 
 `log` receives the pre-fit summary (`_prefit_summary`) with a line per mechanism whose law
 reached the leaf cap, then a line per phantom whose source's fit threw. `parent_of` maps a
