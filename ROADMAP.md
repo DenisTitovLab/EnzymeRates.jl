@@ -432,11 +432,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The bounds on the compiled law (50 ns + 0.5 ns per denominator term) and on `loss!` (1.25
   times the law plus eight `log` calls per row) were set from timings taken under coverage
   counters, and the gate reads its times in a child process without them (Developer page,
-  What a fit costs). In ten such processes on aarch64 no law took more than 0.21 of its
+  What a fit costs). In ten such processes on aarch64 no law took more than 0.22 of its
   bound and `loss!` no more than 0.30 of what it is allowed, so both bounds pass a slowdown
   of three times or more. Read the gate's `@info` lines from CI's x86 (Ubuntu, Windows) and
   macOS runners over a few runs, then propose bounds that leave room for the slowest runner,
-  for the maintainer's approval. Priority: medium.
+  for the maintainer's approval. The same lines give the first x86 readings of the `loss!`
+  guard ("loss! guard: …"), whose bound of 0.7 was set on aarch64 alone. Priority: medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
   numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The

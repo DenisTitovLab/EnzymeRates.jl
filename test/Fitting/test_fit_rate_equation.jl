@@ -570,6 +570,31 @@ end
         @test best_us < 70
     end
 
+    # ── loss!'s vectorized prediction loop ────────────────────────────────────
+    # loss! computes every row's prediction in a first loop with the law inlined and no
+    # branch or call, which LLVM vectorizes: it runs over several rows at once in vector
+    # registers. The gate's bound on loss! passes without that. So the speed child, which
+    # runs without CI's coverage counters and bounds checks (coverage keeps the loop
+    # scalar, and so does a bounds check on the column reads on Julia 1.13), reads
+    # loss!'s optimized IR on three laws (`_testhelper_loss_ir_mechanisms`): each
+    # must divide on vectors inside a vectorized loop and call no law. It also times loss!
+    # against the law on the 858-term law (`_testhelper_loss_over_law`). On aarch64 loss!
+    # takes 0.40-0.46 of the law's time per row there, about 0.77 with the loop scalar and
+    # 1.03-1.10 with the law called.
+    @testset "loss! runs its predictions in a vectorized loop with the law inlined" begin
+        k = eachindex(_testhelper_loss_ir_mechanisms)
+        vals = _testhelper_speed_readings([["VECTOR_DIVISIONS_$i" for i in k];
+                                           ["LAW_CALLS_$i" for i in k]; "LOSS_OVER_LAW"])
+        divisions, calls, ratio = vals[k], vals[k .+ length(k)], vals[end]
+        @info "loss! guard: divisions on vectors in vectorized loops $divisions, calls " *
+              "to the law $calls, loss! per row over the law per call " *
+              "$(round(ratio; digits = 3))"
+        # A reading the child did not print is NaN, which fails each test.
+        @test all(>=(1), divisions)
+        @test all(==(0), calls)
+        @test ratio <= 0.7
+    end
+
     # ── fit_rate_equation's time beyond loss! ─────────────────────────────────
     # A real fit is loss! times the solver's evaluations, plus the solver's own work and a
     # fixed cost per restart. Counting the evaluations makes the bound independent of how

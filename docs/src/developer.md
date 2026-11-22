@@ -894,15 +894,16 @@ starts one child process from the bare Julia executable, without those flags
 (`_testhelper_speed_readings`). The child includes `test/testhelpers.jl`, times every gated
 law and prints the readings, and the tests compare them with their bounds. The allocation
 checks stay in the test process, so CI runs them under coverage and bounds checks. Locally
-(aarch64) the child takes about 15 s: 0.6 s to load the package, 2.5 s to include
-`testhelpers.jl` and 11.5 s to time the 48 laws. Each margin has a reason:
+(aarch64) the child takes about 15 s: 0.6 s to load the package, 2.6 s to include
+`testhelpers.jl` and 12 s to time the 48 laws and read `loss!` for the guard below. Each
+margin has a reason:
 
 - The compiled law's bound has a large intercept because small laws take 1-8 ns on an
   aarch64 development machine and 5-38 ns on CI under coverage counters, varying by runner.
   It catches only a large slowdown of a small law; its part per denominator term binds on
   large laws. Where the law's frame and its inputs fall in a 4 KB page can slow every call
   of a process. So each of the five batches has its own stack depth and its own copy of the
-  inputs. In ten child processes on aarch64 no law took more than 0.21 of its bound.
+  inputs. In ten child processes on aarch64 no law took more than 0.22 of its bound.
 - `loss!` is timed against the compiled law and `log` in one process, so machine speed
   cancels out. The bound holds if any batch meets it. Each batch times `loss!` on a new
   `FittingProblem`, since where a problem's arrays fall on the heap can slow `loss!` up to
@@ -914,6 +915,50 @@ checks stay in the test process, so CI runs them under coverage and bounds check
 
 Both bounds were set from timings taken under coverage, and stay until CI's runners have
 been read without it (`ROADMAP.md`, Planned).
+
+Neither bound sees `loss!` lose its vectorized first loop. With the loop `loss!` takes
+0.40–0.46 of the 858-term law's time per row, and with the law called once per row about
+1.1, while the gate allows 1.25 times the law and more. So the testset "loss! runs its
+predictions in a vectorized loop with the law inlined"
+(`test/Fitting/test_fit_rate_equation.jl`) reads two more things from the child:
+
+- `loss!`'s optimized IR (`code_llvm`) on Segel's ordered bi-bi, PFK-1 and the random-order
+  bi-bi (`_testhelper_loss_ir_mechanisms`) must hold a division of a vector of `Float64`
+  inside a block that LLVM's loop vectorizer labels `vector.body`, and no call to the
+  compiled law. The prediction loop is the only loop of `loss!` that divides. The SLP
+  vectorizer also puts vector divisions in straight-line code, so only those in a
+  `vector.body` block count; the sum of squares in absolute mode is a vectorized loop with
+  no division. A loop with a call never vectorizes, so the count of calls only names the
+  cause. Uni-uni would not serve: Julia inlines its law without `@inline`, and its loop
+  vectorizes without the inner `@inbounds`.
+- On the 858-term law, `loss!`'s time per row must be at most 0.7 of the law's time per
+  call, each the best over 20 batches at 20 stack depths with the law timed at each batch's
+  depth (`_testhelper_loss_over_law`). The gate's statistic, the best batch's ratio with the
+  law at one depth, let slower variants pass a bound of 0.75.
+
+A spike on aarch64, on Julia 1.13 and 1.11, checked it against variants of `loss!`. It fails
+`loss!` with the law called once per row in one loop and `loss!` without `@inline` on the
+law, on both counts (1.03–1.10 of the law). Without the inner `@inbounds`, or with the sign
+test and `log` back in the first loop, `loss!` reads 0.77, only 10% over the bound, and the
+IR check is what catches them. It passes the present code, an `ifelse` in the second loop,
+`@simd ivdep`, and the loop without `@simd`, which changes neither its vector body nor its
+time. The present code's ratio read at most 0.412 in the spike's 36 processes, 0.59 of the
+bound, and 0.397–0.414 in ten child processes.
+
+What it cannot see:
+
+- the speed of any other law's `loss!`: only the 858-term law is timed, and the three laws
+  read in IR are checked for vectorization only;
+- removing `@simd`, and on Julia 1.11 removing the inner `@inbounds`, neither of which costs
+  anything there;
+- the second loop and the sums, about a tenth of `loss!` on the 858-term law, so doubling
+  them would move the ratio from about 0.41 to 0.45 (inferred);
+- the heap-placement effect, which the best of 20 batches ignores on purpose;
+- a later loop that divides and vectorizes, such as an inlined vectorized `log`, which
+  would pass the IR check as the prediction loop does (inferred);
+- x86, never measured. If LLVM's x86 cost model declined to vectorize the loop, the ratio
+  would sit near the scalar 0.77 and fail the bound; CI's `@info` lines give the first x86
+  readings.
 
 `test/Fitting/test_fit_rate_equation.jl` checks `loss!` on each column type a table can
 bring and on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a

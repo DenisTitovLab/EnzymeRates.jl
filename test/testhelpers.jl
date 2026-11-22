@@ -5496,12 +5496,74 @@ const _testhelper_gated_laws = [
     [(m, collect(metabolites(m))) for m in [_testhelper_largest_enumerated_mechanisms;
                                            _testhelper_large_ter_bi_mechanisms]]]
 
-"""Prints the speed gate's readings for `_testhelper_speed_readings`, one
-`<label>:<seconds>` line each. For gated law `i` (`_testhelper_gated_laws`): `LAW_i`, the
-compiled law's time per call (`_testhelper_test_rate_equation_performance`, at the
-constants and concentrations `_testhelper_random_independent_params_concs` draws from seed
-42), and `LOSS_i` and `ALLOWED_i`, `loss!`'s time per row and the most it may take
-(`_testhelper_loss_time_per_row`)."""
+"""The laws whose `loss!` the speed child reads in optimized IR: a plain bi-bi law of 16
+terms, an allosteric law of seven metabolites and a plain bi-bi law of 96 terms. Uni-uni
+would not do: Julia inlines its law without `@inline`, and its loop vectorizes without the
+inner `@inbounds`."""
+const _testhelper_loss_ir_mechanisms = [
+    only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
+    for name in ("Segel Ordered Bi Bi", "PFK-1", "Random-order Bi-Bi")]
+
+"""The lines of the basic blocks of the LLVM IR `ir` whose label starts `vector.body`: the
+body of a loop that LLVM's loop vectorizer vectorized. The SLP vectorizer also packs
+`loss!`'s straight-line code into vector instructions, `fdiv <2 x double>` among them, but
+never into such a block."""
+function _testhelper_vector_loop_lines(ir)
+    lines, inside = String[], false
+    for line in eachline(IOBuffer(ir))
+        label = match(r"^([^\s:;]+):", line)
+        label === nothing || (inside = startswith(label[1], "vector.body"))
+        inside && push!(lines, line)
+    end
+    lines
+end
+
+"""`Fitting.loss!`'s time per data row on a 64-row table of `m` over its compiled law's
+time per call, on the same rows and parameters. Each of 20 batches times `loss!` on a fresh
+`FittingProblem` and the law on its own copy of the rows, both one level of
+`_testhelper_at_depth` deeper than the last batch, each the best of 10 calls. The ratio
+divides `loss!`'s best batch by the law's, so a slow placement of either in some batches
+does not move it. The best batch's own ratio with the law timed at one depth, as
+`_testhelper_loss_time_per_row` takes it, let slower variants of `loss!` pass a bound of
+0.75 on aarch64."""
+function _testhelper_loss_over_law(m)
+    table = _testhelper_loss_table(metabolites(m))
+    rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
+            for i in eachindex(table.Rate)]
+    names = parameters(m)
+    x = 0.1 .* randn(Random.MersenneTwister(42), length(names))
+    # `_testhelper_loss_problem` fits at Keq = 2.
+    params = NamedTuple{names}(Tuple(exp.(x)))
+    rate = compile_rate_equation(m)
+    EnzymeRates.Fitting.loss!(x, _testhelper_loss_problem(m))
+    _testhelper_rate_rows(rate, rows, params, 2.0)
+    best(f) = minimum(@elapsed(f()) for _ in 1:10) / length(rows)
+    t_loss, t_law, kept = Inf, Inf, Any[]
+    for depth in 1:20
+        # Each problem and copy stays alive, so the next batch's get new addresses.
+        fresh, inputs = _testhelper_loss_problem(m), Ref((copy(rows), params))
+        push!(kept, (fresh, inputs))
+        t_loss = min(t_loss, _testhelper_at_depth(depth) do
+            best(() -> EnzymeRates.Fitting.loss!(x, fresh))
+        end)
+        t_law = min(t_law, _testhelper_at_depth(depth) do
+            r, p = inputs[]
+            best(() -> _testhelper_rate_rows(rate, r, p, 2.0))
+        end)
+    end
+    t_loss / t_law
+end
+
+"""Prints the speed readings for `_testhelper_speed_readings`, one `<label>:<value>` line
+each. For gated law `i` (`_testhelper_gated_laws`), in seconds: `LAW_i`, the compiled
+law's time per call (`_testhelper_test_rate_equation_performance`, at the constants and
+concentrations `_testhelper_random_independent_params_concs` draws from seed 42), and
+`LOSS_i` and `ALLOWED_i`, `loss!`'s time per row and the most it may take
+(`_testhelper_loss_time_per_row`). For law `k` of `_testhelper_loss_ir_mechanisms`, read in
+`loss!`'s optimized IR on its `_testhelper_loss_problem`: `VECTOR_DIVISIONS_k`, the
+divisions of vectors of `Float64` in vectorized loops, and `LAW_CALLS_k`, the calls to the
+compiled law. And `LOSS_OVER_LAW`, `_testhelper_loss_over_law` on the 858-term law. Needs
+`code_llvm` from InteractiveUtils."""
 function _testhelper_print_speed_readings()
     for (i, (m, names)) in enumerate(_testhelper_gated_laws)
         params, Keq, concs, _ = _testhelper_random_independent_params_concs(
@@ -5511,14 +5573,27 @@ function _testhelper_print_speed_readings()
         (; per_row, allowed) = _testhelper_loss_time_per_row(m)
         println("LAW_$i:", law, "\nLOSS_$i:", per_row, "\nALLOWED_$i:", allowed)
     end
+    for (k, m) in enumerate(_testhelper_loss_ir_mechanisms)
+        fp = _testhelper_loss_problem(m)
+        ir = sprint(io -> code_llvm(io, EnzymeRates.Fitting.loss!,
+                                    (Vector{Float64}, typeof(fp)); debuginfo = :none))
+        divisions = count(l -> occursin(r"= fdiv [a-z ]*<(vscale x )?\d+ x double>", l),
+                          _testhelper_vector_loop_lines(ir))
+        law = string(nameof(typeof(fp.rate)))
+        calls = count(l -> occursin(r"\bcall\b", l) && occursin(law, l),
+                      eachline(IOBuffer(ir)))
+        println("VECTOR_DIVISIONS_$k:", divisions, "\nLAW_CALLS_$k:", calls)
+    end
+    ratio = _testhelper_loss_over_law(_testhelper_large_ter_bi_mechanisms[3])
+    println("LOSS_OVER_LAW:", ratio)
 end
 
 # What the speed child printed, once `_testhelper_speed_readings` has run it.
 const _testhelper_speed_output = Ref{Union{Nothing, String}}(nothing)
 
 """
-The speed readings named `labels` (`_testhelper_print_speed_readings`), in seconds, NaN
-for any the child did not print. The first call runs the child, a fresh Julia process
+The speed readings named `labels` (`_testhelper_print_speed_readings`), NaN for any the
+child did not print. The first call runs the child, a fresh Julia process
 started from the bare executable, which includes this file and prints every reading; later
 calls read what it printed. CI runs the suite with coverage counters on every line of the
 package and with `--check-bounds=yes`, under which no `@inbounds` holds; the child runs
@@ -5527,8 +5602,12 @@ without either, as users do. A child that fails warns with what it wrote to stde
 """
 function _testhelper_speed_readings(labels::Vector{String})
     if _testhelper_speed_output[] === nothing
+        # Under `Pkg.test` the load path holds the test environment alone, which does not
+        # list InteractiveUtils.
         _testhelper_speed_output[] = _testhelper_subprocess_output("""
             using Test, EnzymeRates, LinearAlgebra, Random
+            push!(LOAD_PATH, "@stdlib")
+            using InteractiveUtils
             include($(repr(joinpath(@__DIR__, "testhelpers.jl"))))
             _testhelper_print_speed_readings()
             """)
