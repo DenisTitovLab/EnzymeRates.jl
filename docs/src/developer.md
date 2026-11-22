@@ -538,20 +538,22 @@ without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)`
 `_guard_message(m)`, which names each step by its DSL line (`step_text`) and the face;
 `check_valid_rate_equation(Bool, m)` returns the verdict instead.
 
-The guard builds two networks of one catalytic subunit whose conformations flip at free E
-(`_Network`): the **law network**, each conformation's kept steps on the forms free E
-reaches through them (`steps_in_active_conformation`, `steps_in_inactive_conformation`),
-and the **ε-network**, every step
-of both conformations, each excluded step switched off as a **reading** says (`_Reading`,
-`_eps_network`). The faces (`_faces`) are bit masks over the metabolite names. Before any
-class the guard checks that every cycle of the catalytic scheme balances each metabolite,
-whatever the conformations run: a cycle that takes up the first substrate n times net
-takes up each substrate and gives off each product n times, and gives off each modifier
-as often as it takes it up (`_unbalanced_cycle`, the walk of `_fast_segments` over every
-step, each reactant's change less the reaction's over the step's uptake of the first
-substrate). Form names are opaque, so a step that leaves out a metabolite breaks only a
-cycle, and the joint solve has no law for that cycle. Class 1, a cycle that turns the
-reaction over (`has_turnover_cycle`), reads no reading. Under a
+The guard builds three networks (`_Network`). Two are of one catalytic subunit whose
+conformations flip at free E: the **law network**, each conformation's kept steps on the
+forms free E reaches through them (`steps_in_active_conformation`,
+`steps_in_inactive_conformation`), and the **ε-network**, every step of both
+conformations, each excluded step switched off as a **reading** says (`_Reading`,
+`_eps_network`). The third is one copy of every step, each marked fast, on which the guard
+checks, before any class, that every cycle of the catalytic scheme balances each
+metabolite, whatever the conformations run (`_unbalanced_cycle`, the walk of
+`_fast_segments` with each reactant's change less the reaction's over the step's uptake of
+the first substrate): a cycle that takes up the first substrate n times net takes up each
+substrate and gives off each product n times, and gives off each modifier as often as it
+takes it up. Form names are opaque, so a step that leaves out a metabolite, writes one on
+the wrong side or names the wrong form breaks only a cycle, and the joint solve has no law
+for that cycle; the message states the cycle's net change. The faces (`_faces`) are bit
+masks over the metabolite names. Class 1, a cycle that turns the reaction over
+(`has_turnover_cycle`), reads no reading. Under a
 reading (`_verdict_under`) the guard checks class 2, no fast cycle of the ε-network that
 takes up a name net; admission's interior (`_admission_interior`: the reading is
 consistent, and the active conformation still turns the reaction over); then on each face

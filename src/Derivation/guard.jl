@@ -402,15 +402,19 @@ face runs at the interior too."""
 _re_turnover_transitions(net::_Network) = _fast_segments(net).cycle
 
 """
-    _unbalanced_cycle(m) -> (; steps, metabolite)
+    _unbalanced_cycle(m) -> (; steps, change)
 
-A cycle of the steps of `m` that does not balance metabolite `metabolite`, an index into
-`m.metabolites`. A cycle turns the reaction over as many times as it takes up the first
-substrate net, and balances when it takes up each substrate and gives off each product
-that many times net, and gives off each modifier as often as it takes it up. `steps` lists
-the cycle's steps in cycle order; it is empty, and `metabolite` 0, when every cycle
-balances. A step that leaves out a metabolite it takes up or gives off makes such a cycle,
-and the joint solve has no law for it (`_fundamental_cycles`).
+A cycle of the steps of `m` that does not balance some metabolite, and its net change. A
+cycle turns the reaction over as many times as it takes up the first substrate net, and
+balances when it takes up each substrate and gives off each product that many times net,
+and gives off each modifier as often as it takes it up. `steps` lists the cycle's steps in
+cycle order. `change[x]` counts the copies of metabolite `x` (an index into
+`m.metabolites`) that the cycle takes up less those it gives off, read in the direction
+that takes up the first metabolite it changes, in stored order: the first substrate,
+whenever the cycle changes it. Both are empty when every cycle balances. A step that
+leaves out a metabolite, writes one on the wrong side or names the wrong form makes such a
+cycle, and the joint solve has no law for it (`_fundamental_cycles`). The search borrows
+class 2's walk (`_fast_segments`) on a network of every step, each marked fast.
 """
 function _unbalanced_cycle(m::Mechanisms.CatalyticScheme)
     n, nf = length(m.steps), length(m.enzyme_forms)
@@ -427,12 +431,24 @@ function _unbalanced_cycle(m::Mechanisms.CatalyticScheme)
     for x in m.products
         net.change[x, :] .+= turns
     end
-    (; offset, cycle) = _fast_segments(net)
-    isempty(cycle) && return (; steps = Int[], metabolite = 0)
-    t = last(cycle)
-    x = findfirst(x -> offset[x, net.to[t]] != offset[x, net.from[t]] + net.change[x, t],
-                  axes(offset, 1))::Int
-    (; steps = net.edge[cycle], metabolite = x)
+    cycle = _fast_segments(net).cycle
+    isempty(cycle) && return (; steps = Int[], change = Int[])
+    # The cycle is a closed walk from the start of its last transition. Count each step's
+    # metabolites as written, in the direction the walk runs the step.
+    change, at = zeros(Int, length(m.metabolites)), net.from[last(cycle)]
+    for t in cycle
+        along = net.from[t] == at
+        at = along ? net.to[t] : net.from[t]
+        dir = along == net.forward[t] ? 1 : -1
+        for x in m.steps[net.edge[t]].taken_up
+            change[x] += dir
+        end
+        for x in m.steps[net.edge[t]].given_off
+            change[x] -= dir
+        end
+    end
+    change[findfirst(!=(0), change)::Int] < 0 && (change .= .-change)
+    (; steps = net.edge[cycle], change)
 end
 
 """The first fault `check(i)` returns over the indices `i` of `faces`, in order;

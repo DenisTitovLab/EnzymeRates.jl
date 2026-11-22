@@ -309,9 +309,10 @@ end
 @testset "the guard rejects a cycle that does not balance a metabolite" begin
     D = EnzymeRates.Derivation
     unbalanced = D._Verdict(D._UNBALANCED_CYCLE, D._LIMIT_UNTESTED, 0, 0, 0)
-    rule = "each time a cycle turns the reaction over, it takes up each substrate once " *
-           "and gives off each product once, and it gives off every modifier it takes " *
-           "up. Check whether one of these steps is missing a metabolite."
+    rule = " Round every cycle, the substrates go in and the products come out as often " *
+           "as the reaction runs, and each modifier comes off as often as it binds. " *
+           "Check whether one of these steps leaves out a metabolite, writes one on the " *
+           "wrong side or names the wrong form."
     # Form names are opaque, so a step that leaves out a metabolite makes no step wrong,
     # only a cycle. ES <--> ESI forgets `+ I`: the cycle E → EI → ESI → ES → E takes up
     # I and gives it off nowhere.
@@ -328,9 +329,12 @@ end
         end
     end
     msg = "Mechanism: the steps E + S ⇌ ES, E + I ⇌ EI, EI + S <--> ESI and " *
-          "ESI <--> ES close a cycle that does not balance I: " * rule
+          "ESI <--> ES close a cycle that, net, takes up I and gives off nothing." * rule
     @test D._guard(forgotten_i) === unbalanced
     @test !D.check_valid_rate_equation(Bool, forgotten_i)
+    # The net change over S, P and I, read in the direction that takes up the first
+    # metabolite it changes.
+    @test D._unbalanced_cycle(forgotten_i.catalytic).change == [0, 0, 1]
     @test D._guard_message(forgotten_i) == msg
     @test_throws ErrorException(msg) parameters(forgotten_i)
     @test_throws ErrorException(msg) @enzyme_mechanism begin
@@ -373,9 +377,10 @@ end
         end
     end
     msg = "Mechanism: the steps E + S ⇌ ES, EP + P ⇌ E and ES <--> EP close a cycle " *
-          "that does not balance P: " * rule
+          "that, net, takes up S and P and gives off nothing." * rule
     @test D._guard(forgotten_release) === unbalanced
     @test !D.check_valid_rate_equation(Bool, forgotten_release)
+    @test D._unbalanced_cycle(forgotten_release.catalytic).change == [1, 1]
     @test D._guard_message(forgotten_release) == msg
     @test_throws ErrorException(msg) parameters(forgotten_release)
     @test_throws ErrorException(msg) @enzyme_mechanism begin
@@ -387,6 +392,55 @@ end
             EP + P ⇌ E
         end
     end
+    # EB ⇌ EAB forgets `+ A`, the first substrate: the cycle E → EA → EAB → EB → E takes
+    # up A, while B goes on and comes off again. Measured against the uptake of A, as the
+    # turnover count is, B would seem the one out of balance; the net change names A.
+    forgotten_first = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EPQ ⇌ EQ + P
+            EQ ⇌ E + Q
+            E + B ⇌ EB
+            EB ⇌ EAB
+        end
+    end
+    msg = "Mechanism: the steps E + B ⇌ EB, E + A ⇌ EA, EA + B ⇌ EAB and EAB ⇌ EB close " *
+          "a cycle that, net, takes up A and gives off nothing." * rule
+    @test D._guard(forgotten_first) === unbalanced
+    @test D._unbalanced_cycle(forgotten_first.catalytic).change == [1, 0, 0, 0]
+    @test D._guard_message(forgotten_first) == msg
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EPQ ⇌ EQ + P
+            EQ ⇌ E + Q
+            E + B ⇌ EB
+            EB ⇌ EAB
+        end
+    end
+    # E + S + S ⇌ ESS takes up two S for each P, where the reaction takes up one: the
+    # message counts the copies.
+    two_s = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S + S ⇌ ESS
+            ESS <--> E + P
+        end
+    end
+    msg = "Mechanism: the steps E + S + S ⇌ ESS and E + P <--> ESS close a cycle that, " *
+          "net, takes up 2 S and gives off P." * rule
+    @test D._guard(two_s) === unbalanced
+    @test D._unbalanced_cycle(two_s.catalytic).change == [2, -1]
+    @test D._guard_message(two_s) == msg
     # E + I ⇌ EI and EI <--> E: the cycle takes up I and returns to E without it.
     consumes_i = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
@@ -399,9 +453,12 @@ end
             EI <--> E
         end
     end
-    msg = "Mechanism: the steps E <--> EI and E + I ⇌ EI close a cycle that does not " *
-          "balance I: " * rule
+    msg = "Mechanism: the steps E <--> EI and E + I ⇌ EI close a cycle that, net, takes " *
+          "up I and gives off nothing." * rule
     @test D._guard(consumes_i) === unbalanced
+    # Read the other way, the cycle would give off I: the change is read in the direction
+    # that takes up the first metabolite it changes, here I.
+    @test D._unbalanced_cycle(consumes_i.catalytic).change == [0, 0, 1]
     @test D._guard_message(consumes_i) == msg
     @test_throws ErrorException(msg) @enzyme_mechanism begin
         substrates: S
@@ -431,7 +488,7 @@ end
         end
     end
     msg = "Mechanism: the steps E + S ⇌ ES, E + I ⇌ EI, EI + S ⇌ ESI and ESI ⇌ ES " *
-          "close a cycle that does not balance I: " * rule
+          "close a cycle that, net, takes up I and gives off nothing." * rule
     @test D._guard(forgotten_i_re) === unbalanced
     @test D._guard_message(forgotten_i_re) == msg
     @test_throws ErrorException(msg) @enzyme_mechanism begin
@@ -460,8 +517,8 @@ end
             EI <--> E         :: OnlyI
         end
     end
-    msg = "Mechanism: the steps E <--> EI and E + I ⇌ EI close a cycle that does not " *
-          "balance I: " * rule
+    msg = "Mechanism: the steps E <--> EI and E + I ⇌ EI close a cycle that, net, takes " *
+          "up I and gives off nothing." * rule
     @test D._guard(consumes_i_inactive) === unbalanced
     active = EnzymeRates.Mechanisms.steps_in_active_conformation(consumes_i_inactive)
     @test !any(active[D._unbalanced_cycle(consumes_i_inactive.catalytic).steps])

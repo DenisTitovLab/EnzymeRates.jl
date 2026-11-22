@@ -2426,8 +2426,8 @@ end
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # A mechanism whose derivation throws: T binds free E only in a dead end, so the
     # catalytic cycle turns S alone into P, and the guard, which `_process_batch` runs
-    # before it derives, raises its message for a cycle that does not balance T. The
-    # FitFailure must carry the ORIGINAL `m0`.
+    # before it derives, raises its message for a cycle that takes up S and gives off P.
+    # The FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
@@ -2491,23 +2491,25 @@ end
 
 @testset "_expand_parents records an expansion error instead of aborting" begin
     # candidate_mechanisms asserts that every child conserves atoms; this mechanism's
-    # chemistry step does not (T binds free E only in a dead end, so the step makes
-    # P's N from nothing), and the assertion raises. _expand_parents must catch that
-    # and return the parent as a FitFailure (so the beam records it in CSV and
-    # continues), not propagate and abort the search. The guard rejects the mechanism, as
-    # its cycle turns S into P without T.
+    # isomerization EA ⇌ EP does not (A gives its O to B, and no covalent residual holds
+    # it in between), and the assertion raises. _expand_parents must catch that and
+    # return the parent as a FitFailure (so the beam records it in CSV and continues),
+    # not propagate and abort the search. The guard admits the parent: its cycle takes up
+    # A and B and gives off P and Q.
     rxn_bad = @enzyme_reaction begin
-        substrates: S[C], T[N]
-        products:   P[CN]
+        substrates: A[CO], B[N]
+        products:   P[C], Q[NO]
     end
-    m_bad = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: S, T
-        products: P
+    m_bad = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
         steps: begin
-            E + S ⇌ ES
-            ES <--> EP
-            E + P ⇌ EP
-            E + T ⇌ ET
+            E + A ⇌ EA
+            EA ⇌ EP
+            EP + B ⇌ EPB
+            EPB ⇌ EPQ
+            EPQ ⇌ EQ + P
+            E + Q <--> EQ
         end
     end
     # Sanity: expansion of this mechanism genuinely raises.
@@ -2522,18 +2524,19 @@ end
     failure = only(failures)
     @test failure isa EnzymeRates.FitFailure
     @test failure.mech == m_bad                    # the ORIGINAL parent
-    # The recorded error is the assertion's: the chemistry step ES → EP makes an N.
-    @test occursin("atom-non-conserving step ES → EP", failure.error)
-    @test occursin("= Dict(:N => 1)", failure.error)
+    # The recorded error is the assertion's: the isomerization EA → EP loses A's O.
+    @test occursin("atom-non-conserving step EA → EP", failure.error)
+    @test occursin("= Dict(:O => -1)", failure.error)
     # A well-formed parent, a seed of the reaction, expands with no failure.
     good = @enzyme_mechanism begin
-        substrates: S, T
-        products: P
+        substrates: A, B
+        products: P, Q
         steps: begin
-            E + S ⇌ ES
-            ES + T ⇌ EST
-            EST <--> EP
-            EP ⇌ E + P
+            E + A ⇌ EA
+            EA + B ⇌ EAB
+            EAB <--> EPQ
+            EPQ ⇌ EQ + P
+            EQ ⇌ E + Q
         end
     end
     gkids, _, gfail = EnzymeRates._expand_parents([entry(good)], rxn_bad; no_limits...)

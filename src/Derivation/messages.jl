@@ -13,7 +13,7 @@ cause read under the reading the verdict was judged under (`_guard_with_reading`
 (`_every_step_cures`); every other fix only when its variant passes `_guard`. When two
 constants share a name (`_SHARED_NAME`), the error names them and asks for a renaming;
 for a cycle that does not balance a metabolite (`_UNBALANCED_CYCLE`), it names the
-cycle's steps and the metabolite (`_unbalanced_cycle`) and asks for a missing metabolite.
+cycle's steps and its net change (`_unbalanced_cycle`) and the slips that make one.
 An error when the guard admits `mech`.
 """
 function _guard_message(mech::Mechanisms.Mechanism)
@@ -25,13 +25,19 @@ function _guard_message(mech::Mechanisms.Mechanism)
                "enzyme form so that each constant has a name of its own."
     if verdict.fault === _UNBALANCED_CYCLE
         m = mech.catalytic
-        (; steps, metabolite) = _unbalanced_cycle(m)
+        (; steps, change) = _unbalanced_cycle(m)
         lines = join([Mechanisms.step_text(m, k) for k in steps], ", ", " and ")
-        return "Mechanism: the steps $lines close a cycle that does not balance " *
-               "$(m.metabolites[metabolite]): each time a cycle turns the reaction over, " *
-               "it takes up each substrate once and gives off each product once, and it " *
-               "gives off every modifier it takes up. Check whether one of these steps " *
-               "is missing a metabolite."
+        # The metabolites on one side of the net change, each with its count when above 1.
+        function side(sgn)
+            listed = [(abs(c) == 1 ? "" : "$(abs(c)) ") * String(m.metabolites[x])
+                      for (x, c) in enumerate(change) if sgn * c > 0]
+            isempty(listed) ? "nothing" : join(listed, ", ", " and ")
+        end
+        return "Mechanism: the steps $lines close a cycle that, net, takes up $(side(1)) " *
+               "and gives off $(side(-1)). Round every cycle, the substrates go in and " *
+               "the products come out as often as the reaction runs, and each modifier " *
+               "comes off as often as it binds. Check whether one of these steps leaves " *
+               "out a metabolite, writes one on the wrong side or names the wrong form."
     end
     verdict.fault === _NO_CYCLE &&
         return "Mechanism: no cycle of steps turns substrates into products, so the rate " *
