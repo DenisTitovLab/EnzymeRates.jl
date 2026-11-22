@@ -811,104 +811,59 @@ Carrying mechanism structure as runtime values instead means enumeration and ded
 cost no compilation at all. Only the candidates the search actually fits have their rate
 laws compiled, one at a time, through `compile_rate_equation`.
 
-The moves never emit a child that is provably a reparameterization of its parent. The
-split move divides a group by binding context and accepts a set of splits only if the
-independent-parameter count rises and the guard accepts the built child; the count comes
-from the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A
-split never changes admission's interior verdict, since both parts keep the group's tag. A
-set whose child the guard rejects counts as failed, like one whose count does not rise,
-and the search extends a failed set by the splits of the groups that share its
-rapid-equilibrium segments. The RE→SS move flips whole groups and
-accepts a set only if the rapid-equilibrium segment count rises and every flipped group
-carries net flux in the child. In a plain mechanism it never offers as a unit a flank
-of a qualifying chain whose isomerization is steady state (`_chain_flank_groups`):
-by the chain lemma that flip adds parameters and no rate law. An
-allosteric mechanism keeps those flips, since over more than one catalytic
-subunit a flank's flip can raise the rank. Flux is decided on the graph of
-rapid-equilibrium segments (`_flux_carrying_groups`): each steady-state step is an
-edge weighted by
-its net uptake of substrates minus products, segment offsets included, and a step
-carries flux exactly when its biconnected block holds a cycle of nonzero weight. A
-steady-state group with no such step exposes only the ratio of its constants, so a
-flip set that leaves one counts as failed and is extended, and a split part with
-none is emitted at rapid equilibrium. A dead-end copy of a substrate or product
-is redundant, and never emitted, when in every conformation where it binds each of
-its complexes has a productive twin (a form that holds no modifier, in
-the complex's rapid-equilibrium segment with its offsets, so the two weights are
-proportional: `_productive_twin`, tested over a group by `_all_twin`; every
-conformation holds its free enzyme, `_redundant_copy_groups`), and the dwell gauge,
-which rescales each twin by
-its own factor and all of the copy's complexes by one factor, is consistent with
-every kinetic group's shared constants, the copy's own included, an `:EqualAI`
-group taking one rescaling in both conformations (`_gauge_rescaling`, bookkeeping
-over the edges whose classes, `_GaugeClass`, are a kinetic group's or a twin form's own,
-per conformation); a copy whose complexes all have twins but whose gauge fails is
-kept, since only the gauge proves the copy's constant invisible. The
-dead-end move skips a redundant placement, the split drops every child that holds
-a redundant copy group (a split can complete a gauge, and splitting a group that
-forms a copy's twins can break one, so only the whole child decides), and
-`_expand_change_allo_state` and the parent check reject a redundant group
-(`_redundant_copy_groups`). A complex
-that duplicates only a copy's complex never rejects, since the sites that pin
-either copy may keep both constants separable.
-`candidate_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
-Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
-Duplicate laws that survive these proofs share one fit, an L phantom's key aside:
-identify fits one mechanism per key (`_canonical`,
+The moves never emit a child that is provably a reparameterization of its parent. Each
+proof sits in the docstring of the function that applies it; this list says which:
+
+- The split move (`_expand_split_kinetic_group`) accepts a set of splits only if the
+  fitted-parameter count rises and the guard accepts the built child. The count comes from
+  the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A split
+  never changes admission's interior verdict, since both parts keep the group's tag.
+- The flip move (`_expand_re_to_ss`) flips whole groups and accepts a set only if the
+  rapid-equilibrium segment count rises and every flipped group carries net flux in the
+  child. In a plain mechanism it never flips a flank of a steady-state chain
+  (`_chain_flank_groups`; see [Apparent constants on a steady-state chain](@ref)).
+- Flux is decided on the graph of rapid-equilibrium segments: a steady-state step carries
+  flux exactly when its biconnected block holds a cycle that runs net reaction
+  (`_flux_carrying_edges`). A steady-state group with no such step exposes only the ratio
+  of its constants, so a flip set that leaves one counts as failed and is extended, and a
+  split part with none is emitted at rapid equilibrium.
+- A dead-end copy of a substrate or product is redundant when each of its complexes has a
+  productive twin and the dwell gauge moves its constant along a direction the rate law
+  cannot see (`_redundant_copy_groups`, `_productive_twin`, `_gauge_rescaling`). The
+  dead-end move skips a redundant placement, the split drops every child that holds a
+  redundant copy group, and `_expand_change_allo_state` drops a child with one.
+
+`candidate_mechanisms` asserts both rules, flux and no redundant copy, on every parent
+(`_assert_emission_rules`). Both refinement moves share one minimal-set search
+(`_minimal_gaining_sets`). Duplicate laws that survive these proofs share one fit, an L
+phantom's key aside: identify fits one mechanism per key (`_canonical`,
 `src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability rank exists only
 in the test suite, as an oracle for the proofs and the L-phantom certificate; nothing in
 `src/` estimates identifiability numerically.
 
 `init_mechanisms` appends to the seeds their merged and Theorell–Chance variants
-(`_seed_variants`, plain `Mechanism`s only). `_merge_isomerization` removes a
-chemistry isomerization and moves every other step at its substrate side onto its
-product side, so the last substrate's binding becomes fused; `_eliminate_form`
-replaces a form whose only two steps are bindings into it by one Theorell–Chance
-step in a group of its own. Every step of a base starts at rapid equilibrium. The
-variants are the inclusion-minimal sets of the base's flux-carrying groups
-(`_minimal_flips`) whose flip to steady state leaves no rapid-equilibrium
-turnover cycle (`has_turnover_cycle`: a cycle of RE steps whose net uptake of the
-first substrate is nonzero),
-keeps a maximal rate both ways (`_has_vmax`, condition V), keeps chemistry out of
-equilibrium with both sides (`_chemistry_equilibrates_both_sides`, condition C),
-passes the guard and keeps every steady-state group flux-carrying.
-`_seed_candidate_screen` runs the first three tests on index arrays with a
-weighted union-find, so the other two run only on a candidate that passes them. A
-merged variant whose every merged complex has two steady-state steps, each alone
-in its group, has the family of the unmerged chain with rapid-equilibrium flanks
-at the same count and is skipped. `_degenerate`, the failure of V or C on the
-active-state graph, marks the starting mechanisms that `candidate_mechanisms`
-(`src/Enumeration/starting_mechanisms.jl`, `_base_tier`) replaces by their flip children
-that are not degenerate. Both methods of `candidate_mechanisms` return a
-`CandidateMechanism` for each mechanism within the two size limits, which they apply to what
-they return and never inside a move's own search.
+(`_seed_variants`, plain `Mechanism`s only), whose rules [The enumeration engine](@ref)
+states. `_seed_candidate_screen` runs the three tests that read only the flags on index
+arrays, with a weighted union-find (`has_nonzero_weight_cycle`), so the guard and the flux
+test run only on a candidate that passes them. `_degenerate`, the failure of condition V
+or C on the active-state graph, marks the starting mechanisms that `candidate_mechanisms`
+(`_base_tier`) replaces by their flip children that are not degenerate. Both methods of
+`candidate_mechanisms` return a `CandidateMechanism` for each mechanism within the two size
+limits, which they apply to what they return and never inside a move's own search.
 
-`_requires_hyperbolic_catalysis` is true for a mechanism whose oligomeric state is
-above 1, and the moves
-that can give such a mechanism a non-hyperbolic catalytic scheme consult
-`_hyperbolic_catalysis`: `_expand_to_allosteric` promotes a non-hyperbolic
-parent at oligomeric state 1 only, and above one subunit the tagging and change-tag
-moves (`_expand_to_allosteric`, `_expand_change_allo_state`), like the flip move
-(`_expand_re_to_ss`), drop a child that fails the predicate. On an
-allosteric mechanism the predicate reads each conformation's law
-(`steps_running_in_allosteric_conformations`), since a conformation
-that runs part of the catalytic graph can carry a power the whole graph lacks. The
-predicate scores the rapid-equilibrium segment graph of the catalytic scheme, leaving out
-every edge that touches a form holding a modifier, a reactant's modifier copy included: for
-each substrate and product, a directed steady-state edge scores one if it binds the
-metabolite in that direction plus the count the edge's source form carries beyond its
-segment's bottom form (the offsets of `rapid_equilibrium_segments`), and a segment scores
-the most any of its forms carries. The equation's degree in the
-metabolite is the best score over root segments and spanning arborescences toward
-the root; the predicate decides "at most 1" with reachability checks
-(`_all_reach`) rather than a max-arborescence solve, since a weight-2 pattern is
-one segment or edge scoring 2, a scoring root plus a compatible scoring edge, or
-two compatible scoring edges. The exactness of the predicate against the derived
-denominator is pinned by a test over the uni-bi enumeration and the
-ping-pong-capable bi-bi enumeration, which contains every bi-bi mechanism. A future
-conformational type (KNF, mnemonic, slow isomerization) adds one
-`_requires_hyperbolic_catalysis` method and calls the predicate in its promotion
-move.
+Over more than one catalytic subunit a conformational equilibrium raises every
+catalytic-site binding to a power, so the moves keep such a mechanism's catalytic scheme
+hyperbolic (`_requires_hyperbolic_catalysis`; the proof is in the `_hyperbolic_catalysis`
+docstring). `_expand_to_allosteric` promotes a non-hyperbolic parent at oligomeric state 1
+only, and above one subunit the tagging, change-tag and flip moves drop a child that fails
+the predicate. The predicate reads the rapid-equilibrium segment graph and decides "degree
+at most 1" with reachability checks (`_all_reach`) rather than a max-arborescence solve.
+The testset "_hyperbolic_catalysis matches the derived denominator"
+(`test/Enumeration/test_candidate_mechanism_type.jl`) pins it against the derived
+denominator over the uni-bi enumeration and the ping-pong-capable bi-bi enumeration, which
+contains every bi-bi mechanism. A future conformational type (KNF, mnemonic, slow
+isomerization) adds one `_requires_hyperbolic_catalysis` method and calls the predicate in
+its promotion move.
 
 `test/Enumeration/test_starting_mechanisms.jl` bounds the memory the enumeration holds
 and allocates: the bytes each candidate of the bi-bi starting set holds
