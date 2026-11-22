@@ -214,10 +214,15 @@ an approved interface change.
   five batches, each at its own stack depth with its own copy of the inputs.
   `Fitting.loss!` is allocation-free, and its time per data row is at most 1.25 × the
   compiled law's time per call plus 8 `log` calls, met by any of 20 batches, each run at
-  its own stack depth. `test/Derivation/test_rate_equation_derivation.jl` enforces both. A
-  fit evaluates the law millions of times, so stop and discuss with the maintainer before
-  a change that would make it allocate or slow down. CI timings vary by runner: rerun a
-  job that misses the bound rather than loosening it.
+  its own stack depth. `test/Derivation/test_rate_equation_derivation.jl` enforces both,
+  with the times read in one child process started without coverage counters or
+  `--check-bounds` (`_testhelper_speed_readings`, `test/testhelpers.jl`) and the
+  allocations counted in the test process. `test/Fitting/test_fit_rate_equation.jl`
+  requires that `loss!` keep its prediction loop vectorized with the law inlined: in its
+  optimized IR on three laws, and in its time per row, at most 0.7 of the law's time per
+  call on the 858-term law. A fit evaluates the law millions of times, so stop and discuss
+  with the maintainer before a change that would make it allocate or slow down. CI timings
+  vary by runner: rerun a job that misses the bound rather than loosening it.
 - **Compile time.** `test/test_compile_budget.jl` bounds the first-call compile time of
   a compiled rate law and how many method instances each mechanism's fit compiles. Code
   specialized per mechanism trips it.
