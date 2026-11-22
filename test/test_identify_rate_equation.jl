@@ -17,18 +17,6 @@ const _testhelper_uni_rxn = @enzyme_reaction begin
     products: P[C]
 end
 
-# The seed of that reaction: rapid-equilibrium bindings around a steady-state
-# isomerization.
-const _testhelper_uni_seed = @enzyme_mechanism begin
-    substrates: S
-    products: P
-    steps: begin
-        E + S ⇌ ES
-        ES <--> EP
-        EP ⇌ E + P
-    end
-end
-
 # A BatchEntry of the uni seed with rate-law key `key`; selection reads only the key, the
 # loss and the count.
 # The fitted constants of `params` as `loss!` takes them.
@@ -356,30 +344,6 @@ end
         @test ismissing(row.key) && ismissing(row.fit_inherited) &&
               ismissing(row.fit_source_id) && ismissing(row.L_phantom) &&
               ismissing(row.at_bound)
-    end
-
-    @testset "the key of a law is the SHA-256 of its canonical text" begin
-        # identify fits one law per key (spec section 10). The key reads the law, not its
-        # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
-        # call, and another law gets another key.
-        c = EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
-        again = EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
-        @test (again.key, again.text, again.order) == (c.key, c.text, c.order)
-        @test c.key == bytes2hex(EnzymeRates.Derivation.sha256(c.text))
-        @test occursin(r"^[0-9a-f]{64}$", c.key)
-        ss_release = @enzyme_mechanism begin
-            substrates: S
-            products: P
-            steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP <--> E + P
-            end
-        end
-        @test EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._memo_law(ss_release), ss_release).key != c.key
     end
 
     # ── Run pipeline ONCE, test everything ───────────
@@ -1131,25 +1095,6 @@ end
             @test EnzymeRates._default_save_dir() == d1 * "_3"
         end
     end
-end
-
-@testset "the key partitions the bi-bi init laws into 239 classes" begin
-    # The 239 bi-bi init mechanisms (55 seeds and their 184 merged and Theorell–Chance
-    # variants) have 239 laws no renaming of fitted constants makes equal, so the key
-    # gives 239 classes. On a fixed sample the same law gives the same key twice.
-    reaction = @enzyme_reaction(begin
-        substrates: A[C], B[N]
-        products:   P[C], Q[N]
-    end)
-    buckets = Dict{String, Vector{Int}}()
-    for (i, m) in enumerate(
-        _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(reaction)))
-        k = EnzymeRates.Derivation.rate_equation_dedup_key(m)
-        @test !k.capped
-        push!(get!(buckets, k.key, Int[]), i)
-        i % 25 == 1 && @test EnzymeRates.Derivation.rate_equation_dedup_key(m).key == k.key
-    end
-    @test length(buckets) == 239
 end
 
 @testset "_select_count! cumulative per-count floor" begin

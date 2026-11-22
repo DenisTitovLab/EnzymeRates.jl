@@ -91,8 +91,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   NaN there, where a well-posed law returns 0. A fit scores the NaN as it scores the 0 a
   well-defined law predicts there: `FittingProblem` refuses a zero rate, and the loss scores
   a NaN prediction as a sign mismatch, the penalty a 0 prediction gets
-  (`test/Derivation/test_admission.jl`). Adding these corners to the faces would drop at
-  least these 369 mechanisms, 93 of whose laws have a limit there.
+  (`test/Derivation/test_allosteric_rate_equation_correctness_guard.jl`). Adding these
+  corners to the faces would drop at least these 369 mechanisms, 93 of whose laws have a
+  limit there.
 - **The guard rejects some allosteric mechanisms whose law is the limit.**
   A gate run on the guard as built (see the next entry) found three kinds:
   - **Too large to search.** When a conformation has more than 20,000 ways to switch off its
@@ -121,10 +122,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     wider rule was not built; it changes verdicts, so it needs the gate. Entry 53145, of the
     same kind and refused as a bridge too, is not shown valid: under the one reading tested,
     the ε-path oracle finds a limit that depends on the path at zero products and at zero P.
-    The suite pins two more, `bridge_deadend` and R-B3 (`test/Derivation/test_admission.jl`,
-    "conservative rejections the oracle admits stay rejected under their reading"). A rule
-    that also set aside groups touching forms in equilibrium for another reason, such as a
-    dead-end branch, admitted nothing in any population.
+    The suite pins two more, `bridge_deadend` and R-B3
+    (`test/Derivation/test_allosteric_rate_equation_correctness_guard.jl`, "conservative
+    rejections the oracle admits stay rejected under their reading"). A rule that also set
+    aside groups touching forms in equilibrium for another reason, such as a dead-end
+    branch, admitted nothing in any population.
   - **Refused by a face check though the rate equals the law's.** Of the mechanisms of
     8 steps or fewer that a face check refuses, sampled 40 per population, these have a
     limit along corner directions under some consistent reading: 9 of 40 `:OnlyA` taggings
@@ -156,12 +158,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   directions; at two subunits the steady state equals the law for 40 of 40 sampled. With the
   filling check off, the guard admits 96 small `:OnlyA` taggings more (138 in all), and 18
   of them fail; standard directions miss these, so corner directions are the test.
-  `test/Derivation/test_admission.jl` keeps a sampled population test with corner
-  directions. No hand-written test shows a one-way fast vanishing transition that passes
-  the filling check because its target drains fast, along rapid-equilibrium steps that do
-  not vanish, into the law's forms (the check's third clause); only the sampled test covers
-  it. The gate's scripts, logs and report (`report.md`) are on the maintainer's
-  machine, outside the repository, in `claude-scratchpad/lean-mechanism-spike/gate/`.
+  `test/Derivation/test_allosteric_rate_equation_correctness_guard.jl` keeps a sampled
+  population test with corner directions. No hand-written test shows a one-way fast
+  vanishing transition that passes the filling check because its target drains fast, along
+  rapid-equilibrium steps that do not vanish, into the law's forms (the check's third
+  clause); only the sampled test covers it. The gate's scripts, logs and report
+  (`report.md`) are on the maintainer's machine, outside the repository, in
+  `claude-scratchpad/lean-mechanism-spike/gate/`.
 - **An allosteric ping-pong whose covalent forms empty only by binding B cannot stop both
   half-reactions.**
   PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
@@ -226,9 +229,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   random: 29 of 256 offsets slow at least one of the 42 gated laws. With address-space
   randomization off, one 2 KB environment variable reproduces it on unchanged code, and the
   same laws fail at the same offset at an older commit (47e581ce). The `loss!` gate in
-  `test/Derivation/test_rate_eq_derivation.jl` failed falsely in about one full suite in
-  nine, on several laws at once, each at 26-38 ns per row, while its 20 batches shared one
-  stack depth. It no longer fails from stack placement: each batch times `loss!` a
+  `test/Derivation/test_rate_equation_derivation.jl` failed falsely in about one full suite
+  in nine, on several laws at once, each at 26-38 ns per row, while its 20 batches shared
+  one stack depth. It no longer fails from stack placement: each batch times `loss!` a
   different number of frames deeper. With address-space randomization off, the gate as it
   was failed in all three runs at one placement, on two or three laws each, and the gate
   as it is passed there twice and at seven placements 512 bytes apart. A fit still runs
@@ -257,8 +260,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   step order, and offers the fix only when that path's retag passes. It tries no other
   path. In `E + S ⇌ ES`, `ES <--> E + P`, `E + I ⇌ EI` (:OnlyI), `EI + S ⇌ EIS`,
   `ES + I ⇌ EIS` neither the mechanism nor its mirror image is offered a fix, though the
-  path through the P release passes for the mirror (`test/Derivation/test_admission.jl`,
-  "the one rule that tells the states apart").
+  path through the P release passes for the mirror
+  (`test/Derivation/test_allosteric_rate_equation_correctness_guard.jl`, "the one rule that
+  tells the states apart").
 - **A rejection reports the fault of the first consistent reading in search order.**
   When no built reading is consistent and the consistent readings fail in different ways,
   the guard reports the verdict of the first one its search tries (`_guard_with_reading`),
@@ -575,7 +579,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   limit exists (Known issues, "The guard rejects some allosteric mechanisms whose law is the
   limit"). In an equilibrium bridge (R-B1) a tagged binding joins forms its conformation's
   other steps keep apart, yet those forms already sit at equilibrium, so the limit is
-  deletion's (`bridge_deadend` in `test/Derivation/test_admission.jl`); the set-aside rule
+  deletion's (`bridge_deadend` in
+  `test/Derivation/test_allosteric_rate_equation_correctness_guard.jl`); the set-aside rule
   admits such a bridge only when the law's own rapid-equilibrium steps hold the forms it
   touches in equilibrium. No exact narrower structural rule is known: the one candidate
   tried, T0++, admits faces the ε-path oracle rejects. The exact test compares

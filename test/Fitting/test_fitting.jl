@@ -302,7 +302,7 @@ end
     end
 
     # ── loss! over table column types ─────────────────────────────────────────
-    # The gate in test/Derivation/test_rate_eq_derivation.jl measures loss! on every law;
+    # The gate in test_rate_equation_derivation.jl measures loss! on every law;
     # these tests vary the table. A column of abstract element type makes every row
     # dispatch at run time while the rate law stays fast, and `@inferred loss!` passes
     # since the result is a Float64 either way, so they measure allocations.

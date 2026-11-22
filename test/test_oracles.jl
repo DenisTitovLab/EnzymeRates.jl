@@ -901,7 +901,8 @@ end
     # LP does not read, and the LP is feasible. Under the first built reading every grid
     # member's LP is feasible: a binding whose sides stay joined is stopped at steady state
     # and pinned at rapid equilibrium, and neither adds a row. So here the agreement only
-    # sorts the pinned members from the rest; test_admission.jl's "the graph test equals
+    # sorts the pinned members from the rest;
+    # test_allosteric_rate_equation_correctness_guard.jl's "the graph test equals
     # the exact LP on the uni-uni grid" reaches the LP's infeasible side, under every
     # reading of the inactive conformation's excluded steps.
     grid = _testhelper_uniuni_grid()

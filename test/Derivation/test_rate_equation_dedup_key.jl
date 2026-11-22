@@ -1,5 +1,7 @@
-# ABOUTME: Tests of the dedup key (canonical labelling, lowest terms, the leaf cap, which
-# ABOUTME: metabolite binds, five pinned spec keys) and the L-phantom rescaling certificate.
+# ABOUTME: Tests of src/Derivation/rate_equation_dedup_key.jl: a law's canonical form
+# ABOUTME: and the key that groups the mechanisms with one rate law.
+
+# ── Canonical form and key of a law ───────────────────────────────────────────────────
 
 # ── Toy laws over named constants ───────────────────────────────────────────
 
@@ -529,4 +531,254 @@ end
     @test k.capped
     @test k.key == bytes2hex(EnzymeRates.Derivation.sha256("mechanism|3e5cf962a87e32c2"))
     @test k.key == "aad3760e4c4c15acad2ac3f839b5ba7454edaeefc0efd0b913bdb6eb65bdc606"
+end
+
+# ── Keys of enumerated mechanisms ─────────────────────────────────────────────────────
+
+# ─── _dedup_key ────────────────────────────────────────────────────────
+@testset "_dedup_key" begin
+
+# Mechanism dedup keys: struct equality. Mechanisms are canonical at
+# construction, so dedup is just `unique!`, which relies on
+# `Base.==` / `Base.hash` on the struct itself. This testset locks in the
+# struct-equality contract that powers that dedup.
+@testset "Allosteric mechanism — site multiplicity is part of the dedup key" begin
+# Mechanism: differing site multiplicities → unequal because
+# multiplicities are part of the structural identity.
+am_m2 = @enzyme_mechanism begin
+    substrates: S; products: P
+    oligomeric_state: 2
+    steps: begin
+        E + P ⇌ EP    :: EqualAI
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: EqualAI
+    end
+    regulatory_site(2): A::OnlyA
+end
+am_m4 = @enzyme_mechanism begin   # different multiplicity
+    substrates: S; products: P
+    oligomeric_state: 2
+    steps: begin
+        E + P ⇌ EP    :: EqualAI
+        E + S ⇌ ES    :: EqualAI
+        ES <--> EP  :: EqualAI
+    end
+    regulatory_site(4): A::OnlyA
+end
+_testhelper_assert_mechanism_invariants(am_m2)
+_testhelper_assert_mechanism_invariants(am_m4)
+@test am_m2 != am_m4
+end
+end
+
+# ═══════════════════════════════════════════════════════════════════════
+# Rate-equation dedup key
+# ═══════════════════════════════════════════════════════════════════════
+
+@testset "Rate-equation dedup key" begin
+    @testset "Distinct mechanisms produce distinct dedup keys" begin
+        # Ordered binding (A-first only) vs random binding (both A-first
+        # and B-first paths). Same substrate set, same product set, but
+        # the random mechanism has a different enzyme-form graph. The
+        # dedup key must differ.
+        m_ordered = @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                E + A ⇌ EA
+                EA + B ⇌ EAB
+                EAB <--> EP
+                E + P ⇌ EP
+            end
+        end
+        m_random = @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                E + A ⇌ EA
+                E + B ⇌ EB
+                EA + B ⇌ EAB
+                EB + A ⇌ EAB
+                EAB <--> EP
+                E + P ⇌ EP
+            end
+        end
+        key(m) = EnzymeRates.Derivation._canonical(
+            EnzymeRates.Derivation._memo_law(m), m).key
+        @test key(m_ordered) != key(m_random)
+    end
+
+    @testset "LDH Pattern-A: graph-distinct mechanisms of equal v share a dedup key" begin
+        # LDH Pattern-A pair (11 steps each). m_a and m_b differ in step
+        # ordering AND in which intermediate forms appear (m_a has
+        # Lactate-binding via E_NADH only; m_b adds a Lactate-binding via
+        # E_NAD path). After Pass-1 absorption their v polynomials are
+        # equivalent. 11 steps is the minimal known case for this property
+        # — smaller mechanisms produce graph-equivalent topologies
+        # (already collapsed by step sorting) rather than graph-distinct
+        # yet v-equivalent ones.
+        ldh_m_a = @enzyme_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            steps: begin
+                (E + Lactate ⇌ ELactate, ENADH + Lactate ⇌ ELactateNADH)
+                (E + NAD ⇌ ENAD, ELactate + NAD ⇌ ELactateNAD,
+                 EPyruvate + NAD ⇌ ENADPyruvate)
+                (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+                (E + Pyruvate ⇌ EPyruvate, ENAD + Pyruvate ⇌ ENADPyruvate,
+                 ENADH + Pyruvate ⇌ ENADHPyruvate)
+                ENADHPyruvate <--> ELactateNAD
+            end
+        end
+
+        ldh_m_b = @enzyme_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            steps: begin
+                (E + Lactate ⇌ ELactate, ENAD + Lactate ⇌ ELactateNAD,
+                 ENADH + Lactate ⇌ ELactateNADH)
+                (E + NAD ⇌ ENAD, EPyruvate + NAD ⇌ ENADPyruvate)
+                (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+                (E + Pyruvate ⇌ EPyruvate, ENAD + Pyruvate ⇌ ENADPyruvate,
+                 ENADH + Pyruvate ⇌ ENADHPyruvate)
+                ENADHPyruvate <--> ELactateNAD
+            end
+        end
+
+        law_a = EnzymeRates.Derivation._memo_law(ldh_m_a)
+        law_b = EnzymeRates.Derivation._memo_law(ldh_m_b)
+        canon_a = EnzymeRates.Derivation._canonical(law_a, ldh_m_a)
+        canon_b = EnzymeRates.Derivation._canonical(law_b, ldh_m_b)
+        key_a = canon_a.key
+        @test key_a == canon_b.key
+        @test _testhelper_same_law_under_map(law_a, law_b, canon_a.order, canon_b.order;
+                                             rng = Random.MersenneTwister(13))
+
+        # Negative control: ldh_m_b with the E_NAD+Lactate step's
+        # kinetic_group changed from 1 to 12 breaks the Lactate-
+        # binding-via-NAD path's sharing with the direct E+Lactate
+        # binding step. The resulting v polynomial differs.
+        ldh_m_c = @enzyme_mechanism begin
+            substrates: NADH, Pyruvate
+            products: Lactate, NAD
+            steps: begin
+                (E + Lactate ⇌ ELactate, ENADH + Lactate ⇌ ELactateNADH)
+                (E + NAD ⇌ ENAD, EPyruvate + NAD ⇌ ENADPyruvate)
+                (E + NADH ⇌ ENADH, ELactate + NADH ⇌ ELactateNADH)
+                (E + Pyruvate ⇌ EPyruvate, ENAD + Pyruvate ⇌ ENADPyruvate,
+                 ENADH + Pyruvate ⇌ ENADHPyruvate)
+                ENAD + Lactate ⇌ ELactateNAD
+                ENADHPyruvate <--> ELactateNAD
+            end
+        end
+        @test key_a != EnzymeRates.Derivation._canonical(
+            EnzymeRates.Derivation._memo_law(ldh_m_c), ldh_m_c).key
+    end
+
+    @testset "rate_equation_string emits section labels" begin
+        # Minimal uni-uni 3-step mechanism.
+        uni_uni_3step = @enzyme_mechanism begin
+            substrates: S
+            products: P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                E + P ⇌ EP
+            end
+        end
+
+        # Random bi-uni with substrate-side mirror sharing: A-binding
+        # steps share kinetic_group=1, B-binding steps share kg=2.
+        biuni_mirror = @enzyme_mechanism begin
+            substrates: A, B
+            products: P
+            steps: begin
+                (E + A ⇌ EA, EB + A ⇌ EAB)
+                (E + B ⇌ EB, EA + B ⇌ EAB)
+                EAB <--> EP
+                E + P ⇌ EP
+            end
+        end
+
+        # With structural names, shared kinetic_group members collapse
+        # via the value-context chokepoint — no separate user-defined
+        # section is emitted.
+        s_user = rate_equation_string(biuni_mirror)
+        @test !occursin("# User defined constraints:", s_user)
+
+        # Haldane section: any RE binding mechanism with Keq has it.
+        # The Wegscheider section is not emitted on minimal mechanisms;
+        # the LDH Pattern-A test above is the indirect regression for
+        # that section's stripping.
+        s_hal = rate_equation_string(uni_uni_3step)
+        @test occursin("# Haldane constraints:", s_hal)
+
+        # Wegscheider section: emitted when the thermodynamic constraint
+        # system produces cycle equalities. Random bi-bi with all-
+        # singleton kinetic groups (no Pass-1 absorption) preserves the
+        # Wegscheider cycle relations and renders them as multi-symbol
+        # RHSes in this section.
+        m_weg = @enzyme_mechanism begin
+            substrates: A, B
+            products: P, Q
+            steps: begin
+                E + A ⇌ EA
+                E + B ⇌ EB
+                EA + B ⇌ EAB
+                EB + A ⇌ EAB
+                EAB <--> EPQ
+                EP + Q ⇌ EPQ
+                EQ + P ⇌ EPQ
+                E + P ⇌ EP
+                E + Q ⇌ EQ
+            end
+        end
+        s_weg = rate_equation_string(m_weg)
+        @test occursin("# Wegscheider constraints:", s_weg)
+    end
+end
+
+# ── The key's hash and the bi-bi classes ──────────────────────────────────────────────
+
+@testset "the key of a law is the SHA-256 of its canonical text" begin
+    # identify fits one law per key (spec section 10). The key reads the law, not its
+    # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
+    # call, and another law gets another key.
+    c = EnzymeRates.Derivation._canonical(
+        EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
+    again = EnzymeRates.Derivation._canonical(
+        EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
+    @test (again.key, again.text, again.order) == (c.key, c.text, c.order)
+    @test c.key == bytes2hex(EnzymeRates.Derivation.sha256(c.text))
+    @test occursin(r"^[0-9a-f]{64}$", c.key)
+    ss_release = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            EP <--> E + P
+        end
+    end
+    @test EnzymeRates.Derivation._canonical(
+        EnzymeRates.Derivation._memo_law(ss_release), ss_release).key != c.key
+end
+
+@testset "the key partitions the bi-bi init laws into 239 classes" begin
+    # The 239 bi-bi init mechanisms (55 seeds and their 184 merged and Theorell–Chance
+    # variants) have 239 laws no renaming of fitted constants makes equal, so the key
+    # gives 239 classes. On a fixed sample the same law gives the same key twice.
+    reaction = @enzyme_reaction(begin
+        substrates: A[C], B[N]
+        products:   P[C], Q[N]
+    end)
+    buckets = Dict{String, Vector{Int}}()
+    for (i, m) in enumerate(
+        _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(reaction)))
+        k = EnzymeRates.Derivation.rate_equation_dedup_key(m)
+        @test !k.capped
+        push!(get!(buckets, k.key, Int[]), i)
+        i % 25 == 1 && @test EnzymeRates.Derivation.rate_equation_dedup_key(m).key == k.key
+    end
+    @test length(buckets) == 239
 end

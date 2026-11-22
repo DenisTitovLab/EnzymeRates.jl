@@ -5109,7 +5109,7 @@ end
 
 # The PFK-1, HK and PK specs above pair one :OnlyA binding with :OnlyA catalysis. A
 # mechanism that binds both substrates :OnlyA has no spec here; its derivation is
-# checked against the n=1 mass-action ground truth in allosteric_ground_truth.jl
+# checked against the n=1 mass-action ground truth in test_rate_equation_derivation.jl
 # (testset "multi-OnlyA MWC derivation matches mass-action ground truth").
 # `_expand_to_allosteric` reaches it by tagging the two substrate binding groups
 # :OnlyA with the chemistry.
@@ -5326,7 +5326,52 @@ end
 
 const ER = EnzymeRates
 
+include("reference/allosteric_undefvar_reproducers.jl")
+
+"""
+`(allocs, seconds)`: the allocations of one call of the compiled rate law `rate`, and its
+best time per call over five batches of 10,000 calls. It takes the law, not its mechanism,
+so it compiles for the law's type, which carries the mechanism: a law compiled inside it
+has an abstract type there, and each timed call would be dispatched at run time, which
+costs more than a small law on CI runners. Each call goes through
+`_testhelper_rate_barrier`, so every one of the 10,000 calls per batch runs.
+"""
+function _testhelper_test_rate_equation_performance(rate, params, Keq, concs)
+    _testhelper_rate_barrier(rate, concs, params, Keq) # warmup/compile
+    allocs = @allocated _testhelper_rate_barrier(rate, concs, params, Keq)
+    # Minimum over several batches defeats the GC/scheduling inflation a
+    # single mean suffers; accumulating into `acc` (and observing it via the
+    # finite-result check) prevents the optimizer from eliding the calls.
+    best = Inf
+    acc = 0.0
+    for _ in 1:5
+        acc = 0.0
+        t = @elapsed for _ in 1:10_000
+            acc += _testhelper_rate_barrier(rate, concs, params, Keq)
+        end
+        best = min(best, t / 10_000)
+    end
+    isfinite(acc) || error("the rate law produced a non-finite result")
+    return allocs, best
+end
+
+# Ground truth for the parameter counts the enumeration moves report: the number of
+# fitted parameters of the compiled rate equation.
+_testhelper_fitted(x) = length(parameters(x))
+
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
+end
+
+# The seed of that reaction: rapid-equilibrium bindings around a steady-state
+# isomerization.
+const _testhelper_uni_seed = @enzyme_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + S ⇌ ES
+        ES <--> EP
+        EP ⇌ E + P
+    end
 end

@@ -338,7 +338,7 @@ arithmetic, written in Horner form (`_horner`), that must be
 **allocation-free and fast**: under 50 ns + 0.5 ns × denominator terms per call for every
 gated law, including the three largest enumerated bi-bi laws (396 denominator terms each)
 and three ter-bi laws (589, 799 and 858 terms).
-`_testhelper_test_rate_equation_performance` (`test/Derivation/test_rate_eq_derivation.jl`)
+`_testhelper_test_rate_equation_performance` (`test/testhelpers.jl`)
 measures each law's allocations and time per call, and the tests assert
 `allocs == 0` and the law's bound. `rate_equation_string`
 (`src/Derivation/rate_equation_derivation.jl`) prints the law rather than the code: each
@@ -446,10 +446,10 @@ active copy, an edge on a form that conformation cannot reach) come first, so no
 dependent reads them. Each class is named after its member that comes last in that order
 (`_kept_members`), through the `_name(p, m)` chokepoint; `_constant_columns` returns each
 column's name with it, so the naming rule lives in
-`src/Derivation/thermodynamic_constraints.jl`. A testset in `test/Derivation/test_names.jl`
-walks `src/` and fails on a `Symbol("K…")`, `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")`
-literal outside a parameter-name renderer, and on a renderer outside that file. The
-engine (`_law`,
+`src/Derivation/thermodynamic_constraints.jl`. A testset in
+`test/Derivation/test_thermodynamic_constraints.jl` walks `src/` and fails on a
+`Symbol("K…")`, `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal outside a
+parameter-name renderer, and on a renderer outside that file. The engine (`_law`,
 `src/Derivation/rate_equation_derivation.jl`) derives each conformation's law on a mask of
 the edges it keeps (`steps_running_in_allosteric_conformations(am)`; every edge of a plain
 mechanism). Every edge keeps its stored direction, so both conformations share the
@@ -664,9 +664,10 @@ populations, and the ε-path and RE-speed oracles on those that only the search 
 set-aside rule admits: each of the 591 of 8 steps or fewer agrees along corner directions,
 and samples of the larger ones agree too. With the filling check off, the guard admits 96
 more mechanisms of 8 steps or fewer among the `:OnlyA` taggings of the uni-uni, bi-bi and
-ping-pong starting mechanisms, and 18 of them fail. `test/Derivation/test_admission.jl`
-keeps a sampled population test with corner directions ("sampled taggings: the
-energy-level rule agrees with the oracles").
+ping-pong starting mechanisms, and 18 of them fail.
+`test/Derivation/test_allosteric_rate_equation_correctness_guard.jl` keeps a sampled
+population test with corner directions ("sampled taggings: the energy-level rule agrees with
+the oracles").
 
 **Faults.** A verdict's fault is one of: two constants of the law share a name, which the
 guard checks first (`_SHARED_NAME`, `_shared_constant_names`); a cycle does not balance a
@@ -1032,19 +1033,19 @@ not measured; a fit alone takes 1–3 s on the one-core benchmark machine.
 
 The compiled law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on
 these slow paths, since the result is a `Float64` either way. So the speed gate in
-`test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
-allocation in relative or absolute mode, and time per row at most 1.25 times the compiled
-law's time per call plus 8 `log` calls, timed in one process so machine speed cancels out.
-The bound holds if any of 20 batches meets it. `loss!` keeps each row's concentrations and
-the parameters in its stack frame, and when one of the law's loads from them straddles a
-4 KB page boundary of the stack, that law's `loss!` costs 20-30 ns more per row for as long
-as the frame sits there. So each batch times `loss!` a different number of frames deeper
-(576-752 bytes a frame on aarch64), which puts the 20 batches at 20 offsets within a page,
-at most four in any 430 bytes, the widest slow window seen on aarch64; each batch also
-times a new `FittingProblem`, which varies the heap. A real slowdown fails every batch. The
-factor of 1.25 leaves room for a slowdown once seen on three large laws in one process,
-15-25% over the law's cost; whether the frame's place on the stack caused it was not
-tested. Eight `log` calls leave room for the coverage counters on `loss!`'s own lines in
+`test/Derivation/test_rate_equation_derivation.jl` also measures `loss!` on each of its
+laws: no allocation in relative or absolute mode, and time per row at most 1.25 times the
+compiled law's time per call plus 8 `log` calls, timed in one process so machine speed
+cancels out. The bound holds if any of 20 batches meets it. `loss!` keeps each row's
+concentrations and the parameters in its stack frame, and when one of the law's loads from
+them straddles a 4 KB page boundary of the stack, that law's `loss!` costs 20-30 ns more per
+row for as long as the frame sits there. So each batch times `loss!` a different number of
+frames deeper (576-752 bytes a frame on aarch64), which puts the 20 batches at 20 offsets
+within a page, at most four in any 430 bytes, the widest slow window seen on aarch64; each
+batch also times a new `FittingProblem`, which varies the heap. A real slowdown fails every
+batch. The factor of 1.25 leaves room for a slowdown once seen on three large laws in one
+process, 15-25% over the law's cost; whether the frame's place on the stack caused it was
+not tested. Eight `log` calls leave room for the coverage counters on `loss!`'s own lines in
 CI jobs. The compiled law itself must stay under 50 ns + 0.5 ns per denominator term. That
 bound tolerates the spread between machines: small laws take 1-8 ns on an aarch64
 development machine and 5-38 ns on CI, varying by runner. So a moderate slowdown of a small
