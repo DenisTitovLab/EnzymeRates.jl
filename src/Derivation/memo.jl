@@ -26,14 +26,12 @@ function _memo(m::Mechanisms.Mechanism)
     c
 end
 
-"""`m`'s guard verdict (`_guard`), through the memo."""
 function _memo_verdict(m::Mechanisms.Mechanism)
     v = _memo(m).verdict
     v === nothing || return v
     _memo(m).verdict = _guard(m)
 end
 
-"""`m`'s joint solve (`_solve`), through the memo."""
 function _memo_solve(m::Mechanisms.Mechanism)
     s = _memo(m).solve
     s === nothing || return s
@@ -48,5 +46,4 @@ function _memo_law(m::Mechanisms.Mechanism)
     _memo(m).law = _law(m, _memo_solve(m))
 end
 
-"""`f` called on `m`, its joint solve `s` and its law `L`, both through the memo."""
 _with_memo_law(f, m::Mechanisms.Mechanism) = f(m, _memo_solve(m), _memo_law(m))

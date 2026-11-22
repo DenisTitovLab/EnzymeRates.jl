@@ -174,7 +174,6 @@ struct FitObjective
     x_buf::Vector{Float64}
 end
 
-"""The optimizer's objective: `obj.loss` at a copy of `x` (see `FitObjective`)."""
 _fit_loss(x, obj::FitObjective) = obj.loss(copyto!(obj.x_buf, x))
 
 """

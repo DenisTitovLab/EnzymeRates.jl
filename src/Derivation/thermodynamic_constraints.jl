@@ -36,10 +36,9 @@ const _Parameter = Union{_StepParameter, _RegulatorParameter, _AllostericParamet
 
 # ─── _name(p::_Parameter, m) chokepoint ─────────────────────────────────
 #
-# Single chokepoint for parameter Symbol production. Renders structural
-# names (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) by dispatch on
-# the parameter's type. Routing all parameter-name production through one function
-# keeps any name-scheme change a single-function edit.
+# Every parameter name (:K_ES_to_E_S, :k_ES_to_EP, :K_I_ES_to_E_S, :K_Ireg) comes from
+# `_name`, by dispatch on the parameter's type, so a change of the naming scheme edits one
+# function.
 
 """
 State token — placed right after the type prefix:
@@ -723,8 +722,6 @@ function _regulator_parameters(am::Mechanisms.Mechanism)
     [params(false); params(true)]
 end
 
-"""The names of the regulator parameters of `m` (`_regulator_parameters`), in their
-order."""
 _regulator_names(am::Mechanisms.Mechanism) =
     Symbol[_name(p, am) for p in _regulator_parameters(am)]
 

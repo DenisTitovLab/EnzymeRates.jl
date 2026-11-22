@@ -410,7 +410,6 @@ function _step_parts(expr)
     op, _side_terms(expr.args[2]), _side_terms(expr.args[3])
 end
 
-"""The terms of a step side: the operands of a `+` chain, or the side itself."""
 _side_terms(side) = side isa Expr && side.head === :call && side.args[1] === :+ ?
                     side.args[2:end] : Any[side]
 
@@ -459,8 +458,6 @@ function _raw_step!(forms::Vector{Symbol}, op, lhs, rhs, group::Int, names)
     Mechanisms.Step(from, to, taken_up, given_off, op === :⇌, group)
 end
 
-"""Whether `x` is a metabolite the block declares (`names`: substrates, products and
-modifiers)."""
 _is_declared(x, names) = x in names.substrates || x in names.products ||
                          x in names.modifiers
 

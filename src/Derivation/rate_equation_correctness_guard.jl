@@ -27,8 +27,6 @@ end
 check_valid_rate_equation(::Type{Bool}, m::Mechanisms.Mechanism) =
     _memo_verdict(m).fault === _NO_FAULT
 
-"""Error with the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no
-fault."""
 function _check_verdict(m::Mechanisms.Mechanism, v)
     v.fault === _NO_FAULT || error(_guard_message(m))
     nothing
@@ -164,7 +162,6 @@ struct _Network
     takes::Vector{UInt64}
 end
 
-"""The node of form `f` in copy `c` of `net`."""
 _node(net::_Network, f::Int, c::Int) = (c - 1) * net.nforms + f
 
 """Each node's transitions of `net` that `keep` flags and that leave it, in transition
@@ -313,8 +310,6 @@ function _faces(m::Mechanisms.CatalyticScheme)
     mods == 0 ? base : [base; base .| mods]
 end
 
-"""Whether face `face` (`_faces`) zeroes metabolite `n`, an index into a scheme's
-`metabolites`."""
 _zeroes(face::UInt64, n::Int) = (face >> (n - 1)) & 1 == 1
 
 """The metabolite names that face `face` of `m` zeroes (`_faces`), sorted."""
@@ -790,7 +785,6 @@ end
 
 """The copy (1 active, 2 inactive) of node `u` of `net`."""
 _copy_of(net::_Network, u::Int) = (u - 1) ÷ net.nforms + 1
-"""The form of node `u` of `net`."""
 _form_of(net::_Network, u::Int) = (u - 1) % net.nforms + 1
 """The copy of `net` that every node of `nodes` lies in; 0 when they lie in both."""
 _common_copy(net::_Network, nodes::Vector{Int}) =
@@ -957,7 +951,6 @@ function _powp(a::Int64, k::Integer)
     r
 end
 
-"""The inverse of `a` mod p."""
 _invp(a::Int64) = (a == 0 && throw(DivideError()); _powp(a, _P61 - 2))
 
 """A deterministic stream of residues in 2…p − 2 (splitmix64), seeded by a mechanism's
@@ -966,7 +959,6 @@ mutable struct _ResidueStream
     state::UInt64
 end
 
-"""The next residue of `r`."""
 function _residue!(r::_ResidueStream)
     r.state += 0x9e3779b97f4a7c15
     z = r.state

@@ -276,7 +276,6 @@ function identify_rate_equation(
     return result
 end
 
-"""Write the table `df` to `<save_dir>/<filename>`, creating `save_dir` if absent."""
 function _write_csv(save_dir::String, filename::String, df::DataFrame)
     mkpath(save_dir)
     CSV.write(joinpath(save_dir, filename), df)
@@ -475,7 +474,6 @@ struct FitFailure
     error::String
 end
 
-"""Compact, CSV-safe rendering of a thrown exception: type + truncated message."""
 _exc_string(@nospecialize(e)) = first(sprint(showerror, e), 200)
 
 """`pmap(f, itr)` as a `Vector{T}`. The element type of `pmap`'s result depends on the

@@ -57,7 +57,6 @@ function _mmul(a::_Mono, b::_Mono)
     r
 end
 
-"""`a` to the power `e`."""
 _mpow(a::_Mono, e::Union{Integer, _Exp}) =
     iszero(e) ? _Mono() : _Mono([v => x * e for (v, x) in a])
 
@@ -106,7 +105,6 @@ Base.iszero(p::_Poly) = isempty(p.terms)
 Base.:(==)(p::_Poly, q::_Poly) = p.terms == q.terms
 Base.hash(p::_Poly, h::UInt) = hash(p.terms, hash(:_Poly, h))
 
-"""The number of terms of `p`."""
 _nterms(p::_Poly) = length(p.terms)
 
 function Base.:+(p::_Poly, q::_Poly)
@@ -130,7 +128,6 @@ end
 Base.:*(p::_Poly, m::_Mono) =
     _Poly(Dict{_Mono, Int}(_mmul(k, m) => c for (k, c) in p.terms))
 
-"""`c·p` for an integer `c`."""
 _scale(p::_Poly, c::Integer) = iszero(c) ? _Poly() :
     _Poly(Dict{_Mono, Int}(m => Base.checked_mul(x, Int(c)) for (m, x) in p.terms))
 

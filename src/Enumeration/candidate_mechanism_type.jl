@@ -131,8 +131,6 @@ function _has_vmax(m::Mechanisms.CatalyticScheme, re::BitVector, names::Vector{I
     !Mechanisms.has_turnover_cycle(m, (re .| touches) .& on)
 end
 
-"""Whether the metabolite list `s` holds a metabolite of `names`, both indices into a
-scheme's metabolites."""
 _holds(s::Vector{Int}, names::Vector{Int}) = any(in(names), s)
 
 """Whether step `k` of `m` takes up or gives off a metabolite of `names` (`_holds`)."""
@@ -670,14 +668,10 @@ tagging searches apply to a candidate."""
 _enumerator_keeps(m) =
     Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_keep_a_binding(m)
 
-"""The number of copies of metabolite `i` (an index into a scheme's `metabolites`) in the
-list `v`."""
 _copies(v::Vector{Int}, i::Int) = count(==(i), v)
 
-"""Whether `m` is allosteric: its kinetic groups carry allosteric states."""
 _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
 
-"""The rapid-equilibrium flag of each step of `m`, in step order."""
 _rapid_equilibrium_flags(m::Mechanisms.CatalyticScheme) =
     BitVector([e.rapid_equilibrium for e in m.steps])
 
@@ -735,7 +729,6 @@ end
 
 # ─── Steps, subsets, merged complexes and bound regulators ──────────────
 
-"""Whether step `s` takes up and gives off nothing: an isomerization."""
 _is_iso(s::Mechanisms.Step) = isempty(s.taken_up) && isempty(s.given_off)
 
 """Whether step `s` takes up one metabolite and gives off none: a binding, plain or fused

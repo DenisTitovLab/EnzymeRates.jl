@@ -11,10 +11,8 @@ public check_valid_rate_equation, compile_rate_equation, dependent_parameter_val
     fitted_parameter_count, parameter_units, parameters, rate_equation_term_count,
     rate_equation_dedup_key, rate_equation_string
 
-"""Whether `m` is allosteric: its kinetic groups carry allosteric states."""
 _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
 
-"""The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.CatalyticScheme) = BitVector(s.rapid_equilibrium for s in m.steps)
 
 """Whether the equilibrium constant of step `e` at rapid equilibrium is named after the

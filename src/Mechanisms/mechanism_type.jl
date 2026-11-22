@@ -138,11 +138,9 @@ function _canonical(metabolites::Vector{Symbol}, enzyme_forms::Vector{Symbol},
                       collect((ns + 1):(ns + np)), stored)
 end
 
-"""`e` stored in the opposite direction: forms swapped, taken-up and given-off swapped."""
 _reversed(e::Step) =
     Step(e.to, e.from, e.given_off, e.taken_up, e.rapid_equilibrium, e.kinetic_group)
 
-"""Whether step `e` takes up and gives off nothing: an isomerization."""
 _is_iso(e::Step) = isempty(e.taken_up) && isempty(e.given_off)
 
 """
@@ -208,7 +206,6 @@ function _steps_at_forms(written::Vector{Step}, nf::Int)
     (; start, steps)
 end
 
-"""The form at the other end of step `e` from form `u`."""
 _other_end(e::Step, u::Int) = e.from == u ? e.to : e.from
 
 """How many steps of `written` separate each of its forms from `E`, form 1, along
