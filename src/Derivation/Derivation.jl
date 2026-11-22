@@ -1,5 +1,5 @@
-# ABOUTME: The Derivation module: its public names, its files in load order, and what the
-# ABOUTME: files share: the types _SwitchOff and _Reading, _excluded_steps, other helpers.
+# ABOUTME: The Derivation module: its public names, its files in load order, what the files
+# ABOUTME: share (_SwitchOff, _Reading, _excluded_steps, helpers) and the derivation memo.
 """Derives a mechanism's rate equation and compiles it."""
 module Derivation
 
@@ -77,7 +77,53 @@ include("rate_equation_derivation.jl")
 include("rate_equation_dedup_key.jl")
 include("rate_equation_correctness_guard.jl")
 include("allosteric_rate_equation_correctness_guard.jl")
-include("memo.jl")
+
+# ─── The derivation memo ────────────────────────────────────────────────
+
+"""
+The derivation memo of a task (`_memo`): the mechanism `m` last asked about, and its guard
+verdict (`_guard`), joint solve (`_solve`) and law (`_law`), each filled on first need. It
+holds one mechanism, replaced by the next one asked about (compared by `===`), and lives
+in the task's local storage, so tasks share nothing. A compiled rate law's generated
+methods (`_derivation_input`) never read it. The developer page, "The law, its code, its
+text and its key", says why the memo exists.
+"""
+mutable struct _Memo
+    m::Union{Nothing, Mechanisms.Mechanism}
+    verdict::Union{Nothing, _Verdict}
+    solve::Union{Nothing, _Solve}
+    law::Union{Nothing, _Law, _AlloLaw}
+end
+
+"""The task's memo (`_Memo`), emptied and given to `m` unless it holds `m`."""
+function _memo(m::Mechanisms.Mechanism)
+    c = get!(() -> _Memo(nothing, nothing, nothing, nothing), task_local_storage(),
+             _Memo)::_Memo
+    c.m === m || (c.m = m; c.verdict = nothing; c.solve = nothing; c.law = nothing)
+    c
+end
+
+function _memo_verdict(m::Mechanisms.Mechanism)
+    v = _memo(m).verdict
+    v === nothing || return v
+    _memo(m).verdict = _guard(m)
+end
+
+function _memo_solve(m::Mechanisms.Mechanism)
+    s = _memo(m).solve
+    s === nothing || return s
+    _memo(m).solve = _solve(m)
+end
+
+"""`m`'s law (`_law`) from its joint solve, through the memo: a `_Law` for a plain
+mechanism, an `_AlloLaw` for an allosteric one."""
+function _memo_law(m::Mechanisms.Mechanism)
+    L = _memo(m).law
+    L === nothing || return L::(_is_allosteric(m) ? _AlloLaw : _Law)
+    _memo(m).law = _law(m, _memo_solve(m))
+end
+
+_with_memo_law(f, m::Mechanisms.Mechanism) = f(m, _memo_solve(m), _memo_law(m))
 
 # Every mechanism macro call and the flip, split and tagging searches run the guard, and
 # the first call of a mechanism's compiled rate law decodes its Sig (`_derivation_input`)

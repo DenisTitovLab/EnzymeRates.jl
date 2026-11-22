@@ -504,8 +504,8 @@ phantom reads that fit.
 
 Identify asks one mechanism three questions in a row: `parameters`,
 `rate_equation_string` and `rate_equation_dedup_key`. Each needs the guard verdict, the
-joint solve or the law, so a private memo (`_Memo`, `src/Derivation/memo.jl`) keeps those
-of the last mechanism asked about, and each is derived once for all three.
+joint solve or the law, so a private memo (`_Memo`, `src/Derivation/Derivation.jl`) keeps
+those of the last mechanism asked about, and each is derived once for all three.
 
 ### Reading `Base.gc_live_bytes`
 
