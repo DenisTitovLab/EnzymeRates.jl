@@ -48,8 +48,9 @@ the part for a module before changing its internals.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
 - Only the exports (★) are promised to users. Users and tests can also reach
-  `EnzymeRates.test_rate_equation` and `EnzymeRates.Enumeration.candidate_mechanisms`,
-  without a promise. Code in `src/` still follows the bullet above.
+  `EnzymeRates.test_rate_equation`, `EnzymeRates.Enumeration.candidate_mechanisms` and
+  `EnzymeRates.Derivation.RateEquationTooLargeError` (the error of a law over the term
+  cap), without a promise. Code in `src/` still follows the bullet above.
 - The fields of a `Mechanism` are part of the `Mechanisms` interface, read with dots
   (`m.catalytic.steps[k].from`): its `catalytic` scheme holds `metabolites`,
   `enzyme_forms`, `substrates` and `products` (indices into `metabolites`) and `steps`,
@@ -209,13 +210,14 @@ an approved interface change.
 - **Rate-law speed.** The compiled rate law, `rate = compile_rate_equation(m)` called as
   `rate(concs, params, Keq)`, is allocation-free and takes under
   `50 ns + 0.5 ns × denominator terms` per call on every gated law: each mechanism in
-  `MECHANISM_TEST_SPECS` and the larger laws that test file lists. `Fitting.loss!` is
-  allocation-free, and its time per data row is at most 1.25 × the compiled law's time per
-  call plus 8 `log` calls, met by any of 20 batches, each run at its own stack depth.
-  `test/Derivation/test_rate_equation_derivation.jl` enforces both. A fit evaluates the law
-  millions of times, so stop and discuss with the maintainer before a change that would
-  make it allocate or slow down. CI timings vary by runner: rerun a job that misses the
-  bound rather than loosening it.
+  `MECHANISM_TEST_SPECS` and the larger laws that test file lists. Its time is the best of
+  five batches, each at its own stack depth with its own copy of the inputs.
+  `Fitting.loss!` is allocation-free, and its time per data row is at most 1.25 × the
+  compiled law's time per call plus 8 `log` calls, met by any of 20 batches, each run at
+  its own stack depth. `test/Derivation/test_rate_equation_derivation.jl` enforces both. A
+  fit evaluates the law millions of times, so stop and discuss with the maintainer before
+  a change that would make it allocate or slow down. CI timings vary by runner: rerun a
+  job that misses the bound rather than loosening it.
 - **Compile time.** `test/test_compile_budget.jl` bounds the first-call compile time of
   a compiled rate law and how many method instances each mechanism's fit compiles. Code
   specialized per mechanism trips it.
