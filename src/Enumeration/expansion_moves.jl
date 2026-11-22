@@ -64,7 +64,49 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
     _within_size_limits(children, max_param_count, typemax(Int))
 end
 
+# ─── The emission rules a parent must satisfy ───────────────────────────
+
+"""
+    _assert_emission_rules(c::CandidateMechanism)
+
+The two rules every mechanism the moves emit satisfies, checked on a parent candidate before
+it is expanded. Every steady-state kinetic group holds an edge that carries net flux
+(`_flux_carrying_groups` on the catalytic graph, an allosteric mechanism's active state). No
+kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A parent
+must obey both because a flip tests only the groups it flips. The split, the dead-end move,
+and `_expand_change_allo_state` filter their children; the other moves preserve both rules.
+"""
+function _assert_emission_rules(c::CandidateMechanism)
+    cm = c.mechanism.catalytic
+    members = _kinetic_groups(cm)
+    # A group as its steps' DSL lines (`step_text`).
+    label(g) = join((Mechanisms.step_text(cm, k) for k in members[g]), ", ")
+    flux = _flux_carrying_groups(cm, _rapid_equilibrium_flags(cm))
+    for (g, ks) in enumerate(members)
+        cm.steps[first(ks)].rapid_equilibrium || flux[g] || error(
+            "candidate_mechanisms: steady-state kinetic group {" * label(g) * "} has no " *
+            "step that carries net flux, so its two constants enter the rate only as " *
+            "their ratio; write the group at rapid equilibrium")
+    end
+    for g in _redundant_copy_groups(c)
+        error("candidate_mechanisms: kinetic group {" * label(g) * "} binds a " *
+              "competitive inhibitor only where the complex duplicates a productive " *
+              "form, and a dwell gauge absorbs its constant into the existing binding's; " *
+              "bind the inhibitor where it forms a new complex, or drop it")
+    end
+    nothing
+end
+
 # ─── Kinetic groups ──────────────────────────────────────────
+
+"""Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
+function _groups_with(pred, m::Mechanisms.CatalyticScheme)
+    out = falses(maximum(e -> e.kinetic_group, m.steps; init = 0))
+    for k in eachindex(m.steps)
+        pred(k) && (out[m.steps[k].kinetic_group] = true)
+    end
+    out
+end
 
 """Whether each kinetic group of the catalytic graph of candidate `c` holds a chemistry
 step: anything but a plain binding (`_is_plain_binding`). The allosteric moves tag a
@@ -253,6 +295,127 @@ function _minimal_flips(admissible, c::CandidateMechanism, eligible = _ -> true)
                    admissible(re) && all(_flux_carrying_groups(cm, re)[units[sel]]) &&
                    _enumerator_keeps(_with_flags(c, re).mechanism))
     [flipped(sel) for sel in _minimal_gaining_sets(passes, _ -> 1:length(units))]
+end
+
+"""
+    _flux_carrying_edges(m, re) -> BitVector
+
+Whether each edge of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds,
+carries net steady-state flux for generic parameter values. Rapid-equilibrium edges hold
+equilibrium mass and are flagged `false`; the rule that uses these flags concerns
+steady-state groups only.
+
+Contract each rapid-equilibrium segment to one vertex (`rapid_equilibrium_segments`) and
+make every steady-state edge an edge between its two forms' segments, weighted by the
+substrates it takes up minus the products (`_uptake_weight`), plus its first end's offsets
+minus its second end's (`from`, `to`; a modifier copy counts as its reactant). Around any
+cycle the offsets telescope and the uptakes sum to the net turnover times the reactant
+count, so a cycle has weight zero exactly when it runs no net reaction. A self-loop (both
+forms in one segment) carries flux iff its weight is nonzero. Any other edge carries flux
+iff its biconnected block (`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge
+of such a block lies on one (join the edge to the cycle by two disjoint paths; one of the
+two resulting cycles is unbalanced), while in a balanced block detailed balance holds along
+every cycle and each edge's flux vanishes. The zero-flux verdict holds for any parameters
+and grouping; the flux-carrying verdict for one-way steps, which every step the enumerator
+emits is. The test reads each edge's metabolite lists, so it holds for fused and
+Theorell–Chance steps as well.
+"""
+function _flux_carrying_edges(m::Mechanisms.CatalyticScheme, re::BitVector)
+    s = Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)), re)
+    rho = _name_signs(m)
+    offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
+    flags = falses(length(m.steps))
+    edges = Tuple{Int, Int}[]; weights = Int[]; owner = Int[]
+    for k in eachindex(m.steps)
+        re[k] && continue
+        (; from, to) = m.steps[k]
+        weight = _uptake_weight(m, k) + offset(from) - offset(to)
+        a, b = s.segment_of[from], s.segment_of[to]
+        if a == b
+            flags[k] = weight != 0
+        else
+            push!(edges, (a, b)); push!(weights, weight); push!(owner, k)
+        end
+    end
+    block, unbalanced = _unbalanced_blocks(length(s.segments), edges, weights)
+    for (j, k) in enumerate(owner)
+        flags[k] = block[j] in unbalanced
+    end
+    flags
+end
+
+"""
+    _flux_carrying_groups(m, re) -> BitVector
+
+One flag per kinetic group of graph `m`, edge `k` at rapid equilibrium where `re[k]`
+holds: whether some edge of the group carries net steady-state flux
+(`_flux_carrying_edges`). A steady-state group with no such edge exposes only the ratio
+of its two constants, so the moves never emit one; a zero-flux edge inside a group that
+also holds a flux-carrying edge costs nothing, because the group's shared constants are
+pinned by the edge that carries flux.
+"""
+function _flux_carrying_groups(m::Mechanisms.CatalyticScheme, re::BitVector)
+    flux = _flux_carrying_edges(m, re)
+    _groups_with(k -> flux[k], m)
+end
+
+"""Each metabolite's net uptake sign, in the order of `m.metabolites` (the rows of the
+offsets of `rapid_equilibrium_segments`): +1 for a substrate, −1 for a product, 0 for a
+modifier."""
+_name_signs(m::Mechanisms.CatalyticScheme) =
+    Int[n in m.substrates ? 1 : n in m.products ? -1 : 0 for n in eachindex(m.metabolites)]
+
+"""
+    _unbalanced_blocks(nv, edges, weights) -> (block, unbalanced)
+
+The biconnected block of every edge of an undirected multigraph without self-loops,
+`edges[e] = (u, v)` with vertices `1:nv` (Tarjan's edge-stack algorithm; a bridge is a
+block of its own), and the set of blocks holding a cycle of nonzero weight, edge `e`
+weighing `weights[e]` along its stored direction. The search gives each vertex a
+potential that rises by each tree edge's weight along its stored direction. An edge's
+defect, its weight minus the potential difference of its ends, is zero on a tree edge
+and, on any other edge, the weight of the cycle it closes with the tree path between its
+ends, a cycle of its own block. The tree edges of a block span it, so these cycles
+generate the block's cycles and weight adds over them: a block holds a cycle of nonzero
+weight exactly when one of its edges has a nonzero defect.
+"""
+function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Vector{Int})
+    adj = [Int[] for _ in 1:nv]
+    for (e, (u, v)) in enumerate(edges)
+        push!(adj[u], e); push!(adj[v], e)
+    end
+    disc = zeros(Int, nv); low = zeros(Int, nv); phi = zeros(Int, nv)
+    block = zeros(Int, length(edges))
+    stack = Int[]; clock = Ref(0); nblocks = Ref(0)
+    # It takes itself as an argument because a closure that names itself is boxed.
+    function visit(self, u, parent_edge)
+        clock[] += 1; disc[u] = low[u] = clock[]
+        for e in adj[u]
+            e == parent_edge && continue
+            w = edges[e][1] == u ? edges[e][2] : edges[e][1]
+            if disc[w] == 0
+                phi[w] = phi[u] + (edges[e][1] == u ? weights[e] : -weights[e])
+                push!(stack, e)
+                self(self, w, e)
+                low[u] = min(low[u], low[w])
+                if low[w] >= disc[u]
+                    nblocks[] += 1
+                    while true
+                        x = pop!(stack); block[x] = nblocks[]
+                        x == e && break
+                    end
+                end
+            elseif disc[w] < disc[u]
+                push!(stack, e)
+                low[u] = min(low[u], disc[w])
+            end
+        end
+    end
+    for v in 1:nv
+        disc[v] == 0 && visit(visit, v, 0)
+    end
+    block, Set{Int}(block[e] for (e, (u, v)) in enumerate(edges)
+                    if weights[e] != phi[v] - phi[u])
 end
 
 """Number of rapid-equilibrium segments of graph `m`, edge `k` at rapid equilibrium where
