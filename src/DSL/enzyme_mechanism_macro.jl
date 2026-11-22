@@ -1,177 +1,180 @@
-# ABOUTME: Reads @enzyme_reaction and mechanism macro blocks into plain data without
-# ABOUTME: checking them, and reads the text of a mechanism back as that mechanism.
+# ABOUTME: @enzyme_mechanism and parse_mechanism, which build a mechanism from its text
+# ABOUTME: and check it with the guard, and the reader of a mechanism block as written.
+
+# ─── @enzyme_mechanism ──────────────────────────────────────────────────
 
 """
-Parse the `@enzyme_reaction` body. Returns a `NamedTuple`:
-- `reactants ::Vector{Tuple{Symbol, Symbol, Vector{Pair{Symbol,Int}}}}` —
-  `(role, name, atoms)` with `role ∈ (:substrate, :product)` and `atoms` the
-  `element => count` pairs.
-- `regs  ::Vector{Tuple{Symbol, Symbol, Symbol}}` —
-  `(kind, name, effect)` where `kind ∈ (:competitive, :allosteric)` and
-  `effect ∈ (:activator, :inhibitor, :unspecified)`.
-- `mults ::Vector{Int}` — allowed oligomeric states (default `[1]`).
-- `shared ::Vector{Tuple{Symbol,Symbol}}` — `shared_catalytic_site:` pairs.
-"""
-function _parse_reaction_block(block)
-    block isa Expr && block.head === :block ||
-        error("@enzyme_reaction: expected a `begin ... end` block, got $block")
-    reactants = Tuple{Symbol, Symbol, Vector{Pair{Symbol,Int}}}[]
-    regs  = Tuple{Symbol, Symbol, Symbol}[]
-    mults::Union{Nothing, Vector{Int}} = nothing
-    shared = Tuple{Symbol,Symbol}[]
-
-    for arg in block.args
-        arg isa LineNumberNode && continue
-        label, values = _parse_labeled_line(arg)
-        if label === :substrates || label === :products
-            role = label === :substrates ? :substrate : :product
-            for (name, atoms) in _parse_atom_bracket_entries(values, label)
-                push!(reactants, (role, name, atoms))
-            end
-        elseif label === :competitive_inhibitors
-            append!(regs, _parse_regulator_entries(values, :competitive))
-        elseif label === :allosteric_regulators
-            append!(regs, _parse_regulator_entries(values, :allosteric))
-        elseif label === :oligomeric_state
-            mults === nothing ||
-                error("@enzyme_reaction: `oligomeric_state:` given more than once.")
-            mults = _parse_multiplicity_tuple(values, label)
-        elseif label === :shared_catalytic_site
-            append!(shared, _parse_shared_site_pairs(values))
-        else
-            error("@enzyme_reaction: unknown label `$label:`. Valid labels: " *
-                  "substrates, products, competitive_inhibitors, " *
-                  "allosteric_regulators, oligomeric_state, shared_catalytic_site.")
+    @enzyme_mechanism begin
+        substrates: S, ...
+        products: P, ...
+        modifiers: I, ...
+        oligomeric_state: 2              # an allosteric mechanism only
+        steps: begin
+            E + S ⇌ ES                   # :: EqualAI on every statement, if allosteric
+            ...
         end
+        regulatory_site(2): X::OnlyA     # an allosteric mechanism only
     end
-    (; reactants, regs, mults = something(mults, [1]), shared)
+
+Build a mechanism from its elementary steps. The value is a [`Mechanism`](@ref
+EnzymeRates.Mechanisms.Mechanism), which
+[`compile_rate_equation`](@ref EnzymeRates.Derivation.compile_rate_equation) turns into a
+rate law that evaluates without allocating. Two writings of one mechanism give equal
+values. It prints as the block that builds it, each list sorted and one line per kinetic
+group in canonical order.
+
+Labels:
+- `substrates:` and `products:` (required) name the reactants, without atoms; atoms
+  belong in [`@enzyme_reaction`](@ref).
+- `modifiers:` names the metabolites that bind the catalytic site without reacting, such
+  as inhibitors and activators. A name is declared once: a substrate or product that
+  also binds where it does not react is not listed here, since a step that binds it
+  simply takes it up (`ES + S ⇌ ESS`).
+- `steps:` (required) holds the steps in one `begin ... end` block.
+- `substrates:`, `products:` and `modifiers:` may repeat; their names accumulate.
+- `oligomeric_state:` and `regulatory_site(n):` belong to an allosteric mechanism (below).
+
+Steps, one per line:
+- `lhs ⇌ rhs` is a rapid-equilibrium step and `lhs <--> rhs` a steady-state one; either
+  direction may be written, but the isomerizations of one kinetic group share their
+  constants in the direction each is written, so write them the same way round.
+- Each side holds one enzyme form and the metabolites the step takes up (left) or gives
+  off (right): `E + S ⇌ ES`, `EA + B <--> EQ + P`. A name on a side that no label
+  declares is an enzyme form, and each side holds exactly one.
+- An enzyme form's name is any identifier that names no metabolite, such as `ES`, `EAB`
+  or `Fstar`; `E` is the free enzyme. The name says nothing to the package, but it is
+  part of its constants' names, so a name that tells what the form holds keeps the rate
+  law readable: the mechanism search writes `EAB` for E with A and B bound, and
+  `E_res_plusA_minusP` for a ping-pong's covalent intermediate after A bound and P left.
+- A name is one form wherever it is written, so a misspelt name is another form:
+  `EI + S ⇌ EIS` beside `ES + I ⇌ ESI` makes `EIS` and `ESI` two forms. The constructor
+  rejects a form that no step joins to `E`, and the guard some other slips, such as a
+  name that leaves no cycle turning substrates into products, or a step that forgets a
+  metabolite (`ESI <--> ES` for `ESI <--> ES + I`); others pass and write another
+  mechanism.
+- A parenthesized tuple of steps is one kinetic group, whose steps share their
+  constants: `(E + I ⇌ EI, ES + I ⇌ EIS)`.
+- A substrate or product binds wherever a step takes it up. Substrate inhibition is
+  `ES + S ⇌ ESS`; the form's name tells the two bindings apart.
+
+Every mechanism holds the free enzyme `E`, and its steps join every form to it. Each
+declared name takes part in some step: a step takes up or gives off each substrate and
+product, and binds each modifier.
+
+Constants are named after the forms and metabolites a step joins: `K_ES_to_E_S` for
+`E + S ⇌ ES`, `k_ES_to_EP` and `k_EP_to_ES` for `ES <--> EP`, `K_ESSmod_to_ES_S` for
+`ES + S ⇌ ESSmod`.
+
+An allosteric (MWC) mechanism: the enzyme is active (A) or inactive (I), the free
+enzyme's inactive-to-active ratio is `L`, and allosteric regulators bind regulatory sites
+apart from the catalytic one. A mechanism is allosteric when its statements carry
+allosteric states: every statement of `steps:` ends with one, a step after its right-hand
+side, a parenthesized group after its closing parenthesis, and `(step,) :: State` for a
+group of one. Some statements with a state and others without is an error. Only an
+allosteric mechanism takes:
+- `oligomeric_state:` (default 1), the number of catalytic subunits, which change
+  conformation together.
+- `regulatory_site(n): X::State, Y::State`, one regulatory site, present `n` times, and
+  its ligands in any order, each with its state. A ligand sits on one site line. It binds
+  only its regulatory site, unless `modifiers:` lists it too, which lets it bind the
+  catalytic site as well.
+
+A state says how a statement's constants, or a ligand's binding, differ between the
+conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`K_A_…`
+and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
+one only. A catalytic statement or a ligand takes any of the four, as long as the active
+conformation still turns substrate into product. The conformations interconvert only at
+free E.
+
+When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
+sit, with an error that names the steps at fault: a cycle of steps takes up or gives off a
+metabolite in another proportion than the reaction, as when a step forgets one; no cycle
+of steps turns substrates into products; a cycle of rapid-equilibrium steps does, so the
+rate has no finite value; or, with every product, every substrate, one reactant or every
+modifier absent, the steady state is not unique or is not the limit the rate law gives as
+the rapid-equilibrium steps speed up. It also rejects a law with no value there (0/0).
+
+A step with a state is switched off in the conformation that lacks it, and it keeps its
+kind, rapid equilibrium or steady state, in both. The steps that conformation keeps join
+the forms into islands, and every island but free E's lies higher in energy and holds no
+enzyme: a switched-off step between two islands loses its rate uphill and keeps its rate
+downhill, or, at steady state, may stop; one inside an island stops at steady state, and
+at rapid equilibrium cannot be switched off, so the macro rejects it. The macro looks for
+energies of the islands under which the rate law is the limit, and rejects the states when
+it finds none (under each, a face's steady state depends on where the enzyme starts, or
+the macro cannot show that the limit does not depend on how fast the switched-off
+constants vanish), or when the states allow more choices than it searches and none of the
+few it tries first gives the limit (see [How an excluded step is switched off](@ref)).
+
+Below, the inhibitor I binds E and ES with one constant, and a second S binds ES, which
+inhibits at high substrate:
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> m = @enzyme_mechanism begin
+           substrates: S
+           products: P
+           modifiers: I
+           steps: begin
+               E + S ⇌ ES
+               ES <--> EP
+               EP ⇌ E + P
+               (E + I ⇌ EI, ES + I ⇌ EIS)
+               ES + S ⇌ ESSmod
+           end
+       end;
+
+julia> foreach(println, parameters(m))
+K_EI_to_E_I
+K_EP_to_E_P
+K_ESSmod_to_ES_S
+K_ES_to_E_S
+k_ES_to_EP
+```
+
+An allosteric mechanism with two subunits and a regulatory site for an activator X and an
+inhibitor Y:
+
+```jldoctest
+julia> using EnzymeRates
+
+julia> am = @enzyme_mechanism begin
+           substrates: A, B
+           products: P, Q
+           modifiers: I
+           oligomeric_state: 2
+           steps: begin
+               E + A ⇌ EA                   :: EqualAI
+               EA + B ⇌ EAB                 :: NonequalAI
+               EAB <--> EPQ                 :: OnlyA
+               EPQ ⇌ EQ + P                 :: EqualAI
+               EQ ⇌ E + Q                   :: EqualAI
+               (E + I ⇌ EI, EA + I ⇌ EAI)   :: EqualAI
+               EQ + P ⇌ EPmodQ              :: EqualAI
+           end
+           regulatory_site(2): X::OnlyA, Y::OnlyI
+       end;
+
+julia> foreach(println, parameters(am))
+K_A_EAB_to_EA_B
+K_EA_to_E_A
+K_EI_to_E_I
+K_EPQ_to_EQ_P
+K_EPmodQ_to_EQ_P
+K_EQ_to_E_Q
+K_I_EAB_to_EA_B
+k_A_EAB_to_EPQ
+K_A_Xreg
+K_I_Yreg
+L
+```
+"""
+macro enzyme_mechanism(block)
+    return :($_checked_mechanism($(raw_mechanism(block))))
 end
 
-"""
-Parse `S[C6H12O6]` entries, each a name and one chemical formula in brackets, into
-`(name, atoms)` pairs, `atoms` a `Vector{Pair{Symbol,Int}}` of `element => count`.
-"""
-function _parse_atom_bracket_entries(values, label)
-    map(values) do v
-        v isa Expr && v.head === :ref && length(v.args) == 2 && v.args[1] isa Symbol ||
-            error("@enzyme_reaction: `$label:` lists each reactant with one chemical " *
-                  "formula in brackets, such as `S[C6H12O6]`; got `$v`.")
-        (v.args[1]::Symbol, _parse_chemical_formula(string(v.args[2])))
-    end
-end
-
-"""
-Parse `shared_catalytic_site:` entries. Each value is a two-name tuple
-`(sub, prod)`; roles are resolved by the `EnzymeReaction` constructor.
-Returns `Vector{Tuple{Symbol,Symbol}}`.
-"""
-function _parse_shared_site_pairs(values)
-    map(values) do v
-        v isa Expr && v.head === :tuple && length(v.args) == 2 &&
-            all(a -> a isa Symbol, v.args) || error(
-                "@enzyme_reaction: `shared_catalytic_site:` each entry must be " *
-                "a `(substrate, product)` pair of two names; got $v.")
-        (v.args[1]::Symbol, v.args[2]::Symbol)
-    end
-end
-
-"""
-    _parse_chemical_formula(s::String)
-
-Parse a chemical formula string like `"C6H12O6"` into `element => count` pairs.
-Elements are identified by an uppercase letter optionally followed by lowercase
-letters, then an optional integer count (defaults to 1).
-"""
-function _parse_chemical_formula(s::String)
-    occursin(r"^([A-Z][a-z]*\d*)*$", s) || error("Invalid chemical formula: \"$s\"")
-    [Symbol(m[1]) => (isempty(m[2]) ? 1 : parse(Int, m[2]::SubString))
-     for m in eachmatch(r"([A-Z][a-z]*)(\d*)", s)]
-end
-
-"""`v` as an `Int`; errors unless it is a positive integer literal, which `true` is not.
-`what` names it."""
-_positive_int(v, what) = v isa Integer && !(v isa Bool) && v >= 1 ? Int(v) :
-    error("$what must be a positive Int, got $v.")
-
-"""
-Parse `R` entries, optionally tagged with a regulator type, `R::Activator` or
-`R::Inhibitor`, into `(kind, name, effect)`; an untagged `R` has effect
-`:unspecified`. A multiplicity list such as `R(1, 2)` is an error: a regulator takes the
-oligomeric states that `oligomeric_state:` lists. `Regulator` rejects a type tag on a
-competitive inhibitor.
-"""
-function _parse_regulator_entries(values, kind::Symbol)
-    map(values) do v
-        effect, inner = :unspecified, v
-        if v isa Expr && v.head === :(::)
-            inner, tag = v.args
-            effect = tag === :Activator ? :activator :
-                   tag === :Inhibitor ? :inhibitor :
-                   error("@enzyme_reaction: unknown regulator type tag ::$tag " *
-                         "on $v; use ::Activator or ::Inhibitor.")
-        end
-        inner isa Symbol && return (kind, inner, effect)
-        inner isa Expr && inner.head === :call && length(inner.args) >= 2 &&
-            inner.args[1] isa Symbol && all(a -> a isa Integer, inner.args[2:end]) &&
-            error("@enzyme_reaction: regulator $(inner.args[1]) lists multiplicities, " *
-                  "got `$v`; a regulator takes the oligomeric states that " *
-                  "`oligomeric_state:` lists, so list $(inner.args[1]) bare.")
-        error("@enzyme_reaction: cannot parse regulator entry $v. Use `R`.")
-    end
-end
-
-"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
-function _parse_multiplicity_tuple(values, label)
-    v = values[1]
-    length(values) == 1 && v != Expr(:tuple) ||
-        error("@enzyme_reaction: `$label:` takes one Int or a tuple of one or more " *
-              "Ints, such as `(1, 2, 4)`; got $(join(values, ", ")).")
-    Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
-        for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
-end
-
-"""
-    reaction_expr(block) -> Expr
-
-The `EnzymeReaction` `Expr` that `@enzyme_reaction`'s `block` writes, from its parsed
-declarations (`_parse_reaction_block`): `reactants` as `(role, name, atoms)` and
-`regs` as `(kind, name, effect)`. The macro returns it unescaped, so hygiene resolves its
-names in `DSL` itself and the macro works in a module that imports the package under
-another name or imports only the macro.
-"""
-function reaction_expr(block)
-    (; reactants, regs, mults, shared) = _parse_reaction_block(block)
-    reactant_exprs(role) = [
-        :(Mechanisms.Reactant($(QuoteNode(name)),
-            Pair{Symbol,Int}[$((:($(QuoteNode(e)) => $c) for (e, c) in atoms)...)]))
-        for (r, name, atoms) in reactants if r === role]
-    regulator_exprs = [
-        :(Mechanisms.Regulator(
-            $(QuoteNode(name)), $(QuoteNode(kind)), $(QuoteNode(effect))))
-        for (kind, name, effect) in regs]
-    shared_exprs = [:(($(QuoteNode(a)), $(QuoteNode(b)))) for (a, b) in shared]
-    :(Mechanisms.EnzymeReaction(
-        Mechanisms.Reactant[$(reactant_exprs(:substrate)...)],
-        Mechanisms.Reactant[$(reactant_exprs(:product)...)],
-        Mechanisms.Regulator[$(regulator_exprs...)], Int[$(mults...)];
-        shared_catalytic_site = Tuple{Symbol,Symbol}[$(shared_exprs...)]))
-end
-
-"""
-Parse a labeled-line, returning `(label, values_vector)`. `values_vector` is the
-list of args after the label, in source order. Values are returned as parsed
-(bare Symbols, `name::Tag`, `Sym[atoms]`, `begin ... end` blocks, literals, ...);
-each caller checks the shape it expects. Handles both Julia parse shapes:
-  - `Expr(:call, :(:), label, value)` — single labeled value.
-  - `Expr(:tuple, Expr(:call, :(:), label, first), rest...)` — multi-element labeled.
-"""
-function _parse_labeled_line(arg)
-    head, rest = arg isa Expr && arg.head == :tuple && !isempty(arg.args) ?
-                 (arg.args[1], arg.args[2:end]) : (arg, Any[])
-    head isa Expr && head.head == :call && head.args[1] == :(:) ||
-        error("Expected `label: value` or `label: v1, v2, ...`; got $arg")
-    head.args[2], Any[head.args[3], rest...]
-end
+# ─── Bare names of a block ──────────────────────────────────────────────
 
 """
 Coerce labeled-line values to bare Symbols. Reject any other value, with a hint where an

@@ -421,11 +421,12 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   syntax returns with this feature. `_expand_to_allosteric` and
   `_expand_add_allosteric_regulator` give every regulatory site the mechanism's
   oligomeric state as its multiplicity. The derivation already powers each site by its
-  own multiplicity, so only the DSL (`_parse_regulator_entries`, `src/DSL/read.jl`;
-  `Regulator`, `src/Mechanisms/enzyme_reaction_type.jl`) and enumeration change: those two
-  moves, and `_expand_merge_regulatory_sites`, which must merge only sites of equal
-  multiplicity. Keep a bare `A` at the oligomeric state, widen only on an explicit list, and
-  reject `I(m)` for a competitive inhibitor. Priority: medium-low.
+  own multiplicity, so only the DSL (`_parse_regulator_entries`,
+  `src/DSL/enzyme_reaction_macro.jl`; `Regulator`, `src/Mechanisms/enzyme_reaction_type.jl`)
+  and enumeration change: those two moves, and `_expand_merge_regulatory_sites`, which must
+  merge only sites of equal multiplicity. Keep a bare `A` at the oligomeric state, widen
+  only on an explicit list, and reject `I(m)` for a competitive inhibitor. Priority:
+  medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/Enumeration/expansion_moves.jl`) has no gain test,
   unlike the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain
@@ -473,11 +474,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 - **Remove the DSL's hints for the notation it no longer reads.**
   `@enzyme_mechanism` answers notation the lean mechanism dropped with a hint of what to
-  write instead (`src/DSL/read.jl`): a form in call notation such as `E(A, B)`
-  (`_called_form_name` and the call branch of `_raw_term`), a reactant's modifier copy
-  `X::Mod` and a count such as `2S` (the `::Mod` and count branches of `_raw_term`), and a
-  tagged name in a name list such as `P::Mod` (`_bare_name`, `_untagged` and the hint of
-  `_bare_symbols_from_values`). The maintainer kept them for this release. Removing them
+  write instead (`src/DSL/enzyme_mechanism_macro.jl`): a form in call notation such as
+  `E(A, B)` (`_called_form_name` and the call branch of `_raw_term`), a reactant's modifier
+  copy `X::Mod` and a count such as `2S` (the `::Mod` and count branches of `_raw_term`),
+  and a tagged name in a name list such as `P::Mod` (`_bare_name`, `_untagged` and the hint
+  of `_bare_symbols_from_values`). The maintainer kept them for this release. Removing them
   in a later one takes about 30 lines of source and 60 of `test/DSL/test_dsl.jl`, and old
   notation then gets the generic error.
 - **Extend `plot_rate_equation_on_data`.**
