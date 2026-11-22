@@ -196,12 +196,14 @@ compiler may not inline, so it cannot hoist the call out of the timing loop."""
 @noinline _testhelper_rate_barrier(rate, concs, params, Keq) = rate(concs, params, Keq)
 
 """
-Test that the compiled rate law of the given mechanism is non-allocating and fast.
-Must be a standalone function to avoid @testset closure boxing. Each call goes through
+`(allocs, seconds)`: the allocations of one call of the compiled rate law `rate`, and its
+best time per call over five batches of 10,000 calls. It takes the law, not its mechanism,
+so it compiles for the law's type, which carries the mechanism: a law compiled inside it
+has an abstract type there, and each timed call would be dispatched at run time, which
+costs more than a small law on CI runners. Each call goes through
 `_testhelper_rate_barrier`, so every one of the 10,000 calls per batch runs.
 """
-function _testhelper_test_rate_equation_performance(m, params, Keq, concs)
-    rate = compile_rate_equation(m)
+function _testhelper_test_rate_equation_performance(rate, params, Keq, concs)
     _testhelper_rate_barrier(rate, concs, params, Keq) # warmup/compile
     allocs = @allocated _testhelper_rate_barrier(rate, concs, params, Keq)
     # Minimum over several batches defeats the GC/scheduling inflation a
@@ -631,7 +633,8 @@ function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=
         rng = Random.MersenneTwister(seed)
         params, Keq, concs, _ = _testhelper_random_independent_params_concs(
             m, met_names; rng=rng)
-        allocs, t = _testhelper_test_rate_equation_performance(m, params, Keq, concs)
+        allocs, t = _testhelper_test_rate_equation_performance(
+            compile_rate_equation(m), params, Keq, concs)
         @test allocs == 0
         n = _testhelper_denominator_terms(m)
         @test t < _testhelper_rate_equation_time_limit(n)
@@ -1506,7 +1509,8 @@ end
                                  _testhelper_large_ter_bi_mechanisms))
         params, Keq, concs, _ = _testhelper_random_independent_params_concs(
             m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
-        allocs, t = _testhelper_test_rate_equation_performance(m, params, Keq, concs)
+        allocs, t = _testhelper_test_rate_equation_performance(
+            compile_rate_equation(m), params, Keq, concs)
         n = _testhelper_denominator_terms(m)
         @test allocs == 0
         @test t < _testhelper_rate_equation_time_limit(n)
@@ -1581,7 +1585,7 @@ end
     for (c, p) in ((flipped(concs), params), (concs, flipped(params)),
                    (row, all_params), (row, flipped(all_params)))
         @test rate(c, p, Keq) == v
-        allocs, _ = _testhelper_test_rate_equation_performance(m, p, Keq, c)
+        allocs, _ = _testhelper_test_rate_equation_performance(rate, p, Keq, c)
         @test allocs == 0
     end
     x1 = @enzyme_mechanism begin
@@ -1596,7 +1600,8 @@ end
     _testhelper_check_law_against_oracle(x1)
     params, Keq, concs, _ = _testhelper_random_independent_params_concs(
         x1, collect(metabolites(x1)); rng = Random.MersenneTwister(92))
-    allocs, _ = _testhelper_test_rate_equation_performance(x1, params, Keq, concs)
+    allocs, _ = _testhelper_test_rate_equation_performance(compile_rate_equation(x1),
+                                                           params, Keq, concs)
     @test allocs == 0
 end
 
@@ -2068,7 +2073,7 @@ end
         params = NamedTuple{syms}(ntuple(i -> 0.5 + i / 10, length(syms)))
         @test dependent_parameter_values(m, params, 1.5).K_E_to_F == 1
         allocs, _ = _testhelper_test_rate_equation_performance(
-            m, params, 1.5, (A = 1.0, P = 0.5, I = 0.2))
+            compile_rate_equation(m), params, 1.5, (A = 1.0, P = 0.5, I = 0.2))
         @test allocs == 0
     end
 
