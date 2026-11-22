@@ -936,14 +936,15 @@ predictions in a vectorized loop with the law inlined"
   depth (`_testhelper_loss_over_law`). The gate's statistic, the best batch's ratio with the
   law at one depth, let slower variants pass a bound of 0.75.
 
-A spike on aarch64, on Julia 1.13 and 1.11, checked it against variants of `loss!`. It fails
-`loss!` with the law called once per row in one loop and `loss!` without `@inline` on the
-law, on both counts (1.03–1.10 of the law). Without the inner `@inbounds`, or with the sign
-test and `log` back in the first loop, `loss!` reads 0.77, only 10% over the bound, and the
-IR check is what catches them. It passes the present code, an `ifelse` in the second loop,
-`@simd ivdep`, and the loop without `@simd`, which changes neither its vector body nor its
-time. The present code's ratio read at most 0.412 in the spike's 36 processes, 0.59 of the
-bound, and 0.397–0.414 in ten child processes.
+Run on copies of the package on aarch64, the testset fails each of four variants of `loss!`.
+With the law called once per row in one loop, or without `@inline` on the law, all three
+tests fail (1.03–1.10 of the law). Without the inner `@inbounds`, or with the sign test and
+`log` back in the first loop, `loss!` reads 0.77–0.79, only 10–13% over the bound, and the
+IR check is the reliable catch. The testset passes the present code and an `ifelse` in the
+second loop, and the spike that designed it passed `@simd ivdep` and the loop without
+`@simd`, which changes neither its vector body nor its time, on Julia 1.13 and 1.11. The
+present code's ratio read at most 0.412 in the spike's 36 processes, 0.59 of the bound, and
+0.397–0.414 in ten child processes.
 
 What it cannot see:
 
