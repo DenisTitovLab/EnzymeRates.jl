@@ -846,11 +846,8 @@ end
         @test (v.fault, v.face) == (ER.Derivation._BOTTOMLESS, 3)
         @test ER.Derivation._guard(copy_first) == v
         @test copy_first == copy_last
-        for m in (copy_last, copy_first)
-            segment = ER.Mechanisms.rapid_equilibrium_segments(
-                m.catalytic, trues(length(m.catalytic.steps))).bottom
-            @test m.catalytic.enzyme_forms[segment] == [:EA, :EAB, :EB, :EAmodB]
-        end
+        @test occursin("segment {EA, EAB, EB, EAmodB} has no form",
+                       ER.Derivation._guard_message(copy_last))
         @test_throws ErrorException(
             ER.Derivation._guard_message(copy_last)) @enzyme_mechanism begin
             substrates: A, B

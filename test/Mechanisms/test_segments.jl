@@ -1,5 +1,5 @@
 # ABOUTME: Tests of the segments and cycles of a step mask: `rapid_equilibrium_segments`,
-# ABOUTME: `_segment_walk`, `has_turnover_cycle` and `has_unbalanced_cycle`.
+# ABOUTME: `has_turnover_cycle` and `has_unbalanced_cycle`.
 
 const ER = EnzymeRates
 
@@ -190,26 +190,10 @@ end
     @test g.segments == [[1, 2, 3, 4], [5], [6]]
     # E + B <--> EB joins two forms of the first segment, so it is no step of the graph.
     @test text.(g.steps) == ["E + Q <--> EQ", "EAB <--> EPQ", "EQ + P <--> EPQ"]
-    @test g.bottom == Int[]
 end
 
-@testset "_segment_walk and has_unbalanced_cycle on plain arrays" begin
+@testset "has_unbalanced_cycle on plain arrays" begin
     M = ER.Mechanisms
-    # Nodes 1-3 present, node 4 not. Transitions: 1 → 2 (+1), 2 → 1 (-1), 2 → 3 (+1),
-    # 3 → 1 (-2), each taking up one name by `change`.
-    present = BitVector([1, 1, 1, 0])
-    out = [[1], [2, 3], [4], Int[]]
-    to = [2, 1, 3, 1]
-    w = M._segment_walk(present, out, to, [1 -1 1 -2])
-    @test w.segment_of == [1, 1, 1, 0]
-    @test w.segments == [[1, 2, 3]]
-    @test w.offsets == [0 1 2 0]
-    @test w.parent == [0, 1, 3, 0]
-    @test w.disagreeing == 0
-    # With 3 → 1 taking up -1, the cycle 1 → 2 → 3 → 1 takes up one copy net: transition 4
-    # is the first whose offsets disagree.
-    @test M._segment_walk(present, out, to, [1 -1 1 -1]).disagreeing == 4
-
     # The triangle 1 → 2 → 3 → 1 balances at weights 1, 1, -2 and not at 1, 1, -1; without
     # its third step it closes no cycle.
     from, to3 = [1, 2, 3], [2, 3, 1]
@@ -220,7 +204,7 @@ end
                                   buffers()...)
 end
 
-@testset "a sub-graph reads the forms, segments and bottom of the edges a mask keeps" begin
+@testset "a sub-graph reads the forms and segments of the edges a mask keeps" begin
     # Random release of P and Q at rapid equilibrium between steady-state releases: the
     # segment {EP, EPQ, EQ} has every form holding a product.
     m = @_testhelper_unguarded @enzyme_mechanism begin
@@ -250,20 +234,15 @@ end
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ", "EQ"]]
     @test s.segment_of == [1, 2, 2, 2, 1]
     @test s.offsets == [0 0 0 0 1; 0 1 1 0 0; 0 0 1 1 0]
-    # Every form of the second segment holds a product, so it has no bottom form.
-    @test names(s.bottom) == ["EP", "EPQ", "EQ"]
     # The steady-state steps that join two segments, which are all of them here.
     g = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, every)
     @test g.steps == [1, 2, 6]
-    @test (g.segment_of, g.segments, g.offsets, g.bottom) ==
-          (s.segment_of, s.segments, s.offsets, s.bottom)
-    # Without the release of P from EPQ, EQ stands alone and EP is the bottom of
-    # {EP, EPQ}.
+    @test (g.segment_of, g.segments, g.offsets) == (s.segment_of, s.segments, s.offsets)
+    # Without the release of P from EPQ, EQ stands alone.
     no_p = BitVector([1, 1, 1, 1, 0, 1])
     @test ER.Mechanisms._present_species(m.catalytic, no_p) == trues(5)
     s = ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, no_p, _testhelper_flags(m))
     @test [names(seg) for seg in s.segments] == [["E", "ES"], ["EP", "EPQ"], ["EQ"]]
-    @test isempty(s.bottom)
     @test ER.Mechanisms.rapid_equilibrium_segments(m.catalytic, no_p).steps == [1, 2, 6]
     # A mask keeps only the forms its edges touch; a form it leaves is in no segment.
     bindings = BitVector([1, 1, 0, 0, 0, 0])
