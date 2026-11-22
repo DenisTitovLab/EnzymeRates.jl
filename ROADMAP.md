@@ -333,7 +333,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     `Enumeration`; a binding's shape is written four times in `Derivation` and as
     `Enumeration._is_binding`. The steps a conformation excludes, those of its groups'
     excluded allosteric state: `Mechanisms._steps_in_conformation`
-    (`src/Mechanisms/accessors.jl`) and `Derivation._excluded_steps`
+    (`src/Mechanisms/mechanism_type.jl`) and `Derivation._excluded_steps`
     (`src/Derivation/conformations.jl`). A mechanism's id, the first 16 hex digits of the
     SHA-256 of its text: identify's `_mechanism_id` and the capped key of `_canonical`
     (`src/Derivation/key.jl`); keying a capped law by the whole text instead would change
@@ -422,9 +422,9 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_expand_add_allosteric_regulator` give every regulatory site the mechanism's
   oligomeric state as its multiplicity. The derivation already powers each site by its
   own multiplicity, so only the DSL (`_parse_regulator_entries`, `src/DSL/read.jl`;
-  `Regulator`, `src/Mechanisms/types.jl`) and enumeration change: those two moves, and
-  `_expand_merge_regulatory_sites`, which must merge only sites of equal multiplicity.
-  Keep a bare `A` at the oligomeric state, widen only on an explicit list, and
+  `Regulator`, `src/Mechanisms/enzyme_reaction_type.jl`) and enumeration change: those two
+  moves, and `_expand_merge_regulatory_sites`, which must merge only sites of equal
+  multiplicity. Keep a bare `A` at the oligomeric state, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
   `_expand_change_allo_state` (`src/Enumeration/moves.jl`) has no gain test, unlike

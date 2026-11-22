@@ -1,7 +1,7 @@
-# ABOUTME: Value types: EnzymeReaction, and the mechanism as a reaction graph (its catalytic
-# ABOUTME: scheme in canonical form) and its allostery, with their checks and identity.
+# ABOUTME: Mechanism, a reaction graph in canonical form and its allostery, with their
+# ABOUTME: checks, identity and text, and what the graph gives: steps, segments, cycles.
 
-# ─── Reactions and regulatory sites ──────────────────────────────────
+# ─── Regulatory sites ───────────────────────────────────────────────────
 
 """The allosteric states a kinetic group or a regulatory site's ligand takes; the
 constructors accept no other (`_check_tags`, `RegulatorySite`)."""
@@ -37,297 +37,6 @@ struct RegulatorySite
         p = sortperm(ligands)
         new(ligands[p], multiplicity, allosteric_states[p])
     end
-end
-
-"""
-Reactant: a substrate or product of a reaction, with its atoms as `element => count`
-pairs. The constructor sorts the atoms by element so two equivalent constructions compare
-equal under `==` / `hash`; an element listed twice (`S[CHC]`) counts once with the summed
-count, as `S[C2H]` writes it.
-"""
-struct Reactant
-    name::Symbol
-    atoms::Vector{Pair{Symbol,Int}}
-    function Reactant(name::Symbol, atoms::Vector{<:Pair{Symbol,<:Integer}})
-        isempty(atoms) && error(
-            "Reactant: $name has no declared atoms; atoms " *
-            "are mandatory (use `[C…]` bracket syntax in @enzyme_reaction).")
-        bad = findfirst(a -> a.second isa Bool || a.second ≤ 0, atoms)
-        bad === nothing ||
-            error("Reactant: $name atom count for element " *
-                  "$(atoms[bad].first) must be a positive integer, got " *
-                  "$(atoms[bad].second).")
-        bad = findfirst(a -> !occursin(r"^[A-Z][a-z]*$", String(a.first)), atoms)
-        bad === nothing ||
-            error("Reactant: $name has the element " *
-                  "$(atoms[bad].first); an element is a capital letter and any lowercase " *
-                  "letters, such as C or Cl")
-        merged = Pair{Symbol,Int}[]
-        for (e, c) in sort(Vector{Pair{Symbol,Int}}(atoms); by=first)
-            if !isempty(merged) && merged[end].first === e
-                merged[end] = e => merged[end].second + c
-            else
-                push!(merged, e => c)
-            end
-        end
-        new(name, merged)
-    end
-end
-
-"""
-Regulator: a metabolite a reaction declares as a regulator. `kind` is `:allosteric` (it
-binds a regulatory site) or `:competitive` (a competitive inhibitor of the catalytic
-site). `effect` is `:activator` or `:inhibitor` when the declaration pins the regulator
-to the conformation it favors, else `:unspecified`; a competitive inhibitor takes no
-effect.
-"""
-struct Regulator
-    name::Symbol
-    kind::Symbol
-    effect::Symbol
-    function Regulator(name::Symbol, kind::Symbol, effect::Symbol = :unspecified)
-        kind in (:allosteric, :competitive) ||
-            error("Regulator: kind must be :allosteric or :competitive, got $kind")
-        effect in (:activator, :inhibitor, :unspecified) ||
-            error("Regulator: effect must be :activator, :inhibitor, or " *
-                  ":unspecified, got $effect")
-        kind === :competitive && effect !== :unspecified &&
-            error("Regulator: $name is a competitive inhibitor, " *
-                  "which takes no regulator type, got $(repr(effect)); only an " *
-                  "allosteric regulator is an activator (::Activator) or an inhibitor " *
-                  "(::Inhibitor)")
-        new(name, kind, effect)
-    end
-end
-
-"""
-The names no metabolite takes: `Keq`, `L` and `N`, which name or are kept for
-rate-equation constants, and `params`, `concs` and `v`, the local names of a rate
-equation's code (`rate_equation_string`). A rate equation binds its constants, its
-locals and the concentrations in one scope, so a metabolite of one of these names would
-overwrite another or be overwritten.
-"""
-const _RESERVED_NAMES = (:Keq, :L, :N, :params, :concs, :v)
-
-"""
-Julia's reserved words and the infix keywords `in`, `isa` and `where`. `Base.isidentifier`
-accepts each of them, but a DSL text cannot write one as a metabolite's name.
-"""
-const _KEYWORDS = (:baremodule, :begin, :break, :catch, :const, :continue, :do, :else,
-                   :elseif, :end, :export, :finally, :for, :function, :global, :if,
-                   :import, :in, :isa, :let, :local, :macro, :module, :quote, :return,
-                   :struct, :try, :using, :where, :while)
-
-"""
-Error unless each name of `names`, the names of a `kind` of thing (`"metabolite"`), is one
-a DSL text can write: an identifier that is no keyword, in the form Julia reads it. Julia's
-parser normalizes an identifier (NFC, and `Unicode.julia_chartransform`: a micro sign reads
-as `μ`), so a name in another form would print as text that reads as another name. `who`
-names the constructor that checks.
-"""
-function _check_identifiers(who::String, kind::String, names::Vector{Symbol})
-    article = first(kind) in "aeiou" ? "an" : "a"
-    for n in names
-        s = String(n)
-        Base.isidentifier(s) && !(n in _KEYWORDS) ||
-            error("$who: \"$s\" cannot name $article $kind; $article $kind name is an " *
-                  "identifier that is no keyword")
-        read = isascii(s) ? s :
-               Unicode.normalize(s; stable = true, compose = true,
-                                 chartransform = Unicode.julia_chartransform)
-        read == s || error("$who: Julia reads the name \"$s\" as \"$read\", so no DSL " *
-                           "text can write it; use \"$read\"")
-    end
-end
-
-"""
-Error when a metabolite name of `names` is no name a DSL text can write
-(`_check_identifiers`), is `E`, the name of the free enzyme, is reserved
-(`_RESERVED_NAMES`) or holds `_`: constant names join form and metabolite names with `_`,
-so a metabolite name holds none. `who` names the constructor that checks.
-"""
-function _check_metabolite_names(who::String, names::Vector{Symbol})
-    _check_identifiers(who, "metabolite", names)
-    for n in names
-        n === :E &&
-            error("$who: E cannot name a metabolite; it labels the free enzyme form")
-        n in _RESERVED_NAMES &&
-            error("$who: $n is a reserved name; $(join(_RESERVED_NAMES, ", ", " and ")) " *
-                  "are kept for a rate equation's constants and local names")
-        occursin('_', String(n)) &&
-            error("$who: the metabolite name $n holds `_`; constant names join " *
-                  "metabolite names with `_`, so a metabolite name holds none")
-    end
-end
-
-"""
-    EnzymeReaction
-
-A reaction: its substrates, products, optional regulators, and the oligomeric states the
-mechanism enumerator may consider. It is the entry point to the package —
-pair it with rate data in an
-[`IdentifyRateEquationProblem`](@ref EnzymeRates.IdentifyRateEquationProblem), or pass
-it to `EnzymeRates.Enumeration.candidate_mechanisms` to enumerate candidate mechanisms.
-
-# Fields
-- `substrates::Vector{Reactant}` and `products::Vector{Reactant}` — each reactant
-  carrying its per-atom inventory (used for ping-pong residual bookkeeping
-  and atom conservation across steps).
-- `regulators::Vector{Regulator}` — competitive inhibitors and
-  allosteric regulators, each with its `kind` and `effect`.
-- `allowed_oligomeric_states::Vector{Int}` — the oligomeric states, one
-  or more, that the allosteric enumerator may assign to the catalytic core.
-- `shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}` — `(substrate,
-  product)` pairs that bind the same catalytic site, and so are never both
-  bound to it at once.
-
-Construct one with the [`@enzyme_reaction`](@ref EnzymeRates.DSL.@enzyme_reaction) DSL. Each
-reactant takes an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
-ping-pong and multi-substrate reactions. Substrates, products and regulators are
-sorted by name in the constructor, a name's competitive inhibitor before its
-allosteric regulator, so two equivalent declarations compare equal under
-`==`/`hash`. The constructor rejects a name listed as both a substrate
-and a product: concentrations and constants are keyed by name. For the same
-reason it rejects a reactant or regulator named `Keq`, `L`, `N`, `params`,
-`concs` or `v`, names a rate equation keeps for its constants and the
-local names of its code, a name holding `_`, since constant names join
-names with `_`, the name `E`, which labels the free enzyme form, and a name that is
-no identifier, is a keyword or reads in Julia code as another name (a micro sign as `μ`),
-which no DSL text can write. A reaction prints as the `@enzyme_reaction` block that
-builds it.
-
-```jldoctest
-julia> using EnzymeRates
-
-julia> rxn = @enzyme_reaction begin
-           substrates: S[C]
-           products:   P[C]
-       end;
-
-julia> rxn isa EnzymeReaction
-true
-
-julia> rxn
-@enzyme_reaction begin
-    substrates: S[C]
-    products: P[C]
-end
-```
-"""
-struct EnzymeReaction
-    substrates::Vector{Reactant}
-    products::Vector{Reactant}
-    regulators::Vector{Regulator}
-    allowed_oligomeric_states::Vector{Int}
-    shared_catalytic_site::Vector{Tuple{Symbol,Symbol}}
-
-    function EnzymeReaction(substrates::Vector{Reactant}, products::Vector{Reactant},
-                            regulators::Vector{Regulator},
-                            allowed_oligomeric_states::Vector{Int};
-                            shared_catalytic_site = Tuple{Symbol,Symbol}[])
-        sorted_substrates = sort(substrates; by = r -> r.name)
-        sorted_products = sort(products; by = r -> r.name)
-        sorted_regulators = sort(regulators; by = r -> (r.name, r.kind === :allosteric))
-        # A nonempty list of distinct Ints ≥ 1, as a DSL text writes one.
-        ms = allowed_oligomeric_states
-        !isempty(ms) && all(≥(1), ms) ||
-            error("EnzymeReaction: the allowed oligomeric states must be a nonempty " *
-                  "list of Ints ≥ 1, got $ms")
-        allunique(ms) || error("EnzymeReaction: the allowed oligomeric states list a " *
-                               "multiplicity more than once; got $ms.")
-        sorted_mults = sort(allowed_oligomeric_states)
-
-        sub_names  = Symbol[r.name for r in sorted_substrates]
-        prod_names = Symbol[r.name for r in sorted_products]
-        isempty(sub_names) && error("EnzymeReaction: no substrate is given; a reaction " *
-                                    "has at least one substrate.")
-        isempty(prod_names) && error("EnzymeReaction: no product is given; a reaction " *
-                                     "has at least one product.")
-
-        reg_keys   = [(r.name, r.kind) for r in sorted_regulators]
-        allunique(sub_names)  || error("EnzymeReaction: duplicate substrate names")
-        allunique(prod_names) || error("EnzymeReaction: duplicate product names")
-        allunique(reg_keys)   ||
-            error("EnzymeReaction: duplicate regulator of the same kind")
-        both_roles = intersect(sub_names, prod_names)
-        isempty(both_roles) || error(
-            "EnzymeReaction: $(join(both_roles, ", ")) named as both a substrate and " *
-            "a product; concentrations and constants are keyed by name")
-        _check_metabolite_names("EnzymeReaction",
-                                Symbol[sub_names; prod_names; first.(reg_keys)])
-
-        sub_set  = Set(sub_names)
-        prod_set = Set(prod_names)
-        normalized_shared = Tuple{Symbol,Symbol}[]
-        for pair in shared_catalytic_site
-            length(pair) == 2 || error(
-                "EnzymeReaction: each shared_catalytic_site entry must name " *
-                "exactly two metabolites, got $pair")
-            a, b = pair[1], pair[2]
-            if a in sub_set && b in prod_set
-                push!(normalized_shared, (a, b))
-            elseif b in sub_set && a in prod_set
-                push!(normalized_shared, (b, a))
-            else
-                error("EnzymeReaction: shared_catalytic_site pair $pair must " *
-                      "name one declared substrate and one declared product")
-            end
-        end
-        sorted_shared = sort(unique(normalized_shared))
-        length(sorted_shared) == length(normalized_shared) || error(
-            "EnzymeReaction: duplicate shared_catalytic_site pair")
-
-        # A name may be declared once per regulator kind — the same metabolite
-        # may bind BOTH as an allosteric regulator and as a competitive inhibitor
-        # (the two roles render to distinct parameter names). A regulator may
-        # also share a substrate/product name (so `concs.X` drives every role);
-        # cross-category names need not be unique.
-
-        # Atom mass-balance: per-element sum over substrates vs products.
-        sub_atoms  = Dict{Symbol,Int}()
-        prod_atoms = Dict{Symbol,Int}()
-        for (rs, tgt) in ((sorted_substrates, sub_atoms), (sorted_products, prod_atoms)),
-            r in rs, (elem, c) in r.atoms
-            tgt[elem] = get(tgt, elem, 0) + c
-        end
-        for elem in union(keys(sub_atoms), keys(prod_atoms))
-            s_c = get(sub_atoms, elem, 0)
-            p_c = get(prod_atoms, elem, 0)
-            s_c == p_c || error(
-                "EnzymeReaction: atom imbalance — element $elem appears " *
-                "$s_c time(s) on substrate side and $p_c on product side. " *
-                "Declared atoms must balance.")
-        end
-
-        new(sorted_substrates, sorted_products, sorted_regulators, sorted_mults,
-            sorted_shared)
-    end
-end
-
-"""
-Print `r` as the `@enzyme_reaction` text that builds it: each reactant with its atoms as
-one formula, the competitive inhibitors and allosteric regulators, the oligomeric states
-unless they are the default 1, and the shared catalytic sites.
-"""
-function Base.show(io::IO, r::EnzymeReaction)
-    mults = r.allowed_oligomeric_states
-    formula(re) = join("$e" * (c == 1 ? "" : "$c") for (e, c) in re.atoms)
-    tag(reg) = reg.effect === :activator ? "::Activator" :
-               reg.effect === :inhibitor ? "::Inhibitor" : ""
-    entry(reg) = "$(reg.name)" * tag(reg)
-    line(label, entries) = isempty(entries) ||
-                           print(io, "\n    ", label, ": ", join(entries, ", "))
-    print(io, "@enzyme_reaction begin")
-    line("substrates", ["$(re.name)[$(formula(re))]" for re in r.substrates])
-    line("products", ["$(re.name)[$(formula(re))]" for re in r.products])
-    for (label, kind) in (("competitive_inhibitors", :competitive),
-                          ("allosteric_regulators", :allosteric))
-        line(label, [entry(reg) for reg in r.regulators if reg.kind === kind])
-    end
-    mults == [1] || print(io, "\n    oligomeric_state: ",
-                          length(mults) == 1 ? only(mults) : "(" * join(mults, ", ") * ")")
-    line("shared_catalytic_site", ["($s, $p)" for (s, p) in r.shared_catalytic_site])
-    print(io, "\nend")
 end
 
 # ─── The reaction graph ───────────────────────────────────────────────
@@ -975,3 +684,259 @@ julia> metabolites(m)
 metabolites(m::Mechanism) =
     unique!([m.catalytic.metabolites;
              [l for s in m.allosteric.regulatory_sites for l in s.ligands]])
+
+# ─── The steps each conformation runs, and the kinetic groups ───────────
+
+"""Each kinetic group's steps of `steps`, in step order, by the steps' `kinetic_group`
+labels; each list stored at its length."""
+function _groups(steps::Vector{Step})
+    G = maximum(e -> e.kinetic_group, steps; init = 0)
+    members = [Vector{Int}(undef, count(e -> e.kinetic_group == g, steps)) for g in 1:G]
+    filled = zeros(Int, G)
+    for (k, e) in enumerate(steps)
+        g = e.kinetic_group
+        members[g][filled[g] += 1] = k
+    end
+    members
+end
+
+"""
+    steps_running_in_allosteric_conformations(m) -> (; active, inactive)
+
+The steps of mechanism `m` that run in its active and in its inactive conformation, each a
+`BitVector` with one flag per step of its catalytic scheme. A step runs in a conformation
+unless its kinetic group's allosteric state excludes it there (`:OnlyI` in the active
+conformation, `:OnlyA` in the inactive one) or it is cut off: the conformations
+interconvert at free E alone, so a form that the conformation's running steps do not join
+to free E holds no enzyme of that conformation, and a step between two such forms does not
+run, whatever its state. Every step of a plain mechanism runs in both.
+"""
+steps_running_in_allosteric_conformations(m::Mechanism) =
+    (; active = _steps_in_conformation(m, :OnlyI),
+       inactive = _steps_in_conformation(m, :OnlyA))
+
+"""The steps of `m` that run in the conformation that excludes the kinetic groups in
+allosteric state `state` (`steps_running_in_allosteric_conformations`)."""
+function _steps_in_conformation(m::Mechanism, state::Symbol)
+    c, states = m.catalytic, m.allosteric.allosteric_states
+    isempty(states) && return trues(length(c.steps))
+    excluded = (e -> states[e.kinetic_group] === state).(c.steps)
+    joined = _joined_to_free_E(c, excluded)
+    (k -> !excluded[k] && joined[c.steps[k].from]).(eachindex(c.steps))
+end
+
+"""Which forms of `m` the steps not in `excluded` join to free E, form 1."""
+function _joined_to_free_E(m::CatalyticScheme, excluded::BitVector)
+    reached = falses(length(m.enzyme_forms))
+    reached[1] = true
+    grew = true
+    while grew
+        grew = false
+        for (k, e) in enumerate(m.steps)
+            (excluded[k] || reached[e.from] == reached[e.to]) && continue
+            reached[e.from] = reached[e.to] = true
+            grew = true
+        end
+    end
+    reached
+end
+
+# ─── The mechanism as macro text ────────────────────────────────────────
+
+"""
+Print `m` as the `@enzyme_mechanism` text that builds it: its substrates, products and
+modifiers (the metabolites that are neither), each list in stored order and an empty one
+left out; an allosteric mechanism's oligomeric state; its steps (`_print_steps`), each
+line ending in its kinetic group's allosteric state when it has one; then one
+`regulatory_site(n):` line per regulatory site. The text is a function of `m` alone, so
+equal mechanisms print one text. `DSL.parse_mechanism` reads the text of a mechanism the
+macro accepts back as that mechanism: one that is well posed (`check_valid_rate_equation`).
+"""
+function Base.show(io::IO, m::Mechanism)
+    c, a = m.catalytic, m.allosteric
+    print(io, "@enzyme_mechanism begin")
+    _print_line(io, "substrates", c.metabolites[c.substrates])
+    _print_line(io, "products", c.metabolites[c.products])
+    modifiers = [i for i in eachindex(c.metabolites)
+                 if !(i in c.substrates || i in c.products)]
+    _print_line(io, "modifiers", c.metabolites[modifiers])
+    isempty(a.allosteric_states) ||
+        _print_line(io, "oligomeric_state", [a.oligomeric_state])
+    _print_steps(io, c, a.allosteric_states)
+    for s in a.regulatory_sites
+        _print_line(io, "regulatory_site($(s.multiplicity))",
+                    ["$l::$t" for (l, t) in zip(s.ligands, s.allosteric_states)])
+    end
+    print(io, "\nend")
+    nothing
+end
+
+"""Print the line `label: item, item, ...` of a mechanism's block, or nothing when
+`items` is empty."""
+function _print_line(io::IO, label::String, items::Vector)
+    isempty(items) || print(io, "\n    ", label, ": ", join(items, ", "))
+    nothing
+end
+
+"""
+Print the `steps:` block of `m`: one line per kinetic group in group order, a group of
+one step as the step (`step_text`), a larger group as the tuple of its steps in step
+order, and, when `tags` holds one tag per group, each line ending in its group's tag.
+"""
+function _print_steps(io::IO, m::CatalyticScheme, tags::Vector{Symbol})
+    print(io, "\n    steps: begin")
+    for (g, members) in enumerate(_groups(m.steps))
+        text = join((step_text(m, k) for k in members), ", ")
+        print(io, "\n        ", length(members) == 1 ? text : "($text)")
+        isempty(tags) || print(io, " :: ", tags[g])
+    end
+    print(io, "\n    end")
+    nothing
+end
+
+"""Step `k` of `m` as a mechanism macro writes it, in its stored direction: each side is
+its form's name and the metabolites the step takes up or gives off there, joined by `⇌`
+(rapid equilibrium) or `<-->` (steady state): `E + S ⇌ ES`, `EA + B <--> EQ + P`."""
+function step_text(m::CatalyticScheme, k::Int)
+    e = m.steps[k]
+    side(f::Int, held::Vector{Int}) = join([m.enzyme_forms[f]; m.metabolites[held]], " + ")
+    side(e.from, e.taken_up) * (e.rapid_equilibrium ? " ⇌ " : " <--> ") *
+        side(e.to, e.given_off)
+end
+
+# ─── Segments and cycles of a step mask ─────────────────────────────────
+
+# Sub-graphs: a mask says which steps of a mechanism a sub-graph keeps, such as an
+# allosteric mechanism's inactive conformation. Nothing here constructs a mechanism, so no
+# check meant for the mechanisms a user writes fires on a sub-graph.
+
+"""
+    _present_species(m, on) -> BitVector
+
+The forms of `m` that the steps `on` keeps touch, one flag per form: a sub-graph's law,
+segments and network cover these.
+"""
+function _present_species(m::CatalyticScheme, on::BitVector)
+    present = falses(length(m.enzyme_forms))
+    for (k, e) in enumerate(m.steps)
+        on[k] && (present[e.from] = present[e.to] = true)
+    end
+    present
+end
+
+"""
+    rapid_equilibrium_segments(m, on, re = <m's rapid-equilibrium flags>) -> (; segment_of,
+        segments, offsets, steps)
+
+The rapid-equilibrium segments of the steps of `m` that `on` keeps, joined by the kept
+steps that `re` flags. `segments[s]` lists segment `s`'s forms breadth-first from its first
+form, each form's steps in the order of the groups, and the segments are numbered by their
+first forms; `segment_of[f]` is form `f`'s segment, 0 for a form no kept step touches
+(`_present_species`). `offsets[n, f]` is how many more of metabolite `n` (an index into
+`m.metabolites`) form `f` carries than the form of its segment that carries fewest of it.
+Within a segment, rapid equilibrium fixes each form's weight relative to any other as a
+monomial in concentrations, one factor per metabolite taken up or given off along the path
+between them; chemistry passes the counts through unchanged.
+
+`steps` lists the kept steps that `re` leaves at steady state and that join two segments,
+in step order: the edges of the steady-state graph between the segments.
+"""
+function rapid_equilibrium_segments(m::CatalyticScheme, on::BitVector,
+                                    re::BitVector = BitVector(s.rapid_equilibrium
+                                                              for s in m.steps))
+    nf = length(m.enzyme_forms)
+    # The kept rapid-equilibrium steps at each form, group by group: `(k, 1)` at the form
+    # step `k` leaves in its stored direction, `(k, -1)` at the form it leaves in reverse.
+    out = [Tuple{Int, Int}[] for _ in 1:nf]
+    for k in reduce(vcat, _groups(m.steps); init = Int[])
+        on[k] && re[k] || continue
+        push!(out[m.steps[k].from], (k, 1))
+        push!(out[m.steps[k].to], (k, -1))
+    end
+    present = _present_species(m, on)
+    segment_of, segments = zeros(Int, nf), Vector{Int}[]
+    offsets = zeros(Int, length(m.metabolites), nf)
+    for root in 1:nf
+        present[root] && segment_of[root] == 0 || continue
+        members = [root]
+        push!(segments, members)
+        segment_of[root] = length(segments)
+        head = 0
+        while head < length(members)
+            head += 1
+            u = members[head]
+            for (k, direction) in out[u]
+                e = m.steps[k]
+                v = direction == 1 ? e.to : e.from
+                segment_of[v] == 0 || continue
+                segment_of[v] = length(segments)
+                push!(members, v)
+                for n in axes(offsets, 1)
+                    offsets[n, v] = offsets[n, u]
+                end
+                for x in e.taken_up
+                    offsets[x, v] += direction
+                end
+                for x in e.given_off
+                    offsets[x, v] -= direction
+                end
+            end
+        end
+    end
+    for segment in segments, n in axes(offsets, 1)
+        low = minimum(f -> offsets[n, f], segment)
+        for f in segment
+            offsets[n, f] -= low
+        end
+    end
+    steps = [k for (k, e) in enumerate(m.steps)
+             if on[k] && !re[k] && segment_of[e.from] != segment_of[e.to]]
+    (; segment_of, segments, offsets, steps)
+end
+
+"""Whether the steps `k` with `on[k]` close a cycle of nonzero weight, step `k` joining
+forms `from[k]` and `to[k]` with weight `weight[k]`: giving every form a potential that
+rises by each step's weight along it then fails somewhere, which a weighted union-find in
+the buffers `parent` and `offset` (one entry per form) detects."""
+function has_nonzero_weight_cycle(from, to, weight, on, parent, offset)
+    parent .= eachindex(parent); fill!(offset, 0)
+    function root(x)
+        p = 0
+        while parent[x] != x
+            p += offset[x]; x = parent[x]
+        end
+        x, p
+    end
+    for k in eachindex(from)
+        on[k] || continue
+        ra, pa = root(from[k]); rb, pb = root(to[k])
+        if ra == rb
+            pb == pa + weight[k] || return true
+        else
+            parent[rb] = ra; offset[rb] = pa + weight[k] - pb
+        end
+    end
+    false
+end
+
+"""
+    has_turnover_cycle(m::CatalyticScheme, on::BitVector) -> Bool
+
+Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
+of the forms rises along each step by its uptake of the first substrate, which a weighted
+union-find finds (`has_nonzero_weight_cycle`). A cycle of a
+mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
+uptake of the first substrate is zero only when it turns nothing over; a hand-written
+cycle that does not is read by that uptake alone. The guard's class 1 rejects a
+mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a turnover
+cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
+"""
+function has_turnover_cycle(m::CatalyticScheme, on::BitVector)
+    # The first substrate, whose net uptake is the rate.
+    s1 = m.substrates[1]
+    uptake(list::Vector{Int}) = count(==(s1), list)
+    n = length(m.enzyme_forms)
+    has_nonzero_weight_cycle([e.from for e in m.steps], [e.to for e in m.steps],
+                             [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],
+                             on, zeros(Int, n), zeros(Int, n))
+end

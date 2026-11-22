@@ -9,9 +9,7 @@ public Allostery, CatalyticScheme, EnzymeReaction, Mechanism, Reactant, Regulato
     RegulatorySite, Step, has_nonzero_weight_cycle, has_turnover_cycle, metabolites,
     rapid_equilibrium_segments, step_text, steps_running_in_allosteric_conformations
 
-include("types.jl")
-include("accessors.jl")
-include("text.jl")
-include("segments.jl")
+include("enzyme_reaction_type.jl")
+include("mechanism_type.jl")
 
 end

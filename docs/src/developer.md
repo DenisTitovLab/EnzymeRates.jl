@@ -366,7 +366,7 @@ package image holds it, so it compiles once for all mechanisms. Each compiled la
 pays for its generated bodies and the derivation they run, and for the methods that
 specialize on it: Base's `text/plain` display and `FittingProblem` and `loss!` below. A
 compiled law prints one line (`compiled rate equation`), whatever its Sig. A mechanism
-prints as the macro block that builds it (`show`, `src/Mechanisms/text.jl`);
+prints as the macro block that builds it (`show`, `src/Mechanisms/mechanism_type.jl`);
 `DSL.parse_mechanism` reads that text back through the macro's walker and checks, never
 evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
 `FittingProblem` holds the mechanism and its compiled law, and `loss!` specializes on the
@@ -687,7 +687,7 @@ candidate whose count rises, and the tagging move on each tag set its base searc
 
 ## Enumeration engine architecture
 
-Mechanism enumeration works on the plain value `Mechanism` (`src/Mechanisms/types.jl`),
+Mechanism enumeration works on the plain value `Mechanism` (`src/Mechanisms/mechanism_type.jl`),
 inside candidates (below): a `CatalyticScheme` and its `Allostery`. A `CatalyticScheme` is a
 reaction graph in canonical form: its `metabolites` by name (the substrates, then the
 products, then the modifiers, each sorted), its `substrates` and `products` as indices into
