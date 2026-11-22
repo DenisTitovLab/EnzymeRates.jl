@@ -110,11 +110,11 @@ the search writes to `save_dir`.
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `min_beam_width::Int = 50`: the fewest rate-law keys the beam expands at each parameter
   count over the whole search
-- `loss_rel_threshold::Float64 = 1.3`: a key enters the beam when its loss is at most this
-  factor times the best loss at its parameter count, plus `loss_abs_threshold`
-- `loss_abs_threshold::Float64 = 0.001`: the additive term of that cutoff
-- `loss_parsimony_threshold::Float64 = 0.99`: the cutoff also requires a loss at most this
-  factor times the best loss at any smaller parameter count; `Inf` disables it
+- `loss_rel_threshold::Float64 = 1.3`: the beam's loss cutoff at a parameter count is this
+  factor times the best loss there, plus `loss_abs_threshold`
+- `loss_abs_threshold::Float64 = 0.001`: the additive term of the loss cutoff
+- `loss_parsimony_threshold::Float64 = 0.99`: the loss cutoff is at most this factor times
+  the best loss at any smaller parameter count; `Inf` disables this bound
 - `max_param_count::Int = 20`: the search proposes no mechanism with more fitted constants
   than this (`parameters`)
 - `eq_complexity_filter::Int = 337`: the most terms a proposed rate law may have, about the
