@@ -855,7 +855,8 @@ allosteric law often repeats the loss of a plain one.
 None of the figures of the two bullets above or of the next paragraph is today's: the first
 table above gives the one-loop `loss!` a median of 8.5 ns per row on PGK's sampled laws and
 13 ns on PFKP's, and the present `loss!` takes a median 0.62 (0.37–0.98) of the one-loop
-time per row over the gated laws on 500-row tables.
+time per row over the 48 gated laws, on aarch64 and on 500-row tables whose rate signs agree
+with the law.
 
 The law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on a slow path,
 since the result is a `Float64` either way. `loss!` reads `parameters(rate)` and
