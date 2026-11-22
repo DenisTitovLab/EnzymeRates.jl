@@ -41,6 +41,10 @@ the part for a module before changing its internals.
 
 - A module lives in `src/<Module>/`, declares its interface in the `public` statement of
   `src/<Module>/<Module>.jl`, and has its tests in `test/<Module>/`.
+- A source file `<file>.jl` has its tests in `test_<file>.jl` in the mirrored folder
+  (`src/<Module>/` → `test/<Module>/`, `src/` → `test/`, `ext/` → `test/ext/`): a testset
+  goes in the file of the function it is about. A check of a package-wide rule is
+  `test/test_<rule>.jl`.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
 - Only the exports (★) are promised to users. Users and tests can also reach
@@ -194,7 +198,8 @@ an approved interface change.
   cross-module name that is not public, a module naming one its layer forbids, an
   underscore name that is public or used across modules, and an `export` in a submodule.
   It also fails when the table above or the interface tables and diagram in
-  `docs/src/developer.md` disagree with `src/`. After changing a `public` statement, an
+  `docs/src/developer.md` disagree with `src/`, when a test file is named for no source
+  file, and when a source file has no test file. After changing a `public` statement, an
   export, a module docstring or a cross-module call, update the developer page in the same
   commit and run `julia test/update_module_map.jl`.
 - **Type stability.** `test/test_type_stability.jl` requires that JET find no run-time
@@ -206,14 +211,18 @@ an approved interface change.
   `50 ns + 0.5 ns × denominator terms` per call on every gated law: each mechanism in
   `MECHANISM_TEST_SPECS` and the larger laws that test file lists. `Fitting.loss!` is
   allocation-free, and its time per data row is at most 1.25 × the compiled law's time per
-  call plus 8 `log` calls, met by any of 20 batches.
-  `test/Derivation/test_rate_eq_derivation.jl` enforces both. A fit evaluates the law
+  call plus 8 `log` calls, met by any of 20 batches, each run at its own stack depth.
+  `test/Derivation/test_rate_equation_derivation.jl` enforces both. A fit evaluates the law
   millions of times, so stop and discuss with the maintainer before a change that would
   make it allocate or slow down. CI timings vary by runner: rerun a job that misses the
   bound rather than loosening it.
 - **Compile time.** `test/test_compile_budget.jl` bounds the first-call compile time of
   a compiled rate law and how many method instances each mechanism's fit compiles. Code
   specialized per mechanism trips it.
+- **Enumeration memory.** `test/Enumeration/test_starting_mechanisms.jl` bounds the bytes
+  each bi-bi starting candidate holds, 3.5% above today's, and the bytes the bi-bi starting
+  set, one expansion and the ter-ter `init_mechanisms` call allocate. A field derived from
+  the steps stored on a mechanism or candidate, or more work per candidate, trips it.
 
 Propose a new guard when the maintainer corrects something a deterministic check could
 have caught, when existing code breaks a rule in this file, or when you are about to add a
@@ -252,7 +261,8 @@ follow two rules:
 ### Enumeration-engine tests
 
 Tests of `candidate_mechanisms`, `init_mechanisms`, `seed_mechanisms` and the expansion
-moves live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
+moves live in `test/Enumeration/` (`test_starting_mechanisms.jl`, `test_expansion_moves.jl`,
+`test_candidate_mechanism_type.jl`) and follow three rules:
 
 1. **Write the mechanism in the testset**, inline with `@enzyme_mechanism`, even when that
    repeats one used elsewhere, and hand it to the enumerator as `_testhelper_candidate(m)`.
@@ -282,17 +292,17 @@ timeout 1200 julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hi
 ```
 
 ```bash
-# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~1.5 min for
-# the enumeration file). TestEnv activates the test environment in place. A module's tests
-# live in test/<Module>/; a file directly in test/ is named test/<file>.jl instead.
-julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<Module>/<file>.jl")'
+# Focused run of one test file (warm: skips the full suite's precompile and JIT).
+# TestEnv activates the test environment in place. A module's tests live in
+# test/<Module>/; a file directly in test/ is named test/<file>.jl instead.
+julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/testhelpers.jl"); include("test/<Module>/<file>.jl")'
 ```
 
 - Use the focused run while iterating and before each commit, and the full suite once
   before pushing.
-- The focused run skips Aqua and JET, and includes only the shared fixtures file and the
-  file you name. Keep helpers that several test files use in
-  `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
+- The focused run skips Aqua and JET, and includes only the shared helpers file and the
+  file you name. Keep helpers and fixtures that several test files use in
+  `test/testhelpers.jl`.
 - Run one Julia process at a time: the machine has 7.7 GB and no swap, and the full suite
   needs about 4 GB free.
 - Run the full suite in the background under `timeout 1200`, wait for its exit notice and
