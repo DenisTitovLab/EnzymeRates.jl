@@ -15,6 +15,9 @@ makedocs(;
     format = Documenter.HTML(;
         canonical = "https://DenisTitovLab.github.io/EnzymeRates.jl",
         edit_link = "main",
+        # The Developer page documents every module on one page, which
+        # test/test_boundaries.jl reads, and renders at about 110 KiB.
+        size_threshold_warn = 150 * 2^10,
     ),
     pages = [
         "Home" => "index.md",
