@@ -1026,11 +1026,17 @@ these slow paths, since the result is a `Float64` either way. So the speed gate 
 `test/Derivation/test_rate_eq_derivation.jl` also measures `loss!` on each of its laws: no
 allocation in relative or absolute mode, and time per row at most 1.25 times the compiled
 law's time per call plus 8 `log` calls, timed in one process so machine speed cancels out.
-The bound holds if any of 20 batches meets it, each on a new `FittingProblem`, because time
-on one problem can sit up to about 40% above a new problem's. The factor of 1.25 covers a
-slowdown of unknown cause that once hit three laws in one process, which the batches cannot
-cure. Eight `log` calls leave room for the coverage counters on `loss!`'s own lines in CI
-jobs. The compiled law itself must stay under 50 ns + 0.5 ns per denominator term. That
+The bound holds if any of 20 batches meets it. `loss!` keeps each row's concentrations and
+the parameters in its stack frame, and when one of the law's loads from them straddles a
+4 KB page boundary of the stack, that law's `loss!` costs 20-30 ns more per row for as long
+as the frame sits there. So each batch times `loss!` a different number of frames deeper
+(576-752 bytes a frame), which puts the 20 batches at 20 offsets within a page, at most four
+in any 430 bytes, the widest slow window seen; each batch also times a new `FittingProblem`,
+which varies the heap. A real slowdown fails every batch. The factor of 1.25 leaves room
+for a slowdown once seen on three large laws in one process, 15-25% over the law's cost;
+it may have been the stack placement the batches now vary, which was not tested. Eight
+`log` calls leave room for the coverage counters on `loss!`'s own lines in CI jobs. The
+compiled law itself must stay under 50 ns + 0.5 ns per denominator term. That
 bound tolerates the spread between machines: small laws take 1-8 ns on an aarch64
 development machine and 5-38 ns on CI, varying by runner. So a moderate slowdown of a small
 law passes it.

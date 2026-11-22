@@ -219,16 +219,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   random: 29 of 256 offsets slow at least one of the 42 gated laws. With address-space
   randomization off, one 2 KB environment variable reproduces it on unchanged code, and the
   same laws fail at the same offset at an older commit (47e581ce). The `loss!` gate in
-  `test/Derivation/test_rate_eq_derivation.jl` therefore fails falsely in about one full
-  suite in nine, on several laws at once, each at 26-38 ns per row: its 20 batches use fresh
-  problems, which vary the heap, but share one stack depth. Rerun such a suite. Two fixes
-  are open, for the maintainer to choose: run each batch a few frames deeper (test only: 0
-  false failures in 10,752 (law, offset) pairs, against 147 now); or inline the rate law at
-  `loss!`'s call site, which makes `loss!` 15-35% faster per row on small and medium laws
-  and cuts the failing pairs from 147 to 10, at a compile cost not measured (see the Idea
-  "Inline the rate law in `loss!` and emit `muladd` in `_horner`"). Not measured: 16 KB
-  pages (macOS on Apple Silicon), x86, and the cost to a whole fit; that a fit in such a
-  process evaluates `loss!` slower for its whole life is inferred. The earlier observations
+  `test/Derivation/test_rate_eq_derivation.jl` failed falsely in about one full suite in
+  nine, on several laws at once, each at 26-38 ns per row, while its 20 batches shared one
+  stack depth. It no longer fails from stack placement: each batch times `loss!` a
+  different number of frames deeper. With address-space randomization off, the gate as it
+  was failed in all three runs at one placement, on two or three laws each, and the gate
+  as it is passed there twice and at seven placements 512 bytes apart. A fit still runs
+  `loss!` at one depth, so the effect on a real fit remains; that a fit in such a process
+  evaluates `loss!` slower for its whole life is inferred. The second fix, inlining the
+  rate law in `loss!`, is under investigation. Not measured: 16 KB pages (macOS on Apple
+  Silicon), x86, and the cost to a whole fit. The earlier observations
   may be this effect: three large laws 15-25% over the gate in one local process, and one
   `FittingProblem` up to about 40% slower than a fresh one. Windows CI running up to 5% over
   on six laws is more likely coverage counters, unproven. The investigation, with its
