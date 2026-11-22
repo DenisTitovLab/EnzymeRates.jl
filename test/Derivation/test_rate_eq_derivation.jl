@@ -598,12 +598,12 @@ slowdown fails every batch. Each batch times `loss!` on a fresh `FittingProblem`
 varies the heap, and one level of `_testhelper_at_depth` deeper on the stack than the
 last, which varies where its frame falls within a 4 KB page: `loss!` keeps each row's
 concentrations and the parameters in its frame, and a law whose loads from them straddle
-a page boundary costs 20-30 ns more per row. A level takes 576-752 bytes, so the 20
-batches fall at 20 offsets within the page, at most four in any 430 bytes, the widest slow
-window seen. Each batch then times the law and the `log` calls, at the gate's own depth.
-The factor of 1.25 leaves room for a slowdown once seen on three large laws in one
-process, 15-25% over the law's cost; it may have been the stack placement the batches now
-vary, which was not tested. The eight `log` calls leave room on coverage-instrumented CI
+a page boundary costs 20-30 ns more per row. On aarch64 a level takes 576-752 bytes, so
+the 20 batches fall at 20 offsets within the page, at most four in any 430 bytes, the
+widest slow window seen there. Each batch then times the law and the `log` calls, at the
+gate's own depth. The factor of 1.25 leaves room for a slowdown once seen on three large
+laws in one process, 15-25% over the law's cost; whether the frame's place on the stack
+caused it was not tested. The eight `log` calls leave room on coverage-instrumented CI
 jobs: coverage counters on `loss!`'s own lines add a cost per row that neither the rate
 law nor `log` measures. Returns the batch with the smallest `per_row / allowed`."""
 function _testhelper_loss_time_per_row(m)

@@ -1035,13 +1035,13 @@ The bound holds if any of 20 batches meets it. `loss!` keeps each row's concentr
 the parameters in its stack frame, and when one of the law's loads from them straddles a
 4 KB page boundary of the stack, that law's `loss!` costs 20-30 ns more per row for as long
 as the frame sits there. So each batch times `loss!` a different number of frames deeper
-(576-752 bytes a frame), which puts the 20 batches at 20 offsets within a page, at most four
-in any 430 bytes, the widest slow window seen; each batch also times a new `FittingProblem`,
-which varies the heap. A real slowdown fails every batch. The factor of 1.25 leaves room
-for a slowdown once seen on three large laws in one process, 15-25% over the law's cost;
-it may have been the stack placement the batches now vary, which was not tested. Eight
-`log` calls leave room for the coverage counters on `loss!`'s own lines in CI jobs. The
-compiled law itself must stay under 50 ns + 0.5 ns per denominator term. That
+(576-752 bytes a frame on aarch64), which puts the 20 batches at 20 offsets within a page,
+at most four in any 430 bytes, the widest slow window seen on aarch64; each batch also
+times a new `FittingProblem`, which varies the heap. A real slowdown fails every batch. The
+factor of 1.25 leaves room for a slowdown once seen on three large laws in one process,
+15-25% over the law's cost; whether the frame's place on the stack caused it was not
+tested. Eight `log` calls leave room for the coverage counters on `loss!`'s own lines in
+CI jobs. The compiled law itself must stay under 50 ns + 0.5 ns per denominator term. That
 bound tolerates the spread between machines: small laws take 1-8 ns on an aarch64
 development machine and 5-38 ns on CI, varying by runner. So a moderate slowdown of a small
 law passes it.
