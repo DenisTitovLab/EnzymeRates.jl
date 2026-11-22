@@ -194,8 +194,7 @@ choice of energies, and of the steady-state steps that stop, under which it can 
 the law is the limit, and accepts the mechanism when it finds one. When the excluded steps
 allow too many choices to search, it tries only three, and rejects the mechanism when it
 can show the limit under none of them. The choice does not change the law, which leaves the
-excluded steps out. The law is the limit
-under a choice when:
+excluded steps out. The package takes the law to be the limit under a choice when:
 
 1. **Existence.** The steps that lose a rate, each drawn uphill, close no cycle and never
    point into free E's island, so the energies exist and no island lies below free E's.
@@ -333,7 +332,7 @@ mechanism search drops the mechanism. The package rejects:
    feeds and its fast exits cannot drain, a second closed set of forms, or a law with no
    value (0/0) there;
 5. allosteric states for which the package finds no choice of energies under which it can
-   show that the law is the limit; when the states allow too many choices to search, it
+   show that the law is the limit. When the states allow too many choices to search, it
    tries only three (admission, above).
 
 The faces leave out the corners that zero one substrate with every product. A law the

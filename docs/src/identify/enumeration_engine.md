@@ -335,7 +335,7 @@ law once. The all-`:EqualAI` baseline is never emitted (the conformations would 
 identical and `L` would cancel). The exits drop a child that fails the guard or the
 binding test, as for every move. A parent with no declared regulator gets no allosteric
 child when it has no binding group, and so no K-type, or when the exits drop every K-type.
-Among the 4,885 starting mechanisms of a ter-bi reaction, 20 get no allosteric child for
+Among the 4,885 starting mechanisms of one ter-bi reaction, 20 get no allosteric child for
 the second reason: the guard finds their only K-type too large to search (the repository's
 `ROADMAP.md` lists this). Enumeration runs over the reaction's `allowed_oligomeric_states`.
 The search applies this move only to a plain mechanism.

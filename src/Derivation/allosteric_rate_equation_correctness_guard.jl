@@ -50,11 +50,12 @@ affinity: its stored direction, the uptake, vanishes (`_LOSES_FORWARD`). At stea
 loses its affinity or stops, as `r` says (`_SlowUptakeReading`). Any other excluded step
 keeps its kind, rapid equilibrium or steady state, as every step does in both
 conformations. At steady state it stops (`_STOPPED`). At rapid equilibrium the built
-reading has no way to switch it off (`_CANNOT_SWITCH_OFF`): the ε-network treats it as
-slow, vanishing both ways, which makes the reading inconsistent. A searched reading
-(`_consistent_columns`) may still switch off such a step between two islands by letting it
-lose a direction. The developer page, "Well-posedness guard", says why no reading switches
-off one inside an island. A plain mechanism has one conformation, which runs every step.
+reading has no way to switch it off (`_CANNOT_SWITCH_OFF`), which makes the reading
+inconsistent; the ε-network treats such a step as slow, vanishing both ways. A searched
+reading (`_consistent_columns`) may still switch off such a step between two islands by
+letting it lose a direction. The developer page, "Well-posedness guard", says why no
+reading switches off one inside an island. A plain mechanism has one conformation, which
+runs every step.
 """
 function _built_reading(am::Mechanisms.Mechanism,
                         r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)

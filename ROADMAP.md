@@ -408,13 +408,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   of a batch are the leading suspect. A timestamp on each line, and each batch's slowest
   fit, would rank all the search-speed ideas below. Priority: high.
 - **Profile the search on the HPC runs.**
-  In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of
-  another fit at the same parameter count. These may be laws the key misses, equal only
-  after a reparametrization (`_canonical`, `src/Derivation/rate_equation_dedup_key.jl`), or
-  laws that differ only outside the data. Separating the two would size a saving of up to
-  3–4×. Still unmeasured on these runs: fits whose parent fails the final parsimony cutoff,
-  children and survivors per move, zero-gain `change_allo_state` children, and how many PGK
-  rows identify flags `L_phantom`. Priority: medium.
+  In the searches of 2026-11-02, 64% of PFKP's and 75% of PGK's fits reach a loss within
+  10⁻⁸ of another fit at the same parameter count. These may be laws the key misses, equal
+  only after a reparametrization (`_canonical`,
+  `src/Derivation/rate_equation_dedup_key.jl`), or laws that differ only outside the data.
+  Separating the two would size a saving of up to 3–4×. Still unmeasured on these runs: fits
+  whose parent fails the final parsimony cutoff, children and survivors per move, zero-gain
+  `change_allo_state` children, and how many PGK rows identify flags `L_phantom`. Priority:
+  medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
   numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The

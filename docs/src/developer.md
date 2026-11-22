@@ -523,24 +523,26 @@ resident. Measure retained memory by the resident set.
 
 The guard (`src/Derivation/rate_equation_correctness_guard.jl`, with
 `allosteric_rate_equation_correctness_guard.jl` beside it) decides whether a mechanism's
-rate law is the unique fast-equilibrium limit of mass-action kinetics wherever data sit;
-`check_valid_rate_equation` states its conditions. `_guard(m)` reads the reaction graph
-through masks and never constructs a mechanism. It returns an isbits `_Verdict`, never a
-`Union` that a loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a
-loop without a write barrier, which corrupts the heap.
+rate law is the unique fast-equilibrium limit of mass-action kinetics at interior
+concentrations and on every **face**, each set of zero concentrations where data sit
+(`_faces`). `check_valid_rate_equation` states its conditions. `_guard(m)` reads the
+reaction graph through masks and never constructs a mechanism. It returns an isbits
+`_Verdict`, never a `Union` that a loop reads: Julia 1.12 and 1.13 can hoist the box of a
+`Union` value out of a loop without a write barrier, which corrupts the heap.
 
 The guard reads three networks (`_Network`). Two are of one catalytic subunit whose
-conformations flip at free E: the **law network** (`_law_network`), the steps each
-conformation runs, and the **ε-network** (`_eps_network`), every step of both
-conformations, each excluded step switched off as a **reading** says (`_Reading`). On the
-third, every step once and fast, the guard checks first that every cycle balances each
-metabolite (`_unbalanced_cycle`). Form names are opaque, so a step that leaves out a
+conformations flip at free E. The **law network** (`_law_network`) holds the steps each
+conformation runs. The **ε-network** (`_eps_network`) holds every step of both
+conformations, each excluded step switched off as a **reading** says (`_Reading`). The third
+holds every step once, each fast. On it, after checking that no two constants share a name
+(`_shared_constant_names`) and before any class, the guard checks that every cycle balances
+each metabolite (`_unbalanced_cycle`). Form names are opaque, so a step that leaves out a
 metabolite, writes one on the wrong side or names the wrong form breaks only a cycle, and
 the joint solve has no law for that cycle; the message states the cycle's net change. The
-other checks are classes 1 to 3, which `_Fault` names, and **admission**, the guard's check
-that an allosteric law is the limit as the excluded steps are switched off, in the interior
-and on each face. `_guard_with_reading` and `_verdict_under` give their order, and
-`_check_face` the steps of class 3.
+checks that follow are classes 1 to 3, which `_Fault` names, and **admission**. Admission is
+the guard's check that an allosteric law is the limit as the excluded steps are switched
+off, in the interior and on each face. `_guard_with_reading` and `_verdict_under` give the
+order of all the checks, and `_check_face` the steps of class 3.
 
 **Readings.** The steps a conformation keeps join the forms into **islands**
 (`exclusion_components`), which are neither kinetic groups nor rapid-equilibrium segments.
@@ -552,17 +554,16 @@ under which this picture holds; `_interior_verdict` states the conditions and th
 each. A rapid-equilibrium step inside an island cannot be switched off
 (`_FAST_STEP_PINNED`): its two sides lie at one energy, so thermodynamics fixes its
 equilibrium constant, and a step keeps its kind in both conformations. The law is the same
-under every reading, since it drops the excluded steps; class 2 sees the same fast
-transitions under every consistent reading, every rapid-equilibrium step's; and class 3 and
-the active conformation's turnover read no reading. Only three faults of admission's face
-condition, which read which transitions vanish, tell consistent readings apart
-(`_FAULTS_A_READING_CHANGES`: `_FILLED`, `_PUMPED`, `_BRIDGE`).
+under every reading, since it drops the excluded steps. Each of the guard's faults but three
+holds alike under every consistent reading (`_FAULTS_A_READING_CHANGES` gives the case
+analysis). The three are faults of the face condition, which read which transitions vanish,
+and only they tell consistent readings apart.
 
 **The search.** `_guard_with_reading` admits a mechanism under the first consistent reading
 that passes every check; its docstring gives the order in which it tries readings and the
 order of the faults a rejection reports. It tries the three built readings first
 (`_built_reading`, `_SlowUptakeReading`): they are cheap and decide most mechanisms. Since
-only the face condition's three faults tell consistent readings apart, any other fault
+only three of the face condition's faults tell consistent readings apart, any other fault
 under the first consistent reading ends the search. Then it searches the consistent
 readings (`_consistent_columns`) against admission's face condition alone, since class 3
 reads no reading and has passed once on the law network. Above a fixed number of readings
@@ -573,22 +574,22 @@ cannot be switched off when another reading switches it off.
 
 **The face condition.** Admission's face condition (`_face_condition`) reads which
 transitions of the ε-network are alive on a face and which vanish; its docstring lists the
-four faults it refuses, in order, and the condition behind each. Two parts of admission on
-a face rest on arguments, not proofs: the filling check, one of the refusals of
-`_face_condition`, and the set-aside rule, which `_admission_face` applies to a face that
+four faults it refuses, in order, and the condition behind each. Two parts of admission on a
+face rest on arguments, not proofs. The filling check is one of the refusals of
+`_face_condition`. The set-aside rule is applied by `_admission_face` to a face that
 `_face_condition` refuses as a bridge.
 
-The filling check (`_FILLED`) refuses a fast transition alive only in its vanishing
-direction, which the law's forms feed through fast transitions, when its target has no fast
-way back to the law's forms that does not vanish. A form's weight is its inflow over its
-outflow. Past a slow transition the inflow is bounded by a rate that vanishes; through fast
-transitions alone it grows with their speed, and then only an outflow that grows as fast
-keeps the form empty in every order of the two limits. A step that loses a direction can
-keep its uptake, which dies on the face where its metabolite is zero and leaves the
-vanishing direction to fill the form one way. A built reading never does this: the direction
-it keeps is a release, alive on every face. A steady-state transition that fills one way is
-the case of a stranded basin (`_PUMPED`): fed forms outside the law network that reach it
-along no alive transitions that do not vanish.
+The filling check (`_FILLED`) looks at a fast transition alive only in its vanishing
+direction that the law's forms feed through fast transitions. It refuses one whose target
+has no fast way back to the law's forms that does not vanish. A form's weight is its inflow
+over its outflow. Past a slow transition the inflow is bounded by a rate that vanishes;
+through fast transitions alone it grows with their speed, and then only an outflow that
+grows as fast keeps the form empty in every order of the two limits. A step that loses a
+direction can keep its uptake, which dies on the face where its metabolite is zero and
+leaves the vanishing direction to fill the form one way. A built reading never does this:
+the direction it keeps is a release, alive on every face. A steady-state transition that
+fills one way is the case of a stranded basin (`_PUMPED`): fed forms outside the law network
+that reach it along no alive transitions that do not vanish.
 
 The set-aside rule (`_without_set_aside_groups` says which groups it sets aside) rests on
 this argument: such a group cannot change the limit. The law's forms it touches lie in one
@@ -801,7 +802,7 @@ Two choices in the generated code (`_rate_body`) carry much of the law's speed. 
 measured in `loss!` per row on the PFKP table (486 rows) and the PGK table (386 rows), on
 one aarch64 core on Julia 1.13.3. The PFKP figures are one allosteric law each, of 13 and 20
 parameters. The PGK figures are means over 60 laws drawn from those whose loss no other fit
-shares, 6 allosteric and 54 plain; allosteric laws made up 55% of the search's fits, but an
+shares, 6 allosteric and 54 plain. Allosteric laws made up 55% of the search's fits, but an
 allosteric law often repeats the loss of a plain one.
 
 - The Horner form (`_horner`) removes multiplications. Against the expanded sums it takes
@@ -809,28 +810,37 @@ allosteric law often repeats the loss of a plain one.
   PFKP laws gain nothing: 39 ns per row either way, and 77 against 76. The code emits no
   `muladd`, and Julia does not contract `x * y + z` by itself, so a law executes no fused
   multiply-adds.
-- An MWC law writes each integer power out as multiplications. Julia's general integer
-  power (`pow_body`) costs about 2 ns a call, and the 13- and 20-parameter PFKP laws would
-  make 7 and 20 such calls per evaluation. Written out, they take 11 ns per row in place
-  of 27, and 20 in place of 64.
+- An MWC law writes each integer power out as multiplications. This was measured later,
+  after other changes had taken the two PFKP laws to 27 and 64 ns per row. Julia's general
+  integer power (`pow_body`) costs about 2 ns a call, and those laws would make 7 and 20
+  such calls per evaluation. Written out, they take 11 ns per row in place of 27, and 20 in
+  place of 64.
+
+None of these figures is today's: the first table above gives `loss!` a median of 8.5 ns
+per row on PGK's sampled laws and 13 ns on PFKP's.
 
 The law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on a slow path,
-since the result is a `Float64` either way. `loss!` reads `metabolites(rate)` and
-`parameters(rate)` as compile-time constants (see [Parameters](@ref)). When the compiler
-cannot infer the length of `metabolites` of an allosteric mechanism, as when it splats a
-`Vector` into its result (`Tuple{Symbol, Symbol, Symbol, Symbol, Vararg{Symbol}}`), each
-row of `loss!` dispatches `ntuple`, the law, `sign` and `log` at run time; a plain
-mechanism does not pay this. Measured with that dispatch on the 13-parameter PFKP law,
-`loss!` took about 1,000 ns per row and allocated 778 KB per call, against about 41 ns per
-call for the law. Every PFKP fit was allosteric, and in a random sample of PGK's fits
-measured with that dispatch, the allosteric ones, 55% of the fits, took 97% of the fit
-time.
+since the result is a `Float64` either way. `loss!` reads `parameters(rate)` and
+`metabolites(rate)` as compile-time constants (see [Parameters](@ref)): their generated
+methods return tuple literals. If either returned a `Vector`, or a tuple whose length the
+compiler cannot infer, every row of `loss!` would dispatch at run time, for every mechanism.
+`_testhelper_test_performance` checks both with `@inferred`. The cost was measured when the
+`metabolites` method of an allosteric mechanism splatted a `Vector` into its result; for a
+mechanism of four reactants the compiler inferred
+`Tuple{Symbol, Symbol, Symbol, Symbol, Vararg{Symbol}}`. Each row then dispatched `ntuple`,
+the law, `sign` and `log` at run time, and plain mechanisms did not pay it. On the
+13-parameter PFKP law `loss!` took about 1,000 ns per row and allocated 778 KB per call,
+against about 41 ns per call for the law. Every fit of the PFKP search measured with that
+dispatch was allosteric. In the PGK search, allosteric fits were 55% of the fits and, in a
+random sample, 97% of the fit time.
 
 So the speed gate in `test/Derivation/test_rate_equation_derivation.jl` times `loss!` as
-well as the compiled law, on every gated law: each mechanism of `MECHANISM_TEST_SPECS`,
-the three largest enumerated bi-bi laws (396 denominator terms each) and three ter-bi laws
-(589, 799 and 858 terms). `.claude/CLAUDE.md` ("Guards") states the bounds, and the test
-file's helpers state how each time is taken. Each margin has a reason:
+well as the compiled law. It runs on every gated law: each mechanism of
+`MECHANISM_TEST_SPECS`, the three largest enumerated bi-bi laws (396 denominator terms each)
+and three ter-bi laws (589, 799 and 858 terms). `.claude/CLAUDE.md` ("Guards") states the
+bounds. `_testhelper_test_rate_equation_performance` (`test/testhelpers.jl`) times the
+compiled law, and `_testhelper_loss_time_per_row`, in the derivation test file, times
+`loss!`. Each margin has a reason:
 
 - The compiled law's bound has a large intercept because small laws take 1-8 ns on an
   aarch64 development machine and 5-38 ns on CI, varying by runner. It catches only a large

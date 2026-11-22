@@ -27,13 +27,14 @@ most `max_param_count` fitted constants (`Derivation.fitted_parameter_count`). T
 drop only what a method returns: a mechanism over a limit is never returned, so it is
 never expanded either.
 
-Errors when
+The first method, which builds the starting set, errors when
 - the reaction's metabolite names spell one string two ways (such as `Ac`, `CoA` and
-  `AcCoA`), so that two forms would share a name (first method);
+  `AcCoA`), so that two forms would share a name;
 - the reaction has no catalytic cycle: every route needs an isomerization converting more
   than three substrates, or more than three products counting a covalent residue as one;
-- no mechanism binds every required regulator;
-- an internal check of the enumerator fails, such as atom conservation.
+- no mechanism binds every required regulator.
+Either method errors when an internal check of the enumerator fails, such as atom
+conservation.
 """
 function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
                               parent::CandidateMechanism;
@@ -69,10 +70,10 @@ end
 Error unless the parent candidate `c` obeys the two rules every child of the moves obeys.
 Every steady-state kinetic group holds an edge that carries net flux
 (`_flux_carrying_groups`), read on the whole catalytic graph. On every candidate the
-enumerator builds, that graph is the active conformation's: the active conformation leaves
-out only the groups tagged `:OnlyI` and the steps they cut off from free E, and no seed or
-move tags a catalytic group `:OnlyI`; a candidate built by hand may carry such a group. No
-kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A
+enumerator builds, that graph is the active conformation's. The active conformation leaves
+out only the groups tagged `:OnlyI` and the steps they cut off from free E. No seed or move
+tags a catalytic group `:OnlyI`, though a candidate built by hand may carry such a group.
+No kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A
 parent must obey both rules because a flip tests only the groups it flips. The split, the
 dead-end move and `_expand_change_allo_state` filter their children; the other moves
 preserve both rules.
@@ -461,11 +462,11 @@ extends a failed set only by the rapid-equilibrium groups that share a segment w
 its split groups: a tie needs a rapid-equilibrium cycle through the split, and every group
 on that cycle lies in that segment.
 
-A copy is redundant when each of its complexes has a twin and a dwell gauge exists; in an
-allosteric mechanism, a twin in every conformation where the copy binds, and one gauge over
-both conformations (`_redundant_copy_groups`). A twin is a productive form whose weight is
-proportional to the complex's (`_productive_twin`). A dwell gauge is a rescaling of the
-constants that moves the copy's constant where the rate law cannot see it
+A copy is redundant when each of its complexes has a twin and a dwell gauge exists. In an
+allosteric mechanism it needs a twin in every conformation where it binds, and one gauge
+over both conformations (`_redundant_copy_groups`). A twin is a productive form whose
+weight is proportional to the complex's (`_productive_twin`). A dwell gauge is a rescaling
+of the constants that moves the copy's constant where the rate law cannot see it
 (`_gauge_rescaling`). Bindings elsewhere in the group of a binding that forms or leaves a
 twin can block the gauge, since they share the constant it must move. A split that
 separates them completes the gauge and makes the copy redundant. A split of a group that
