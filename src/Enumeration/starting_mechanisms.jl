@@ -1,14 +1,7 @@
-# ABOUTME: The seed mechanisms of the enumeration: catalytic topologies, dead-end
-# ABOUTME: decorations, merged and Theorell–Chance variants, and the entry points.
+# ABOUTME: The starting mechanisms of a reaction, candidate_mechanisms(reaction): catalytic
+# ABOUTME: topologies, dead-end decorations, merged and Theorell–Chance variants, seeds.
 
 # ─── Catalytic topologies ─────────────────────────────────────────────
-
-"""Whether step `s` takes up and gives off nothing: an isomerization."""
-_is_iso(s::Mechanisms.Step) = isempty(s.taken_up) && isempty(s.given_off)
-
-"""Whether step `s` takes up one metabolite and gives off none: a binding, plain or fused
-(`_is_plain_binding`)."""
-_is_binding(s::Mechanisms.Step) = isempty(s.given_off) && length(s.taken_up) == 1
 
 """`steps` with their group labels renumbered 1, 2, … in order of first occurrence."""
 function _numbered_groups(steps::Vector{Mechanisms.Step})
@@ -33,10 +26,6 @@ function _trimmed(forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step})
                                              e.rapid_equilibrium, e.kinetic_group)
                              for e in steps])
 end
-
-"""All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
-_subsets(v::AbstractVector) =
-    [v[[isodd(mask >> (i - 1)) for i in eachindex(v)]] for mask in 0:(1 << length(v)) - 1]
 
 """
 All weak orderings of `items`: sequences of nonempty levels that partition `items`, each
@@ -396,19 +385,6 @@ function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vec
                                   maximum(e -> e.kinetic_group, steps) + 1)]
 end
 
-"""The merged complexes of the catalytic graph of candidate `c`, each once: the forms that a
-fused binding of a substrate enters, a binding that is not plain (`_is_binding`,
-`_is_plain_binding`) and takes up a metabolite of `subs`, indices into the scheme's
-metabolites. Only the edges `on` flags count."""
-function _merged_complexes(c::CandidateMechanism, subs::Vector{Int},
-                           on::BitVector = trues(length(
-                               c.mechanism.catalytic.steps)))
-    steps = c.mechanism.catalytic.steps
-    unique(steps[k].to for k in eachindex(steps)
-           if on[k] && _is_binding(steps[k]) && !_is_plain_binding(c, k) &&
-              _holds(steps[k].taken_up, subs))
-end
-
 """
 The tests of `_seed_variants` that build nothing, for the candidate `c` of one base of a
 seed, a plain mechanism `m`: a function of a candidate's rapid-equilibrium flags (one per
@@ -653,19 +629,6 @@ function _seed_node_children(
         filter!(child -> _is_seed_node(child, rxn, required_allo, required_comp),
                 children)
     end
-end
-
-"""Names of the allosteric regulators bound at `m`'s regulatory sites (empty for a plain
-mechanism)."""
-_bound_allo_regs(m::Mechanisms.Mechanism) =
-    Set{Symbol}(lig for site in m.allosteric.regulatory_sites for lig in site.ligands)
-
-"""Names of the competitive inhibitors some step of candidate `c` takes up as a modifier
-copy (`_copy_change`)."""
-function _bound_comp_inhibitors(c::CandidateMechanism)
-    cm = c.mechanism.catalytic
-    Set{Symbol}(cm.metabolites[x] for k in eachindex(cm.steps) for x in cm.steps[k].taken_up
-                if _copy_change(c, k, cm.metabolites[x]) > 0)
 end
 
 """

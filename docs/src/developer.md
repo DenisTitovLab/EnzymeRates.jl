@@ -708,8 +708,8 @@ used), builds the canonical graph (`_canonical`) and checks it;
 `Mechanism(catalytic, Allostery(allosteric_states, oligomeric_state, sites))` takes the
 state of each written group label. The enumeration works on candidates
 (`CandidateMechanism`): a mechanism and its own record of each form (`_FormRecord`,
-`src/Enumeration/record.jl`: the form's conformation label, the names it binds
-productively and as modifier copies, and its residual). The enumerator owns the naming
+`src/Enumeration/candidate_mechanism_type.jl`: the form's conformation label, the names it
+binds productively and as modifier copies, and its residual). The enumerator owns the naming
 rule (`_form_name`): it names each form from its record, `EAB` for E with A and B bound,
 `ESSmod` for ES with a second S bound where it does not react, `E_res_plusA_minusP` for a
 covalent intermediate after A bound and P left. Its moves read a form's contents from the
@@ -863,10 +863,10 @@ merged variant whose every merged complex has two steady-state steps, each alone
 in its group, has the family of the unmerged chain with rapid-equilibrium flanks
 at the same count and is skipped. `_degenerate`, the failure of V or C on the
 active-state graph, marks the starting mechanisms that `candidate_mechanisms`
-(`src/Enumeration/seeds.jl`, `_base_tier`) replaces by their flip children that are not
-degenerate. Both methods of `candidate_mechanisms` return a `CandidateMechanism` for each
-mechanism within the two size limits, which they apply to what they return and never
-inside a move's own search.
+(`src/Enumeration/starting_mechanisms.jl`, `_base_tier`) replaces by their flip children
+that are not degenerate. Both methods of `candidate_mechanisms` return a
+`CandidateMechanism` for each mechanism within the two size limits, which they apply to what
+they return and never inside a move's own search.
 
 `_requires_hyperbolic_catalysis` is true for a mechanism whose oligomeric state is
 above 1, and the moves

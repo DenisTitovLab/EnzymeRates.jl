@@ -1,5 +1,124 @@
-# ABOUTME: Structural filters of the enumeration: degeneracy, hyperbolic catalysis, the
-# ABOUTME: dwell gauge of redundant copies, atom and emission assertions, regulator types.
+# ABOUTME: CandidateMechanism, a mechanism with the enumerator's record of each form, the
+# ABOUTME: structural tests a candidate must pass, and the helpers moves and seeds share.
+
+# ─── The candidate and its form records ─────────────────────────────────
+
+"""
+    _FormRecord
+
+The enumerator's record of one enzyme form: its conformation label (`label`), the names it
+binds productively (`productive`) and as modifier copies (`copies`, a pure inhibitor among
+them), and its covalent residual, the substrates it adds (`adds`) and the products it
+subtracts (`subtracts`). Each list is sorted and holds a name as often as the form does.
+"""
+struct _FormRecord
+    label::Symbol
+    productive::Vector{Symbol}
+    copies::Vector{Symbol}
+    adds::Vector{Symbol}
+    subtracts::Vector{Symbol}
+end
+
+Base.:(==)(a::_FormRecord, b::_FormRecord) =
+    a.label === b.label && a.productive == b.productive && a.copies == b.copies &&
+    a.adds == b.adds && a.subtracts == b.subtracts
+Base.hash(f::_FormRecord, h::UInt) =
+    hash(f.subtracts, hash(f.adds, hash(f.copies, hash(f.productive,
+         hash(f.label, hash(:_FormRecord, h))))))
+
+"""
+The name of the form whose record is `f`, in a mechanism whose reactants are `reactants`:
+its label, then the names it binds in name order, a reactant's modifier copy written
+`<name>mod` after its reactant, then any residual as `_res`, `_plus<name>` per substrate it
+adds and `_minus<name>` per product it subtracts (`E`, `EAB`, `EPmodQ`,
+`EB_res_plusA_minusP`). The reaction's names spell every name one way
+(`_check_decodable_names`), so two forms take one name only when their records are equal.
+"""
+function _form_name(f::_FormRecord, reactants::Vector{Symbol})
+    io = IOBuffer()
+    print(io, f.label)
+    for (x, copy) in sort!([[(x, false) for x in f.productive];
+                            [(x, true) for x in f.copies]])
+        print(io, x, copy && x in reactants ? "mod" : "")
+    end
+    if !isempty(f.adds) || !isempty(f.subtracts)
+        print(io, "_res")
+        foreach(x -> print(io, "_plus", x), f.adds)
+        foreach(x -> print(io, "_minus", x), f.subtracts)
+    end
+    Symbol(String(take!(io)))
+end
+
+"""
+    CandidateMechanism
+
+A mechanism the enumerator proposes for a reaction (`candidate_mechanisms`). Its field
+`mechanism`, a `Mechanism`, is the mechanism to fit and report. Two candidates are `==`
+and hash alike exactly when their mechanisms are.
+"""
+struct CandidateMechanism
+    mechanism::Mechanisms.Mechanism
+    # The record of each form, at the form's index in `mechanism`'s catalytic scheme. The
+    # moves read a form's contents here, never from the mechanism.
+    forms::Vector{_FormRecord}
+end
+
+# Equal mechanisms hold equal records: the enumerator names each form after its record.
+Base.:(==)(a::CandidateMechanism, b::CandidateMechanism) = a.mechanism == b.mechanism
+Base.hash(c::CandidateMechanism, h::UInt) = hash(c.mechanism, h)
+
+"""
+    _candidate(metabolites, forms, substrates, products, steps, allostery = <plain>)
+        -> CandidateMechanism
+    _candidate(parent::CandidateMechanism, allosteric_states, oligomeric_state,
+               regulatory_sites) -> CandidateMechanism
+
+The candidate whose catalytic scheme has the metabolites `metabolites`, of which
+`substrates` and `products` index the reactants, the forms whose records are `forms`, each
+named after its record (`_form_name`), and the steps `steps` (`from` and `to` index
+`forms`, the lists `metabolites`), with the allostery `allostery`, whose
+`allosteric_states[l]` is the state of written kinetic group `l`, built and checked by the
+`Mechanism` constructor; a plain mechanism by default. A record given twice names one
+form; two different records that take one name are an internal error. The second gives
+`parent`'s catalytic scheme, with its records, the allosteric states, oligomeric state and
+regulatory sites given. The only place in `Enumeration` that builds a mechanism; the
+candidate holds each form's record in the order the constructor
+stores the forms.
+"""
+function _candidate(metabolites::Vector{Symbol}, forms::Vector{_FormRecord},
+                    substrates::Vector{Int}, products::Vector{Int},
+                    steps::Vector{Mechanisms.Step},
+                    allostery::Mechanisms.Allostery =
+                        Mechanisms.Allostery(Symbol[], 1, Mechanisms.RegulatorySite[]))
+    reactants = metabolites[[substrates; products]]
+    names = Symbol[_form_name(f, reactants) for f in forms]
+    record = Dict{Symbol, _FormRecord}()
+    for (n, f) in zip(names, forms)
+        get!(record, n, f) == f ||
+            error("_candidate: two different form records are both named $n")
+    end
+    distinct = unique(names)
+    if length(distinct) < length(names)
+        at = Dict{Symbol, Int}(n => i for (i, n) in enumerate(distinct))
+        steps = Mechanisms.Step[Mechanisms.Step(at[names[e.from]], at[names[e.to]],
+                                                e.taken_up, e.given_off,
+                                                e.rapid_equilibrium, e.kinetic_group)
+                                for e in steps]
+    end
+    m = Mechanisms.Mechanism(
+        Mechanisms.CatalyticScheme(metabolites, distinct, substrates, products, steps),
+        allostery)
+    CandidateMechanism(m, _FormRecord[record[n] for n in m.catalytic.enzyme_forms])
+end
+_candidate(parent::CandidateMechanism, allosteric_states::Vector{Symbol},
+           oligomeric_state::Int, regulatory_sites::Vector{Mechanisms.RegulatorySite}) =
+    CandidateMechanism(
+        Mechanisms.Mechanism(parent.mechanism.catalytic,
+                             Mechanisms.Allostery(allosteric_states, oligomeric_state,
+                                                  regulatory_sites)),
+        parent.forms)
+
+# ─── The structural tests a candidate must pass ─────────────────────────
 
 """Whether the rate of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds, has a
 maximum as the metabolites `names` (its substrates or its products, by index) grow: turning
@@ -559,4 +678,267 @@ function _respects_reg_type(am::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReac
                   state === :EqualAI && count(==(t), types) > 1)
         end
     end
+end
+
+# ─── Limits, kinetic groups and plain bindings ──────────────────────────
+
+"""The candidates of `cands` whose law has at most `eq_complexity_filter` terms and at
+most `max_param_count` fitted constants, in order. A limit of `typemax(Int)` limits
+nothing, so its count is not computed: the fitted count solves the mechanism."""
+_within_size_limits(cands::Vector{CandidateMechanism}, max_param_count::Int,
+                    eq_complexity_filter::Int) =
+    filter(cands) do c
+        (eq_complexity_filter == typemax(Int) ||
+         Derivation.rate_equation_term_count(c.mechanism) <= eq_complexity_filter) &&
+            (max_param_count == typemax(Int) ||
+             Derivation.fitted_parameter_count(c.mechanism) <= max_param_count)
+    end
+
+"""Whether the enumerator keeps `m`: the guard (`Derivation.check_valid_rate_equation`)
+accepts it, and no conformation keeps a form that only bindings it excludes enter
+(`_kept_forms_keep_a_binding`). The test the enumerator's exits and its flip, split and
+tagging searches apply to a candidate."""
+_enumerator_keeps(m) =
+    Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_keep_a_binding(m)
+
+"""The number of copies of metabolite `i` (an index into a scheme's `metabolites`) in the
+list `v`."""
+_copies(v::Vector{Int}, i::Int) = count(==(i), v)
+
+"""Whether `m` is allosteric: its kinetic groups carry allosteric states."""
+_is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
+
+"""The rapid-equilibrium flag of each step of `m`, in step order."""
+_rapid_equilibrium_flags(m::Mechanisms.CatalyticScheme) =
+    BitVector([e.rapid_equilibrium for e in m.steps])
+
+"""Each kinetic group of graph `m`, its steps in step order."""
+function _kinetic_groups(m::Mechanisms.CatalyticScheme)
+    members = [Int[] for _ in 1:maximum(e -> e.kinetic_group, m.steps; init = 0)]
+    for (k, e) in enumerate(m.steps)
+        push!(members[e.kinetic_group], k)
+    end
+    members
+end
+
+"""How many more modifier copies of `name` the record of candidate `c` holds at the second
+form of step `k` than at its first: positive when the step takes copies of `name` up,
+negative when it gives them off, zero when it exchanges `name` only productively. A copy
+binds a site of its own and takes no part in the chemistry, so it enters or leaves a form
+only with the step that takes it up or gives it off."""
+function _copy_change(c::CandidateMechanism, k::Int, name::Symbol)
+    e = c.mechanism.catalytic.steps[k]
+    count(==(name), c.forms[e.to].copies) - count(==(name), c.forms[e.from].copies)
+end
+
+"""Whether step `k` of candidate `c` is a plain binding: it takes up one metabolite and
+gives off none (`_is_binding`), and the record of its second form is that of its first
+with the metabolite added, among the copies when the step binds a copy (`_copy_change`),
+the residual the same and the label free to change. Every other step is chemistry: an
+isomerization, a fused binding (the last substrate binding straight into the
+product-bound form), a Theorell–Chance step or an exchange."""
+function _is_plain_binding(c::CandidateMechanism, k::Int)
+    cm = c.mechanism.catalytic
+    e = cm.steps[k]
+    _is_binding(e) || return false
+    f, t, x = c.forms[e.from], c.forms[e.to], cm.metabolites[only(e.taken_up)]
+    f.adds == t.adds && f.subtracts == t.subtracts || return false
+    _copy_change(c, k, x) > 0 ?
+        f.productive == t.productive && _one_more(t.copies, f.copies, x) :
+        f.copies == t.copies && _one_more(t.productive, f.productive, x)
+end
+
+"""Whether the sorted list `t` is the sorted list `f` with one more `x`."""
+function _one_more(t::Vector{Symbol}, f::Vector{Symbol}, x::Symbol)
+    length(t) == length(f) + 1 || return false
+    j, skipped = 1, false
+    for y in t
+        if j <= length(f) && y === f[j]
+            j += 1
+        elseif !skipped && y === x
+            skipped = true
+        else
+            return false
+        end
+    end
+    skipped
+end
+
+# ─── Steps, subsets, merged complexes and bound regulators ──────────────
+
+"""Whether step `s` takes up and gives off nothing: an isomerization."""
+_is_iso(s::Mechanisms.Step) = isempty(s.taken_up) && isempty(s.given_off)
+
+"""Whether step `s` takes up one metabolite and gives off none: a binding, plain or fused
+(`_is_plain_binding`)."""
+_is_binding(s::Mechanisms.Step) = isempty(s.given_off) && length(s.taken_up) == 1
+
+"""All subsets of `v` in binary-counting order (bit `i - 1` selects `v[i]`), empty first."""
+_subsets(v::AbstractVector) =
+    [v[[isodd(mask >> (i - 1)) for i in eachindex(v)]] for mask in 0:(1 << length(v)) - 1]
+
+"""The merged complexes of the catalytic graph of candidate `c`, each once: the forms that a
+fused binding of a substrate enters, a binding that is not plain (`_is_binding`,
+`_is_plain_binding`) and takes up a metabolite of `subs`, indices into the scheme's
+metabolites. Only the edges `on` flags count."""
+function _merged_complexes(c::CandidateMechanism, subs::Vector{Int},
+                           on::BitVector = trues(length(
+                               c.mechanism.catalytic.steps)))
+    steps = c.mechanism.catalytic.steps
+    unique(steps[k].to for k in eachindex(steps)
+           if on[k] && _is_binding(steps[k]) && !_is_plain_binding(c, k) &&
+              _holds(steps[k].taken_up, subs))
+end
+
+"""Names of the allosteric regulators bound at `m`'s regulatory sites (empty for a plain
+mechanism)."""
+_bound_allo_regs(m::Mechanisms.Mechanism) =
+    Set{Symbol}(lig for site in m.allosteric.regulatory_sites for lig in site.ligands)
+
+"""Names of the competitive inhibitors some step of candidate `c` takes up as a modifier
+copy (`_copy_change`)."""
+function _bound_comp_inhibitors(c::CandidateMechanism)
+    cm = c.mechanism.catalytic
+    Set{Symbol}(cm.metabolites[x] for k in eachindex(cm.steps) for x in cm.steps[k].taken_up
+                if _copy_change(c, k, cm.metabolites[x]) > 0)
+end
+
+# ─── Kinetic groups that carry flux ─────────────────────────────────────
+
+"""Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
+function _groups_with(pred, m::Mechanisms.CatalyticScheme)
+    out = falses(maximum(e -> e.kinetic_group, m.steps; init = 0))
+    for k in eachindex(m.steps)
+        pred(k) && (out[m.steps[k].kinetic_group] = true)
+    end
+    out
+end
+
+"""
+    _flux_carrying_edges(m, re) -> BitVector
+
+Whether each edge of graph `m`, edge `k` at rapid equilibrium where `re[k]` holds,
+carries net steady-state flux for generic parameter values. Rapid-equilibrium edges hold
+equilibrium mass and are flagged `false`; the rule that uses these flags concerns
+steady-state groups only.
+
+Contract each rapid-equilibrium segment to one vertex (`rapid_equilibrium_segments`) and
+make every steady-state edge an edge between its two forms' segments, weighted by the
+substrates it takes up minus the products (`_uptake_weight`), plus its first end's offsets
+minus its second end's (`from`, `to`; a modifier copy counts as its reactant). Around any
+cycle the offsets telescope and the uptakes sum to the net turnover times the reactant
+count, so a cycle has weight zero exactly when it runs no net reaction. A self-loop (both
+forms in one segment) carries flux iff its weight is nonzero. Any other edge carries flux
+iff its biconnected block (`_unbalanced_blocks`) holds a cycle of nonzero weight: every edge
+of such a block lies on one (join the edge to the cycle by two disjoint paths; one of the
+two resulting cycles is unbalanced), while in a balanced block detailed balance holds along
+every cycle and each edge's flux vanishes. The zero-flux verdict holds for any parameters
+and grouping; the flux-carrying verdict for one-way steps, which every step the enumerator
+emits is. The test reads each edge's metabolite lists, so it holds for fused and
+Theorell–Chance steps as well.
+"""
+function _flux_carrying_edges(m::Mechanisms.CatalyticScheme, re::BitVector)
+    s = Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)), re)
+    rho = _name_signs(m)
+    offset(f) = sum(rho[n] * s.offsets[n, f] for n in eachindex(rho); init = 0)
+    flags = falses(length(m.steps))
+    edges = Tuple{Int, Int}[]; weights = Int[]; owner = Int[]
+    for k in eachindex(m.steps)
+        re[k] && continue
+        (; from, to) = m.steps[k]
+        weight = _uptake_weight(m, k) + offset(from) - offset(to)
+        a, b = s.segment_of[from], s.segment_of[to]
+        if a == b
+            flags[k] = weight != 0
+        else
+            push!(edges, (a, b)); push!(weights, weight); push!(owner, k)
+        end
+    end
+    block, unbalanced = _unbalanced_blocks(length(s.segments), edges, weights)
+    for (j, k) in enumerate(owner)
+        flags[k] = block[j] in unbalanced
+    end
+    flags
+end
+
+"""
+    _flux_carrying_groups(m, re) -> BitVector
+
+One flag per kinetic group of graph `m`, edge `k` at rapid equilibrium where `re[k]`
+holds: whether some edge of the group carries net steady-state flux
+(`_flux_carrying_edges`). A steady-state group with no such edge exposes only the ratio
+of its two constants, so the moves never emit one; a zero-flux edge inside a group that
+also holds a flux-carrying edge costs nothing, because the group's shared constants are
+pinned by the edge that carries flux.
+"""
+function _flux_carrying_groups(m::Mechanisms.CatalyticScheme, re::BitVector)
+    flux = _flux_carrying_edges(m, re)
+    _groups_with(k -> flux[k], m)
+end
+
+"""Each metabolite's net uptake sign, in the order of `m.metabolites` (the rows of the
+offsets of `rapid_equilibrium_segments`): +1 for a substrate, −1 for a product, 0 for a
+modifier."""
+_name_signs(m::Mechanisms.CatalyticScheme) =
+    Int[n in m.substrates ? 1 : n in m.products ? -1 : 0 for n in eachindex(m.metabolites)]
+
+"""The substrates step `k` of `m` takes up net, less the products it takes up net."""
+function _uptake_weight(m::Mechanisms.CatalyticScheme, k::Int)
+    t, g = m.steps[k].taken_up, m.steps[k].given_off
+    net(x) = _copies(t, x) - _copies(g, x)
+    sum(net, m.substrates; init = 0) -
+        sum(net, m.products; init = 0)
+end
+
+"""
+    _unbalanced_blocks(nv, edges, weights) -> (block, unbalanced)
+
+The biconnected block of every edge of an undirected multigraph without self-loops,
+`edges[e] = (u, v)` with vertices `1:nv` (Tarjan's edge-stack algorithm; a bridge is a
+block of its own), and the set of blocks holding a cycle of nonzero weight, edge `e`
+weighing `weights[e]` along its stored direction. The search gives each vertex a
+potential that rises by each tree edge's weight along its stored direction. An edge's
+defect, its weight minus the potential difference of its ends, is zero on a tree edge
+and, on any other edge, the weight of the cycle it closes with the tree path between its
+ends, a cycle of its own block. The tree edges of a block span it, so these cycles
+generate the block's cycles and weight adds over them: a block holds a cycle of nonzero
+weight exactly when one of its edges has a nonzero defect.
+"""
+function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Vector{Int})
+    adj = [Int[] for _ in 1:nv]
+    for (e, (u, v)) in enumerate(edges)
+        push!(adj[u], e); push!(adj[v], e)
+    end
+    disc = zeros(Int, nv); low = zeros(Int, nv); phi = zeros(Int, nv)
+    block = zeros(Int, length(edges))
+    stack = Int[]; clock = Ref(0); nblocks = Ref(0)
+    # It takes itself as an argument because a closure that names itself is boxed.
+    function visit(self, u, parent_edge)
+        clock[] += 1; disc[u] = low[u] = clock[]
+        for e in adj[u]
+            e == parent_edge && continue
+            w = edges[e][1] == u ? edges[e][2] : edges[e][1]
+            if disc[w] == 0
+                phi[w] = phi[u] + (edges[e][1] == u ? weights[e] : -weights[e])
+                push!(stack, e)
+                self(self, w, e)
+                low[u] = min(low[u], low[w])
+                if low[w] >= disc[u]
+                    nblocks[] += 1
+                    while true
+                        x = pop!(stack); block[x] = nblocks[]
+                        x == e && break
+                    end
+                end
+            elseif disc[w] < disc[u]
+                push!(stack, e)
+                low[u] = min(low[u], disc[w])
+            end
+        end
+    end
+    for v in 1:nv
+        disc[v] == 0 && visit(visit, v, 0)
+    end
+    block, Set{Int}(block[e] for (e, (u, v)) in enumerate(edges)
+                    if weights[e] != phi[v] - phi[u])
 end

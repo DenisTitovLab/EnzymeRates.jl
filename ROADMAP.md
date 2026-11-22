@@ -178,15 +178,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   limit". What the search does today:
   - **The tagging move stops both half-reactions where the guard admits it.**
     Its first candidate base tags every chemistry group `:OnlyA` (`_tagging_bases`,
-    `src/Enumeration/moves.jl`). On the six-step and three-step bi-bi ping-pongs, and on the
-    six-step one whose A and P groups each hold an abortive binding, the guard admits it, so
-    it is the one base. On the six-step ping-pong every allosteric child kept at the exits,
-    and every allosteric child of those on the same graph, turns over at zero products: 44
-    with a regulator declared, at one subunit and again at two, and 18 without one. A
-    one-half base arises only where the guard rejects the every-chemistry set, as on the
-    four-step bi-bi ping-pong whose A binding is fused at steady state and whose B binding
-    is fused at rapid equilibrium; several bases occur in 48 of the 4,885 census ter-bi
-    parents.
+    `src/Enumeration/expansion_moves.jl`). On the six-step and three-step bi-bi ping-pongs,
+    and on the six-step one whose A and P groups each hold an abortive binding, the guard
+    admits it, so it is the one base. On the six-step ping-pong every allosteric child kept
+    at the exits, and every allosteric child of those on the same graph, turns over at zero
+    products: 44 with a regulator declared, at one subunit and again at two, and 18 without
+    one. A one-half base arises only where the guard rejects the every-chemistry set, as on
+    the four-step bi-bi ping-pong whose A binding is fused at steady state and whose B
+    binding is fused at rapid equilibrium; several bases occur in 48 of the 4,885 census
+    ter-bi parents.
   - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
     On the V-type that stops both halves, change-tag's relaxation of both half-reactions to
     `:NonequalAI` excludes nothing, but class 3 rejects it: at zero substrates, and at zero
@@ -299,23 +299,23 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   - **`has_nonzero_weight_cycle` takes six vectors.**
     `Mechanisms.has_nonzero_weight_cycle(from, to, weight, on, parent, offset)` is a
     union-find whose two callers outside `Mechanisms` pass the working arrays it fills. The
-    enumerator's seed screen (`_seed_candidate_screen`, `src/Enumeration/seeds.jl`) asks
-    the turnover question for many step subsets and reuses its buffers. The guard calls it
-    at one place, on its own network of transitions with a metabolite's uptake as the
-    weight (`_potential_on_sccs`, `src/Derivation/admission.jl`). A signature on a
-    catalytic scheme and a mask, as `has_turnover_cycle` has, would fit the seed screen but
-    not the guard, which passes transitions, not a scheme's steps. The guard also has its
-    own walk over that network that finds a cycle whose offsets disagree (`_fast_segments`
-    with `_tree_cycle`, `src/Derivation/guard.jl`), which its check that every cycle
-    balances each metabolite uses (`_unbalanced_cycle`). Unverified: whether
-    `_potential_on_sccs` could ask its question through that walk. If it can, the seed
-    screen is the only caller outside `Mechanisms`, and with buffers passed to
-    `has_turnover_cycle`, or an allocation accepted there, the routine becomes private: one
-    public name and its six-argument signature fewer. Considered and not recommended:
-    merging the two functions under one name (two call shapes remain); dropping
-    `has_turnover_cycle` (the rule that turnover is uptake of the first substrate would
-    then be written at four call sites); dropping the general routine outright (the guard
-    would need a copy).
+    enumerator's seed screen (`_seed_candidate_screen`,
+    `src/Enumeration/starting_mechanisms.jl`) asks the turnover question for many step
+    subsets and reuses its buffers. The guard calls it at one place, on its own network of
+    transitions with a metabolite's uptake as the weight (`_potential_on_sccs`,
+    `src/Derivation/admission.jl`). A signature on a catalytic scheme and a mask, as
+    `has_turnover_cycle` has, would fit the seed screen but not the guard, which passes
+    transitions, not a scheme's steps. The guard also has its own walk over that network
+    that finds a cycle whose offsets disagree (`_fast_segments` with `_tree_cycle`,
+    `src/Derivation/guard.jl`), which its check that every cycle balances each metabolite
+    uses (`_unbalanced_cycle`). Unverified: whether `_potential_on_sccs` could ask its
+    question through that walk. If it can, the seed screen is the only caller outside
+    `Mechanisms`, and with buffers passed to `has_turnover_cycle`, or an allocation accepted
+    there, the routine becomes private: one public name and its six-argument signature
+    fewer. Considered and not recommended: merging the two functions under one name (two
+    call shapes remain); dropping `has_turnover_cycle` (the rule that turnover is uptake of
+    the first substrate would then be written at four call sites); dropping the general
+    routine outright (the guard would need a copy).
   - **Three modules count which way a step runs.**
     The count of substrates taken up and products given off that orients a step is made
     in `Mechanisms` (`_orientation`, the second row of the table of stored directions),
@@ -427,27 +427,27 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   multiplicity. Keep a bare `A` at the oligomeric state, widen only on an explicit list, and
   reject `I(m)` for a competitive inhibitor. Priority: medium-low.
 - **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
-  `_expand_change_allo_state` (`src/Enumeration/moves.jl`) has no gain test, unlike
-  the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain edges.
-  A child whose law equals one already fitted, up to renaming its constants, shares that
-  fit through the key (`_canonical`, `src/Derivation/key.jl`) and costs no fit; a zero-gain
-  child with a law of its own still costs one. First count, over the bi-bi allosteric
-  depth-2 population, the children whose `fitted_parameter_count` does not exceed their
-  parent's and whose key is new, and confirm them with `_testhelper_identifiable_rank`. A
-  naive filter can drop a different model with the same count, so check reachability
-  before filtering. Priority: medium-low.
+  `_expand_change_allo_state` (`src/Enumeration/expansion_moves.jl`) has no gain test,
+  unlike the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain
+  edges. A child whose law equals one already fitted, up to renaming its constants, shares
+  that fit through the key (`_canonical`, `src/Derivation/key.jl`) and costs no fit; a
+  zero-gain child with a law of its own still costs one. First count, over the bi-bi
+  allosteric depth-2 population, the children whose `fitted_parameter_count` does not exceed
+  their parent's and whose key is new, and confirm them with
+  `_testhelper_identifiable_rank`. A naive filter can drop a different model with the same
+  count, so check reachability before filtering. Priority: medium-low.
 - **Decide whether to keep the hyperbolic drops above one subunit.**
   Above one subunit the tagging and change-tag moves drop a child whose inactive law is not
-  hyperbolic (`_hyperbolic_where_required`, `src/Enumeration/moves.jl`). Neither drop
-  removes a candidate the guard admits in any population searched: 81,687 tagging and
-  378,543 change-tag candidates at two subunits on bi-bi and census ping-pong parents, and
-  1,046,178 tag vectors on hyperbolic parents of at most 7 groups. On the six-step bi-bi
-  ping-pong whose A and P groups each hold an abortive binding, the tagging move's one base
-  stops both half-reactions; at two subunits the drop removes none of its 15 K-types, and
-  the exits keep 5. Why the drops find nothing, as an argument rather than a proof: a
-  tagging or change-tag child has no `:OnlyI` catalytic group, so its active law is the
-  parent's, which the move requires to be hyperbolic. Its inactive law keeps only forms of
-  free E's group. An excluded rapid-equilibrium step between two of them would be pinned,
+  hyperbolic (`_hyperbolic_where_required`, `src/Enumeration/candidate_mechanism_type.jl`).
+  Neither drop removes a candidate the guard admits in any population searched: 81,687
+  tagging and 378,543 change-tag candidates at two subunits on bi-bi and census ping-pong
+  parents, and 1,046,178 tag vectors on hyperbolic parents of at most 7 groups. On the
+  six-step bi-bi ping-pong whose A and P groups each hold an abortive binding, the tagging
+  move's one base stops both half-reactions; at two subunits the drop removes none of its 15
+  K-types, and the exits keep 5. Why the drops find nothing, as an argument rather than a
+  proof: a tagging or change-tag child has no `:OnlyI` catalytic group, so its active law is
+  the parent's, which the move requires to be hyperbolic. Its inactive law keeps only forms
+  of free E's group. An excluded rapid-equilibrium step between two of them would be pinned,
   which the guard rejects, so each rapid-equilibrium segment of the inactive law is a
   segment of the parent cut down to the kept forms, and the law's degree in a metabolite
   cannot exceed the parent's. The exception is a segment the cut splits in two: the cut-off
@@ -458,16 +458,16 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
   "switch-product = 1" constraint row comes first. The enumerator's record of a form
-  (`_FormRecord`, `src/Enumeration/record.jl`) carries its conformation label, and
-  `_requires_hyperbolic_catalysis` (`src/Enumeration/filters.jl`) is the extension hook.
-  The enumerator builds the label `E` only, so until iso mechanisms are enumerated only
-  tests reach the code of its moves for other labels, such as the split of a kinetic group
-  by conformation. Two-conformation kinetic cooperativity stays parked: on PGK data no
-  conformational model beat MWC with steady-state steps at equal parameter count, so
-  reopen it only for a dataset whose curvature MWC cannot fit. Revisit allosteric
-  ping-pong with this work: a flip at a second free form is the same question (see the
-  Known issue "An allosteric ping-pong whose covalent forms empty only by binding B cannot
-  stop both half-reactions"). Priority: low.
+  (`_FormRecord`, `src/Enumeration/candidate_mechanism_type.jl`) carries its conformation
+  label, and `_requires_hyperbolic_catalysis`
+  (`src/Enumeration/candidate_mechanism_type.jl`) is the extension hook. The enumerator
+  builds the label `E` only, so until iso mechanisms are enumerated only tests reach the
+  code of its moves for other labels, such as the split of a kinetic group by conformation.
+  Two-conformation kinetic cooperativity stays parked: on PGK data no conformational model
+  beat MWC with steady-state steps at equal parameter count, so reopen it only for a dataset
+  whose curvature MWC cannot fit. Revisit allosteric ping-pong with this work: a flip at a
+  second free form is the same question (see the Known issue "An allosteric ping-pong whose
+  covalent forms empty only by binding B cannot stop both half-reactions"). Priority: low.
 
 ## Ideas
 
@@ -514,7 +514,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   children, since a phantom child can carry families its parent lacks.
 - **Apply the chain-flank exclusion at one catalytic subunit.**
   The flip move keeps a chain's flanks at rapid equilibrium only in plain mechanisms
-  (`_chain_flank_groups`, `src/Enumeration/moves.jl`): an allosteric mechanism has
+  (`_chain_flank_groups`, `src/Enumeration/expansion_moves.jl`): an allosteric mechanism has
   none, since above one subunit a flank's flip can show through the two
   conformations. At one subunit an L phantom's flank flip stays invisible, so the move
   emits a phantom whose law at L = 0 no plain mechanism of the search holds, and
