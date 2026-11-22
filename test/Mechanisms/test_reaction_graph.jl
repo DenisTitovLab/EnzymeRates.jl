@@ -176,9 +176,8 @@ end
     @test ER.Derivation._guard_message(onlyi) == _testhelper_pinned_cause(onlyi, 2, 1)
     @test all(t -> ER.Derivation._retag_passes(onlyi, [2], t), (:EqualAI, :NonequalAI))
     @test_throws(ErrorException(
-        "Mechanism: ligand X appears in two distinct regulatory sites; " *
-        "rendered regulator parameter names would collide. " *
-        "Same-ligand-two-sites is not enumerated."),
+        "Mechanism: allosteric regulator `X` is listed at two regulatory sites; " *
+        "an allosteric regulator sits at exactly one regulatory site."),
                  ER.Mechanism(
                      m.catalytic, ER.Mechanisms.Allostery([:EqualAI, :EqualAI, :OnlyA], 2,
                      [sites; EnzymeRates.Mechanisms.RegulatorySite([:X], 4, [:OnlyA])])))
@@ -446,14 +445,14 @@ end
     @test_throws(ErrorException("RegulatorySite: allosteric state Bogus must be one of " *
                                 "(:OnlyA, :OnlyI, :EqualAI, :NonequalAI)"),
                  _testhelper_allosteric(tags, 2, [site([:R], 2, [:Bogus])]))
-    @test_throws(ErrorException("RegulatorySite: ligand R appears twice in one " *
-                                "regulatory site"),
+    @test_throws(ErrorException("RegulatorySite: allosteric regulator `R` is listed " *
+                                "twice; an allosteric regulator sits at exactly one " *
+                                "regulatory site, once."),
                  _testhelper_allosteric(tags, 2, [site([:R, :X, :R], 2,
                                                        [:OnlyA, :OnlyI, :OnlyI])]))
     @test_throws(ErrorException(
-        "Mechanism: ligand R appears in two distinct regulatory sites; " *
-        "rendered regulator parameter names would collide. " *
-        "Same-ligand-two-sites is not enumerated."),
+        "Mechanism: allosteric regulator `R` is listed at two regulatory sites; " *
+        "an allosteric regulator sits at exactly one regulatory site."),
         _testhelper_allosteric(tags, 2, [site([:R], 2, [:OnlyA]), site([:R], 4, [:OnlyI])]))
     # A ligand takes no name a metabolite cannot take, and no form's name.
     @test_throws(ErrorException("Mechanism: \"1R\" cannot name a metabolite; a " *

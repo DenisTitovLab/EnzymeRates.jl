@@ -44,11 +44,6 @@ function _parse_reaction_block(block)
                   "allosteric_regulators, oligomeric_state, shared_catalytic_site.")
         end
     end
-
-    any(r -> r[1] === :substrate, reactants) ||
-        error("@enzyme_reaction: `substrates:` not specified.")
-    any(r -> r[1] === :product, reactants) ||
-        error("@enzyme_reaction: `products:` not specified.")
     (; reactants, regs, mults = something(mults, [1]), shared)
 end
 
@@ -125,17 +120,14 @@ function _parse_regulator_entries(values, kind::Symbol)
     end
 end
 
-"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`, each multiplicity listed once."""
+"""Parse `(1, 2, 4)` or `4` into `Vector{Int}`."""
 function _parse_multiplicity_tuple(values, label)
     v = values[1]
     length(values) == 1 && v != Expr(:tuple) ||
         error("@enzyme_reaction: `$label:` takes one Int or a tuple of one or more " *
               "Ints, such as `(1, 2, 4)`; got $(join(values, ", ")).")
-    ms = Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
-             for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
-    allunique(ms) ||
-        error("@enzyme_reaction: `$label:` lists a multiplicity more than once; got $v.")
-    ms
+    Int[_positive_int(a, "@enzyme_reaction: `$label:` entry")
+        for a in (v isa Expr && v.head === :tuple ? v.args : (v,))]
 end
 
 """
@@ -299,7 +291,6 @@ function raw_mechanism(block)
             throw(ArgumentError("@enzyme_mechanism: `regulatory_site(n):` " *
                                 "$allosteric_only; no statement carries one."))
     end
-    _check_site_ligands(sites)
     (; substrates, products, modifiers, forms, steps, allosteric_states = states,
      oligomeric_state = something(multiplicity, 1), regulatory_sites = sites)
 end
@@ -332,17 +323,6 @@ function _raw_site(label, values)
         push!(tags, v.args[2])
     end
     _WrittenSite((ligands, multiplicity, tags))
-end
-
-"""Error unless the `regulatory_site(n):` lines `sites` list each ligand once: a ligand,
-an allosteric regulator, sits at exactly one regulatory site."""
-function _check_site_ligands(sites::Vector{_WrittenSite})
-    for r in unique(l for site in sites for l in site.ligands)
-        n = sum(count(==(r), site.ligands) for site in sites)
-        n == 1 || error("@enzyme_mechanism: allosteric regulator `$r` is listed $n " *
-                        "times on `regulatory_site(n):` lines; an allosteric regulator " *
-                        "sits at exactly one regulatory site.")
-    end
 end
 
 """

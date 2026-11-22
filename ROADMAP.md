@@ -406,6 +406,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 
 ## Ideas
 
+- **Remove the DSL's hints for the notation it no longer reads.**
+  `@enzyme_mechanism` answers notation the lean mechanism dropped with a hint of what to
+  write instead (`src/DSL/read.jl`): a form in call notation such as `E(A, B)`
+  (`_called_form_name` and the call branch of `_raw_term`), a reactant's modifier copy
+  `X::Mod` and a count such as `2S` (the `::Mod` and count branches of `_raw_term`), and a
+  tagged name in a name list such as `P::Mod` (`_bare_name`, `_untagged` and the hint of
+  `_bare_symbols_from_values`). The maintainer kept them for this release. Removing them
+  in a later one takes about 30 lines of source and 60 of `test/DSL/test_dsl.jl`, and old
+  notation then gets the generic error.
 - **Extend `plot_rate_equation_on_data`.**
   Considered and left out: overlaying the fits of two mechanisms, a fit summary (measured
   against predicted, error per group), a tick rule for log axes, and a keyword to override

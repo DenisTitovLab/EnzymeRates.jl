@@ -331,11 +331,10 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
             end
         end))
 
-        # A ligand on two regulatory sites is reported by the macro, which reads the
-        # site lines.
-        @test_throws("@enzyme_mechanism: allosteric regulator `A` is listed 2 times " *
-                     "on `regulatory_site(n):` lines; an allosteric regulator sits at " *
-                     "exactly one regulatory site.", eval(
+        # A ligand on two regulatory sites.
+        @test_throws("Mechanism: allosteric regulator `A` is listed at two regulatory " *
+                     "sites; an allosteric regulator sits at exactly one regulatory site.",
+                     eval(
             :(@enzyme_mechanism begin
                 substrates: S
                 products:   P
@@ -1054,13 +1053,26 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
                 oligomeric_state: 1, 2
             end""")))
         # Each multiplicity once.
-        @test_throws("@enzyme_reaction: `oligomeric_state:` lists a multiplicity more " *
-                     "than once; got (2, 2).", eval(:(@enzyme_reaction begin
+        @test_throws("EnzymeReaction: `oligomeric_state:` lists a multiplicity more " *
+                     "than once; got [2, 2].", eval(:(@enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             allosteric_regulators: A
             oligomeric_state: (2, 2)
         end)))
+    end
+
+    @testset "@enzyme_reaction needs a substrate and a product" begin
+        @test_throws(ErrorException("EnzymeReaction: `substrates:` not specified; a " *
+                                    "reaction has at least one substrate."),
+                     @enzyme_reaction begin
+                         products: P[C]
+                     end)
+        @test_throws(ErrorException("EnzymeReaction: `products:` not specified; a " *
+                                    "reaction has at least one product."),
+                     @enzyme_reaction begin
+                         substrates: S[C]
+                     end)
     end
 
     @testset "@enzyme_reaction shared_catalytic_site" begin
@@ -1742,12 +1754,12 @@ end
         end
         _testhelper_sites(sites...) = eval(:(@enzyme_mechanism $(
             Expr(:block, declarations.args..., sites...))))
-        @test_throws("@enzyme_mechanism: allosteric regulator `X` is listed 2 times " *
-                     "on `regulatory_site(n):` lines; an allosteric regulator sits at " *
-                     "exactly one regulatory site.",
+        @test_throws("Mechanism: allosteric regulator `X` is listed at two regulatory " *
+                     "sites; an allosteric regulator sits at exactly one regulatory site.",
                      _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI),
                                        :(regulatory_site(4): X::OnlyA)))
-        @test_throws("@enzyme_mechanism: allosteric regulator `X` is listed 2 times",
+        @test_throws("RegulatorySite: allosteric regulator `X` is listed twice; an " *
+                     "allosteric regulator sits at exactly one regulatory site, once.",
                      _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI,
                                                              X::OnlyI)))
         # A site lists each ligand with its tag after a positive multiplicity.

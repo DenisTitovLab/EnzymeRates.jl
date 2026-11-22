@@ -1238,9 +1238,8 @@ end
         # A ligand on two regulatory sites → error: both sites would render its regulator
         # parameter name
         @test_throws(ErrorException(
-            "Mechanism: ligand A appears in two distinct regulatory sites; " *
-            "rendered regulator parameter names would collide. " *
-            "Same-ligand-two-sites is not enumerated."),
+            "Mechanism: allosteric regulator `A` is listed at two regulatory sites; " *
+            "an allosteric regulator sits at exactly one regulatory site."),
             ER.Mechanism(
                 _testhelper_re_mm.catalytic,
                 ER.Mechanisms.Allostery(
@@ -1710,18 +1709,15 @@ end
                            [ER.Mechanisms.Reactant(:P, [:C => 1])],
                            ER.Mechanisms.Regulator[], mults)
         @test_throws(ErrorException("EnzymeReaction: allowed_oligomeric_states " *
-                                    "must be a nonempty list of distinct Ints ≥ 1, got " *
-                                    "[0, 1]"),
+                                    "must be a nonempty list of Ints ≥ 1, got [0, 1]"),
                      _testhelper_reaction([0, 1]))
         # An empty list would leave the search no multiplicity to assign.
         @test_throws(ErrorException("EnzymeReaction: allowed_oligomeric_states " *
-                                    "must be a nonempty list of distinct Ints ≥ 1, got " *
-                                    "Int64[]"),
+                                    "must be a nonempty list of Ints ≥ 1, got Int64[]"),
                      _testhelper_reaction(Int[]))
         # A multiplicity listed twice is no list a DSL text writes.
-        @test_throws(ErrorException("EnzymeReaction: allowed_oligomeric_states " *
-                                    "must be a nonempty list of distinct Ints ≥ 1, got " *
-                                    "[2, 2]"),
+        @test_throws(ErrorException("EnzymeReaction: `oligomeric_state:` lists a " *
+                                    "multiplicity more than once; got [2, 2]."),
                      _testhelper_reaction([2, 2]))
         # A Bool is no multiplicity: the list is a Vector{Int}, and none is converted.
         @test_throws MethodError _testhelper_reaction(Bool[true])
