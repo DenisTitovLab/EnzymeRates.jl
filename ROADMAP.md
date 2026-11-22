@@ -391,7 +391,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     guard before 0.11.0 admits, those too large to search in particular, and remove what
     changes nothing: about 45 lines of
     `src/Derivation/allosteric_rate_equation_correctness_guard.jl` and their mirror in
-    `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
+    `test/testhelpers.jl`.
   - **Joint R1.** The branch of `_face_condition`
     (`src/Derivation/allosteric_rate_equation_correctness_guard.jl`) that refuses a bridge
     the two conformations' vanishing transitions open only together is reached through
@@ -513,7 +513,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `src/Derivation/rate_equation_derivation.jl`) is exact up to a negligible failure
   probability, took 3.5 ms per mechanism in a prototype, and has a finite-difference oracle
   in `_testhelper_identifiable_rank`
-  (`test/mechanism_definitions_for_test_enzyme_derivation.jl`). Run it over several
+  (`test/testhelpers.jl`). Run it over several
   saved runs to find the other phantom classes; performance may keep it out of `src/`,
   where it would otherwise replace the beam's parameter count. It must never filter
   children, since a phantom child can carry families its parent lacks.

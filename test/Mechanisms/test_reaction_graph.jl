@@ -1070,7 +1070,7 @@ end
 
 @testset "storage round trips" begin
     # The specs, plain and allosteric, and the bi-bi init set, the enumeration golden set
-    # (`phase2_init_golden.txt`).
+    # (`bi_bi_init_golden.txt`).
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]

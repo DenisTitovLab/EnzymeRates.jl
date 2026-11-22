@@ -5,7 +5,7 @@ using EnzymeRates
 using LinearAlgebra
 using Random
 
-include("mechanism_definitions_for_test_enzyme_derivation.jl")
+include("testhelpers.jl")
 @testset "EnzymeRates.jl" begin
     include("test_compile_budget.jl")
     include("Mechanisms/test_accessors.jl")
@@ -20,7 +20,7 @@ include("mechanism_definitions_for_test_enzyme_derivation.jl")
     include("Derivation/test_law.jl")
     include("Derivation/test_key.jl")
     include("Derivation/test_print.jl")
-    include("Derivation/test_oracles.jl")
+    include("test_oracles.jl")
     include("Derivation/test_admission.jl")
     include("Derivation/test_joint_solve.jl")
     include("Derivation/test_names.jl")

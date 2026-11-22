@@ -15110,7 +15110,7 @@ end
     mech_keys = sort([_testhelper_mech_struct_key(m) for m in init])
     @test length(unique(mech_keys)) == length(mech_keys)   # no structural dups post-dedup
 
-    fixture = joinpath(@__DIR__, "..", "fixtures", "phase2_init_golden.txt")
+    fixture = joinpath(@__DIR__, "..", "fixtures", "bi_bi_init_golden.txt")
     if !isfile(fixture)
         mkpath(dirname(fixture)); write(fixture, join(mech_keys, "\n"))
         @warn "bootstrapped phase2 golden fixture; commit it" fixture

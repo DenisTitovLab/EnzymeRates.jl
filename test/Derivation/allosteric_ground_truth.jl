@@ -457,7 +457,7 @@ function _testhelper_pingpong_nonequalAI_freeflip_flux(k1f, k3f, k3r;
 end
 
 # `_testhelper_rate_ping_pong_bi_bi` in
-# `test/mechanism_definitions_for_test_enzyme_derivation.jl` transcribes this same Segel
+# `test/testhelpers.jl` transcribes this same Segel
 # formula, and both transcriptions are live. Keep them independent rather than sharing one:
 # a shared transcription error would green this gate and that one at once, whereas two
 # independent transcriptions cross-check each other. Sharing would also couple this gate to

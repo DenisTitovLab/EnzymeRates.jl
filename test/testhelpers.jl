@@ -1,5 +1,5 @@
-# ABOUTME: Shared mechanism test specifications used across the derivation tests.
-# ABOUTME: Each mechanism is defined inline with its expected properties.
+# ABOUTME: Shared test helpers: the mechanism reader, the oracles, the mechanism specs
+# ABOUTME: and the fixtures several test files use. runtests.jl includes it first.
 
 using LinearAlgebra
 using Random
