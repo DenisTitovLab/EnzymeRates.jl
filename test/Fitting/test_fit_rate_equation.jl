@@ -272,6 +272,100 @@ end
         end
     end
 
+    # ── loss! against its definition ──────────────────────────────────────────
+    # The loss computed from `loss!`'s docstring one row at a time, calling the compiled
+    # law on each row, equals `loss!` bit for bit: in both modes, on tables of 1, 2, 3 and
+    # 65 rows (a loop that runs over rows in vectors leaves a remainder), with rows of the
+    # wrong sign and predictions of exactly zero (a row with no metabolite), infinite and
+    # NaN (constants of e^400, far outside a fit's box). `isequal` treats a NaN loss, which
+    # an infinite prediction gives in relative mode, as equal to itself.
+    @testset "loss! equals its definition computed row by row" begin
+        # `groups` holds each group's rows in the order `loss!` sums them, since a
+        # floating-point sum depends on its order.
+        function _testhelper_loss_by_definition(rate, table, x, Keq, absolute, groups)
+            mets = metabolites(rate)
+            params = NamedTuple{parameters(rate)}(Tuple(exp.(x)))
+            n = length(table.Rate)
+            predicted = [rate(NamedTuple{mets}(Tuple(Float64(table[k][i]) for k in mets)),
+                              params, Keq) for i in 1:n]
+            log_ratio = zeros(n)
+            n_mismatch = 0
+            for i in 1:n
+                if sign(predicted[i]) == sign(table.Rate[i])
+                    log_ratio[i] = log(abs(predicted[i])) - log(abs(table.Rate[i]))
+                else
+                    log_ratio[i] = 10.0
+                    n_mismatch += 1
+                end
+            end
+            total = 0.0
+            if absolute
+                for i in 1:n
+                    total += log_ratio[i] * log_ratio[i]
+                end
+            else
+                for rows in groups
+                    centre = 0.0
+                    for i in rows
+                        centre += log_ratio[i]
+                    end
+                    centre /= length(rows)
+                    for i in rows
+                        d = log_ratio[i] - centre
+                        total += d * d
+                    end
+                end
+            end
+            (loss = (total + 100.0 * n_mismatch) / n, predicted)
+        end
+        # `n` rows in three groups at random concentrations, each rate of a random sign;
+        # in 65 rows the first holds no metabolite.
+        function _testhelper_signed_table(mets, n, rng)
+            concs = [0.1 .+ 10.0 .* rand(rng, n) for _ in mets]
+            n == 65 && foreach(c -> c[1] = 0.0, concs)
+            merge((group = [string("g", i % 3) for i in 1:n],
+                   Rate = rand(rng, (-1.0, 1.0), n) .* (0.5 .+ rand(rng, n))),
+                  NamedTuple{Tuple(mets)}(Tuple(concs)))
+        end
+        ordered_bi_bi = @enzyme_mechanism begin
+            substrates: A, B
+            products:   P, Q
+            steps: begin
+                E + A <--> EA
+                EA + B <--> EAB
+                EAB <--> EPQ
+                EPQ <--> EQ + P
+                EQ <--> E + Q
+            end
+        end
+        rng = Random.MersenneTwister(2026)
+        seen = Set{Symbol}()
+        for (name, m) in (("uni-uni", uni_uni), ("ordered bi-bi", ordered_bi_bi),
+                          ("allosteric uni-uni", allo))
+            rate = compile_rate_equation(m)
+            np = length(parameters(m))
+            xs = [[2.0 .* randn(rng, np) for _ in 1:4]; [fill(400.0, np)]]
+            @testset "$name, $n rows, absolute = $absolute" for n in (1, 2, 3, 65),
+                                                               absolute in (false, true)
+                table = _testhelper_signed_table(metabolites(m), n, rng)
+                fp = FittingProblem(m, table, Keq_val; absolute)
+                groups = fp.group_point_indexes
+                @test sort(sort.(groups)) ==
+                      sort([findall(==(g), table.group) for g in unique(table.group)])
+                for x in xs
+                    (; loss, predicted) = _testhelper_loss_by_definition(
+                        rate, table, x, Keq_val, absolute, groups)
+                    @test isequal(EnzymeRates.Fitting.loss!(x, fp), loss)
+                    any(iszero, predicted) && push!(seen, :zero)
+                    any(isinf, predicted) && push!(seen, :inf)
+                    any(isnan, predicted) && push!(seen, :nan)
+                    any(sign.(predicted) .== -sign.(table.Rate)) && push!(seen, :wrong_sign)
+                end
+            end
+        end
+        @test seen == Set([:zero, :inf, :nan, :wrong_sign])
+    end
+
     # ── Zero allocations ──────────────────────────────────────────────────────
     @testset "Zero allocations" begin
         concs_list = [(S = Float64(i), P = 0.1) for i in 1:20]
