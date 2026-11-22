@@ -74,15 +74,16 @@ Base.hash(c::CandidateMechanism, h::UInt) = hash(c.mechanism, h)
                regulatory_sites) -> CandidateMechanism
 
 The first method gives the candidate whose catalytic scheme has the metabolites
-`metabolites` (`substrates` and `products` index the reactants among them), one form per
-record of `forms`, named after it (`_form_name`), and the steps `steps`, whose `from` and
-`to` index `forms` and whose lists index `metabolites`. Its allostery is `allostery`, whose
-`allosteric_states[l]` is the state of written kinetic group `l`; a plain mechanism by
-default. A record given twice names one form; two different records that take one name are
-an internal error. The second method gives `parent`'s catalytic scheme and records with the
-allosteric states, oligomeric state and regulatory sites given. The `Mechanism` constructor
-builds and checks the mechanism, and the candidate holds each record at its form's index
-there. No other function in `Enumeration` builds a mechanism.
+`metabolites`, the steps `steps` and one form per record of `forms`, named after it
+(`_form_name`). `substrates` and `products` index the reactants among the metabolites; a
+step's `from` and `to` index `forms`, and its lists index `metabolites`. Its allostery is
+`allostery`, whose `allosteric_states[l]` is the state of written kinetic group `l`; a
+plain mechanism by default. A record given twice names one form; two different records
+that take one name are an internal error. The second method gives `parent`'s catalytic
+scheme and records with the allosteric states, oligomeric state and regulatory sites
+given. The `Mechanism` constructor builds and checks the mechanism, and the candidate holds
+each record at its form's index there. No other function in `Enumeration` builds a
+mechanism.
 """
 function _candidate(metabolites::Vector{Symbol}, forms::Vector{_FormRecord},
                     substrates::Vector{Int}, products::Vector{Int},
@@ -582,14 +583,14 @@ end
     _assert_atom_conserving(c::CandidateMechanism, rxn::EnzymeReaction)
 
 Error unless every edge of the catalytic graph of an enumerated candidate `c` conserves the
-atoms that reaction `rxn` gives its metabolites: the atoms of its source form plus those it
-takes up equal the atoms of its target form plus those it gives off. A form carries the
-atoms of its bound metabolites and of its residual's added substrates, less those of its
-residual's subtracted products, each read from the reaction's inventory by name
-(`_net_atoms`). The error names the first faulty edge, group by group, by its forms and the
-metabolites it exchanges. The enumerator runs this check against covalent intermediates
-that break atom balance, and the `Mechanism` constructor does not: a hand-written
-`@enzyme_mechanism` block carries no atoms and may fold steps.
+atoms that reaction `rxn` gives its metabolites. An edge conserves them when the atoms of
+its source form plus those it takes up equal the atoms of its target form plus those it
+gives off. A form carries the atoms of its bound metabolites and of its residual's added
+substrates, less those of its residual's subtracted products, each read from the
+reaction's inventory by name (`_net_atoms`). The error names the first faulty edge, group
+by group, by its forms and the metabolites it exchanges. The enumerator runs this check
+against covalent intermediates that break atom balance, and the `Mechanism` constructor
+does not: a hand-written `@enzyme_mechanism` block carries no atoms and may fold steps.
 """
 function _assert_atom_conserving(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     cm = c.mechanism.catalytic

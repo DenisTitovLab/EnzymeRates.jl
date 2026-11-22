@@ -79,9 +79,10 @@ steps around it:
    (`EA + B ⇌ EPQ`, a fused binding), and the products leave by plain
    releases. A sequential seed merges one isomerization, a ping-pong seed two.
 2. **Theorell–Chance bases.** A merged complex with exactly two steps, the binding
-   into it and one release, is eliminated (`_eliminate_form`): the two steps
-   become one Theorell–Chance step (`EA + B ⇌ EQ + P`) in a group of its
-   own. Each such complex gives one base.
+   into it and one release, whose other ends are two different forms, is eliminated
+   (`_eliminate_form`). Its two steps become one Theorell–Chance step
+   (`EA + B ⇌ EQ + P`) in a group of its own. Each such complex gives one base. The
+   uni-uni merged complex `EP` gives none: its binding and its release both lead to `E`.
 3. **Search.** Every step of a base is at rapid equilibrium, which makes its rate
    infinite. Each smallest set of the base's groups whose flip to steady state
    gives a valid, flux-carrying, non-degenerate mechanism is a variant. As in the
@@ -128,11 +129,12 @@ on B. The starting set holds, in place of such a seed, its flip children that ar
 degenerate, and the search never fits the seed itself (see
 [Best mechanism selection](@ref)).
 
-The starting set therefore holds mixed parameter counts. A bi-bi reaction has 55
-seeds at 5 parameters and 184 variants: 164 merged ones, 108 at 5 parameters and
-56 at 6, and 20 Theorell–Chance ones at 5 to 7. When its atoms allow a ping-pong
-cycle it has 62 seeds and 202 variants; its 7 ping-pong seeds fit 6 parameters
-and their 18 variants 5. A uni-uni seed has no variant.
+The starting set therefore holds mixed parameter counts. A three-group merged variant or
+a Theorell–Chance variant with dead-end forms fits more parameters than its seed, and a
+merged ping-pong variant fewer. A bi-bi reaction has 55 seeds at 5 parameters and 184
+variants: 164 merged ones, 108 at 5 parameters and 56 at 6, and 20 Theorell–Chance ones
+at 5 to 7. When its atoms allow a ping-pong cycle it has 62 seeds and 202 variants; its 7
+ping-pong seeds fit 6 parameters and their 18 variants 5. A uni-uni seed has no variant.
 
 ## Starting from the required regulators
 
@@ -192,8 +194,11 @@ every step at steady state is never offered for flipping. A set of flips that le
 of its groups without flux in the child, because an equilibrated route around it carries
 the turnover, counts as failed and is extended like a set that divides no segment.
 
-A plain mechanism never flips a flank of a steady-state chain (`_chain_flank_groups`):
-by [Apparent constants on a steady-state chain](@ref), that flip adds one or two
+A plain mechanism never flips a flank of a steady-state chain (`_chain_flank_groups`). A
+*steady-state chain* is a steady-state isomerization between two forms that each have one
+other step, a binding into that form, with each of the three steps alone in its group. The
+two bindings are the chain's *flanks*. By
+[Apparent constants on a steady-state chain](@ref), flipping a flank adds one or two
 parameters and no rate law. The uni-uni seed is such a chain and has no flip child. An
 allosteric mechanism keeps flipping flanks: over more than one catalytic subunit a
 flank's flip can show through the two conformations.
@@ -328,10 +333,11 @@ Variants whose laws agree up to renaming the constants share one key, so identif
 law once. The all-`:EqualAI` baseline is never emitted (the conformations would be
 identical and `L` would cancel). The exits drop a child that fails the guard or the
 binding test, as for every move. A parent with no declared regulator gets no allosteric
-child when it has no binding group, and so no K-type, or when the exits drop every K-type;
-among the census parents the second happens only where the guard finds the K-type too
-large to search. Enumeration runs over the reaction's `allowed_oligomeric_states`. No-op
-on an already allosteric input.
+child when it has no binding group, and so no K-type, or when the exits drop every K-type.
+In a census of the bi-bi and ping-pong mechanisms the engine builds, the second happens
+only where the guard finds the K-type too large to search. Enumeration runs over the
+reaction's `allowed_oligomeric_states`. The search applies this move only to a plain
+mechanism.
 
 A K-type variant does not always reveal `L`. Over more than one catalytic subunit the
 conformational equilibrium enters the rate with the oligomeric state as its power. Over
@@ -430,7 +436,7 @@ each put a metabolite concentration to a power in the rate equation, and
 sigmoidal data cannot tell the two sources apart. The moves therefore never
 combine them: promotion to allosteric gives a parent whose catalytic scheme
 already carries a power no variant above one catalytic subunit, and above one
-subunit the tagging and change-tag moves, like the flip move, drop a child that
+subunit the tagging and relaxing moves, like the flip move, drop a child that
 would introduce one. With one catalytic subunit the conformational equilibrium
 only reweights each enzyme form and adds no power of its own, so such a
 mechanism may carry any catalytic scheme. The test is structural

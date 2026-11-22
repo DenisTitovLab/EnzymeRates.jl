@@ -433,8 +433,8 @@ The bases of the variants of the seed candidate `c`, a plain mechanism `m`, each
 graph of the records of `c`'s forms (`_trimmed`) with its group labels numbered 1, 2, …
 (`_numbered_groups`). The merged base comes first: every isomerization of `m` merged onto
 its product side (`_merge_isomerization`), every step at rapid equilibrium. Then comes one
-Theorell–Chance base per merged complex with two steps (`_eliminate_form`), in the order of
-the isomerizations.
+Theorell–Chance base per merged complex that `_eliminate_form` can eliminate, in the order
+of the isomerizations.
 """
 function _seed_bases(c::CandidateMechanism)
     m = c.mechanism.catalytic
@@ -464,15 +464,15 @@ end
 
 """
 The merged and Theorell–Chance variants of the seed candidate `c`, a plain mechanism of
-reaction `rxn`. For each base (`_seed_bases`), every inclusion-minimal set of its groups
-whose flip to steady state (`_minimal_flips`) passes `_seed_candidate_screen`, leaves every
-flipped group carrying flux and gives a mechanism `_enumerator_keeps` accepts is a variant.
+reaction `rxn`. A variant flips to steady state an inclusion-minimal set of the groups of
+one base (`_seed_bases`, `_minimal_flips`). The flip passes `_seed_candidate_screen`,
+leaves every flipped group carrying flux and gives a mechanism `_enumerator_keeps` accepts.
 The variants come in the order of their flip sets over the base's groups, which are in
-canonical order. A merged variant that is its seed's lumping twin (`_lumping_twin`) is
-skipped: the unmerged form with rapid-equilibrium flanks has its family at the same count.
-Errors when a base's edges do not conserve `rxn`'s atoms (`_assert_atom_conserving`); the
-merge (`_merge_isomerization`, MERGE in the tests) and the elimination (`_eliminate_form`,
-ELIM) conserve them.
+canonical order. The function skips a merged variant that is its seed's lumping twin
+(`_lumping_twin`): the unmerged form with rapid-equilibrium flanks has its family at the
+same count. Errors when a base's edges do not conserve `rxn`'s atoms
+(`_assert_atom_conserving`); the merge (`_merge_isomerization`, MERGE in the tests) and the
+elimination (`_eliminate_form`, ELIM) conserve them.
 """
 function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     m = c.mechanism.catalytic
@@ -495,13 +495,14 @@ end
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{CandidateMechanism}
 
-The unregulated starting mechanisms of `reaction`, as candidates of plain mechanisms: the
-seeds that `_enumerator_keeps` accepts, then the merged and Theorell–Chance variants of
-every seed (`_seed_variants`) in the seeds' order, each once; the flip search has run the
-same test on every variant. A seed is a catalytic topology (`_catalytic_topologies`) with
-a set of dead-end forms (`_expand_substrate_product_dead_ends`), its one steady-state step
-a chemistry isomerization, and its steps grouped by `_seed_groups`. Errors when the
-reaction has no catalytic topology.
+The unregulated starting mechanisms of `reaction`, as candidates of plain mechanisms. First
+come the seeds that `_enumerator_keeps` accepts. Then come the merged and Theorell–Chance
+variants of every seed (`_seed_variants`), in the seeds' order, each once; the flip search
+has run the same test on each of them. A seed is a catalytic topology
+(`_catalytic_topologies`) with a set of dead-end forms
+(`_expand_substrate_product_dead_ends`), its one steady-state step a chemistry
+isomerization, and its steps grouped by `_seed_groups`. Errors when the reaction has no
+catalytic topology.
 """
 function init_mechanisms(r::Mechanisms.EnzymeReaction)
     # A seed's steps index the reactants, substrates first (`_catalytic_topologies`).
@@ -530,13 +531,13 @@ end
         -> Vector{CandidateMechanism}
 
 The starting mechanisms of `rxn` when it requires the allosteric regulators `required_allo`
-and the competitive inhibitors `required_comp`: the mechanisms that bind all of them at
-regulatory sites and at dead-end sites, grown from `init_mechanisms(rxn)` by the
-regulator-binding moves through seed nodes alone. The dead-end move
-(`_expand_add_dead_end_regulator`) always runs; the tagging and regulator moves
-(`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when an allosteric
-regulator is required, so competitive inhibitors alone keep the seeds plain, with no `L`.
-A seed node (`_is_seed_node`):
+and the competitive inhibitors `required_comp`: the mechanisms that bind every regulator of
+`required_allo` at a regulatory site and every inhibitor of `required_comp` at a dead-end
+site. The regulator-binding moves grow them from `init_mechanisms(rxn)` through seed nodes
+alone. The dead-end move (`_expand_add_dead_end_regulator`) always runs; the tagging and
+regulator moves (`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when
+an allosteric regulator is required, so competitive inhibitors alone keep the seeds plain,
+with no `L`. A seed node (`_is_seed_node`):
 
 1. tags nothing `:NonequalAI` (the beam reaches `:NonequalAI` later through
    `_expand_change_allo_state`);

@@ -845,27 +845,30 @@ in the test suite, as an oracle for the proofs and the L-phantom certificate; no
 
 `init_mechanisms` appends to the seeds their merged and Theorell–Chance variants
 (`_seed_variants`, plain `Mechanism`s only), whose rules [The enumeration engine](@ref)
-states. `_seed_candidate_screen` runs the three tests that read only the flags on index
-arrays, with a weighted union-find (`has_nonzero_weight_cycle`), so the guard and the flux
-test run only on a candidate that passes them. `_degenerate`, the failure of condition V
-or C on the active-state graph, marks the starting mechanisms that `candidate_mechanisms`
+states. A candidate's tests run cheapest first. `_seed_candidate_screen` runs three of
+them on index arrays, with a weighted union-find (`has_nonzero_weight_cycle`), and the flux
+test also reads only the flags. Only a candidate that passes those four is built and goes
+through the guard (`_minimal_flips`). `_degenerate`, the failure of condition V or C on the
+active-state graph, marks the starting mechanisms that `candidate_mechanisms`
 (`_base_tier`) replaces by their flip children that are not degenerate. Both methods of
 `candidate_mechanisms` return a `CandidateMechanism` for each mechanism within the two size
 limits, which they apply to what they return and never inside a move's own search.
 
 Over more than one catalytic subunit a conformational equilibrium raises every
-catalytic-site binding to a power, so the moves keep such a mechanism's catalytic scheme
-hyperbolic (`_requires_hyperbolic_catalysis`; the proof is in the `_hyperbolic_catalysis`
-docstring). `_expand_to_allosteric` promotes a non-hyperbolic parent at oligomeric state 1
-only, and above one subunit the tagging, change-tag and flip moves drop a child that fails
-the predicate. The predicate reads the rapid-equilibrium segment graph and decides "degree
-at most 1" with reachability checks (`_all_reach`) rather than a max-arborescence solve.
-The testset "_hyperbolic_catalysis matches the derived denominator"
-(`test/Enumeration/test_candidate_mechanism_type.jl`) pins it against the derived
+catalytic-site binding to a power. So a mechanism above one subunit must keep a hyperbolic
+catalytic scheme (`_requires_hyperbolic_catalysis`), one whose King–Altman denominator has
+degree at most 1 in every substrate and product; `_hyperbolic_catalysis` tests that.
+`_expand_to_allosteric` promotes a parent that fails the test at oligomeric state 1 only,
+and above one subunit the tagging, relaxing and flip moves drop a child that fails it. The
+test reads the degree from the rapid-equilibrium segment graph without deriving the law,
+and the `_hyperbolic_catalysis` docstring proves that reading exact. It decides "degree at
+most 1" with reachability checks (`_all_reach`) rather than a max-arborescence solve. The
+testset "_hyperbolic_catalysis matches the derived denominator"
+(`test/Enumeration/test_candidate_mechanism_type.jl`) checks it against the derived
 denominator over the uni-bi enumeration and the ping-pong-capable bi-bi enumeration, which
 contains every bi-bi mechanism. A future conformational type (KNF, mnemonic, slow
-isomerization) adds one `_requires_hyperbolic_catalysis` method and calls the predicate in
-its promotion move.
+isomerization) adds one `_requires_hyperbolic_catalysis` method and calls
+`_hyperbolic_catalysis` in its promotion move.
 
 `test/Enumeration/test_starting_mechanisms.jl` bounds the memory the enumeration holds
 and allocates: the bytes each candidate of the bi-bi starting set holds
