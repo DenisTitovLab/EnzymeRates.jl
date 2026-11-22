@@ -697,6 +697,8 @@ On a mechanism the guard rejects, the macro, the parser and the derivation entri
 `init_mechanisms`, `seed_mechanisms` and both methods of `Enumeration.candidate_mechanisms`
 drop it. The flip move runs the guard on each candidate it builds, the split move on each
 candidate whose count rises, and the tagging move on each tag set its base search tries.
+The constructors and the Sig decoder never run it, so code that builds a mechanism inside
+the package never trips a check meant for the mechanisms it returns.
 
 ## Enumeration engine architecture
 
