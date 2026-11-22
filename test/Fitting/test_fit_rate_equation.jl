@@ -582,10 +582,7 @@ end
     # takes 0.40-0.46 of the law's time per row there, about 0.77 with the loop scalar and
     # 1.03-1.10 with the law called.
     @testset "loss! runs its predictions in a vectorized loop with the law inlined" begin
-        k = eachindex(_testhelper_loss_ir_mechanisms)
-        vals = _testhelper_speed_readings([["VECTOR_DIVISIONS_$i" for i in k];
-                                           ["LAW_CALLS_$i" for i in k]; "LOSS_OVER_LAW"])
-        divisions, calls, ratio = vals[k], vals[k .+ length(k)], vals[end]
+        (; divisions, calls, ratio) = _testhelper_loss_guard_readings()
         @info "loss! guard: divisions on vectors in vectorized loops $divisions, calls " *
               "to the law $calls, loss! per row over the law per call " *
               "$(round(ratio; digits = 3))"

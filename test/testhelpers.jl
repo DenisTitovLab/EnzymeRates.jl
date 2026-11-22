@@ -5620,8 +5620,21 @@ the compiled law's time per call, and `loss!`'s time per row and the most it may
 the speed child read them (`_testhelper_speed_readings`)."""
 function _testhelper_gate_readings(m)
     i = findfirst(gated -> first(gated) === m, _testhelper_gated_laws)
+    i === nothing && error("the speed child times only the laws of " *
+                           "`_testhelper_gated_laws`; this mechanism is not one of them")
     law, per_row, allowed = _testhelper_speed_readings(["LAW_$i", "LOSS_$i", "ALLOWED_$i"])
     (; law, per_row, allowed)
+end
+
+"""`(; divisions, calls, ratio)` of the `loss!` guard, as the speed child read them
+(`_testhelper_speed_readings`): for each law of `_testhelper_loss_ir_mechanisms`, the
+divisions of vectors of `Float64` in vectorized loops of `loss!`'s optimized IR and the
+calls to the compiled law there, and `_testhelper_loss_over_law` on the 858-term law."""
+function _testhelper_loss_guard_readings()
+    k = eachindex(_testhelper_loss_ir_mechanisms)
+    vals = _testhelper_speed_readings([["VECTOR_DIVISIONS_$i" for i in k];
+                                       ["LAW_CALLS_$i" for i in k]; "LOSS_OVER_LAW"])
+    (; divisions = vals[k], calls = vals[k .+ length(k)], ratio = vals[end])
 end
 
 # Fixture rules for this file are in CLAUDE.md, "Enumeration-engine tests":
