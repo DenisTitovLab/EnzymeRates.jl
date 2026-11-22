@@ -191,10 +191,6 @@ end
 """Check if mechanism has any rapid-equilibrium steps."""
 _testhelper_has_re_steps(m) = any(s -> s.rapid_equilibrium, _testhelper_graph(m).steps)
 
-"""The call the gate times: the compiled rate law `rate` behind a function boundary the
-compiler may not inline, so it cannot hoist the call out of the timing loop."""
-@noinline _testhelper_rate_barrier(rate, concs, params, Keq) = rate(concs, params, Keq)
-
 """
 Random fitted constants of `m` and a random `Keq` (`_testhelper_random_independent_params`),
 then random concentrations of `met_names`, each between 0.1 and 10, and every constant of

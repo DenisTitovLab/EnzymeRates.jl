@@ -5328,6 +5328,10 @@ const ER = EnzymeRates
 
 include("reference/allosteric_undefvar_reproducers.jl")
 
+"""The call the gate times: the compiled rate law `rate` behind a function boundary the
+compiler may not inline, so it cannot hoist the call out of the timing loop."""
+@noinline _testhelper_rate_barrier(rate, concs, params, Keq) = rate(concs, params, Keq)
+
 """
 `(allocs, seconds)`: the allocations of one call of the compiled rate law `rate`, and its
 best time per call over five batches of 10,000 calls. It takes the law, not its mechanism,
