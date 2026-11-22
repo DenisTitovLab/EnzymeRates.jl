@@ -133,8 +133,7 @@ it to `EnzymeRates.Enumeration.candidate_mechanisms` to enumerate candidate mech
 
 # Fields
 - `substrates::Vector{Reactant}` and `products::Vector{Reactant}` — each reactant
-  carrying its per-atom inventory (used for ping-pong residual bookkeeping
-  and atom conservation across steps).
+  carrying its per-atom inventory.
 - `regulators::Vector{Regulator}` — competitive inhibitors and
   allosteric regulators, each with its `kind` and `effect`.
 - `allowed_oligomeric_states::Vector{Int}` — the oligomeric states, one
@@ -145,18 +144,13 @@ it to `EnzymeRates.Enumeration.candidate_mechanisms` to enumerate candidate mech
 
 Construct one with the [`@enzyme_reaction`](@ref EnzymeRates.DSL.@enzyme_reaction) DSL. Each
 reactant takes an atom bracket (`S[C]`, `A[C1H1]`); the brackets are load-bearing for
-ping-pong and multi-substrate reactions. Substrates, products and regulators are
-sorted by name in the constructor, a name's competitive inhibitor before its
-allosteric regulator, so two equivalent declarations compare equal under
-`==`/`hash`. The constructor rejects a name listed as both a substrate
-and a product: concentrations and constants are keyed by name. For the same
-reason it rejects a reactant or regulator named `Keq`, `L`, `N`, `params`,
-`concs` or `v`, names a rate equation keeps for its constants and the
-local names of its code, a name holding `_`, since constant names join
-names with `_`, the name `E`, which labels the free enzyme form, and a name that is
-no identifier, is a keyword or reads in Julia code as another name (a micro sign as `μ`),
-which no DSL text can write. A reaction prints as the `@enzyme_reaction` block that
-builds it.
+ping-pong and multi-substrate reactions, whose residues and atom balance the search reads
+from them. The constructor sorts substrates, products and regulators by name, a name's
+competitive inhibitor before its allosteric regulator, so two equivalent declarations
+compare equal under `==`/`hash`. It rejects unbalanced atoms, a name listed as both a
+substrate and a product, the names that `@enzyme_reaction` says no metabolite takes, and a
+name that reads in Julia code as another (a micro sign as `μ`), which no DSL text can
+write. A reaction prints as the `@enzyme_reaction` block that builds it.
 
 ```jldoctest
 julia> using EnzymeRates

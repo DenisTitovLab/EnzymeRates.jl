@@ -50,7 +50,7 @@ Steps, one per line:
   `EI + S ⇌ EIS` beside `ES + I ⇌ ESI` makes `EIS` and `ESI` two forms. The constructor
   rejects a form that no step joins to `E`, and the guard some other slips, such as a
   name that leaves no cycle turning substrates into products, or a step that forgets a
-  metabolite (`ESI <--> ES` for `ESI <--> ES + I`); others pass and write another
+  metabolite (`ESI <--> ES` for `ESI <--> ES + I`). Others pass and write another
   mechanism.
 - A parenthesized tuple of steps is one kinetic group, whose steps share their
   constants: `(E + I ⇌ EI, ES + I ⇌ EIS)`.
@@ -87,24 +87,24 @@ conformation still turns substrate into product. The conformations interconvert 
 free E.
 
 When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
-sit, with an error that names the steps at fault: a cycle of steps takes up or gives off a
-metabolite in another proportion than the reaction, as when a step forgets one; no cycle
-of steps turns substrates into products; a cycle of rapid-equilibrium steps does, so the
-rate has no finite value; or, with every product, every substrate, one reactant or every
-modifier absent, the steady state is not unique or is not the limit the rate law gives as
-the rapid-equilibrium steps speed up. It also rejects a law with no value there (0/0).
+sit, with an error that names the steps at fault, when:
+- a cycle of steps takes up or gives off a metabolite in another proportion than the
+  reaction, as when a step forgets one;
+- no cycle of steps turns substrates into products;
+- a cycle of rapid-equilibrium steps does, so the rate has no finite value;
+- with every product, every substrate, one reactant or every modifier absent, the steady
+  state is not unique, or is not the limit the rate law gives as the rapid-equilibrium
+  steps speed up, or the law has no value (0/0).
 
 A step with a state is switched off in the conformation that lacks it, and it keeps its
 kind, rapid equilibrium or steady state, in both. The steps that conformation keeps join
-the forms into islands, and every island but free E's lies higher in energy and holds no
-enzyme: a switched-off step between two islands loses its rate uphill and keeps its rate
-downhill, or, at steady state, may stop; one inside an island stops at steady state, and
-at rapid equilibrium cannot be switched off, so the macro rejects it. The macro looks for
-energies of the islands under which the rate law is the limit, and rejects the states when
-it finds none (under each, a face's steady state depends on where the enzyme starts, or
-the macro cannot show that the limit does not depend on how fast the switched-off
-constants vanish), or when the states allow more choices than it searches and none of the
-few it tries first gives the limit (see [How an excluded step is switched off](@ref)).
+the forms into islands; every island but free E's lies higher in energy and holds no
+enzyme. A switched-off step between two islands loses its rate uphill and keeps its rate
+downhill, or, at steady state, may stop. One inside an island stops at steady state; at
+rapid equilibrium it cannot be switched off, and the macro rejects it. The macro also
+rejects the states when no choice of the islands' energies makes the rate law the limit,
+or when the states allow more choices than it searches and none of the few it tries first
+gives the limit. [How an excluded step is switched off](@ref) gives the rules.
 
 Below, the inhibitor I binds E and ES with one constant, and a second S binds ES, which
 inhibits at high substrate:
@@ -221,21 +221,18 @@ end
 The mechanism an `@enzyme_mechanism` block writes, as written. It reads the block's
 expression without evaluating it or building code, and throws the DSL's syntax errors;
 the constructors (`_construct`) and the boundary check (`check_valid_rate_equation`) check
-the mechanism. The value holds the declared `substrates`, `products` and `modifiers`; the
-steps as `forms` and `steps` (`_raw_steps`): each step joins two forms of `forms` in its
-written direction, takes up and gives off metabolites by their place among
-`[substrates; products; modifiers]`, and its `kinetic_group` is the label of its
-statement; the allosteric state of each group label (`allosteric_states`, empty when no
-statement carries one); the `oligomeric_state`, 1 when not given; and the
-`regulatory_sites`, each as written (`_raw_site`).
-
-`substrates:`, `products:` and `modifiers:` list bare names and may repeat; `steps:`
-holds one `begin ... end` block (`_raw_steps`). A mechanism is allosteric when its
-statements carry allosteric states, every statement one; only then does it take
-`oligomeric_state:` (one positive Int) and `regulatory_site(n):` lines, each listing its
-ligands as `X::State`, each ligand on one line. An `ArgumentError` says when some
-statements carry a state and others none, or when a mechanism without states gives
-`oligomeric_state:` or a `regulatory_site(n):` line.
+the mechanism. The block's grammar is the one `@enzyme_mechanism` documents. The value
+holds:
+- the declared `substrates`, `products` and `modifiers`;
+- the steps as `forms` and `steps` (`_raw_steps`): each step joins two forms of `forms` in
+  its written direction, takes up and gives off metabolites by their place among
+  `[substrates; products; modifiers]`, and its `kinetic_group` is the label of its
+  statement;
+- `allosteric_states`, the state of each group label, empty when no statement carries one;
+- the `oligomeric_state`, 1 when not given;
+- the `regulatory_sites`, each as written (`_raw_site`).
+An `ArgumentError` says when some statements carry a state and others none, or when a
+mechanism without states gives `oligomeric_state:` or a `regulatory_site(n):` line.
 """
 function raw_mechanism(block)
     block isa Expr && block.head === :block ||
@@ -329,18 +326,15 @@ function _raw_site(label, values)
 end
 
 """
-The steps of a `steps:` block as written and each statement's allosteric state: `(forms,
-steps, states)`. `forms` names each enzyme form a step side writes, once, in the order the
-sides first write them; each step joins two of them and takes up and gives off metabolites
-by their place among the declared names, `[names.substrates; names.products;
-names.modifiers]` (`_raw_step!`), and its `kinetic_group` is its statement's label, the
-statements numbered from 1. A statement is one kinetic group: a step (`lhs ⇌ rhs` rapid
-equilibrium, `lhs <--> rhs` steady state) or a parenthesized tuple of steps (`(step,)` for
-one), and it may end in its state (`step :: State`, `(step, step) :: State`), a step inside
-a group carrying none of its own. Either every statement carries a state, and `states`
-holds them in statement order, or none does and `states` is empty; an `ArgumentError`
-names a statement without a state when others carry one. `names` holds the block's
-declared names.
+The steps of a `steps:` block as written and each statement's allosteric state, as
+`(forms, steps, states)`; `names` holds the block's declared names. `forms` names each
+enzyme form a step side writes, once, in the order the sides first write them. Each step
+joins two of them and takes up and gives off metabolites by their place among
+`[names.substrates; names.products; names.modifiers]` (`_raw_step!`). Each statement, a
+step or a parenthesized group, is one kinetic group; its steps' `kinetic_group` is its
+label, the statements numbered from 1. Either every statement carries a state, and
+`states` holds them in statement order, or none does and `states` is empty; an
+`ArgumentError` names a statement without a state when others carry one.
 """
 function _raw_steps(steps_block, names)
     forms, steps = Symbol[], Mechanisms.Step[]

@@ -132,9 +132,9 @@ function _parse_atom_bracket_entries(values, label)
 end
 
 """
-Parse `shared_catalytic_site:` entries. Each value is a two-name tuple
-`(sub, prod)`; roles are resolved by the `EnzymeReaction` constructor.
-Returns `Vector{Tuple{Symbol,Symbol}}`.
+Parse `shared_catalytic_site:` entries, each a two-name tuple, into a
+`Vector{Tuple{Symbol,Symbol}}`; the `EnzymeReaction` constructor tells substrate from
+product.
 """
 function _parse_shared_site_pairs(values)
     map(values) do v

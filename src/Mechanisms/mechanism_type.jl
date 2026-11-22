@@ -78,12 +78,14 @@ label it is written with. Only [`Mechanism`](@ref), which reads the labels to gi
 group its allosteric state, numbers the groups canonically, by their first step, so two
 schemes of one graph can differ (`!=`) where the mechanisms built on them are equal.
 
-It throws an `ArgumentError` when no form is named `E`, and an `ErrorException` when an
-index is out of range, the substrates or the products are empty, a name is listed twice or
-cannot be written, a form is named like a metabolite, the kinetic group labels do not run
-from 1 with each used, a step joins a form to itself or takes up and gives off one
-metabolite, a form is not joined to `E`, a kinetic group mixes kinds of step, a reaction
-appears twice, or a metabolite takes part in no step.
+It throws an `ArgumentError` when no form is named `E`, and an `ErrorException` when:
+- an index is out of range, or the substrates or the products are empty;
+- a name is listed twice or cannot be written, or a form is named like a metabolite;
+- the kinetic group labels do not run from 1 with each used;
+- a step joins a form to itself, or takes up and gives off one metabolite;
+- a form is not joined to `E`;
+- a kinetic group mixes kinds of step, or a reaction appears twice;
+- a metabolite takes part in no step.
 """
 struct CatalyticScheme
     metabolites::Vector{Symbol}
@@ -112,12 +114,10 @@ end
 """
     _canonical(metabolites, enzyme_forms, substrates, products, steps) -> CatalyticScheme
 
-The canonical scheme that the arguments write, unchecked but for what it needs: indices
-in range and a form named `E` (`_check_written`). The metabolites are stored as
-substrates, then products, then modifiers, each by name; `E` first and the other forms by
-name; each step's lists sorted, the step in the direction `_orientation` gives, and the
-steps sorted by their ends, then their lists, then their flag. Each step keeps its kinetic
-group label.
+The canonical scheme that the arguments write, in the order `CatalyticScheme` gives,
+unchecked but for what it needs: indices in range and a form named `E` (`_check_written`).
+Each step's lists are sorted, and the steps sorted by their ends, then their lists, then
+their flag.
 """
 function _canonical(metabolites::Vector{Symbol}, enzyme_forms::Vector{Symbol},
                     substrates::Vector{Int}, products::Vector{Int}, steps::Vector{Step})
@@ -304,12 +304,12 @@ end
 
 """
 Turn the steps of each kinetic group (each written step's `kinetic_group` label) with the
-group's lead, its member nearest `E` among those `decided` marks, or among all of them
-when none is marked: nearest by the distances of its two ends from `E` (`distance`), the
-nearer end first, then by its two forms, the one stored first first. A member that takes
-up or gives off metabolites takes the direction in which it takes up what the lead takes
-up; an isomerization keeps the direction it was written in relative to the lead. `fwd[k]`
-says whether written step `k` is stored as written.
+group's lead. The lead is its member nearest `E` among those `decided` marks, or among all
+of them when none is marked: nearest by the distances of its two ends from `E`
+(`distance`), the nearer end first, then by its two forms, the one stored first first. A
+member that takes up or gives off metabolites takes the direction in which it takes up
+what the lead takes up; an isomerization keeps the direction it was written in relative to
+the lead. `fwd[k]` says whether written step `k` is stored as written.
 """
 function _turn_groups_together!(fwd::BitVector, decided::BitVector, written::Vector{Step},
                                 distance::Vector{Int})
@@ -341,12 +341,8 @@ end
 # ─── Checks ─────────────────────────────────────────────────────────────
 
 """
-Error unless the scheme as written can be stored: every index in range; `substrates` and
-`products` not empty; each metabolite name once, a substrate's not a product's and a
-modifier's not a reactant's, and a name a metabolite can take (`_check_metabolite_names`);
-the form names distinct, names a text can write (`_check_identifiers`) and no metabolite's;
-a form named `E` (an `ArgumentError`); and the kinetic group labels running from 1 with
-each used.
+Error unless the scheme as written can be stored: the checks of `CatalyticScheme` that read
+names, indices and kinetic group labels, which `_canonical` relies on.
 """
 function _check_written(metabolites::Vector{Symbol}, enzyme_forms::Vector{Symbol},
                         substrates::Vector{Int}, products::Vector{Int},
@@ -403,10 +399,8 @@ function _check_written(metabolites::Vector{Symbol}, enzyme_forms::Vector{Symbol
 end
 
 """
-Error unless the canonical scheme `c` is a graph a mechanism can have: no step joins a
-form to itself or takes up and gives off one metabolite, the steps join every form to
-`E`, the steps of each kinetic group take up and give off the same metabolites with one
-flag, each reaction appears once, and every metabolite takes part in some step.
+Error unless the canonical scheme `c` is a graph a mechanism can have: the checks of
+`CatalyticScheme` that read its steps.
 """
 function _check_graph(c::CatalyticScheme)
     for e in c.steps
@@ -518,11 +512,13 @@ whose kinetic group label is `l`. The constructor stores the mechanism in canoni
 so two writings of one mechanism are `==` and hash alike: the kinetic groups numbered by
 their first step, the states moved with them, and the regulatory sites sorted. A plain
 mechanism and an allosteric one with the same catalytic scheme differ. It throws an
-`ErrorException` when an allosteric mechanism does not give each kinetic group one known
-state or has an oligomeric state below 1, when a plain one has an oligomeric state other
-than 1 or a regulatory site, or when a ligand cannot name a metabolite, names an enzyme
-form or sits at two sites. Whether its rate law is defined is
-`check_valid_rate_equation`'s question, not the constructor's.
+`ErrorException` when:
+- an allosteric mechanism does not give each kinetic group one known state, or has an
+  oligomeric state below 1;
+- a plain one has an oligomeric state other than 1 or a regulatory site;
+- a ligand cannot name a metabolite, names an enzyme form or sits at two sites.
+Whether its rate law is defined is `check_valid_rate_equation`'s question, not the
+constructor's.
 """
 struct Mechanism
     catalytic::CatalyticScheme
@@ -625,8 +621,9 @@ function _check_ligands(sites::Vector{RegulatorySite}, catalytic::CatalyticSchem
     end
     dup = findfirst(i -> ligs[i] in view(ligs, 1:(i - 1)), eachindex(ligs))
     dup === nothing ||
-        error("Mechanism: allosteric regulator `$(ligs[dup])` is listed at two regulatory " *
-              "sites; an allosteric regulator sits at exactly one regulatory site.")
+        error(
+            "Mechanism: allosteric regulator `$(ligs[dup])` is listed at two regulatory " *
+            "sites; an allosteric regulator sits at exactly one regulatory site.")
     nothing
 end
 
@@ -703,9 +700,9 @@ end
 The steps of mechanism `m` that run in its active and in its inactive conformation, each a
 `BitVector` with one flag per step of its catalytic scheme. A step runs in a conformation
 unless its kinetic group's allosteric state excludes it there (`:OnlyI` in the active
-conformation, `:OnlyA` in the inactive one) or it is cut off: the conformations
+conformation, `:OnlyA` in the inactive one) or it is cut off. The conformations
 interconvert at free E alone, so a form that the conformation's running steps do not join
-to free E holds no enzyme of that conformation, and a step between two such forms does not
+to free E holds no enzyme of that conformation; a step between two such forms does not
 run, whatever its state. Every step of a plain mechanism runs in both.
 """
 steps_running_in_allosteric_conformations(m::Mechanism) =
@@ -924,9 +921,9 @@ of the forms rises along each step by its uptake of the first substrate, which a
 union-find finds (`has_nonzero_weight_cycle`). A cycle of a
 mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
 uptake of the first substrate is zero only when it turns nothing over; a hand-written
-cycle that does not is read by that uptake alone. The guard's class 1 rejects a
-mechanism whose steps hold no turnover cycle, as its rate is zero everywhere; a turnover
-cycle of rapid-equilibrium steps makes the rate infinite (`_has_vmax`).
+cycle that does not is read by that uptake alone. Without a turnover cycle the rate is zero
+everywhere, and a turnover cycle of rapid-equilibrium steps alone makes it infinite;
+`check_valid_rate_equation` rejects both.
 """
 function has_turnover_cycle(m::CatalyticScheme, on::BitVector)
     # The first substrate, whose net uptake is the rate.
