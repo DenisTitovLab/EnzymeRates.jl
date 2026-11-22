@@ -25,14 +25,12 @@ function _testhelper_hash_is_content(T)
     T in (EnzymeRates.Mechanisms.RegulatorySite, ER.Mechanisms.Step,
           ER.Mechanisms.CatalyticScheme, ER.Mechanisms.Allostery, ER.Mechanism) ||
         return false
-    all(f -> _testhelper_hash_is_content(fieldtype(T, f)), _testhelper_identity_fields(T))
+    all(f -> _testhelper_hash_is_content(fieldtype(T, f)), fieldnames(T))
 end
 
-"""Whether `x` hashes its type's name, then the fields it is compared by
-(`_testhelper_identity_fields`) in declaration order."""
+"""Whether `x` hashes its type's name, then its fields in declaration order."""
 _testhelper_hash_folds(x, h) =
-    hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc),
-                        _testhelper_identity_fields(typeof(x));
+    hash(x, h) == foldl((acc, f) -> hash(getfield(x, f), acc), fieldnames(typeof(x));
                         init = hash(nameof(typeof(x)), h))
 
 @testset "a graph hashes its content, the same in every process" begin
@@ -54,7 +52,7 @@ _testhelper_hash_folds(x, h) =
                ER.Mechanism))
     # Each field takes part in `==` and `hash`.
     @test m == _testhelper_graph_uniuni() && hash(m) == hash(_testhelper_graph_uniuni())
-    fields = _testhelper_identity_fields(ER.Mechanisms.CatalyticScheme)
+    fields = fieldnames(ER.Mechanisms.CatalyticScheme)
     for f in fields
         values = Any[getfield(c, g) for g in fields]
         i = findfirst(==(f), fields)
@@ -375,9 +373,6 @@ _testhelper_walk(block) = EnzymeRates.DSL.raw_mechanism(block)
     end)))
     @test am.allosteric.allosteric_states == [:NonequalAI, :EqualAI, :OnlyA]
 end
-
-"""Whether `v` takes the memory of its copy, which `copy` stores at its length."""
-_testhelper_at_length(v) = Base.summarysize(v) == Base.summarysize(copy(v))
 
 """Whether `m`, a catalytic scheme or a mechanism, stores each of its vectors at its
 length: `m` takes the memory of the value rebuilt from a copy of each vector, its steps'

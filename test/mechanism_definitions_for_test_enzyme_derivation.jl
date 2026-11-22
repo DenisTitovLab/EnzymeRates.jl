@@ -52,30 +52,27 @@ Base.@kwdef struct _testhelper_MechanismTestSpec
 end
 
 """
-    _testhelper_mechanism_call(call, who) -> (allosteric, raw)
+    _testhelper_mechanism_call(call, who) -> raw
 
-Whether `call`, an `@enzyme_mechanism` or `@enzyme_mechanism` call, is the allosteric
-one, and the raw value the package's DSL walker reads from its block; an error naming the
-test macro `who` for any other expression.
+The raw value the package's DSL walker reads from the block of `call`, an
+`@enzyme_mechanism` call; an error naming the test macro `who` for any other expression.
 """
 function _testhelper_mechanism_call(call, who::String)
     head = call isa Expr && call.head === :macrocall ? call.args[1] : nothing
-    head in (Symbol("@enzyme_mechanism"), Symbol("@enzyme_mechanism")) ||
-        error("$who wraps an @enzyme_mechanism or @enzyme_mechanism call; got $call")
-    allosteric = head === Symbol("@enzyme_mechanism")
-    allosteric, EnzymeRates.DSL.raw_mechanism(call.args[end])
+    head === Symbol("@enzyme_mechanism") ||
+        error("$who wraps an @enzyme_mechanism call; got $call")
+    EnzymeRates.DSL.raw_mechanism(call.args[end])
 end
 
 """
     @_testhelper_with_raw call
 
-`(mechanism, raw)` for `call`, an `@enzyme_mechanism` or `@enzyme_mechanism` call:
-the mechanism the call builds, and the raw value the package's DSL walker
-reads from its block, which keeps the steps and regulatory sites as written. It fills
-`_testhelper_MechanismTestSpec.raw`.
+`(mechanism, raw)` for `call`, an `@enzyme_mechanism` call: the mechanism the call
+builds, and the raw value the package's DSL walker reads from its block, which keeps the
+steps and regulatory sites as written. It fills `_testhelper_MechanismTestSpec.raw`.
 """
 macro _testhelper_with_raw(call)
-    _, raw = _testhelper_mechanism_call(call, "@_testhelper_with_raw")
+    raw = _testhelper_mechanism_call(call, "@_testhelper_with_raw")
     esc(:(($call, $raw)))
 end
 
@@ -128,9 +125,6 @@ function _testhelper_edge_names(m, state::Symbol,
                Symbol[]
      for k in eachindex(cm.steps)]
 end
-
-"""The fields `==` and `hash` read of a value of type `T`: all of them."""
-_testhelper_identity_fields(T) = fieldnames(T)
 
 """Whether the mechanism `m` is allosteric: its kinetic groups carry allosteric states."""
 _testhelper_is_allosteric(m) = !isempty(m.allosteric.allosteric_states)
@@ -1085,12 +1079,12 @@ _testhelper_is_valid(m) = EnzymeRates.Derivation.check_valid_rate_equation(Bool,
 """
     @_testhelper_unguarded call
 
-The concrete mechanism that `call`, an `@enzyme_mechanism` or `@enzyme_mechanism`
-call, writes: the constructors on the DSL walker's raw value (`_construct`), without the
-well-posedness check the macros run, so a test can hold a mechanism the macros refuse.
+The concrete mechanism that `call`, an `@enzyme_mechanism` call, writes: the constructors
+on the DSL walker's raw value (`_construct`), without the well-posedness check the macros
+run, so a test can hold a mechanism the macros refuse.
 """
 macro _testhelper_unguarded(call)
-    _, raw = _testhelper_mechanism_call(call, "@_testhelper_unguarded")
+    raw = _testhelper_mechanism_call(call, "@_testhelper_unguarded")
     esc(:(EnzymeRates.DSL._construct($raw)))
 end
 
