@@ -192,8 +192,9 @@ the docstring's sentence is a line break in the diagram's box."""
 function _testhelper_box_sentence(file, mod::Symbol)
     docstring = nothing
     _testhelper_walk(Meta.parseall(read(file, String))) do ex, _
+        ex.head === :macrocall || return
         target = ex.args[end]
-        if ex.head === :macrocall && target isa Expr && target.head === :module &&
+        if target isa Expr && target.head === :module &&
            target.args[2] === mod && ex.args[end - 1] isa String
             docstring = ex.args[end - 1]
         end
