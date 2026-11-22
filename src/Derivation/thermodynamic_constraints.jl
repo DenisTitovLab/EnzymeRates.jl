@@ -722,6 +722,8 @@ function _regulator_parameters(am::Mechanisms.Mechanism)
     [params(false); params(true)]
 end
 
+"""The parameter names of the regulator constants of `am` (`_regulator_parameters`), in
+order."""
 _regulator_names(am::Mechanisms.Mechanism) =
     Symbol[_name(p, am) for p in _regulator_parameters(am)]
 

@@ -119,10 +119,10 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
             residue = _net_atoms(reaction, consumed, [released; subset])
             any(<(0), values(residue)) && continue
             # An isomerization leaves a covalent residue exactly when substrates remain to
-            # bind. Without a residue while substrates remain, the enzyme would return to
-            # apo E mid-cycle, splitting the reaction into disconnected half-cycles. With a
-            # residue after the last substrate, the route strands it, since only a
-            # substrate-bound form isomerizes (C7).
+            # bind (the admissible-residual rule). Without a residue while substrates
+            # remain, the enzyme would return to apo E mid-cycle, splitting the reaction
+            # into disconnected half-cycles. With a residue after the last substrate, the
+            # route strands it, since only a substrate-bound form isomerizes (C7).
             isempty(residue) == isempty(remaining_subs) || continue
             # Rule C6 on the products, the residue counting as one.
             length(subset) + !isempty(residue) > 3 && continue

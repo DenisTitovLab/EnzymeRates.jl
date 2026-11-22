@@ -44,9 +44,10 @@ mechanism that a move builds is fitted like any other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
 constants share a key, count once at the key's lowest loss, and share one fit, which each
-reads under its own names. An L phantom's key is the exception: a member met before the fit
-of its law at `L = 0` is fitted itself, and one met after reads that fit, so the key can
-carry two losses and the beam can pass it over at one and admit it at the other. A sweep
+reads under its own names. An L phantom (`L_phantom` in the output) is the exception: it
+reads the fit of its law at `L = 0` when that law was fitted earlier in the search or in
+its own iteration, and is fitted itself otherwise. The rows of its key can then show two
+losses, and the beam can pass the key over at one and take it at the other. A sweep
 expands every member it meets of a selected key; a member the beam passed over in an
 earlier sweep has left the frontier. A key the beam passes over is judged again when a
 later sweep meets another member, and at the same loss it stays out.
@@ -166,9 +167,10 @@ Only the top `n_cv_candidates` distinct equations per parameter count enter
 LOOCV (default `n_cv_candidates=5`, at least 1, a kwarg of
 `identify_rate_equation`). Distinctness is by `key`: LOOCV fits each
 key's source once per fold, and every candidate with that key, an L phantom of it
-included, reads those fold losses. Beside its source an L phantom loses the tie by its
-extra parameter; selected without its source, it reports `L = 0`. A fit whose training
-loss is not finite never enters LOOCV, nor is it expanded.
+included, reads those fold losses. An L phantom thus has the scores of the mechanism whose
+fit it reads (`fit_source_id`) and one parameter more, so the rule prefers that mechanism
+when both enter LOOCV. A selected L phantom reports `L = 0`. A fit whose training loss is
+not finite never enters LOOCV, nor is it expanded.
 
 ## The files in `save_dir`
 
@@ -185,8 +187,8 @@ already holds a `.csv` file or a `progress.log`, so the results of two runs neve
 - `best_equation.csv`: the selected row of `cv_results`, its `rate_equation` in the full
   coefficient form.
 
-The search CSVs have the columns of `cv_results` but `cv_score`, `cv_score_se` and
-`cv_fold_<group>`, and a mechanism that threw has a row with `error` set.
+The search CSVs have the columns of `cv_results` except `cv_score`, `cv_score_se` and
+`cv_fold_<group>`. A mechanism that threw has a row with `error` set.
 `loocv_results.csv` and `best_equation.csv` keep the selection, so a cluster run's result
 needs no second cross-validation.
 

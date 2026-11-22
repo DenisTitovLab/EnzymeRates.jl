@@ -27,6 +27,7 @@ end
 check_valid_rate_equation(::Type{Bool}, m::Mechanisms.Mechanism) =
     _memo_verdict(m).fault === _NO_FAULT
 
+"""Throw the guard's message (`_guard_message`) unless `m`'s verdict `v` holds no fault."""
 function _check_verdict(m::Mechanisms.Mechanism, v)
     v.fault === _NO_FAULT || error(_guard_message(m))
     nothing
@@ -472,10 +473,12 @@ turns the reaction over, `Mechanisms.has_turnover_cycle`); then, under a reading
 (`_verdict_under`), class 2, admission's interior, and on every face class 3 and
 admission's face condition. A plain mechanism's one reading runs every step.
 
-An allosteric mechanism's verdict follows the energy-level rule: every island that a
-conformation cuts off lies above free E's in energy and holds none of that conformation's
-enzyme. A reading is consistent with the rule when admission's interior accepts the
-reading. The guard admits the mechanism under the first consistent reading that passes
+An allosteric mechanism's verdict follows the energy-level rule: each conformation cuts off
+every island but free E's, and every island it cuts off lies above free E's in energy and
+holds none of that conformation's enzyme. A reading is consistent with the rule when
+admission's interior finds none of `_interior_verdict`'s faults (`_FAST_STEP_PINNED`,
+`_ARC_CYCLE`, `_ISLAND`) under it; the interior's last check, `_NO_ACTIVE_TURNOVER`, reads
+no reading. The guard admits the mechanism under the first consistent reading that passes
 every check: its three built readings first (`_built_reading`), then every other pair of
 consistent columns (`_consistent_columns`), conformation 1's outer, each in its order.
 When a conformation has more than `_MAX_CHOICES_PER_CONFORMATION` ways, or the pairs

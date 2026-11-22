@@ -17,7 +17,7 @@ loss = (1/N) Σᵢ (log(|predicted rateᵢ|) − log(|measured rateᵢ|))²
 ### Centered vs uncentered
 
 In relative mode, the default, the loss centers each group's log-ratios before squaring,
-so a factor on all of a group's rates leaves it unchanged; in absolute mode it squares them
+so a factor on all of a group's rates leaves it unchanged. In absolute mode it squares them
 as they are. [Normalized vs absolute rate](@ref) explains the two modes.
 
 ### Sign-mismatch penalty

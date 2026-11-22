@@ -3244,9 +3244,10 @@ function _testhelper_construction_bytes(x)
 end
 
 @testset "constructor allocation budget" begin
-    # Each construction allocates at most 1.3 times the bytes it allocated at bf49d6e1 on
-    # Julia 1.13 (6,672, 22,264 and 25,912 bytes): a mechanism stores the facts it computes
-    # once, and they may not make every construction in a search meaningfully dearer.
+    # Each construction allocates at most 1.3 times the bytes measured on Julia 1.13 when
+    # this budget was set (6,672, 22,264 and 25,912 bytes): a mechanism stores the facts it
+    # computes once, and they may not make every construction in a search meaningfully
+    # dearer.
     budget(bytes) = ceil(Int, 1.3 * bytes)
     michaelis_menten = @enzyme_mechanism begin
         substrates: S

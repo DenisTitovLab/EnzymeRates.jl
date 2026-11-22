@@ -495,11 +495,11 @@ first substrate (`first(m.substrates)`). In order:
   vanishing or are fast (`_potential_on_sccs`), led by the first of its vanishing steps on
   a cheapest tree (`_bridging_edges`); or no conformation's vanishing transitions shorten
   it alone but both conformations' together do (no conformation or step).
-The tests name two of these conditions: R1, that a conformation's vanishing transitions do
-not shorten the in-tree (joint R1: both conformations' together do not), and T0+, that the
-first substrate's uptake is a potential on those parts. A face whose fed nodes no in-tree
-spans passes: class 3 decides it. The verdict leaves the face index 0 (`_admission_face`
-sets it).
+The tests label these conditions. R1: a conformation's vanishing transitions do not shorten
+the in-tree. Joint R1: both conformations' vanishing transitions together do not. T0+: the
+first substrate's uptake is a potential on those strongly connected parts. A face whose fed
+nodes no in-tree spans passes: class 3 decides it. The verdict leaves the face index 0
+(`_admission_face` sets it).
 """
 function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::Int)
     s = _face_sets(net, law_nodes, face)

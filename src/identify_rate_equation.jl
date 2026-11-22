@@ -15,7 +15,8 @@ mechanism for.
 
 # Fields
 - `reaction`: the `EnzymeReaction`
-- `rate_data`: the checked table with `Keq`, `absolute` and `reference`, as a `RateData`
+- `rate_data`: the checked rate table, as `FittingProblem` takes it, with `Keq`, `absolute`
+  and `reference`, as a `RateData`
 
 Construct it with `IdentifyRateEquationProblem(reaction, table, Keq; absolute = false,
 reference = nothing)`. The table, the keywords and their errors are those of
@@ -100,28 +101,29 @@ end
 
 Find the best rate equation for the reaction and data of `prob` and return an
 `IdentifyRateEquationResults`. A beam search fits candidate mechanisms in order of
-parameter count, keeping at each count the rate laws of lowest loss and expanding their
-mechanisms; leave-one-group-out cross-validation then selects one by the
-one-standard-error rule. [Best mechanism selection](@ref) states both rules and the files
-the search writes to `save_dir`.
+parameter count and expands the mechanisms whose rate-law key enters its beam. A key enters
+when its loss is at most the loss cutoff, the smaller of the two bounds below, or when it
+ranks within the `min_beam_width` floor. Leave-one-group-out cross-validation then selects
+one mechanism by the one-standard-error rule. [Best mechanism selection](@ref) states both
+rules and the files the search writes to `save_dir`.
 
 # Keyword Arguments
 - `optimizer`: Optimization.jl optimizer (required).
   Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
-- `min_beam_width::Int = 50`: the fewest rate-law keys the beam expands at each parameter
-  count over the whole search
-- `loss_rel_threshold::Float64 = 1.3`: the beam's loss cutoff at a parameter count is this
-  factor times the best loss there, plus `loss_abs_threshold`
-- `loss_abs_threshold::Float64 = 0.001`: the additive term of the loss cutoff
-- `loss_parsimony_threshold::Float64 = 0.99`: the loss cutoff is at most this factor times
-  the best loss at any smaller parameter count; `Inf` disables this bound
+- `min_beam_width::Int = 50`: the floor, the fewest rate-law keys the beam takes at each
+  parameter count over the whole search, lowest loss first
+- `loss_rel_threshold::Float64 = 1.3`: the first bound of the loss cutoff at a parameter
+  count is this factor times the best loss there, plus `loss_abs_threshold`
+- `loss_abs_threshold::Float64 = 0.001`: the additive term of the first bound
+- `loss_parsimony_threshold::Float64 = 0.99`: the second bound is this factor times the
+  best loss at any smaller parameter count; `Inf` disables it
 - `max_param_count::Int = 20`: the search proposes no mechanism with more fitted constants
   than this (`parameters`)
-- `eq_complexity_filter::Int = 337`: the most terms a proposed rate law may have, about the
-  terms of its denominator, both conformations counted for an allosteric mechanism
-  (`EnzymeRates.Derivation.rate_equation_term_count`). The default admits a fully
-  steady-state random-order bi-bi (336 terms); denser laws are slow to derive and fit.
-  Counting costs no derivation.
+- `eq_complexity_filter::Int = 337`: the most terms a proposed rate law may have
+  (`EnzymeRates.Derivation.rate_equation_term_count`). The count is roughly the number of
+  terms in the law's denominator, both conformations counted for an allosteric mechanism.
+  The default admits a fully steady-state random-order bi-bi (336 terms); denser laws are
+  slow to derive and fit. Counting costs no derivation.
 - `optional_allosteric_regulators::Vector{Symbol} = Symbol[]`: declared
   allosteric regulators the seed may omit. A reaction that declares regulators
   seeds the beam fully regulated by default; naming a regulator here lets the
@@ -151,12 +153,16 @@ the search writes to `save_dir`.
   `save_dir/progress.log`
 
 Errors when
+- `n_cv_candidates` is less than 1;
 - `save_dir` already holds a `.csv` file or a `progress.log`, so that the results of two
   runs never mix;
-- no mechanism binds every required regulator;
+- the starting mechanisms cannot be built: the reaction's metabolite names spell one
+  string two ways (such as `Ac`, `CoA` and `AcCoA`), the reaction has no catalytic cycle,
+  or no mechanism binds every required regulator;
 - no mechanism is fitted to a finite loss (when every starting mechanism throws, the error
   quotes the first failure);
-- a cross-validation fold's loss is not finite.
+- a cross-validation fold's loss is not finite;
+- an internal check fails, such as two mechanisms whose texts share a `mechanism_id`.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
@@ -267,12 +273,12 @@ end
 
 """
 The indices, in input order, of the count-`c` mechanisms with `losses` and rate-law keys
-`law_keys` whose key is selected after this sweep. A key not yet in `selected` enters by the
-beam rule ("Running the search" on the Best mechanism selection page) at its lowest loss:
-within the loss cutoff, or ranked, among this sweep's keys not yet selected, within the
-width floor's budget left at `c`, `min_beam_width - expanded[c]`. Adds the keys it selects
-to `selected` and their number to `expanded[c]`. Every loss is finite: `_ingest!` keeps the
-others out of the frontier.
+`law_keys` whose key is selected after this sweep. A key not yet in `selected` is judged at
+its lowest loss by the beam rule ("Running the search" on the Best mechanism selection
+page). It enters when that loss is within the loss cutoff, or when its rank among this
+sweep's unselected keys is within the floor's budget left at `c`,
+`min_beam_width - expanded[c]`. Adds the keys it selects to `selected` and their number to
+`expanded[c]`. Every loss is finite: `_ingest!` keeps the others out of the frontier.
 """
 function _select_count!(
     expanded::Dict{Int,Int}, best_loss_by_count::Dict{Int,Float64}, c::Int,
@@ -507,9 +513,10 @@ Pass 1 skips each candidate whose structure (`hash`) `seen` holds, counting it i
 workers (`_pass1_record`). Pass 2 fits one mechanism per rate-law key not in `memo`, on the
 workers, and stores the fit in `memo` (`_Fit`). Every mechanism with that key, in this
 batch or a later one, reads that fit under its own names. A fit that throws fails every
-mechanism with its key. An L phantom (`rate_equation_dedup_key` gives it a fit key other
-than its key) reads, with `L = 0`, the fit of its law at `L = 0` from `memo` or from this
-batch; when neither holds that fit, or the fit throws, it is fitted under its own key.
+mechanism with its key. An L phantom is a mechanism to which `rate_equation_dedup_key`
+gives a fit key other than its key. It reads the fit of its law at `L = 0`, with `L = 0`,
+from `memo` or from this batch. When neither holds that fit, or that fit throws, the
+phantom is fitted under its own key.
 
 `log` receives the pre-fit summary (`_prefit_summary`) with a line per mechanism whose law
 reached the leaf cap, then a line per phantom whose source's fit threw. `parent_of` maps a
@@ -634,13 +641,13 @@ function _process_batch(
 end
 
 """
-Fold the batch `entries` into the search state and return the set of counts whose best
-loss dropped or first appeared. Each entry with a finite loss joins the `frontier` at its
-count, every mechanism apart, lowers `best_loss_by_count` there, and is offered to
+Fold the batch `entries` into the search state and return the set of counts whose best loss
+dropped or first appeared. Each entry with a finite loss joins the `frontier` at its count,
+even when another entry has its key; it lowers `best_loss_by_count` there and is offered to
 `cv_pool` (`_offer_cv!`). An entry whose loss is not finite (`fit_rate_equation` returns
-`Inf` when no restart is finite or the fit cannot match the reference turnovers) is
-skipped: it is never expanded, never sets a best loss and never enters cross-validation;
-its row is already in the batch's CSV.
+`Inf` when no restart is finite or the fit cannot match the reference turnovers) is skipped:
+it is never expanded, never sets a best loss and never enters cross-validation; its row is
+already in the batch's CSV.
 """
 function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                   n_cv_candidates)
@@ -704,10 +711,12 @@ end
 """
 Expand every selected parent into its children (`Enumeration.candidate_mechanisms`, with
 the size limits `max_param_count` and `eq_complexity_filter`) across the workers. Returns
-`(children, parent_of, expand_failures)` in the order of `to_expand`, whatever the number
-of workers: each child once, `parent_of` mapping it to the `BatchEntry` of the first parent
-that produced it, and a `FitFailure` carrying the parent's mechanism for each parent whose
-expansion threw.
+`(children, parent_of, expand_failures)`, in the order of `to_expand` whatever the number
+of workers:
+- `children`: each child once;
+- `parent_of`: each child's first parent, as its `BatchEntry`;
+- `expand_failures`: a `FitFailure` carrying the parent's mechanism for each parent whose
+  expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
                          reaction::Mechanisms.EnzymeReaction;
@@ -767,7 +776,7 @@ function _beam_search(
     # the beam: the width floor's budget (`expanded_by_count`) only shrinks, the loss cutoff
     # (`best_loss_by_count`) only tightens, and a selected key stays selected
     # (`selected_keys`). An L phantom first fitted under its own key is the exception:
-    # produced again once its source's law is fitted, it reads that fit's loss, which a
+    # produced again once its source's law is fitted, it would read that fit's loss, which a
     # later cutoff may admit. A budget that could grow back in `_select_count!` would break
     # this argument.
     seen = Set{UInt64}()

@@ -51,7 +51,7 @@ fp = FittingProblem(m, data, 2.0; reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
 
 Give the concentrations, `Keq` and any `reference` concentrations in one unit, M
-recommended; see [Units and the search box](@ref).
+recommended; see [Units and the search box](@ref) in Getting Started.
 """
 function FittingProblem(mechanism::Mechanisms.Mechanism, table, Keq::Real;
                         absolute::Bool=false, reference=nothing)
@@ -192,13 +192,13 @@ present in both a named common option and `solver_kwargs` takes the
 `OptimizationProblem`. They hold absolute log values, and by default lie 15 log units
 either side of each centre, so the box follows the data.
 
-In relative mode the fit multiplies the returned rate constants by one factor, which makes
-the mechanism reproduce the `reference` turnovers or, without a reference, puts the
-largest predicted rate at 1 ([Normalized vs absolute rate](@ref)). A fit for which no such
-factor exists returns its parameters unscaled, with `loss = Inf` and
-`retcode = :ReferenceFailed`, and does not throw. In absolute mode, and when no restart
-reaches a finite loss (`loss = Inf`, `retcode = :NoFiniteLoss`), it returns the rate
-constants as fitted.
+In relative mode the fit multiplies the returned rate constants by one factor
+([Normalized vs absolute rate](@ref)). With `reference` anchors the factor is the geometric
+mean of measured over predicted turnover at them; without, it is 1 over the largest
+absolute rate predicted over the data rows. A fit for which no such factor exists returns
+its parameters unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not
+throw. In absolute mode, and when no restart reaches a finite loss (`loss = Inf`,
+`retcode = :NoFiniteLoss`), it returns the rate constants as fitted.
 
 Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
 - `params`: the fitted constants, by the names of `parameters(fp.rate)`, as a NamedTuple
@@ -238,10 +238,10 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
 
     best_x = zeros(np)
     best_loss = Inf
-    # `:NoFiniteLoss` marks a fit whose every restart has an infinite objective; its loss
-    # stays `Inf`, so `_ingest!` drops it from the beam search. It is no SciMLBase
-    # ReturnCode name, so it stays apart from a solver's `:Default`, which a restart with a
-    # finite objective can return.
+    # `:NoFiniteLoss` marks a fit with no finite objective in any restart (a NaN counts as
+    # not finite); its loss stays `Inf`, so `_ingest!` drops it from the beam search. It is
+    # no SciMLBase ReturnCode name, so it stays apart from a solver's `:Default`, which a
+    # restart with a finite objective can return.
     best_retcode = :NoFiniteLoss
 
     centre = _log_centres(fp)
