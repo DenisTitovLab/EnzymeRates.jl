@@ -292,9 +292,10 @@ timeout 1200 julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hi
 ```
 
 ```bash
-# Focused run of one test file (warm: skips the full suite's precompile and JIT).
-# TestEnv activates the test environment in place. A module's tests live in
-# test/<Module>/; a file directly in test/ is named test/<file>.jl instead.
+# Focused run of one test file (warm: skips the full suite's precompile and JIT; the
+# longest file takes about 75 s). TestEnv activates the test environment in place. A
+# module's tests live in test/<Module>/; a file directly in test/ is named
+# test/<file>.jl instead.
 julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/testhelpers.jl"); include("test/<Module>/<file>.jl")'
 ```
 
