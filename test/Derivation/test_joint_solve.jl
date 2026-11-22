@@ -487,8 +487,8 @@ end
         # from the graph and turns each kinetic group with its lead, so orienting the
         # stored steps again leaves each one as stored, and writing every step the other
         # way round, in the reverse order, builds the same mechanism.
-        # The C9 testsets above and the exchange testsets of test_types.jl check the same
-        # on steps that free E's distance orients and on kinetic groups.
+        # The C9 testsets above and the exchange testsets of test_mechanism_type.jl check
+        # the same on steps that free E's distance orients and on kinetic groups.
         for spec in MECHANISM_TEST_SPECS
             @testset "$(spec.name)" begin
                 _testhelper_check_stored_orientation(spec.mechanism)

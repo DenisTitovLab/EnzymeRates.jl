@@ -3,31 +3,6 @@
 
 const ER = EnzymeRates
 
-@testset "steps_running_in_allosteric_conformations" begin
-    M = ER.Mechanisms
-    am = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: I
-        steps: begin
-            E + S ⇌ ES          :: EqualAI
-            ES <--> EP        :: OnlyA
-            EP ⇌ E + P          :: EqualAI
-            E + I ⇌ EI          :: OnlyI
-            EI + P ⇌ EIP    :: EqualAI
-        end
-    end
-    m = am.catalytic
-    # Canonical form numbers the forms E, EI, EIP, EP, ES and stores the steps
-    # E + I → EI, E + P → EP, E + S → ES, EI + P → EIP, ES → EP.
-    @test [(e.from, e.to) for e in m.steps] == [(1, 2), (1, 4), (1, 5), (2, 3), (5, 4)]
-    # The active conformation drops the :OnlyI binding of I, which strands EI and so
-    # also the binding of P to it. The inactive conformation drops the :OnlyA chemistry
-    # and keeps every form.
-    @test M.steps_running_in_allosteric_conformations(am) ==
-          (; active = BitVector([0, 1, 1, 0, 1]), inactive = BitVector([1, 1, 1, 1, 0]))
-end
-
 @testset "excluded steps of a plain and an allosteric mechanism" begin
     D = ER.Derivation
     am = @enzyme_mechanism begin

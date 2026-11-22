@@ -1275,28 +1275,6 @@ end
     end
 end
 
-# Canonicalizing catalytic-step order in the Mechanism constructor must keep
-# each catalytic kinetic group's allosteric-state tag bound to the SAME
-# physical step. HK declares BOTH ATP binding and the catalytic conversion as
-# :OnlyA; after construction the two :OnlyA tags must still sit on those two
-# physical steps (not on some other group canonical reordering moved into their
-# source slots): exactly one :OnlyA group is the ATP-binding step, and the other
-# is the metabolite-free catalytic conversion.
-@testset "Allosteric group tag stays bound to its step" begin
-    hk = only(s for s in MECHANISM_TEST_SPECS if s.name == "HK")
-    am = hk.mechanism
-    cm = am.catalytic
-    members = _testhelper_group_members(cm)
-    onlyA_groups = [g for g in eachindex(members)
-                    if am.allosteric.allosteric_states[g] === :OnlyA]
-    @test length(onlyA_groups) == 2
-    onlyA_firsts = [cm.steps[first(members[g])] for g in onlyA_groups]
-    @test count(e -> EnzymeRates.Enumeration._is_binding(e) &&
-                     cm.metabolites[only(e.taken_up)] === :ATP,
-                onlyA_firsts) == 1
-    @test count(!EnzymeRates.Enumeration._is_binding, onlyA_firsts) == 1
-end
-
 # ── §5a regression: every inactive-state parameter must be defined ──────────
 # Allosteric mechanisms from an LDH `identify_rate_equation` run crashed with
 # `UndefVarError` on undefined I-state parameters: the I-state polynomials
@@ -2299,94 +2277,6 @@ end
     _testhelper_check_law_against_oracle(lower)
 end
 
-# The rate equation binds its constants and the concentrations as local names of one
-# scope, so no metabolite takes a constant's name: a reserved name, or one holding `_`,
-# is rejected when a mechanism macro's code runs.
-@testset "a metabolite named after a constant is rejected" begin
-    # An allosteric regulator named L would take the conformational constant's name.
-    @test_throws(ErrorException(
-        "Mechanism: L is a reserved name; Keq, L, N, params, concs " *
-        "and v are kept for a rate equation's constants and local names"),
-        @enzyme_mechanism begin
-            substrates: S
-            products: P
-            oligomeric_state: 2
-            steps: begin
-                E + S ⇌ ES     :: EqualAI
-                ES <--> EP   :: OnlyA
-                EP ⇌ E + P     :: EqualAI
-            end
-            regulatory_site(2): L::OnlyI
-        end)
-    # An inhibitor named after the reverse chemistry constant holds `_`.
-    @test_throws(ErrorException(
-        "Mechanism: the metabolite name k_EP_to_ES holds `_`; constant names join " *
-        "metabolite names with `_`, so a metabolite name holds none"),
-        @enzyme_mechanism begin
-            substrates: S
-            products: P
-            modifiers: k_EP_to_ES
-            steps: begin
-                E + S ⇌ ES
-                ES <--> EP
-                EP ⇌ E + P
-                E + k_EP_to_ES ⇌ Ek_EP_to_ES
-            end
-        end)
-end
-
-# Every constant of a rate equation needs a name of its own. An :EqualAI ligand's
-# constant is bare, K_<ligand>reg, while an :OnlyA or :NonequalAI ligand's names its
-# conformation, K_A_<ligand>reg or K_I_<ligand>reg, so a ligand named A_R or I_X would
-# take the constant of a ligand R or X. A ligand name holds no `_`.
-@testset "a ligand name holding `_` is rejected" begin
-    @test_throws(ErrorException(
-        "Mechanism: the metabolite name A_R holds `_`; constant names join " *
-        "metabolite names with `_`, so a metabolite name holds none"),
-        @enzyme_mechanism begin
-            substrates: S
-            products: P
-            oligomeric_state: 2
-            steps: begin
-                E + S ⇌ ES      :: EqualAI
-                ES <--> EP    :: NonequalAI
-                EP ⇌ E + P      :: EqualAI
-            end
-            regulatory_site(2): R::OnlyA
-            regulatory_site(2): A_R::EqualAI
-        end)
-    @test_throws(ErrorException(
-        "Mechanism: the metabolite name I_X holds `_`; constant names join " *
-        "metabolite names with `_`, so a metabolite name holds none"),
-        @enzyme_mechanism begin
-            substrates: S
-            products: P
-            oligomeric_state: 2
-            steps: begin
-                E + S ⇌ ES      :: EqualAI
-                ES <--> EP    :: NonequalAI
-                EP ⇌ E + P      :: EqualAI
-            end
-            regulatory_site(2): X::NonequalAI, I_X::EqualAI
-        end)
-
-    # Renamed, the :EqualAI ligand has a constant of its own.
-    renamed = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        oligomeric_state: 2
-        steps: begin
-            E + S ⇌ ES      :: EqualAI
-            ES <--> EP    :: NonequalAI
-            EP ⇌ E + P      :: EqualAI
-        end
-        regulatory_site(2): R::OnlyA
-        regulatory_site(2): T::EqualAI
-    end
-    @test count(==(:K_A_Rreg), parameters(renamed)) == 1
-    @test :K_Treg in parameters(renamed)
-end
-
 # Every constant of a rate equation needs a name of its own. An :EqualAI step's constants
 # are bare, while a :NonequalAI step's name their conformation, k_A_… for the active one
 # and k_I_… for the inactive one. Form names are opaque, so a form named A_ES or I_ES
@@ -2482,8 +2372,8 @@ end)
 end
 
 # The names no metabolite takes: Keq, L, N, params, concs, v and every name
-# holding `_` (test_types.jl checks that the reaction rejects each). Besides the
-# metabolites, the printed law binds or reads only such names; the generated body binds
+# holding `_` (test_enzyme_reaction_type.jl checks that the reaction rejects each). Besides
+# the metabolites, the printed law binds or reads only such names; the generated body binds
 # only positional locals (the next testset), so no concentration can overwrite a constant
 # or a local.
 @testset "the reserved names cover every non-metabolite name of a law" begin

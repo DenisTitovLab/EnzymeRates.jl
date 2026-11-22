@@ -260,11 +260,6 @@ _testhelper_is_catalytic_group(m, g) =
               (!EnzymeRates.Enumeration._is_binding(e) || _testhelper_is_fused(c, e)),
          m.catalytic.steps))
 
-const uni_uni_rxn = @enzyme_reaction begin
-    substrates: S[C]
-    products: P[C]
-end
-
 const uni_bi_rxn = @enzyme_reaction begin
     substrates: S[AB]
     products: P[A], Q[B]
@@ -424,61 +419,6 @@ end
     @test any(c -> any(f -> :A in f.copies, c.forms), seeds) &&
           any(c -> any(f -> :I in f.copies, c.forms), seeds)
     @test all(c -> _testhelper_candidate(c.mechanism).forms == c.forms, seeds)
-end
-
-@testset "Canonical-by-construction representation independence" begin
-    # One kinetic group holding two bindings of the same metabolite S (context-
-    # shared: S binds free E, and S binds A-bound E, with the same K), A's binding, the
-    # chemistry and P's release. Written two ways: the statements in reverse order AND
-    # the group's two steps swapped. Canonical-by-construction must collapse them to one
-    # struct.
-    m_orderA = @enzyme_mechanism begin
-        substrates: S, A
-        products: P
-        steps: begin
-            (E + S ⇌ ES, EA + S ⇌ EAS)
-            E + A ⇌ EA
-            EAS <--> EP
-            EP ⇌ E + P
-        end
-    end
-    m_orderB = @enzyme_mechanism begin
-        substrates: S, A
-        products: P
-        steps: begin
-            EP ⇌ E + P
-            EAS <--> EP
-            E + A ⇌ EA
-            (EA + S ⇌ EAS, E + S ⇌ ES)
-        end
-    end
-    @test m_orderA == m_orderB
-    @test hash(m_orderA) == hash(m_orderB)
-
-    # unique! collapses the duplicate orderings; the mechanisms are not mutated.
-    # m_split groups the two binding steps separately, so it is structurally
-    # distinct and survives alongside the collapsed orderA/orderB.
-    m_split = @enzyme_mechanism begin
-        substrates: S, A
-        products: P
-        steps: begin
-            E + S ⇌ ES
-            EA + S ⇌ EAS
-            E + A ⇌ EA
-            EAS <--> EP
-            EP ⇌ E + P
-        end
-    end
-    mechs = [m_orderA, m_split, m_orderB]
-    snapshot = deepcopy(mechs)
-    result = unique!(mechs)
-    @test length(result) == 2
-    @test all(r -> any(==(r), snapshot), result)
-    @test m_orderA == snapshot[1]
-    @test m_split  == snapshot[2]
-    @test m_orderB == snapshot[3]
-    @test (m_orderA.catalytic.enzyme_forms, m_orderA.catalytic.steps) ==
-          (snapshot[1].catalytic.enzyme_forms, snapshot[1].catalytic.steps)
 end
 
 @testset "_testhelper_assert_mechanism_invariants: coverage of every reactant" begin
@@ -1223,37 +1163,6 @@ n_con  = length(unique!(
     collect(_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(constrained)))))
 @test n_con < n_base
 end
-end
-
-# ═══════════════════════════════════════════════════════════════════════
-# Testsets covering non-enumeration features (allosteric mechanism
-# accessor identity)
-# ═══════════════════════════════════════════════════════════════════════
-
-@testset "Allosteric mechanism TR equivalence" begin
-# Three distinct tags on three groups: S binding (RE, :EqualAI),
-# P binding (RE, :NonequalAI), iso (SS, :OnlyA). The :OnlyA sits on
-# the chemical step (dropped from the Haldane graph), so the mechanism
-# is Haldane-valid with no one-sided :OnlyA binding.
-m_compiled = @enzyme_mechanism begin
-    substrates: S
-    products: P
-    oligomeric_state: 2
-    steps: begin
-        E + S ⇌ ES             :: EqualAI
-        E + P ⇌ EP             :: NonequalAI
-        ES <--> EP           :: OnlyA
-    end
-end
-# Group order is canonical; allosteric tags stay bound to their steps.
-g = _testhelper_graph(m_compiled)
-# The tag of the one group whose first step satisfies `pred`.
-_testhelper_state_of(pred) = only(g.tags[s.group] for s in _testhelper_first_steps(g)
-                                  if pred(s))
-_testhelper_binds_in(names) = s -> _testhelper_is_binding(s) && only(s.consumed) in names
-@test _testhelper_state_of(_testhelper_binds_in(g.substrates)) == :EqualAI
-@test _testhelper_state_of(_testhelper_binds_in(g.products)) == :NonequalAI
-@test _testhelper_state_of(!_testhelper_is_binding) == :OnlyA
 end
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -8529,43 +8438,6 @@ end
 end
 end
 
-# ═══════════════════════════════════════════════════════════════════════
-# 5. Composition (dedup, candidate_mechanisms)
-# ═══════════════════════════════════════════════════════════════════════
-
-# ─── canonical by construction ─────────────────────────────────────────
-
-@testset "Allosteric mechanism — canonical by construction" begin
-# Site permutation with DISTINCT multiplicities. The constructor must permute
-# allosteric_states alongside the catalytic groups and produce the same
-# regulatory_sites ordering (regulatory side) regardless of input site order.
-am_ab = @enzyme_mechanism begin
-    substrates: S; products: P
-    oligomeric_state: 2
-    steps: begin
-        E + P ⇌ EP    :: EqualAI
-        E + S ⇌ ES    :: EqualAI
-        ES <--> EP  :: EqualAI
-    end
-    regulatory_site(2): A::OnlyA
-    regulatory_site(4): B::OnlyI
-end
-am_ba = @enzyme_mechanism begin   # sites swapped
-    substrates: S; products: P
-    oligomeric_state: 2
-    steps: begin
-        E + P ⇌ EP    :: EqualAI
-        E + S ⇌ ES    :: EqualAI
-        ES <--> EP  :: EqualAI
-    end
-    regulatory_site(4): B::OnlyI
-    regulatory_site(2): A::OnlyA
-end
-_testhelper_assert_mechanism_invariants(am_ab)
-_testhelper_assert_mechanism_invariants(am_ba)
-@test am_ab == am_ba
-end
-
 # ─── _dedup_key ────────────────────────────────────────────────────────
 @testset "_dedup_key" begin
 
@@ -8599,63 +8471,6 @@ end
 _testhelper_assert_mechanism_invariants(am_m2)
 _testhelper_assert_mechanism_invariants(am_m4)
 @test am_m2 != am_m4
-end
-end
-
-# ─── mechanism dedup (unique!) ──────────────────────────────────────────
-@testset "Dedup" begin
-
-@testset "Mechanism — expansion-path overlap: dedup actually fires" begin
-    # Run two rounds of expansion on the uni-uni init seeds
-    # (Mechanism path), then unique!. Assert that the flat vector shrinks,
-    # proving that two different expansion paths — two moves, or one move
-    # reached through two parents — produced equivalent Mechanisms.
-    init_mechs = collect(
-        _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(uni_uni_rxn)))
-    pool = unique!(_testhelper_children(uni_uni_rxn, init_mechs))
-    expanded = _testhelper_children(uni_uni_rxn, pool)
-    pre = length(expanded)
-    unique!(expanded)
-    # dedup fired: two different expansion paths produced equivalent
-    # Mechanisms, so the flat vector shrank.
-    @test length(expanded) < pre
-end
-
-@testset "Mechanism — permuted groups collapse via canonicalization" begin
-    # Two Mechanisms with the same physics but with their outer
-    # kinetic-group order arbitrarily rearranged should collapse to one
-    # after unique!. This exercises the constructor's outer-group
-    # sort with a non-trivial permutation, confirming that any
-    # permutation of the outer Vector canonicalizes back to the same
-    # struct.
-    m_seed = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        steps: begin
-            E + A ⇌ EA
-            E + Q ⇌ EQ
-            (EA + B ⇌ EAB, EQ + B ⇌ EBQ)
-            (EA + P ⇌ EAP, EQ + P ⇌ EPQ)
-            EAB <--> EPQ
-        end
-    end
-    _testhelper_assert_mechanism_invariants(m_seed)
-    n_groups = length(_testhelper_group_members(m_seed.catalytic))
-    @assert n_groups >= 3 "bi-bi init seed must have ≥3 kinetic groups " *
-        "to exercise a non-trivial permutation"
-    # Cyclic rotation by one, [g1, g2, …, gN] → [g2, …, gN, g1]: group g written as group
-    # g - 1 and group 1 last, the steps written group by group in that order.
-    label = [mod1(e.kinetic_group - 1, n_groups) for e in m_seed.catalytic.steps]
-    order = sortperm(label)
-    m_rotated = _testhelper_plain_mechanism(
-        m_seed.catalytic.metabolites, m_seed.catalytic.enzyme_forms,
-        m_seed.catalytic.substrates, m_seed.catalytic.products,
-        [EnzymeRates.Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off,
-                                     e.rapid_equilibrium, label[k])
-         for (k, e) in enumerate(m_seed.catalytic.steps)][order])
-    v = EnzymeRates.Mechanism[m_seed, m_rotated]
-    unique!(v)
-    @test length(v) == 1
 end
 end
 
@@ -9898,28 +9713,6 @@ end
     # E to itself.
     @test ER.Enumeration._eliminate_form(merged, iso.to,
                                          seed.catalytic.substrates) === nothing
-end
-
-@testset "has_turnover_cycle: a balanced rapid-equilibrium cycle runs no turnover" begin
-    ER = EnzymeRates
-    # Random-order binding of A and B at rapid equilibrium closes the cycle
-    # E → EA → EAB ← EB ← E of weight 1 + 1 − 1 − 1 = 0: it runs no net reaction.
-    # With the isomerization RE as well, E → EA → EAB → EPQ → EQ → E has
-    # weight 4, one turnover, in the same block.
-    m = @enzyme_mechanism begin
-        substrates: A, B; products: P, Q
-        steps: begin
-            E + A ⇌ EA
-            E + B ⇌ EB
-            EA + B ⇌ EAB
-            EB + A ⇌ EAB
-            EAB <--> EPQ
-            EQ + P ⇌ EPQ
-            E + Q ⇌ EQ
-        end
-    end
-    @test !ER.Mechanisms.has_turnover_cycle(m.catalytic, _testhelper_flags(m))
-    @test ER.Mechanisms.has_turnover_cycle(m.catalytic, trues(length(m.catalytic.steps)))
 end
 
 @testset "C on the ping-pong seed and its single flips" begin

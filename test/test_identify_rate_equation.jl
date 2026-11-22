@@ -2802,7 +2802,7 @@ end
 # The CSV mechanism_id column (`_mechanism_id`): the first 16 hex digits of the SHA-256 of
 # a mechanism's text, so every process and Julia version gives one id. The ids pinned here
 # come from another SHA-256 implementation (Python's hashlib), applied to the texts that
-# test_types.jl pins for these three mechanisms.
+# test_mechanism_type.jl pins for these three mechanisms.
 @testset "_mechanism_id cuts the SHA-256 of a mechanism's text to 16 hex digits" begin
     plain = @enzyme_mechanism begin
         substrates: S

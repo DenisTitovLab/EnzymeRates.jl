@@ -5321,3 +5321,12 @@ function _testhelper_units_from_name(name::Symbol, metabolites)
     foreach(x -> concentrations[column[x]] += 1, free_on(to))
     (0, concentrations)
 end
+
+# ── Helpers that several test files use ───────────────────────────────────────────────
+
+const ER = EnzymeRates
+
+const uni_uni_rxn = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+end
