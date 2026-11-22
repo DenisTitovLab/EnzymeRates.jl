@@ -1779,55 +1779,6 @@ end
     @test _testhelper_printed_law_error(spec.mechanism) <= big(10)^-20
 end
 
-@testset "the fitted rate constants are what Fitting scales" begin
-    # Every fitted steady-state rate constant of both conformations takes the factor;
-    # scaling exactly these multiplies the rate by it.
-    rng = Random.MersenneTwister(5)
-    for spec in MECHANISM_TEST_SPECS
-        m = spec.mechanism
-        names = _testhelper_steady_state_names(m)
-        @test names isa Tuple{Vararg{Symbol}}
-        @test allunique(names) && !isempty(names)
-        @test issubset(names, parameters(m))
-        @test isdisjoint(names, (:Keq, :L))
-        params, Keq = _testhelper_random_independent_params(m; rng)
-        met_names = metabolites(m)
-        concs = NamedTuple{Tuple(met_names)}(Tuple(0.5 + rand(rng) for _ in met_names))
-        rate = compile_rate_equation(m)
-        v = rate(concs, params, Keq)
-        scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 3.0)
-        @test rate(concs, scaled, Keq) ≈ 3.0 * v rtol = 1e-9
-    end
-    # The exact fitted names: the set is the fitted steady-state constants of every
-    # conformation's law (the inactive one's `I_` names included for MWC Dimer), and
-    # rapid-equilibrium constants are absent (RE Uni-Uni).
-    expected = Dict(
-        "Uni-Uni" => (:k_ES_to_E_P, :k_ES_to_E_S, :k_E_S_to_ES),
-        "RE Uni-Uni" => (:k_EA_to_E_P,),
-        "MWC Dimer" => (:k_A_ES_to_EP, :k_I_ES_to_EP),
-        "m_OnlyA_prod" => (:k_A_ES_to_EP,),
-        "LDH i-state NonequalAI 5-group" =>
-            (:k_A_E_NADH_to_ENADH, :k_A_ENADH_to_E_NADH,
-             :k_A_ENADHPyruvate_to_ELactateNAD))
-    for (name, names) in expected
-        m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
-        @test Set(_testhelper_steady_state_names(m)) == Set(names)
-    end
-end
-
-@testset "scaling the rate constants multiplies the steady-state ones only" begin
-    for name in ("RE Uni-Uni", "MWC Dimer")
-        m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
-        ks = (parameters(m)...,)
-        params = NamedTuple{ks}(Tuple(Float64.(eachindex(ks))))
-        scaled = EnzymeRates.Fitting._scale_rate_constants(m, params, 10.0)
-        ss = _testhelper_steady_state_names(m)
-        @test keys(scaled) == ks
-        @test !isempty(ss) && any(k -> !(k in ss), ks)
-        @test all(scaled[k] == (k in ss ? 10 * params[k] : params[k]) for k in ks)
-    end
-end
-
 # ── Large equation compilation regression test ────────────────────────────
 
 @testset "Large equation compilation (<20s)" begin

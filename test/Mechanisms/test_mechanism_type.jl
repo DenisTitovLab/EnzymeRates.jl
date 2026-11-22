@@ -168,55 +168,6 @@ _testhelper_builds_back(m) = eval(Meta.parse(sprint(show, m))) == m
     end))
 end
 
-@testset "a macro returns a plain value" begin
-    # The macros build ordinary values: two writings of one mechanism are equal, and
-    # compiling equal mechanisms gives the same rate law.
-    m = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ ES
-            ES <--> EP
-            EP ⇌ E + P
-        end
-    end
-    @test !_testhelper_is_allosteric(m)
-    @test m == @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            EP ⇌ E + P
-            E + S ⇌ ES
-            ES <--> EP
-        end
-    end
-    @test compile_rate_equation(m) === compile_rate_equation(deepcopy(m))
-    am = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        oligomeric_state: 2
-        steps: begin
-            E + S ⇌ ES     :: EqualAI
-            ES <--> EP   :: OnlyA
-            EP ⇌ E + P     :: EqualAI
-        end
-    end
-    @test _testhelper_is_allosteric(am)
-    @test am == @enzyme_mechanism begin
-        substrates: S
-        products: P
-        oligomeric_state: 2
-        steps: begin
-            ES <--> EP   :: OnlyA
-            EP ⇌ E + P     :: EqualAI
-            E + S ⇌ ES     :: EqualAI
-        end
-    end
-    @test compile_rate_equation(am) === compile_rate_equation(deepcopy(am))
-    # The plain mechanism of the same catalytic scheme compiles another law.
-    @test compile_rate_equation(am) !== compile_rate_equation(_testhelper_plain_of(am))
-end
-
 @testset "Types" begin
     @testset "Mechanism struct + accessors" begin
         m = @enzyme_mechanism begin

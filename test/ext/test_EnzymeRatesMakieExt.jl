@@ -1,5 +1,5 @@
-# ABOUTME: Tests the figure plot_rate_equation_on_data draws through its Makie extension.
-# ABOUTME: Draws written-out tables with CairoMakie and reads the figure's blocks and plots.
+# ABOUTME: Tests of ext/EnzymeRatesMakieExt.jl: the figure plot_rate_equation_on_data
+# ABOUTME: draws, read from CairoMakie's blocks and plots.
 
 using Test
 using EnzymeRates

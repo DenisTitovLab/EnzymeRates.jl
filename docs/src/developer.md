@@ -962,8 +962,8 @@ Over all the sampled time, which large laws dominate, a fit divides as follows:
 5–14% and garbage collection at 1–5%. The objective's wrapper costs too little to measure,
 and the package's own work around the solver stays near 1%. Compiling takes 0.10–0.19 s per
 law whatever its size, so it reaches 30–50% of a fit on PGK's laws of 6–8 parameters and
-under 5% on the largest laws. `test/Fitting/test_fitting.jl` bounds a fit's time by its
-counted `loss!` calls.
+under 5% on the largest laws. `test/Fitting/test_fit_rate_equation.jl` bounds a fit's time
+by its counted `loss!` calls.
 
 The table gives `loss!` in ns per row on the PFK table (486 rows) and the PGK table (386
 rows), for the same laws at each version. The PFKP columns are one allosteric law each. The
@@ -1051,9 +1051,9 @@ bound tolerates the spread between machines: small laws take 1-8 ns on an aarch6
 development machine and 5-38 ns on CI, varying by runner. So a moderate slowdown of a small
 law passes it.
 
-`test/Fitting/test_fitting.jl` checks `loss!` on each column type a table can bring and on a
-cross-validation fold. `RateData` stores `Rate` and each metabolite as a `Vector{Float64}`,
-because an abstract column type costs a run-time dispatch on each read.
+`test/Fitting/test_fit_rate_equation.jl` checks `loss!` on each column type a table can
+bring and on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a
+`Vector{Float64}`, because an abstract column type costs a run-time dispatch on each read.
 
 `test/test_type_stability.jl` requires JET's optimization analysis to report nothing on
 every exported and public function and on the workers' internal functions, on Julia 1.13

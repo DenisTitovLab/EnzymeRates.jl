@@ -91,9 +91,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   NaN there, where a well-posed law returns 0. A fit scores the NaN as it scores the 0 a
   well-defined law predicts there: `FittingProblem` refuses a zero rate, and the loss scores
   a NaN prediction as a sign mismatch, the penalty a 0 prediction gets
-  (`test/Derivation/test_allosteric_rate_equation_correctness_guard.jl`). Adding these
-  corners to the faces would drop at least these 369 mechanisms, 93 of whose laws have a
-  limit there.
+  (`test/Fitting/test_fit_rate_equation.jl`). Adding these corners to the faces would drop
+  at least these 369 mechanisms, 93 of whose laws have a limit there.
 - **The guard rejects some allosteric mechanisms whose law is the limit.**
   A gate run on the guard as built (see the next entry) found three kinds:
   - **Too large to search.** When a conformation has more than 20,000 ways to switch off its
@@ -245,8 +244,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   scripts and scans, is `claude-scratchpad/loss-timing-investigation/report.md` on the
   maintainer's machine.
 - **The fit-cost pin failed once in a full suite.**
-  "A fit costs about its loss! calls" (`test/Fitting/test_fitting.jl`) failed once in a
-  full suite on the allosteric bi-bi mechanism, at 0.387 s against 0.265 s allowed; its
+  "A fit costs about its loss! calls" (`test/Fitting/test_fit_rate_equation.jl`) failed once
+  in a full suite on the allosteric bi-bi mechanism, at 0.387 s against 0.265 s allowed; its
   focused run gave 0.185 s against 0.253 s and the next full suite passed. Whether the
   stack-page effect of the previous entry causes it is not measured.
 - **A pumped-basin message can say "nothing runs back" of a feed that runs back.**
@@ -487,8 +486,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   copy `X::Mod` and a count such as `2S` (the `::Mod` and count branches of `_raw_term`),
   and a tagged name in a name list such as `P::Mod` (`_bare_name`, `_untagged` and the hint
   of `_bare_symbols_from_values`). The maintainer kept them for this release. Removing them
-  in a later one takes about 30 lines of source and 60 of `test/DSL/test_dsl.jl`, and old
-  notation then gets the generic error.
+  in a later one takes about 30 lines of source and 60 of
+  `test/DSL/test_enzyme_mechanism_macro.jl`, and old notation then gets the generic error.
 - **Extend `plot_rate_equation_on_data`.**
   Considered and left out: overlaying the fits of two mechanisms, a fit summary (measured
   against predicted, error per group), a tick rule for log axes, and a keyword to override
@@ -605,5 +604,5 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The enumerator rejects a reaction whose names spell one name two ways and names both
   spellings, and renaming one metabolite removes the collision, so no separator is needed.
 - **Map BlackBoxOptim's convergence stop to `Success` upstream in OptimizationBase.** Only
-  BlackBoxOptim users meet the warning, `test/Fitting/test_fitting.jl` captures it, and the
-  docs and HPC scripts use CMA-ES.
+  BlackBoxOptim users meet the warning, `test/Fitting/test_fit_rate_equation.jl` captures
+  it, and the docs and HPC scripts use CMA-ES.
