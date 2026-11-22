@@ -909,7 +909,10 @@ end
     rate = compile_rate_equation(m)
     @test parameters(rate) == parameters(m)
     @test metabolites(rate) == Tuple(metabolites(m))
-    @test (@allocated rate(concs, params, 2.0)) == 0
+    # Measured behind a function: before Julia 1.12, `@allocated` in this body counts the
+    # 48 bytes of dispatching the call on `rate`, whose type the body does not know.
+    allocs, _ = _testhelper_test_rate_equation_performance(rate, params, 2.0, concs)
+    @test allocs == 0
     @test compile_rate_equation(m) === rate
     # It prints one line, which names what it is, not its type parameter.
     @test sprint(show, rate) == "compiled rate equation"
@@ -936,7 +939,8 @@ end
     aparams = NamedTuple{anames}(Tuple(rand(MersenneTwister(2), length(anames)) .+ 0.5))
     aconcs = (S = 0.7, P = 0.3, X = 0.2)
     @test isfinite(arate(aconcs, aparams, 2.0))
-    @test (@allocated arate(aconcs, aparams, 2.0)) == 0
+    aallocs, _ = _testhelper_test_rate_equation_performance(arate, aparams, 2.0, aconcs)
+    @test aallocs == 0
     _testhelper_check_law_against_oracle(am)
 
     # A fit evaluates the law `compile_rate_equation` gives its mechanism.
