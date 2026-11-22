@@ -903,10 +903,11 @@ platform, so their bound sits only 3.5% above them: one derived `Int` vector sto
 `Mechanism` trips it, as would any field derived from the steps on `Mechanism`, `Step` or a
 candidate's record. The allocation bounds sit 25% above the larger of the values on the two
 Julia versions, which differ by about 10%; more work per candidate trips them. On the macOS
-CI runner, which has 7 GiB, the tests spent far less time in garbage collection once
-mechanisms stopped storing such facts; that memory was the cause is inferred. Time and peak
-resident memory depend on the machine and its collector: the ter-ter testset logs both,
-and bounds only the time outside garbage collection.
+CI runner the ter-ter call spent 13.9 to 116.1 s in garbage collection in three runs after
+mechanisms stopped storing facts derived from their steps, against 171.0 s in one run
+before, so no gain on macOS is established. Time and peak resident memory depend on the
+machine and its collector: the ter-ter testset logs both, and bounds only the time outside
+garbage collection.
 
 ## Optimization algorithm architecture
 

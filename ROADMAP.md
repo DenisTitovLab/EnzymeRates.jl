@@ -36,32 +36,29 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     with more memory, so nothing checks the compat floor against the 4 GB that
     `.claude/CLAUDE.md` sets aside for the suite.
   - **macOS CI takes 23-39 minutes for the tests, up from about 8.**
-    Ubuntu and Windows stay at 15-17 minutes. The macOS runner has 7 GiB against their 16:
-    in one instrumented run its heap reached 5.5 GiB with 3.0 GiB resident, and the
-    enumeration test file took 1,165 s, 600 s of it in garbage collection, against 273 s on
-    Ubuntu. A `--heap-size-hint=2500M` on macOS gave 25.6 and 32.4 minutes in two runs,
-    inside the range without it, and slows Ubuntu and Windows to about 20 minutes. macOS
-    runner speed varies about 30% between runs, so one run proves nothing. These runs
-    predate the lean graph, which stores no facts. On the macOS runner, `init_mechanisms`
-    on ter-ter took 318.9 s, 171.0 s of it in garbage collection, on `main` (261c7eb4;
-    suite 37 minutes); on this branch it took 187.1 s, 76.6 s in garbage collection, in
-    run 44986745521 (61f3bf5b; suite about 22 minutes) and 78.2 s, 13.9 s in garbage
-    collection, in run 44990337442 (6b37a084; suite 10.5 minutes). Linux takes 115-135 s
-    on `main` and on the branch, 19-30 s of it in garbage collection, so the gain on macOS
-    is in memory. Two branch runs are not a distribution: the runner's time differed by
-    more than a factor of two between them, on nearly the same code. The enumeration test
-    file now bounds the bytes the enumeration holds and allocates, and logs the ter-ter
-    call's time, garbage collection, bytes allocated and the process's peak resident
-    memory. On aarch64 Linux the bytes were the same in every process on a Julia version,
-    and the allocations differ by about 10% between Julia 1.11.9 and 1.13.4. In the CI run
-    on dc936ab2 (45001777789 and 45001777786) each candidate held 1,594 bytes on every
-    platform, and the bi-bi starting set, one expansion and the ter-ter call allocated
-    38.86 MB, 13.84 MB and 81.24 GiB on Ubuntu, 38.87 MB, 13.86 MB and 80.67 GiB on
-    Windows, 38.94 MB, 14.17 MB and 80.93 GiB on macOS (1.13.4), and 42.62 MB, 12.69 MB
-    and 89.40 GiB on Ubuntu with Julia 1.11.9. In that run macOS took 286.0 s for the
-    ter-ter call, 116.1 s of it in garbage collection, and 35 minutes for the suite, against
-    103-128 s and 14-18 minutes elsewhere, with a peak resident memory of 2.8 GiB against
-    3.0-3.6 GiB.
+    Ubuntu and Windows stay at 15-17 minutes. The macOS runner has 7 GiB against their 16.
+    Before pull request #109, in one instrumented run its heap reached 5.5 GiB with 3.0 GiB
+    resident, and the enumeration test file took 1,165 s, 600 s of it in garbage
+    collection, against 273 s on Ubuntu; a `--heap-size-hint=2500M` on macOS gave 25.6 and
+    32.4 minutes in two runs, inside the range without it, and slowed Ubuntu and Windows to
+    about 20 minutes. Four runs on the macOS runner timed the ter-ter `init_mechanisms`
+    call and the suite:
+
+    | Run | Commit | Ter-ter call | Of it in garbage collection | Suite |
+    |:--|:--|--:|--:|--:|
+    | `main` | 261c7eb4 | 318.9 s | 171.0 s | 37 min |
+    | 44986745521 | 61f3bf5b | 187.1 s | 76.6 s | about 22 min |
+    | 44990337442 | 6b37a084 | 78.2 s | 13.9 s | 10.5 min |
+    | 45001777789 | dc936ab2 | 286.0 s | 116.1 s | 35 min |
+
+    The last three ran pull request #109 on nearly the same code and took 10.5 to 35
+    minutes: no gain on macOS is shown. The enumeration test file bounds the bytes each
+    candidate holds and the bytes the enumeration allocates. In the last run each candidate
+    held 1,594 bytes on Ubuntu, Windows and macOS, and the bytes allocated agreed to within
+    2.5%, so these bytes do not explain a slow macOS run. In that run the ter-ter call spent
+    170 s outside garbage collection and 116 s in it on macOS, against 83 s and 21 s on
+    Ubuntu, and macOS peaked at 2.8 GiB resident against 3.0-3.6 GiB elsewhere. The cause
+    of the slow macOS runs is not known.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `EI + J <--> EJ + I` does when `EJ` binds nothing more, no net flux crosses it, so
