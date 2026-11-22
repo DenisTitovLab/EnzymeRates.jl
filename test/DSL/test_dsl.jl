@@ -1053,8 +1053,8 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
                 oligomeric_state: 1, 2
             end""")))
         # Each multiplicity once.
-        @test_throws("EnzymeReaction: `oligomeric_state:` lists a multiplicity more " *
-                     "than once; got [2, 2].", eval(:(@enzyme_reaction begin
+        @test_throws("EnzymeReaction: the allowed oligomeric states list a multiplicity " *
+                     "more than once; got [2, 2].", eval(:(@enzyme_reaction begin
             substrates: S[C]
             products:   P[C]
             allosteric_regulators: A
@@ -1063,13 +1063,13 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
     end
 
     @testset "@enzyme_reaction needs a substrate and a product" begin
-        @test_throws(ErrorException("EnzymeReaction: `substrates:` not specified; a " *
-                                    "reaction has at least one substrate."),
+        @test_throws(ErrorException("EnzymeReaction: no substrate is given; a reaction " *
+                                    "has at least one substrate."),
                      @enzyme_reaction begin
                          products: P[C]
                      end)
-        @test_throws(ErrorException("EnzymeReaction: `products:` not specified; a " *
-                                    "reaction has at least one product."),
+        @test_throws(ErrorException("EnzymeReaction: no product is given; a reaction " *
+                                    "has at least one product."),
                      @enzyme_reaction begin
                          substrates: S[C]
                      end)
@@ -1759,7 +1759,7 @@ end
                      _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI),
                                        :(regulatory_site(4): X::OnlyA)))
         @test_throws("RegulatorySite: allosteric regulator `X` is listed twice; an " *
-                     "allosteric regulator sits at exactly one regulatory site, once.",
+                     "allosteric regulator sits at exactly one regulatory site.",
                      _testhelper_sites(:(regulatory_site(2): X::OnlyA, Y::OnlyI,
                                                              X::OnlyI)))
         # A site lists each ligand with its tag after a positive multiplicity.

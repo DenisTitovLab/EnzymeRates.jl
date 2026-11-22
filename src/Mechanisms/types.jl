@@ -31,9 +31,9 @@ struct RegulatorySite
             error("RegulatorySite: allosteric state $(allosteric_states[bad]) " *
                   "must be one of $_ALLOSTERIC_STATES")
         dup = findfirst(i -> ligands[i] in view(ligands, 1:(i - 1)), eachindex(ligands))
-        dup === nothing || error("RegulatorySite: allosteric regulator `$(ligands[dup])` " *
-                                 "is listed twice; an allosteric regulator sits at exactly " *
-                                 "one regulatory site, once.")
+        dup === nothing ||
+            error("RegulatorySite: allosteric regulator `$(ligands[dup])` is listed " *
+                  "twice; an allosteric regulator sits at exactly one regulatory site.")
         p = sortperm(ligands)
         new(ligands[p], multiplicity, allosteric_states[p])
     end
@@ -231,18 +231,18 @@ struct EnzymeReaction
         # A nonempty list of distinct Ints ≥ 1, as a DSL text writes one.
         ms = allowed_oligomeric_states
         !isempty(ms) && all(≥(1), ms) ||
-            error("EnzymeReaction: allowed_oligomeric_states must be a nonempty " *
+            error("EnzymeReaction: the allowed oligomeric states must be a nonempty " *
                   "list of Ints ≥ 1, got $ms")
-        allunique(ms) || error("EnzymeReaction: `oligomeric_state:` lists a multiplicity " *
-                               "more than once; got $ms.")
+        allunique(ms) || error("EnzymeReaction: the allowed oligomeric states list a " *
+                               "multiplicity more than once; got $ms.")
         sorted_mults = sort(allowed_oligomeric_states)
 
         sub_names  = Symbol[r.name for r in sorted_substrates]
         prod_names = Symbol[r.name for r in sorted_products]
-        isempty(sub_names) && error("EnzymeReaction: `substrates:` not specified; a " *
-                                    "reaction has at least one substrate.")
-        isempty(prod_names) && error("EnzymeReaction: `products:` not specified; a " *
-                                     "reaction has at least one product.")
+        isempty(sub_names) && error("EnzymeReaction: no substrate is given; a reaction " *
+                                    "has at least one substrate.")
+        isempty(prod_names) && error("EnzymeReaction: no product is given; a reaction " *
+                                     "has at least one product.")
 
         reg_keys   = [(r.name, r.kind) for r in sorted_regulators]
         allunique(sub_names)  || error("EnzymeReaction: duplicate substrate names")

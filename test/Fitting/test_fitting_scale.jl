@@ -200,15 +200,18 @@ using OptimizationCMAEvolutionStrategy
 end
 
 @testset "each constant starts at the typical value of its units" begin
-    # Each spec's log centres at the typical rate and concentrations of
-    # `_testhelper_typical_table`, against the rule read from each constant's name
-    # (`_testhelper_typical_log_centre`).
+    # Each spec's log centres at the typical rate 3 and concentrations 10^-j of
+    # `_testhelper_typical_table`: the log of 3^rate × Π (10^-j)^power for the units the
+    # rule reads from each constant's name (`_testhelper_units_from_name`).
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         fp = FittingProblem(m, _testhelper_typical_table(m), 2.0)
-        expected = [_testhelper_typical_log_centre(x, metabolites(m))
-                    for x in parameters(m)]
-        @test EnzymeRates.Fitting._log_centres(fp) ≈ expected atol = 1e-12
+        log_s = [log(10.0^-j) for j in eachindex(metabolites(m))]
+        expected = map(parameters(m)) do x
+            rate, concentrations = _testhelper_units_from_name(x, metabolites(m))
+            rate * log(3.0) + concentrations' * log_s
+        end
+        @test EnzymeRates.Fitting._log_centres(fp) ≈ collect(expected) atol = 1e-12
     end
 end
 

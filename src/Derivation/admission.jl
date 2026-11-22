@@ -556,7 +556,7 @@ that holds a law node holds a closed class of the law network, and class 3 leave
 network only one.
 """
 _class_outside_law(closed::Vector{Vector{Int}}, law_nodes::BitVector) =
-    closed[something(findfirst(cls -> !any(view(law_nodes, cls)), closed))]
+    closed[findfirst(cls -> !any(view(law_nodes, cls)), closed)::Int]
 
 """How a message names face `face` of `m`: nothing for the interior, else `at zero `, its
 zeroed names (`_face_names`) and `place`, then a comma."""

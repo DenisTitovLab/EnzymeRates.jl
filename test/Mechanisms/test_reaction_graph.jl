@@ -447,7 +447,7 @@ end
                  _testhelper_allosteric(tags, 2, [site([:R], 2, [:Bogus])]))
     @test_throws(ErrorException("RegulatorySite: allosteric regulator `R` is listed " *
                                 "twice; an allosteric regulator sits at exactly one " *
-                                "regulatory site, once."),
+                                "regulatory site."),
                  _testhelper_allosteric(tags, 2, [site([:R, :X, :R], 2,
                                                        [:OnlyA, :OnlyI, :OnlyI])]))
     @test_throws(ErrorException(

@@ -464,7 +464,7 @@ end
         @testset "$label" begin
             sub = _testhelper_single_subunit(am)
             s = EnzymeRates.Derivation._solve(sub)
-            A = _testhelper_law(sub, s)
+            A = _testhelper_unguarded_law(sub, s)
             rng = Random.MersenneTwister(400 + i)
             for _ in 1:3
                 point, concs, params = _testhelper_law_inputs(sub, s.fitted, rng)

@@ -262,20 +262,17 @@ end
 end
 
 @testset "parameter_units gives each constant the units its name reads" begin
-    # A fit starts each constant at r^rate × Π s_j^power, r the typical rate and s_j the
-    # typical concentration of metabolite j; in logs, at the rate 3 and concentrations
-    # 10^-j of `_testhelper_typical_table`, the centre the rule reads from the constant's
-    # name (`_testhelper_typical_log_centre`). Each call returns arrays of its own.
+    # Each constant's power of the rate and of each concentration, exactly as the rule
+    # reads them from the constant's name (`_testhelper_units_from_name`). Each call returns
+    # arrays of its own.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         units = ER.Derivation.parameter_units(m)
         n, k = length(parameters(m)), length(metabolites(m))
         @test units.rate isa Vector{Int} && size(units.rate) == (n,)
         @test units.concentrations isa Matrix{Int} && size(units.concentrations) == (n, k)
-        expected = [_testhelper_typical_log_centre(x, metabolites(m))
-                    for x in parameters(m)]
-        log_s = [log(10.0^-j) for j in 1:k]
-        @test units.rate .* log(3.0) .+ units.concentrations * log_s ≈ expected atol = 1e-12
+        @test [(units.rate[i], units.concentrations[i, :]) for i in 1:n] ==
+              [_testhelper_units_from_name(x, metabolites(m)) for x in parameters(m)]
         fill!(ER.Derivation.parameter_units(m).rate, 7)
         @test ER.Derivation.parameter_units(m) == units
     end

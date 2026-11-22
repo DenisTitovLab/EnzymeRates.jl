@@ -656,13 +656,16 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
 end
 
 """
-The derived law of `m` over its solve `s` (`EnzymeRates.Derivation._law`), read without
-the guard. The guard rejects an allosteric mechanism whose active conformation runs no step
-(`_NO_ACTIVE_TURNOVER`), so `_law` derives none; the oracles still read its MWC law, its
-active conformation free E alone (`_flip_only_law`) over the inactive law's variables and
-the rest assembled as `_law` assembles an MWC law.
+The derived law of `m` over its solve `s`, read without the guard. For a mechanism whose
+active conformation runs a step it is the package's own law (`EnzymeRates.Derivation._law`).
+Otherwise it is a copy of an assembly the package no longer has: the guard rejects such an
+allosteric mechanism (`_NO_ACTIVE_TURNOVER`) and `_law` derives no law for it, so this
+builds its MWC law, its active conformation free E alone (`_flip_only_law`) over the
+inactive law's variables and the rest assembled as `_law` assembles an MWC law. The copy is
+kept only so the oracles can read the mechanisms the guard refuses; it does not follow a
+change to `_law`'s MWC assembly.
 """
-function _testhelper_law(m, s = EnzymeRates.Derivation._solve(m))
+function _testhelper_unguarded_law(m, s = EnzymeRates.Derivation._solve(m))
     D = EnzymeRates.Derivation
     any(EnzymeRates.Mechanisms.steps_in_active_conformation(m)) && return D._law(m, s)
     LI = D._law(m, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(m);
@@ -682,7 +685,7 @@ end
 
 """
 The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived law
-(`_testhelper_law`) at the parameter values `params` (by name: the fitted
+(`_testhelper_unguarded_law`) at the parameter values `params` (by name: the fitted
 constants, `Keq` and, for an allosteric mechanism, `L` and the regulator constants) and the
 concentrations `concs`. `m` is read as it is, without the guard, so the oracles can
 evaluate the law of a mechanism the guard rejects. A law that is 0/0 on a face gives NaN
@@ -694,7 +697,7 @@ function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
         for (k, v) in concs
             env[k] = BigFloat(v)
         end
-        _testhelper_evaluate_law(_testhelper_law(m), env)
+        _testhelper_evaluate_law(_testhelper_unguarded_law(m), env)
     end
 end
 
@@ -764,7 +767,7 @@ end
 """
     _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
 
-Detailed-balance residuals of `m`'s derived law (`_testhelper_law`) at a random
+Detailed-balance residuals of `m`'s derived law (`_testhelper_unguarded_law`) at a random
 parameter point, in 256-bit BigFloat: the law's value at equilibrium concentrations (the
 first product scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times
 lower, then, for an allosteric mechanism, the same ratio of `H·Q` for each conformation
@@ -775,7 +778,7 @@ checked too.
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
         s = EnzymeRates.Derivation._solve(m)
-        L = _testhelper_law(m, s)
+        L = _testhelper_unguarded_law(m, s)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         g = _testhelper_graph(m)
@@ -910,14 +913,14 @@ end
 
 """Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only). The
 law of a mechanism the guard rejects is derived once, unchecked
-(`EnzymeRates.Derivation._law`), and evaluated in BigFloat (`_testhelper_evaluate_law`), as
+(`_testhelper_unguarded_law`), and evaluated in BigFloat (`_testhelper_evaluate_law`), as
 `_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     fitted = _testhelper_dependent_param_exprs(m)[2]
     rate = if _testhelper_is_valid(m)
         compile_rate_equation(m)
     else
-        L = EnzymeRates.Derivation._memo_law(m)
+        L = _testhelper_unguarded_law(m)
         function _testhelper_unchecked_rate(c, p, keq)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
                                          for (k, v) in pairs(merge(p, c, (Keq = keq,))))
@@ -2868,7 +2871,7 @@ _testhelper_print_artifacts(s::AbstractString) =
 The worst relative error, over `points` consistent points (`_testhelper_law_inputs`, seed
 `seed`), of `m`'s printed law and its coefficient form (`rate_equation_string`), read back
 in 256-bit BigFloat (`_testhelper_eval_rate_string`), against its derived law
-(`EnzymeRates.Derivation._law`). `m` passes the guard; an
+(`EnzymeRates.Derivation._memo_law`). `m` passes the guard; an
 allosteric mechanism's point is drawn at one catalytic subunit, and the law is read at its
 own multiplicity.
 """
@@ -5316,27 +5319,32 @@ _testhelper_typical_table(m) =
      (x => [10.0^-j] for (j, x) in enumerate(metabolites(m)))...)
 
 """
-    _testhelper_typical_log_centre(name, metabolites) -> Float64
+    _testhelper_units_from_name(name, metabolites) -> (rate, concentrations)
 
-The log of the value a fit starts the fitted constant `name` at, at the typical rate 3 and
-the typical concentration 10^-j of the `j`-th of `metabolites`
-(`_testhelper_typical_table`), read from the name alone. `L` is 1. A regulator's constant,
-`K_` with an optional `A_` or `I_` and then its ligand and `reg`, is its ligand's
-concentration. Any other constant names the two sides of its step in its named direction,
-`<from>_to_<to>`, each a form's name and then the names of the metabolites free on that
-side; a side's metabolites are the longest run of its `_`-separated words, at its end, that
-name metabolites. A steady-state rate constant (`k_`) is the rate over the concentration of
-each metabolite it takes up, those of its `from` side; a rapid-equilibrium constant (`K_`)
-is the concentrations of what its named direction gives off over those of what it takes up.
+The units of the fitted constant `name`, read from the name alone: the power of the rate,
+and the power of each concentration in a vector in the order of `metabolites`. `L` has
+none. A regulator's constant, `K_` with an optional `A_` or `I_` and then its ligand and
+`reg`, has its ligand's concentration. Any other constant names the two sides of its step
+in its named direction, `<from>_to_<to>`, each a form's name and then the names of the
+metabolites free on that side; a side's metabolites are the longest run of its
+`_`-separated words, at its end, that name metabolites. A steady-state rate constant (`k_`)
+is the rate over the concentration of each metabolite it takes up, those of its `from`
+side; a rapid-equilibrium constant (`K_`) is the concentrations of what its named
+direction gives off over those of what it takes up.
 """
-function _testhelper_typical_log_centre(name::Symbol, metabolites)
-    log_s = Dict(String(x) => log(10.0^-j) for (j, x) in enumerate(metabolites))
+function _testhelper_units_from_name(name::Symbol, metabolites)
+    column = Dict(String(x) => j for (j, x) in enumerate(metabolites))
+    concentrations = zeros(Int, length(metabolites))
     s = String(name)
-    s == "L" && return 0.0
-    occursin("_to_", s) || return log_s[chopsuffix(last(split(s, '_')), "reg")]
+    s == "L" && return (0, concentrations)
+    if !occursin("_to_", s)
+        concentrations[column[chopsuffix(last(split(s, '_')), "reg")]] = 1
+        return (0, concentrations)
+    end
     from, to = split(s[3:end], "_to_")
-    free_on(side) = Iterators.takewhile(in(keys(log_s)), reverse(split(side, '_')))
-    up = sum((log_s[x] for x in free_on(from)); init = 0.0)
-    off = sum((log_s[x] for x in free_on(to)); init = 0.0)
-    startswith(s, "k_") ? log(3.0) - up : off - up
+    free_on(side) = Iterators.takewhile(in(keys(column)), reverse(split(side, '_')))
+    foreach(x -> concentrations[column[x]] -= 1, free_on(from))
+    startswith(s, "k_") && return (1, concentrations)
+    foreach(x -> concentrations[column[x]] += 1, free_on(to))
+    (0, concentrations)
 end
