@@ -242,8 +242,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     placement's. With the law called once per row the same scan gave 75, 46, 4.65 and 1.81.
   On the slowest class of CI runner the law's gate failed in two jobs of five, each on one
   law, 22 and 31 ns over that law's usual time; those failures resemble the first effect,
-  and their cause on x86 is not measured. Not measured: x86 and 16 KB pages (macOS on
-  Apple Silicon). The investigations, with their scripts and scans, are on the
+  and their cause on x86 is not measured. Those jobs timed the law in the test process,
+  under coverage counters and `--check-bounds=yes`. The gate reads its times in a child
+  process without either (Developer page, What a fit costs), where the first effect
+  measured 7 and 17 ns on aarch64 rather than 18 and 29; whether that ends the failures on
+  CI is not known. Not measured: x86 and 16 KB pages (macOS on Apple Silicon). The investigations, with their scripts and scans, are on the
   maintainer's machine: `claude-scratchpad/loss-timing-investigation/`, and `lawgate/`,
   `inline-memory/`, `compiled-loss/` and `loss-two-loops/` in
   `claude-scratchpad/lean-mechanism-spike/`.
@@ -425,6 +428,15 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   whose parent fails the final parsimony cutoff, children and survivors per move, zero-gain
   `change_allo_state` children, and how many PGK rows identify flags `L_phantom`. Priority:
   medium.
+- **Tighten the speed gate's two bounds once CI's readings without coverage are in.**
+  The bounds on the compiled law (50 ns + 0.5 ns per denominator term) and on `loss!` (1.25
+  times the law plus eight `log` calls per row) were set from timings taken under coverage
+  counters, and the gate reads its times in a child process without them (Developer page,
+  What a fit costs). In ten such processes on aarch64 no law took more than 0.21 of its
+  bound and `loss!` no more than 0.30 of what it is allowed, so both bounds pass a slowdown
+  of three times or more. Read the gate's `@info` lines from CI's x86 (Ubuntu, Windows) and
+  macOS runners over a few runs, then propose bounds that leave room for the slowest runner,
+  for the maintainer's approval. Priority: medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
   numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The

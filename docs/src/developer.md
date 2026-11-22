@@ -821,6 +821,9 @@ short fit take 4–10% longer at 12–16 terms, 22% at 96 terms and 77–117% at
 (medians of 2 processes). x86 is not measured; with AVX2 the first loop could run four rows
 at a time. The test jobs of CI and Downgrade run with coverage counters (`julia-runtest`'s
 default), and under them the loop ran one row at a time on the three laws checked locally.
+They also run with `--check-bounds=yes`, `julia-runtest`'s default too, under which no
+`@inbounds` holds; on Julia 1.13 the loop stays scalar with only its inner `@inbounds`
+removed.
 
 On the cluster a fit costs more than on one core. The PFKP and PGK searches of 2026-11-02
 ran 119,453 and 15,700 fits in 62 and 13.3 minutes, at 25 and 40 core-seconds per fit.
@@ -879,22 +882,38 @@ So the speed gate in `test/Derivation/test_rate_equation_derivation.jl` times `l
 well as the compiled law. It runs on every gated law: each mechanism of
 `MECHANISM_TEST_SPECS`, the three largest enumerated bi-bi laws (396 denominator terms each)
 and three ter-bi laws (589, 799 and 858 terms). `.claude/CLAUDE.md` ("Guards") states the
-bounds. `_testhelper_test_rate_equation_performance` (`test/testhelpers.jl`) times the
-compiled law, and `_testhelper_loss_time_per_row`, in the derivation test file, times
-`loss!`. Each margin has a reason:
+bounds. `_testhelper_test_rate_equation_performance` times the compiled law, and
+`_testhelper_loss_time_per_row` times `loss!`, both in `test/testhelpers.jl`.
+
+The test process does not time them. CI runs the suite with coverage counters on every line
+of the package and with `--check-bounds=yes`, under which no `@inbounds` holds, so in the
+test process the gate would time code no user runs: under coverage the first loop of `loss!`
+runs one row at a time, and the placement effects on the law read about twice as large
+(`ROADMAP.md`, "Where their data fall in memory"). The first test that asks for a time
+starts one child process from the bare Julia executable, without those flags
+(`_testhelper_speed_readings`). The child includes `test/testhelpers.jl`, times every gated
+law and prints the readings, and the tests compare them with their bounds. The allocation
+checks stay in the test process, so CI runs them under coverage and bounds checks. Locally
+(aarch64) the child takes about 15 s: 0.6 s to load the package, 2.5 s to include
+`testhelpers.jl` and 11.5 s to time the 48 laws. Each margin has a reason:
 
 - The compiled law's bound has a large intercept because small laws take 1-8 ns on an
-  aarch64 development machine and 5-38 ns on CI, varying by runner. It catches only a large
-  slowdown of a small law; its part per denominator term binds on large laws. Where the
-  law's frame and its inputs fall in a 4 KB page can slow every call of a process. So each
-  of the five batches has its own stack depth and its own copy of the inputs.
+  aarch64 development machine and 5-38 ns on CI under coverage counters, varying by runner.
+  It catches only a large slowdown of a small law; its part per denominator term binds on
+  large laws. Where the law's frame and its inputs fall in a 4 KB page can slow every call
+  of a process. So each of the five batches has its own stack depth and its own copy of the
+  inputs. In ten child processes on aarch64 no law took more than 0.21 of its bound.
 - `loss!` is timed against the compiled law and `log` in one process, so machine speed
   cancels out. The bound holds if any batch meets it. Each batch times `loss!` on a new
   `FittingProblem`, since where a problem's arrays fall on the heap can slow `loss!` up to
   about 2× on aarch64, and one stack frame deeper than the last, since one scan of stack
   depths slowed HK 1.50–1.56× at three adjacent depths. x86 and 16 KB pages are not
   measured. `_testhelper_loss_time_per_row` gives the reasons for the factor on the law's
-  time and for the `log` calls.
+  time and for the `log` calls. In ten child processes on aarch64 `loss!` took 0.11–0.30 of
+  the time it is allowed.
+
+Both bounds were set from timings taken under coverage, and stay until CI's runners have
+been read without it (`ROADMAP.md`, Planned).
 
 `test/Fitting/test_fit_rate_equation.jl` checks `loss!` on each column type a table can
 bring and on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a

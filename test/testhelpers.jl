@@ -5418,9 +5418,11 @@ within the page, at most four in any 430 bytes, the widest slow window seen ther
 batch then times the law and the `log` calls, at the gate's own depth. The factor of 1.25
 leaves room for a slowdown once seen on three large laws in one process, 15-25% over the
 law's cost; whether the frame's place on the stack caused it was not tested. The eight
-`log` calls leave room on coverage-instrumented CI jobs: coverage counters on `loss!`'s
-own lines add a cost per row that neither the rate law nor `log` measures. Returns the
-batch with the smallest `per_row / allowed`."""
+`log` calls are room the gate does not use where it runs, in the speed child without
+coverage counters (`_testhelper_speed_readings`): over ten such processes on aarch64,
+`loss!` took 0.11-0.30 of the most it may take. The bound is tightened only once CI's
+readings without coverage are known (ROADMAP). Returns the batch with the smallest
+`per_row / allowed`."""
 function _testhelper_loss_time_per_row(m)
     table = _testhelper_loss_table(metabolites(m))
     rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
@@ -5483,6 +5485,65 @@ end
 # `labels` (NaN for any label not found or on subprocess failure).
 _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     _testhelper_parse_labeled(_testhelper_subprocess_output(script), labels)
+
+# ── The speed gate's readings, taken without coverage ─────────────────────────────────
+
+"""The laws the speed gate times, each with the names of the concentrations it is timed
+at: every spec of `MECHANISM_TEST_SPECS`, then the three largest enumerated bi-bi laws and
+the three large ter-bi laws."""
+const _testhelper_gated_laws = [
+    [(s.mechanism, s.metabolite_names) for s in MECHANISM_TEST_SPECS];
+    [(m, collect(metabolites(m))) for m in [_testhelper_largest_enumerated_mechanisms;
+                                           _testhelper_large_ter_bi_mechanisms]]]
+
+"""Prints the speed gate's readings for `_testhelper_speed_readings`, one
+`<label>:<seconds>` line each. For gated law `i` (`_testhelper_gated_laws`): `LAW_i`, the
+compiled law's time per call (`_testhelper_test_rate_equation_performance`, at the
+constants and concentrations `_testhelper_random_independent_params_concs` draws from seed
+42), and `LOSS_i` and `ALLOWED_i`, `loss!`'s time per row and the most it may take
+(`_testhelper_loss_time_per_row`)."""
+function _testhelper_print_speed_readings()
+    for (i, (m, names)) in enumerate(_testhelper_gated_laws)
+        params, Keq, concs, _ = _testhelper_random_independent_params_concs(
+            m, names; rng = Random.MersenneTwister(42))
+        _, law = _testhelper_test_rate_equation_performance(compile_rate_equation(m),
+                                                            params, Keq, concs)
+        (; per_row, allowed) = _testhelper_loss_time_per_row(m)
+        println("LAW_$i:", law, "\nLOSS_$i:", per_row, "\nALLOWED_$i:", allowed)
+    end
+end
+
+# What the speed child printed, once `_testhelper_speed_readings` has run it.
+const _testhelper_speed_output = Ref{Union{Nothing, String}}(nothing)
+
+"""
+The speed readings named `labels` (`_testhelper_print_speed_readings`), in seconds, NaN
+for any the child did not print. The first call runs the child, a fresh Julia process
+started from the bare executable, which includes this file and prints every reading; later
+calls read what it printed. CI runs the suite with coverage counters on every line of the
+package and with `--check-bounds=yes`, under which no `@inbounds` holds; the child runs
+without either, as users do. A child that fails warns with what it wrote to stderr
+(`_testhelper_subprocess_output`), and its readings are NaN, which fails every bound.
+"""
+function _testhelper_speed_readings(labels::Vector{String})
+    if _testhelper_speed_output[] === nothing
+        _testhelper_speed_output[] = _testhelper_subprocess_output("""
+            using Test, EnzymeRates, LinearAlgebra, Random
+            include($(repr(joinpath(@__DIR__, "testhelpers.jl"))))
+            _testhelper_print_speed_readings()
+            """)
+    end
+    _testhelper_parse_labeled(_testhelper_speed_output[], labels)
+end
+
+"""`(; law, per_row, allowed)` of the gated law `m` (`_testhelper_gated_laws`), in seconds:
+the compiled law's time per call, and `loss!`'s time per row and the most it may take, as
+the speed child read them (`_testhelper_speed_readings`)."""
+function _testhelper_gate_readings(m)
+    i = findfirst(gated -> first(gated) === m, _testhelper_gated_laws)
+    law, per_row, allowed = _testhelper_speed_readings(["LAW_$i", "LOSS_$i", "ALLOWED_$i"])
+    (; law, per_row, allowed)
+end
 
 # Fixture rules for this file are in CLAUDE.md, "Enumeration-engine tests":
 # every mechanism inline via the macro, every move test asserts the exact

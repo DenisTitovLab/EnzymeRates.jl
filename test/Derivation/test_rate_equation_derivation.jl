@@ -515,29 +515,32 @@ function _testhelper_denominator_terms(m)
         EnzymeRates.Derivation._nterms(L.inactive.D)
 end
 
-# Small laws take 1-8 ns on an aarch64 development machine, and 5-38 ns on CI, varying by
-# runner, with single readings up to 56 ns. Their intercept is therefore wide and catches
-# only a large slowdown; the 0.5 ns per term binds on large laws. A job that misses the
-# bound is rerun rather than the bound loosened.
+# Small laws take 1-8 ns on an aarch64 development machine, and 5-38 ns on CI under coverage
+# counters, varying by runner, with single readings up to 56 ns. Their intercept is
+# therefore wide and catches only a large slowdown; the 0.5 ns per term binds on large laws.
+# A job that misses the bound is rerun rather than the bound loosened.
 _testhelper_rate_equation_time_limit(n_terms) = 50e-9 + 0.5e-9 * n_terms
 
-function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec; seed=42)
+# The times come from the speed child, which runs without CI's coverage counters and bounds
+# checks (`_testhelper_gate_readings`). The allocations are counted in this process, so CI
+# checks them under both.
+function _testhelper_test_performance(spec::_testhelper_MechanismTestSpec)
     m = spec.mechanism
     met_names = spec.metabolite_names
     @testset "Performance" begin
-        rng = Random.MersenneTwister(seed)
+        rng = Random.MersenneTwister(42)
         params, Keq, concs, _ = _testhelper_random_independent_params_concs(
             m, met_names; rng=rng)
-        allocs, t = _testhelper_test_rate_equation_performance(
+        allocs, _ = _testhelper_test_rate_equation_performance(
             compile_rate_equation(m), params, Keq, concs)
         @test allocs == 0
         n = _testhelper_denominator_terms(m)
-        @test t < _testhelper_rate_equation_time_limit(n)
+        (; law, per_row, allowed) = _testhelper_gate_readings(m)
+        @test law < _testhelper_rate_equation_time_limit(n)
         @test _testhelper_loss_allocations(_testhelper_loss_problem(m)) == 0
         @test _testhelper_loss_allocations(
             _testhelper_loss_problem(m; absolute = true)) == 0
-        (; per_row, allowed) = _testhelper_loss_time_per_row(m)
-        @info "$(spec.name): rate law $(round(1e9t; digits = 1)) ns, $n terms, " *
+        @info "$(spec.name): rate law $(round(1e9law; digits = 1)) ns, $n terms, " *
               "loss! $(round(1e9per_row; digits = 1)) ns per row, " *
               "allowed $(round(1e9allowed; digits = 1))"
         @test per_row <= allowed
@@ -1295,16 +1298,16 @@ end
                                  _testhelper_large_ter_bi_mechanisms))
         params, Keq, concs, _ = _testhelper_random_independent_params_concs(
             m, collect(metabolites(m)); rng = Random.MersenneTwister(42))
-        allocs, t = _testhelper_test_rate_equation_performance(
+        allocs, _ = _testhelper_test_rate_equation_performance(
             compile_rate_equation(m), params, Keq, concs)
         n = _testhelper_denominator_terms(m)
+        (; law, per_row, allowed) = _testhelper_gate_readings(m)
         @test allocs == 0
-        @test t < _testhelper_rate_equation_time_limit(n)
+        @test law < _testhelper_rate_equation_time_limit(n)
         @test _testhelper_loss_allocations(_testhelper_loss_problem(m)) == 0
         @test _testhelper_loss_allocations(
             _testhelper_loss_problem(m; absolute = true)) == 0
-        (; per_row, allowed) = _testhelper_loss_time_per_row(m)
-        @info "large law $i: rate law $(round(1e9t; digits = 1)) ns, $n terms, " *
+        @info "large law $i: rate law $(round(1e9law; digits = 1)) ns, $n terms, " *
               "loss! $(round(1e9per_row; digits = 1)) ns per row, " *
               "allowed $(round(1e9allowed; digits = 1))"
         @test per_row <= allowed
