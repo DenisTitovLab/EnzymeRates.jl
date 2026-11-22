@@ -899,7 +899,7 @@ conformational type (KNF, mnemonic, slow isomerization) adds one
 `_requires_hyperbolic_catalysis` method and calls the predicate in its promotion
 move.
 
-`test/Enumeration/test_mechanism_enumeration.jl` bounds the memory the enumeration holds
+`test/Enumeration/test_starting_mechanisms.jl` bounds the memory the enumeration holds
 and allocates: the bytes each candidate of the bi-bi starting set holds
 (`Base.summarysize`), the bytes the bi-bi starting set and one expansion allocate, and the
 bytes the ter-ter `init_mechanisms` call allocates, each for a known number of candidates.

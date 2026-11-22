@@ -4479,16 +4479,6 @@ end
           "that the limit does not depend on how fast those steps vanish."
 end
 
-@testset "_redundant_copy_groups builds each conformation from its own law" begin
-    # An aggregate regression pin over the thirteen :OnlyI fixtures: the copy rule reads
-    # the active conformation without its :OnlyI groups and the inactive one without its
-    # :OnlyA groups, and it flags none of them.
-    for (label, am) in pairs(_testhelper_onlyi_fixtures())
-        @test (label, EnzymeRates.Enumeration._redundant_copy_groups(
-            _testhelper_candidate(am))) == (label, Int[])
-    end
-end
-
 # ── Admission on written mechanisms ───────────────────────────────────────────────────
 
 @testset "a second free form is admitted where a reading drains it" begin

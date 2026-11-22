@@ -346,7 +346,7 @@ _testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
     # nearly all of it, so uni-uni alone takes only milliseconds, and a warm/cold ratio of
     # times would compare the warm run's own work with a few milliseconds of compiling.
     # The compile time itself does not depend on machine speed. The in-process ter-ter
-    # ceiling lives in test_mechanism_enumeration.jl.
+    # ceiling lives in test_starting_mechanisms.jl.
     @testset "compile reuse: bi-bi warms all of uni-uni" begin
         @info "compile reuse: " *
               "uni_cold=$(round(t_uni_cold * 1e3; digits=1))ms  " *

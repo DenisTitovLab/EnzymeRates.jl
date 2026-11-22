@@ -8,7 +8,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 ## Known issues
 
 - **The ter-ter starting set is large to hold.**
-  The ter-ter `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`)
+  The ter-ter `init_mechanisms` testset (`test/Enumeration/test_starting_mechanisms.jl`)
   keeps 251,107 mechanisms, which hold 723 MiB of live heap (3,019 bytes each). Its call
   peaks at 1.83 GiB resident (1.82-1.83) and takes 61.9 s (60.4-62.0), 27.6 s of it in
   garbage collection, against a time limit of 400 s that excludes garbage collection.
@@ -30,7 +30,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     (3.84-3.86 GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run
     each, when the stored facts grew the retained mechanisms (2.6-3.0 and 2.6-2.7 GB before
     them). The ter-ter `init_mechanisms` testset
-    (`test/Enumeration/test_mechanism_enumeration.jl`) leaves about 1 GB of garbage. No test
+    (`test/Enumeration/test_starting_mechanisms.jl`) leaves about 1 GB of garbage. No test
     value retains the garbage: a full collection after the testset frees it (live bytes fall
     from 0.94 to 0.055 GiB). CI runs Julia 1.11 only in the lower-bound job, on a runner
     with more memory, so nothing checks the compat floor against the 4 GB that

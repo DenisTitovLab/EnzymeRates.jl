@@ -5355,13 +5355,120 @@ function _testhelper_test_rate_equation_performance(rate, params, Keq, concs)
     return allocs, best
 end
 
+# Fixture rules for this file are in CLAUDE.md, "Enumeration-engine tests":
+# every mechanism inline via the macro, every move test asserts the exact
+# child set.
+
+# The names a form's record (`Enumeration._FormRecord`) binds, productively or as copies.
+_testhelper_bound(f) = [f.productive; f.copies]
+
+"""Numeric degeneracy probe (test oracle only): true when the rate at zero products does not
+need some substrate (ratio of the rate at 10⁻⁸ of it to the rate at 1 stays above 10⁻³), or
+grows without bound as the substrates scale (10⁹ against 10⁶), or the mirror for
+products."""
+function _testhelper_degenerate(m; ndraws = 2)
+    fp = collect(parameters(m))
+    g = _testhelper_graph(m)
+    subs, prods = g.substrates, g.products
+    mets = sort(collect(EnzymeRates.metabolites(m)))
+    rate = compile_rate_equation(m)
+    rng = MersenneTwister(7)
+    for _ in 1:ndraws
+        θ = exp.(randn(rng, length(fp)))
+        p = NamedTuple{Tuple(fp)}(Tuple(θ))
+        keq = exp(randn(rng))
+        _testhelper_v(d) =
+            rate(NamedTuple{Tuple(mets)}(Tuple(get(d, x, 0.0) for x in mets)), p, keq)
+        for side in (subs, prods)
+            base = _testhelper_v(Dict(x => 1.0 for x in side))
+            for x in side
+                r = _testhelper_v(Dict(y => (y == x ? 1e-8 : 1.0) for y in side)) / base
+                (isfinite(r) && abs(r) < 1e-3) || return true
+            end
+            big = _testhelper_v(Dict(x => 1e9 for x in side)) /
+                  _testhelper_v(Dict(x => 1e6 for x in side))
+            big > 10 && return true
+        end
+    end
+    false
+end
+
 # Ground truth for the parameter counts the enumeration moves report: the number of
 # fitted parameters of the compiled rate equation.
 _testhelper_fitted(x) = length(parameters(x))
 
+# Whether step `k` of candidate `c` binds a modifier copy: a binding into a form whose
+# record holds one copy more than its source's.
+_testhelper_binds_copy(c, k) =
+    (e = c.mechanism.catalytic.steps[k];
+     EnzymeRates.Enumeration._is_binding(e) &&
+         length(c.forms[e.to].copies) == length(c.forms[e.from].copies) + 1)
+
+# Whether step `e` of candidate `c` is a fused binding: it takes up one metabolite and
+# gives off none, but its target's record is not its source's with that metabolite bound
+# and the residual unchanged.
+function _testhelper_is_fused(c, e)
+    EnzymeRates.Enumeration._is_binding(e) || return false
+    f, t = c.forms[e.from], c.forms[e.to]
+    x = c.mechanism.catalytic.metabolites[only(e.taken_up)]
+    !((f.adds, f.subtracts) == (t.adds, t.subtracts) &&
+      sort!([_testhelper_bound(f); x]) == sort!(_testhelper_bound(t)))
+end
+
+# Whether `m` holds an isomerization step. It reads the graph's steps, not
+# `_testhelper_graph`: the population tests call it on every child of two expansion
+# levels, where building the test reader each time would dominate their run time.
+_testhelper_holds_iso(m) =
+    any(EnzymeRates.Mechanisms._is_iso, m.catalytic.steps)
+
+# The rapid-equilibrium flags of each kinetic group's edges of `m`, group by group.
+_testhelper_group_flags(m) = (cm = m.catalytic;
+                              [[cm.steps[k].rapid_equilibrium for k in ks]
+                               for ks in _testhelper_group_members(cm)])
+
+# Whether a step of graph `m` binds a metabolite named in `xs`.
+_testhelper_binds(m, xs...) = e -> EnzymeRates.Enumeration._is_binding(e) &&
+    m.catalytic.metabolites[only(e.taken_up)] in xs
+
+# Whether a step is a Theorell–Chance step: it takes up one metabolite and gives off
+# another.
+_testhelper_is_tc(e) = !isempty(e.taken_up) && !isempty(e.given_off)
+
+# The flags of graph `m` with every kinetic group that holds an edge satisfying one of
+# `preds` turned steady state.
+function _testhelper_flip_flags(m, preds...)
+    re = _testhelper_flags(m)
+    hit = EnzymeRates.Enumeration._groups_with(
+        k -> any(p -> p(m.catalytic.steps[k]), preds), m.catalytic)
+    re[hit[[e.kinetic_group for e in m.catalytic.steps]]] .= false
+    re
+end
+
 const uni_uni_rxn = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
+end
+
+const bi_bi_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products: P[C], Q[N]
+end
+
+const bi_bi_pp_rxn = @enzyme_reaction begin
+    substrates: A[CX], B[N]
+    products: P[C], Q[NX]
+end
+
+const uni_uni_allo_reg = @enzyme_reaction begin
+    substrates: S[C]
+    products: P[C]
+    allosteric_regulators: R
+    oligomeric_state: 2
+end
+
+const ter_bi_rxn = @enzyme_reaction begin
+    substrates: A[C], B[N], D[X]
+    products: P[CN], Q[X]
 end
 
 # The seed of that reaction: rapid-equilibrium bindings around a steady-state

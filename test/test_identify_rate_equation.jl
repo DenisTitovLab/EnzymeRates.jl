@@ -1876,7 +1876,7 @@ end
 end
 
 # The merged uni-uni and its K-type child at one catalytic subunit
-# (test_mechanism_enumeration.jl, "candidate_mechanisms: a parent's children"): the child's
+# (test_expansion_moves.jl, "candidate_mechanisms: a parent's children"): the child's
 # inactive conformation is free E alone and its certificate maps it onto the parent's
 # law, so it is an L phantom whose law at L = 0 has the parent's key.
 function _testhelper_phantom_pair()
@@ -2515,131 +2515,6 @@ end
     for child in children
         @test parent_of[child] === to_expand[findfirst(kids -> child in kids, per_parent)]
     end
-end
-
-@testset "_degenerate reads the active conformation's law" begin
-    # An activator X that binds only the inactive conformation opens a route whose
-    # chemistry only the inactive law holds. The active law, three steady-state steps,
-    # has a maximal rate both ways; read over every step, the route's product release
-    # turns rapid equilibrium and closes a turnover cycle with the X complex's substrate
-    # binding, so the whole graph has no reverse maximal rate. The guard admits the
-    # mechanism.
-    route = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: X
-        steps: begin
-            E + S <--> ES         :: EqualAI
-            ES <--> EP          :: EqualAI
-            EP <--> E + P         :: EqualAI
-            E + X ⇌ EX            :: OnlyI
-            EX + S ⇌ ESX      :: EqualAI
-            ESX <--> EX + P   :: EqualAI
-        end
-    end
-    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(route))
-    @test EnzymeRates.Enumeration._degenerate(
-        _testhelper_candidate(@enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: X
-        steps: begin
-            E + S <--> ES
-            ES <--> EP
-            EP <--> E + P
-            E + X ⇌ EX
-            EX + S ⇌ ESX
-            ESX <--> EX + P
-        end
-    end))
-    # The maximal-rate test turns rapid equilibrium every step that takes up or gives
-    # off a substrate, so masking only the flags would bring the excluded steps back:
-    # here the X route's two Theorell–Chance steps, each taking up S and giving off P,
-    # would close a turnover cycle. Read through the edge mask, the active law keeps
-    # only its three steady-state steps, which have a maximal rate both ways.
-    tc_route = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: X
-        steps: begin
-            E + S <--> ES           :: EqualAI
-            ES <--> EP            :: EqualAI
-            EP <--> E + P           :: EqualAI
-            E + X ⇌ EX              :: OnlyI
-            EX + S <--> FX + P    :: EqualAI
-            FX + S <--> EX + P    :: EqualAI
-        end
-    end
-    cm = tc_route.catalytic
-    on = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
-        tc_route).active
-    re = _testhelper_flags(cm)
-    @test !EnzymeRates.Enumeration._has_vmax(cm, re .& on, cm.substrates)
-    @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates, on)
-    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(tc_route))
-    # Read over every step, the X route's merged complex EPX sits in rapid
-    # equilibrium with both sides (condition C), while the maximal rate exists both
-    # ways: the steady-state FX <--> EX keeps the route from closing a
-    # rapid-equilibrium turnover cycle. Read through the edge mask, the route lies
-    # outside the active law.
-    merged_route = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: X
-        steps: begin
-            E + S <--> ES           :: EqualAI
-            ES <--> EP            :: EqualAI
-            EP <--> E + P           :: EqualAI
-            E + X ⇌ EX              :: OnlyI
-            EX + S ⇌ EPX        :: EqualAI
-            EPX ⇌ FX + P        :: EqualAI
-            FX <--> EX            :: EqualAI
-        end
-    end
-    cm = merged_route.catalytic
-    on = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
-        merged_route).active
-    re = _testhelper_flags(cm)
-    subs = cm.substrates
-    @test cm.enzyme_forms[EnzymeRates.Enumeration._merged_complexes(
-        _testhelper_candidate(cm), subs)] == [:EPX]
-    @test isempty(
-        EnzymeRates.Enumeration._merged_complexes(_testhelper_candidate(cm), subs, on))
-    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
-        _testhelper_candidate(cm), re)
-    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
-        _testhelper_candidate(cm), re, on)
-    @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&
-          EnzymeRates.Enumeration._has_vmax(cm, re, cm.products)
-    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(merged_route))
-    # The same route through a rapid-equilibrium Theorell–Chance step. Read over every
-    # step, that step takes up S and gives off P in rapid equilibrium (condition C), and
-    # the maximal rate again exists both ways; read through the edge mask, the step lies
-    # outside the active law.
-    re_tc_route = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: S
-        products: P
-        modifiers: X
-        steps: begin
-            E + S <--> ES           :: EqualAI
-            ES <--> EP            :: EqualAI
-            EP <--> E + P           :: EqualAI
-            E + X ⇌ EX              :: OnlyI
-            EX + S ⇌ FX + P       :: EqualAI
-            FX <--> EX            :: EqualAI
-        end
-    end
-    cm = re_tc_route.catalytic
-    on = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(
-        re_tc_route).active
-    re = _testhelper_flags(cm)
-    @test EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
-        _testhelper_candidate(cm), re)
-    @test !EnzymeRates.Enumeration._chemistry_equilibrates_both_sides(
-        _testhelper_candidate(cm), re, on)
-    @test EnzymeRates.Enumeration._has_vmax(cm, re, cm.substrates) &&
-          EnzymeRates.Enumeration._has_vmax(cm, re, cm.products)
-    @test !EnzymeRates.Enumeration._degenerate(_testhelper_candidate(re_tc_route))
 end
 
 @testset "_cv_model_selection: flatten reproduces serial LOOCV per candidate" begin

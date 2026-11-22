@@ -1160,7 +1160,7 @@ end
 @testset "ping-pong seeds' tagging children are admitted, distinct and oracle-checked" begin
     # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
     # form) of the census ping-pong reaction. Each seed gets one base, which stops the
-    # inactive conformation's catalysis and passes the guard (test_mechanism_enumeration.jl,
+    # inactive conformation's catalysis and passes the guard (test_expansion_moves.jl,
     # "the tagging search extends a tag set whose child the guard rejects", holds a parent
     # with several bases). The move emits 94 children and the guard keeps 53; class 3
     # rejects none of the other 41, admission rejects them all. Every kept child is
@@ -1652,4 +1652,48 @@ end
         @test _testhelper_identifiable_rank(am) ==
               _testhelper_identifiable_rank(_testhelper_plain_of(am))
     end
+end
+
+# ── The invariant checker ─────────────────────────────────────────────────────────────
+
+@testset "_testhelper_assert_mechanism_invariants: coverage of every reactant" begin
+    # POSITIVE: the init mechanisms of a reaction with an inhibitor bind no inhibitor
+    # yet; the coverage check reads substrates and products only.
+    rxn_inh = @enzyme_reaction begin
+        substrates: S[C]
+        products:   P[C]
+        competitive_inhibitors: R
+    end
+    for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn_inh))
+        @test _testhelper_assert_mechanism_invariants(m) === nothing
+    end
+
+    # NEGATIVE: a declared substrate T that no step takes up. The macro rejects such a
+    # mechanism; the canonical graph of the walker's raw value, which no constructor
+    # check has read, holds it, and the helper must fail on it. This half checks that the
+    # oracle can fail.
+    @test_throws(ErrorException("Mechanism: substrate T is declared, but no step uses it"),
+                 @enzyme_mechanism begin
+        substrates: S, T
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
+        end
+    end)
+    raw_unused = EnzymeRates.DSL.raw_mechanism(:(begin
+            substrates: S, T
+            products: P
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EP
+                EP ⇌ E + P
+            end
+        end))
+    m_unused = _testhelper_plain_of(EnzymeRates.Mechanisms._canonical(
+        [raw_unused.substrates; raw_unused.products], raw_unused.forms, [1, 2], [3],
+        raw_unused.steps))
+    @test_throws(ErrorException("declared substrate/product T appears in no step"),
+                 _testhelper_assert_mechanism_invariants(m_unused))
 end
