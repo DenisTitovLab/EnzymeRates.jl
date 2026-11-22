@@ -246,9 +246,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   under coverage counters and `--check-bounds=yes`. The gate reads its times in a child
   process without either (Developer page, What a fit costs), where the first effect
   measured 7 and 17 ns on aarch64 rather than 18 and 29; whether that ends the failures on
-  CI is not known. Not measured: x86 and 16 KB pages (macOS on Apple Silicon). The investigations, with their scripts and scans, are on the
-  maintainer's machine: `claude-scratchpad/loss-timing-investigation/`, and `lawgate/`,
-  `inline-memory/`, `compiled-loss/` and `loss-two-loops/` in
+  CI is not known. Not measured: x86 and 16 KB pages (macOS on Apple Silicon). The
+  investigations, with their scripts and scans, are on the maintainer's machine:
+  `claude-scratchpad/loss-timing-investigation/`, and `lawgate/`, `inline-memory/`,
+  `compiled-loss/`, `loss-two-loops/`, `loss-guard/` and `nocov-gate/` in
   `claude-scratchpad/lean-mechanism-spike/`.
 - **The fit-cost pin failed once in a full suite.**
   "A fit costs about its loss! calls" (`test/Fitting/test_fit_rate_equation.jl`) failed once
