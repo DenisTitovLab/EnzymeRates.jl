@@ -79,37 +79,16 @@ results and writes the CSV outputs to `save_dir`; the workers write nothing.
 
 ## Running on a compute cluster with many machines
 
-On a cluster, swap the `addprocs` line for a cluster manager that starts workers
-across the allocated nodes — the rest of the script is identical. For Slurm,
-`SlurmClusterManager.jl` reads the allocation and starts one worker per task.
-Save the script as `identify.jl`:
+On a cluster, swap the `addprocs` line for a cluster manager that starts workers across the
+allocated nodes. For Slurm, `SlurmClusterManager.jl` reads the allocation and starts one
+worker per task, so the first two lines of the script above become:
 
 ```julia
 using Distributed, SlurmClusterManager, CSV
 addprocs(SlurmManager())                     # one worker per Slurm task
-
-@everywhere using EnzymeRates, OptimizationCMAEvolutionStrategy
-
-table = CSV.File("rate_data.csv")
-data = (group = table.group, Rate = table.Rate,
-        A = table.A, B = table.B, P = table.P, Q = table.Q)
-
-rxn = @enzyme_reaction begin
-    substrates: A[C], B[C]
-    products:   P[C], Q[C]
-end
-# A measured turnover at stated concentrations sets the scale of the rate constants;
-# here the first data row.
-reference = [(A = data.A[1], B = data.B[1], P = data.P[1], Q = data.Q[1]) => data.Rate[1]]
-prob = IdentifyRateEquationProblem(rxn, data, 5.0; reference)
-
-results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
-
-# Clean up the workers when the run finishes
-for p in workers()
-    rmprocs(p)
-end
 ```
+
+The rest of the script is unchanged. Save it as `identify.jl`.
 
 Submit the script with `sbatch`: the batch script requests the allocation and
 launches Julia, and `SlurmManager()` then starts one worker per allocated task.

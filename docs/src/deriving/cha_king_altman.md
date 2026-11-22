@@ -1,16 +1,17 @@
 # The Cha / King–Altman algorithm
 
-EnzymeRates derives rate equations symbolically with the King–Altman schematic
-method [KingAltman1956](@cite), extended by Cha's rapid-equilibrium treatment
-[Cha1968](@cite). What makes this practical is Julia's metaprogramming: the
-whole derivation runs **at compile time** inside `@generated` functions. The
-first time the function [`compile_rate_equation`](@ref) returns for a mechanism is called,
-the package performs the full symbolic derivation once and writes the resulting
-closed-form expression directly into the compiled method. Every later call is
-just that expression — a plain arithmetic formula with no symbolic machinery
-left behind, no heap allocations, and a runtime on the order of **100 ns** on a
-modern processor. The fitter can therefore evaluate the rate equation millions
-of times per cross-validation fold and never pay the symbolic cost again.
+EnzymeRates derives rate equations symbolically with the King–Altman schematic method
+[KingAltman1956](@cite), extended by Cha's rapid-equilibrium treatment [Cha1968](@cite).
+What makes this practical is Julia's metaprogramming: the whole derivation runs **at compile
+time** inside `@generated` functions. The first time the function
+[`compile_rate_equation`](@ref) returns for a mechanism is called, the package performs the
+full symbolic derivation once and writes the resulting closed-form expression directly into
+the compiled method. Every later call is just that expression — a plain arithmetic formula
+with no symbolic machinery left behind and no heap allocations. A small law takes 1–8 ns per
+call on an aarch64 development machine, and the test suite holds every law it times, up to
+858 denominator terms, under 50 ns plus 0.5 ns per term. The fitter can therefore evaluate
+the rate equation millions of times per cross-validation fold and never pay the symbolic
+cost again.
 
 ## Overview of the algorithm
 

@@ -42,13 +42,9 @@ end
 metabolites(uni_uni)
 ```
 
-A table with no rows, a missing required column, a missing metabolite column, a
-metabolite named `group` or `Rate`, a zero, non-finite or missing `Rate`, a
-concentration that is not a finite number ≥ 0, a `Keq` that is not positive and finite,
-a `reference` passed with `absolute = true`, or a `reference` that names an unknown
-metabolite, has a concentration that is not a finite number ≥ 0, or has a zero or
-non-finite turnover each raises an `ErrorException` at construction — the check runs
-before any fitting.
+The constructor checks the table, `Keq` and any `reference` before any fitting and raises
+an `ErrorException` on what the fit cannot use, such as a missing column or a zero `Rate`;
+the `FittingProblem` constructor in the [API Reference](@ref) lists every check.
 
 ## Building the `FittingProblem`
 

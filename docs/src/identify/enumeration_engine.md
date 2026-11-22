@@ -374,7 +374,8 @@ constant. `:OnlyA` zeroes out the I-state and adds no parameter of its own.
 
 Adds one of the reaction's allosteric regulators as a ligand at a new or an existing
 regulatory site, with an allosteric state drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
-`:EqualAI` only at a mixed existing site). No-op on a non-allosteric input.
+`:EqualAI` only at a mixed existing site). The search applies this move only to an
+allosteric mechanism.
 
 **Parameter delta:**
 - `:OnlyA` or `:OnlyI`: **+1** (one binding constant `K_A` or `K_I`).
@@ -383,10 +384,10 @@ regulatory site, with an allosteric state drawn from `{:OnlyA, :OnlyI, :Nonequal
 ### 6. Relax an `:EqualAI` group to independent A/I states
 
 Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric state to `:NonequalAI`, giving the
-active-state and inactive-state versions of the group independent parameters. No-op on a
-non-allosteric input. The chemistry groups relax together, and only while no binding group
-is `:OnlyA`. A child that fails the well-posedness guard or the binding test is dropped
-where `candidate_mechanisms` returns it.
+active-state and inactive-state versions of the group independent parameters. The search
+applies this move only to an allosteric mechanism. The chemistry groups relax together, and
+only while no binding group is `:OnlyA`. `candidate_mechanisms` drops a child that fails
+the well-posedness guard or the binding test.
 
 **Parameter delta:**
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
@@ -395,14 +396,14 @@ where `candidate_mechanisms` returns it.
 
 ### 7. Merge two regulatory sites
 
-Combines two regulatory sites into one shared site, so their ligands compete for it
-rather than binding independently. For each merged pair the move also enumerates the
-antagonist forms: one ligand may switch to `:EqualAI` — binding both conformations
-equally, with no allosteric effect of its own — so that it acts purely by displacing
-the other ligand from the shared site. An activator that displaces an inhibitor still
-reads as activation, and an inhibitor that displaces an activator still reads as
-inhibition, so the observable effect is preserved. No-op on a non-allosteric input or a
-single-site mechanism.
+Combines two regulatory sites into one shared site, so their ligands compete for it rather
+than binding independently. For each merged pair the move also enumerates the antagonist
+forms: one ligand may switch to `:EqualAI` — binding both conformations equally, with no
+allosteric effect of its own — so that it acts purely by displacing the other ligand from
+the shared site. An activator that displaces an inhibitor still reads as activation, and an
+inhibitor that displaces an activator still reads as inhibition, so the observable effect is
+preserved. The search applies this move only to an allosteric mechanism, and a mechanism
+with one regulatory site gets no child from it.
 
 **Parameter delta:** **+0**. Each ligand keeps its one binding constant; only the
 binding topology changes. The merged mechanism is a distinct rate equation, which the

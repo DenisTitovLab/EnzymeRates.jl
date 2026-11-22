@@ -40,13 +40,6 @@ what the form holds keeps the rate law readable. The result is a `Mechanism`, a 
 value: displayed, `m` prints as the block that builds it, with its lists sorted and its
 steps in canonical order.
 
-When the package names forms itself, in the mechanism search, it joins the bound
-metabolites' names without a separator (`EAB`), so two forms could render one name:
-with `Ac`, `CoA` and `AcCoA`, E with Ac and CoA bound and E with AcCoA bound would both
-be `EAcCoA`. The search therefore stops at its start on a reaction whose names spell one
-string two ways, and its error names both spellings (`Ac + CoA and AcCoA both spell
-AcCoA`). Rename one, for example `Acetyl`.
-
 ---
 
 ## Derive the rate equation
@@ -194,26 +187,12 @@ predict held-out groups no better, so the one-standard-error rule keeps the smal
 narrow, which makes the search fast and deterministic: at each parameter count the beam
 admits the lowest-loss rate-law key of the first sweep there, then only a key whose loss is
 the lowest that count has seen, and every mechanism of an admitted key expands. The full
-production search uses the wider defaults
-(`min_beam_width=50`, `loss_rel_threshold=1.3`, `loss_abs_threshold=0.001`,
-`loss_parsimony_threshold=0.99`, `max_param_count=20`, `eq_complexity_filter=337`)
-and can run over 100,000 fits, so it usually calls for many cores (see
-[How long a search takes](@ref) and [Running in parallel](identify/parallel.md)).
-`save_dir` (by default a new `yyyy_mm_dd_results` directory under the working
-directory) must not already hold results; the search writes its progress and
-results there:
-`progress.log`, `initial_mechanisms.csv`, one `equation_search_iteration_N.csv`
-per beam iteration, and — once cross-validation finishes —
-`loocv_results.csv` (the full leave-one-group-out table for every candidate that
-entered CV) and `best_equation.csv` (the single selected equation with its
-fitted parameters). `loocv_results.csv` and `best_equation.csv` persist the
-model-selection outcome, so a cluster run's result is available without re-deriving it
-from the iteration files. The `rate_equation` column of `loocv_results.csv` and of the
-search CSVs holds the law in named coefficients without their definitions, which take most
-of the bytes, so the text does not run; `best_equation.csv` holds the full coefficient form.
-For the full form of any row, call
-`rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients = true)`.
+production search uses the wider defaults (`min_beam_width=50`, `loss_rel_threshold=1.3`,
+`loss_abs_threshold=0.001`, `loss_parsimony_threshold=0.99`, `max_param_count=20`,
+`eq_complexity_filter=337`) and can run over 100,000 fits, so it usually calls for many
+cores (see [How long a search takes](@ref) and [Running in parallel](identify/parallel.md)).
 
-Each CSV has an `at_bound` column: the parameters at a box edge in the fit on all rows,
-separated by `;`. A parameter at a bound is not necessarily wrong; it means the data do
-not pin it down.
+`save_dir` (by default a new `yyyy_mm_dd_results` directory under the working directory)
+must not already hold results. The search writes its progress and results there, ending
+with `loocv_results.csv`, the cross-validation table, and `best_equation.csv`, the selected
+equation with its fitted parameters; [The files in `save_dir`](@ref) lists every file.

@@ -26,21 +26,12 @@ moves — splitting a shared rate constant, flipping a rapid-equilibrium group t
 state, adding a regulator, or making the enzyme allosteric. Every move yields slightly
 more complex children, so the beam meets candidates in order of increasing complexity.
 
-The beam first fits every starting mechanism, each at its own parameter count.
-A degenerate seed is not among them: its rate at zero
-products ignores some substrate or never saturates, or the same holds for
-products, so it is not worth a fit, but it is the only parent of mechanisms that
-are not degenerate. Every seed with two chemistry isomerizations, such as a
-ping-pong seed, is one: a seed holds one steady-state step, so its other
-isomerization sits at rapid equilibrium with the steps on both its sides. The
-enumeration replaces such a seed at once by its children that are not degenerate,
-which the beam fits beside the other starting mechanisms. Only a flip of a
-rapid-equilibrium group to steady state can cure it, by turning that isomerization steady
-state or every step on one of its sides; the other moves keep which steps are at rapid
-equilibrium, so their children stay degenerate and are not fitted. The children's rows,
-like the starting mechanisms' rows, name no parent, and the degenerate mechanism gets no
-row of its own: an error in its expansion stops the search at its start. A degenerate
-mechanism that a move builds is fitted like any other.
+The beam first fits every starting mechanism, each at its own parameter count. A degenerate
+seed, whose rate at zero products ignores a substrate or never saturates (or the same at
+zero substrates), gets no fit and no row: the enumeration replaces it by its flip children
+that are not degenerate (see [The enumeration engine](@ref)), whose rows, like every
+starting mechanism's, name no parent. An error while expanding such a seed stops the search
+at its start. A degenerate mechanism that a move builds is fitted like any other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
 constants share a key, count once at the key's lowest loss, and share one fit, which each

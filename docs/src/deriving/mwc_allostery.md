@@ -298,19 +298,11 @@ vanishing rates, and the inactive conformation binds A and Q and turns nothing o
 
 Two of the face checks, that no cut-off form fills faster than it empties and that the
 cut-off forms on a faster route cannot change the limit, rest on numerical tests, not on a
-proof. The package was run on 78,554 mechanisms in ten populations: taggings of uni-uni,
-bi-bi, ping-pong, ter-bi, bi-ter and ter-ter mechanisms, with and without an inhibitor or an
-`:OnlyI` group, one expansion round of the search, and the test suite's allosteric
-mechanisms. It accepts 1,575 of them only through its search for energies or through cut-off
-forms that cannot change the limit. Two numerical oracles, which follow the two-conformation
-mass-action steady state as the rapid-equilibrium steps speed up and the excluded steps
-vanish along many paths, were run on all of those of 8 steps or fewer and on samples of the
-rest. They agree with the package on all 591 small ones along the harshest paths, on 598
-larger ones along standard paths, and on 100 ter-ter ones along the harshest paths. At two
-catalytic subunits the steady state equals the law for 40 of 40 sampled. With the first of
-the two checks switched off, the package accepts 96 small mechanisms more in one population,
-and 18 of them fail the harshest test. Admission is not exact: it rejects some mechanisms
-whose law is the limit, which the repository's `ROADMAP.md` lists.
+proof. The package was run on 78,554 mechanisms. Among those it accepts only through its
+search for energies or through cut-off forms that cannot change the limit, two numerical
+oracles agree with it on every mechanism they checked; [Well-posedness guard](@ref), on the
+Developer page, gives the evidence. Admission is not exact: it rejects some mechanisms whose
+law is the limit, which the repository's `ROADMAP.md` lists.
 
 When the steps a conformation keeps join the two sides of an excluded rapid-equilibrium
 step, as in the second example, the error says so and offers each fix that the package

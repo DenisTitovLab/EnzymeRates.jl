@@ -224,18 +224,10 @@ page, which lists its columns. Its first five rows, in five of its columns:
 first(results.cv_results[:, [:n_params, :loss, :cv_score, :cv_score_se, :mechanism_id]], 5)
 ```
 
-`results.cv_results` and the selected `results.best` are also written to
-`save_dir`, as `loocv_results.csv` (this whole table) and `best_equation.csv`
-(the winning row: equation string plus fitted parameters). They sit alongside
-the per-iteration `equation_search_iteration_N.csv` files, so a cluster run's
-model-selection outcome is saved without re-running cross-validation. Every row
-names its mechanism by its text (`mechanism`) and a short id (`mechanism_id`),
-and a child names its parent's id (`parent_id`). Each row also carries its law's key
-(`key`), which mechanisms whose laws agree up to renaming the fitted constants share: the
-search fits one mechanism per key, and the others read that fit under their own names
-(`fit_inherited`, `fit_source_id`). Read the CSVs with the ids as text,
-`CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String,
-:fit_source_id => String))`; [Best mechanism selection](@ref) lists every column.
+The search also writes `results.cv_results` and the selected row to `save_dir`, as
+`loocv_results.csv` and `best_equation.csv`, beside a file of the rows each iteration
+fitted, so a cluster run keeps its selection; [The files in `save_dir`](@ref) lists every
+file.
 
 ## Loud failures
 
