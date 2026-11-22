@@ -93,21 +93,33 @@ function loss!(x::AbstractVector, fp::FittingProblem)
 
     params = NamedTuple{ParamNames}(ntuple(i -> exp(x[i]), Val(N)))
     Keq = fp.rate_data.Keq
+    data = fp.rate_data.data
 
-    # Pass 1: fill log_ratios_buffer and count sign mismatches. A zero or NaN
-    # prediction counts as one: its sign never equals a nonzero rate's ±1.
+    # Pass 1a: each row's prediction into log_ratios_buffer. The loop holds no branch and,
+    # with the law inlined, no call, so it runs over several rows at once in vector
+    # registers, and no row's concentrations go through the stack to a called law. The
+    # inner `@inbounds` is needed: the outer one does not reach into the closure, and a
+    # bounds check on each column read keeps the loop from vectorizing.
+    cols = ntuple(j -> getproperty(data, MetNames[j]), Val(K))
+    @inbounds @simd for i in 1:n_data
+        concs = NamedTuple{MetNames}(ntuple(j -> @inbounds(cols[j][i]), Val(K)))
+        buf[i] = @inline rate(concs, params, Keq)
+    end
+
+    # Pass 1b: each prediction becomes its log-ratio, or 10 when its sign is wrong, and the
+    # wrong signs are counted. A zero or NaN prediction is wrong: its sign never equals a
+    # nonzero rate's ±1. The `log`, a call, would keep pass 1a from vectorizing. The branch
+    # skips it on a penalized row and costs less than taking it on every row.
+    rates = data.Rate
+    log_abs_rates = fp.log_abs_rates
     n_mismatch = 0
     @inbounds for i in 1:n_data
-        concs = NamedTuple{MetNames}(ntuple(
-            j -> getproperty(fp.rate_data.data, MetNames[j])[i], Val(K),
-        ))
-        pred = rate(concs, params, Keq)
-        meas_sign = sign(fp.rate_data.data.Rate[i])
-        if sign(pred) != meas_sign
+        pred = buf[i]
+        if sign(pred) != sign(rates[i])
             buf[i] = 10.0
             n_mismatch += 1
         else
-            buf[i] = log(abs(pred)) - fp.log_abs_rates[i]
+            buf[i] = log(abs(pred)) - log_abs_rates[i]
         end
     end
 

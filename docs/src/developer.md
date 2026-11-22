@@ -392,7 +392,8 @@ prints as the macro block that builds it (`show`, `src/Mechanisms/mechanism_type
 evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
 `FittingProblem` holds the mechanism and its compiled law, and `loss!` specializes on the
 law's type on purpose: it then reads `parameters(rate)` and `metabolites(rate)` as
-constants and calls the law without dispatch. The optimizer never sees that type.
+constants and inlines the law into its loop over the rows. The optimizer never sees that
+type.
 `fit_rate_equation` takes its `FittingProblem` `@nospecialize` and hands
 `Optimization.solve` a `FitObjective`, which holds `x -> loss!(x, fp)` behind a
 `FunctionWrapper`, so every mechanism gives the solver one problem type: `solve` and the
@@ -788,6 +789,37 @@ law whatever its size, so it reaches 30–50% of a fit on PGK's laws of 6–8 pa
 under 5% on the largest laws. `test/Fitting/test_fit_rate_equation.jl` bounds a fit's time
 by its counted `loss!` calls.
 
+The tables and the profile above measured a `loss!` that called the law once per row, inside
+one loop. The present `loss!` runs three loops over the rows. The first writes each row's
+prediction to `log_ratios_buffer` with the law inlined; it holds no branch and no call, so
+on aarch64 the compiler runs it over two rows at a time in vector registers. The second
+turns each prediction into its log-ratio or the penalty, and the third sums the squares. The
+loss is the same to the bit: 194,880 comparisons with `===` found no difference, over the 48
+gated laws, seven tables of 1 to 500 rows, both modes and 290 parameter points each, among
+them points far outside the box where predictions are zero, infinite or NaN. Per row of a
+500-row table whose rate signs match the law, on one aarch64 core on Julia 1.13.4, the three
+loops take this share of the one loop's time (median over the gated laws of each class,
+three alternating processes per version):
+
+| Laws (denominator terms) | Count | One loop, ns/row | Three loops, ns/row | Share |
+|:-------------------------|------:|-----------------:|--------------------:|------:|
+| Plain, up to 16 | 22 | 4.1–8.4 | 3.8–4.8 | 0.72 |
+| Allosteric, up to 16 | 7 | 5.5–11.4 | 4.2–6.1 | 0.68 |
+| Plain, 25–96 | 9 | 8.3–17.1 | 4.5–8.0 | 0.55 |
+| Allosteric, 18–22 | 3 | 7.7–10.5 | 4.7–5.7 | 0.61 |
+| Allosteric, 284 (LDH) | 1 | 33.4 | 17.3 | 0.52 |
+| Plain, 396–858 | 6 | 46–96 | 20–37 | 0.44 |
+
+Warm fits with the fit-cost test's setup (500 rows, 5 restarts, CMA-ES) take 0.60–0.67 of
+the one-loop time on the test's two laws, PK, PFK-1, HK and Segel's ordered bi-bi, 0.55–0.56
+at 96 and 284 terms, 0.48 at 396, 0.39 at 858 and 0.88 on Uni-Uni, with the same evaluations
+and the same fitted constants. With `loss!` that fast, the solver's own cost per evaluation
+weighs more: on the fit-cost test's two laws a warm fit takes 1.37–1.40 times evaluations ×
+`loss!`, against 1.21–1.22 with one loop. Inlining costs compile time: a fresh mechanism's
+first `loss!`, law call and short fit take 4–10% longer at 12–16 terms, 22% at 96 terms and
+77–117% at 396–858 terms. x86 is not measured; with AVX2 the first loop could run four rows
+at a time. Coverage counters, which every CI job runs with, keep that loop scalar.
+
 On the cluster a fit costs more than on one core. The PFKP and PGK searches of 2026-11-02
 ran 119,453 and 15,700 fits in 62 and 13.3 minutes, at 25 and 40 core-seconds per fit.
 Core-seconds are wall time × workers ÷ fits, so they include startup, enumeration,
@@ -819,8 +851,8 @@ allosteric law often repeats the loss of a plain one.
   place of 64.
 
 None of the figures of the two bullets above or of the next paragraph is today's: the first
-table above gives `loss!` a median of 8.5 ns per row on PGK's sampled laws and 13 ns on
-PFKP's.
+table above gives the one-loop `loss!` a median of 8.5 ns per row on PGK's sampled laws and
+13 ns on PFKP's, and the present `loss!` takes 0.4–0.7 of the one-loop time per row.
 
 The law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on a slow path,
 since the result is a `Float64` either way. `loss!` reads `parameters(rate)` and
@@ -854,8 +886,10 @@ compiled law, and `_testhelper_loss_time_per_row`, in the derivation test file, 
   of the five batches has its own stack depth and its own copy of the inputs.
 - `loss!` is timed against the compiled law and `log` in one process, so machine speed
   cancels out. The bound holds if any batch meets it. Each batch times `loss!` on a new
-  `FittingProblem` and one stack frame deeper than the last, since a law whose loads
-  straddle a 4 KB page of the stack costs 20-30 ns more per row.
+  `FittingProblem` and one stack frame deeper than the last: a law that reads each row from
+  the stack costs 20-30 ns more per row when one of those loads straddles a 4 KB page.
+  `loss!` inlines the law and puts no row there. Where a problem's arrays fall on the heap
+  can still slow `loss!` up to about 2× on aarch64; x86 and 16 KB pages are not measured.
   `_testhelper_loss_time_per_row` gives the reasons for the factor on the law's time and
   for the `log` calls.
 

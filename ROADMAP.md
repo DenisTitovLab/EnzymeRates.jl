@@ -218,41 +218,43 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   With an activator at 0 and 100× K, restarts that fit perfectly reported 0.015× to 2× the
   true K. The data do not constrain K there, so the fit returns any value in the box and
   lists it in `at_bound` only when it lands at an edge.
-- **`loss!` runs 2-5× slower in about one process in nine.**
-  `loss!` stores each row's concentrations and the parameters in one block of its stack
-  frame and passes them by pointer to the compiled rate law, which is not inlined (for every
-  gated law but Uni-Uni). When a 4 KB page boundary of the stack falls inside that block,
-  one of the law's 16- or 32-byte loads straddles the page on every row and costs 20-30 ns
-  more per row, measured in a Lima VM on Apple Silicon with 4 KB pages. The stack's offset
-  within its page is random per process and fixed for its life, so the slow mode looks
-  random: 29 of 256 offsets slow at least one of the 42 gated laws. With address-space
-  randomization off, one 2 KB environment variable reproduces it on unchanged code, and the
-  same laws fail at the same offset at an older commit (47e581ce). The `loss!` gate in
-  `test/Derivation/test_rate_equation_derivation.jl` failed falsely in about one full suite
-  in nine, on several laws at once, each at 26-38 ns per row, while its 20 batches shared
-  one stack depth. It no longer fails from stack placement: each batch times `loss!` a
-  different number of frames deeper. With address-space randomization off, the gate as it
-  was failed in all three runs at one placement, on two or three laws each, and the gate as
-  it is passed there twice and at seven placements 512 bytes apart. On the slowest class of
-  CI runner, where a small law takes 29-36 ns, the compiled law's gate failed in two jobs of
-  five, each on one law, 22 and 31 ns over that law's usual time. Those failures resemble
-  this effect; their cause on x86 is not measured.
-  `_testhelper_test_rate_equation_performance` runs each of its five batches 50 frames
-  deeper than the last, with its own copy of the inputs, which removes every placement
-  effect measured on aarch64. The x86 runners will show whether the failures are gone. A fit
-  still runs `loss!` at one depth, so the effect on a real fit remains; that a fit in such a
-  process evaluates `loss!` slower for its whole life is inferred. The second fix, inlining
-  the rate law in `loss!`, is under investigation. Not measured: 16 KB pages (macOS on Apple
-  Silicon), x86, and the cost to a whole fit. The earlier observations may be this effect:
-  three large laws 15-25% over the gate in one local process, and one `FittingProblem` up to
-  about 40% slower than a fresh one. Windows CI running up to 5% over on six laws is more
-  likely coverage counters, unproven. The investigation, with its scripts and scans, is
-  `claude-scratchpad/loss-timing-investigation/report.md` on the maintainer's machine.
+- **Where their data fall in memory slows the compiled law and `loss!`.**
+  Measured on aarch64 (a Lima VM on Apple Silicon, 4 KB pages); each placement is fixed for
+  the life of a process or of a `FittingProblem`.
+  - The compiled law takes a call's concentrations and parameters by pointer. Called alone,
+    it runs up to 17 ns slower per call (29 ns under coverage counters) where that block
+    straddles a 4 KB page on the heap, and at some stack offsets whose cause is not known.
+    That touches `_reference_scale` (once per fit), `plot_rate_equation_on_data`, user code
+    and the law's speed gate, whose five batches each take their own depth and inputs.
+  - `loss!` inlines the law and puts no row on the stack. In two scans of 48 stack depths
+    in one process over 12 laws, 3 of 1,152 readings ran over 1.5 times the law's median
+    (HK at three adjacent depths, in one scan only), against 23 with the law called once
+    per row. Where a problem's arrays fall on the heap still matters: of 300 fresh problems
+    of each of four small laws, 7-26% ran `loss!` over 1.15 times the law's median and
+    2-10% over 1.5 times, the worst 1.8-2.2 times (with the law called once per row, 6-27%,
+    5-25% and 2.6-4.6 times). The cause is not known.
+  - Over 96 placements of whole processes (environment pads under `setarch -R`), 97 of
+    1,728 warm fits of 18 laws ran over 1.15 times their law's median and 5 over 1.5 times,
+    the worst 1.71 times, and no placement's 18 fits took over 1.05 times the median
+    placement's. With the law called once per row the same scan gave 75, 46, 4.65 and 1.81.
+  On the slowest class of CI runner the law's gate failed in two jobs of five, each on one
+  law, 22 and 31 ns over that law's usual time; those failures resemble the first effect,
+  and their cause on x86 is not measured. Not measured: x86 and 16 KB pages (macOS on
+  Apple Silicon). The investigations, with their scripts and scans, are on the
+  maintainer's machine: `claude-scratchpad/loss-timing-investigation/`, and `lawgate/`,
+  `inline-memory/`, `compiled-loss/` and `loss-two-loops/` in
+  `claude-scratchpad/lean-mechanism-spike/`.
 - **The fit-cost pin failed once in a full suite.**
   "A fit costs about its loss! calls" (`test/Fitting/test_fit_rate_equation.jl`) failed once
   in a full suite on the allosteric bi-bi mechanism, at 0.387 s against 0.265 s allowed; its
-  focused run gave 0.185 s against 0.253 s and the next full suite passed. Whether the
-  stack-page effect of the previous entry causes it is not measured.
+  focused run gave 0.185 s against 0.253 s and the next full suite passed. With the law
+  called once per row (5e1da4e5), the 96-placement scan of the previous entry reproduced
+  that signature: the test failed at 2 of 96 placements, where the fit took 3.4-4.0 times
+  evaluations × the standalone `loss!`, which read its usual 5.1 or 7.0 µs. With the
+  present `loss!` it fails at none of 96. A fit there takes 1.23-1.46 times evaluations ×
+  `loss!` (medians 1.36 and 1.32 on the two laws) against the bound of 1.5 times plus 3 ms
+  per restart: the solver's 1.0-1.4 µs per evaluation weighs more beside a faster `loss!`.
+  The test's comment that a fit takes 1.1-1.25 times its `loss!` calls is out of date.
 - **A pumped-basin message can say "nothing runs back" of a feed that runs back.**
   The guard's `_PUMPED` verdict names a feed into a stranded basin. It prefers a feed whose
   reverse is dead; when every feed has a live reverse and enters from outside the basin and
@@ -500,16 +502,19 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   the inferred x metabolite.
 - **Spend less time compiling each law.**
   Compiling a fresh law takes 0.10-0.19 s, 9-12% of the PFKP and PGK searches' fit time and
-  30-50% on PGK's laws of 6-8 parameters. `loss!`'s second pass does not depend on the
-  mechanism, so moving it behind a function that compiles once may save part of this; the
-  saving is not measured.
+  30-50% on PGK's laws of 6-8 parameters. Inlining the law into `loss!` adds 4-10% to a
+  fresh small law's first fit and 77-117% to a law of 396-858 terms. The loops of `loss!`
+  after its first do not depend on the mechanism, so moving them behind a function that
+  compiles once may save part of this; the saving is not measured.
 - **Reduce what CMA-ES itself costs per evaluation.**
   At 0.10.0, `loss!` no longer takes nearly all of a restart: an evaluation took 22 µs
   against 10 µs in `loss!` on a 20-parameter PFKP law, and 8.1 µs against 6.0 µs at the
-  median of 60 PGK laws, so any faster rate law gains only on the `loss!` part. The solver's
-  eigendecomposition takes 5-14% of a warm fit, and the solver with the rest of the fit up
-  to 20% of PFKP's. It belongs to CMAEvolutionStrategy, so this means a solver option or a
-  change upstream; neither is explored.
+  median of 60 PGK laws, so any faster rate law gains only on the `loss!` part. With the
+  present `loss!`, the solver and the rest of the fit take 1.0-1.4 µs of 3.9-5.1 µs per
+  evaluation on the fit-cost test's two laws (aarch64). The solver's eigendecomposition
+  takes 5-14% of a warm fit, and the solver with the rest of the fit up to 20% of PFKP's.
+  It belongs to CMAEvolutionStrategy, so this means a solver option or a change upstream;
+  neither is explored.
 - **Count identifiable parameters with an exact modular rank.**
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
@@ -554,12 +559,23 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   on a small law passes it: the MWC tetramer's former 20.3 ns sits under its 34 ns bound. A
   count of multiplications, additions and power calls per law does not depend on the machine
   and would catch this, at the cost of re-pinning when a law changes on purpose.
-- **Inline the rate law in `loss!` and emit `muladd` in `_horner`.**
-  A call-site `@inline` lets LLVM hoist the arithmetic on parameters alone out of the row
-  loop: `loss!` runs 9–35% faster over seven sampled laws, with up to 75% more first-call
-  compile time. `muladd` gives 2–18%, and the generated code then breaks the binary `+` and
-  `*` shape that the tests assert. Both leave the loss unchanged to 12 digits. They were
-  measured separately on aarch64, and neither has been measured on the cluster's x86 cores.
+- **Emit `muladd` in `_horner`.**
+  `muladd` made `loss!` 2–18% faster over seven sampled laws, and the generated code then
+  breaks the binary `+` and `*` shape that the tests assert. It leaves the loss unchanged to
+  12 digits, not to the bit. It was measured on aarch64 with a `loss!` that called the law
+  once per row, and has not been measured with the present `loss!` or on the cluster's x86
+  cores.
+- **Compute the law's parameter-only coefficients once per `loss!` call.**
+  A prototype splits the law into coefficients that depend only on the constants and
+  `Keq`, computed once per call, and a polynomial in the concentrations for each row, in a
+  vectorized row loop. Warm fits took 0.39 of the one-loop `loss!`'s time on a 96-term law
+  and 0.20 on laws of 396 to 858 terms, where the present `loss!` gives 0.54 and 0.39 to
+  0.47; small allosteric laws gain nothing. It costs a second generator, one new
+  `Derivation` name (a method filling one prediction per row of a table), and a loss that
+  changes in the last digits (at most 3.4e-15 relative). The prototype is
+  `claude-scratchpad/lean-mechanism-spike/compiled-loss/` on the maintainer's machine.
+  Separately, the scalar `log` is the largest per-row cost left for small laws (about 3 ns
+  of 5 to 7); a vectorized `log` is untried.
 - **Seed each identify fit from its mechanism's content.**
   `fit_rate_equation` (`src/Fitting/fit_rate_equation.jl`) draws each restart's starting
   point with `randn` from the running task's random stream, and `_process_batch`
