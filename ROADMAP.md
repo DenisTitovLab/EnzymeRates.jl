@@ -10,7 +10,7 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **The ter-ter starting set is large to hold.**
   The ter-ter `init_mechanisms` testset retains 251,107 mechanisms. When each `Mechanism`
   stored its modifiers, groups, step kinds, directions toward products and step sides, the
-  live heap grew 48% (1,272 to 1,883 MiB), the peak resident set from 2.3 to 3.1 GB, and the
+  live heap grew 48% (1,272 to 1,883 MiB), the peak resident set from 2.3 to 3.1 GiB and the
   extra garbage collection made the call about 20% slower (94 s to 117 s on Julia 1.13); its
   time limit of 400 s excludes garbage collection, about 23% of the call on CI, since a slow
   macOS runner reached 430 s with it and a fast one took 77 s. The step sides cost most: two
@@ -30,10 +30,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   110.8 and 111.3 s (Julia 1.13.4, one process at a time), and builds a mechanism 1.5-2.5×
   faster (1.90 to 1.29 µs for Michaelis–Menten, 28.9 to 11.5 µs for a ter-ter seed of 27
   forms and 55 steps).
-  TASK-17-NUMBERS: the live heap and the peak resident set of the ter-ter testset, and the
-  time of `candidate_mechanisms` on the ter-ter reaction, measured on the lean graph;
-  then keep this entry with those numbers or retire it. No benchmark or pin yet covers the
-  live bytes of a held result set.
+  Measured as those figures were, by
+  `claude-scratchpad/lean-mechanism-spike/gate/measure_terter.jl` (a fresh process per run
+  under `--startup-file=no` and `--heap-size-hint=2500M`, Julia 1.13.4, a warm-up on
+  ter-bi; medians of three runs alternating with commit 56bea2e6, ranges in brackets), the
+  251,107 mechanisms the ter-ter testset keeps hold 723 MiB of live heap (3,019 bytes each)
+  on the lean graph against 1,883 MiB (7,863 bytes) at 56bea2e6. The testset's call peaks
+  at 1.83 GiB resident (1.82-1.83) against 2.99 GiB (2.96-2.99), and takes 61.9 s
+  (60.4-62.0), 27.6 s of it in garbage collection, against 103.4 s (101.6-103.5) with
+  67.7 s. `candidate_mechanisms` on the ter-ter reaction returns 271,621 candidates in
+  104.0 s (103.2-104.5), 56.9 s of it in garbage collection; it peaks at 2.09 GiB resident
+  (2.09-2.10), and its result holds 930 MiB. No benchmark or pin covers the live bytes of a
+  held result set.
   - **On Julia 1.11 the full suite can peak above 4 GB.**
     With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB
     (3.84-3.86 GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run
@@ -266,6 +274,17 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `ES + I ⇌ EIS` neither the mechanism nor its mirror image is offered a fix, though the
   path through the P release passes for the mirror (`test/Derivation/test_admission.jl`,
   "the one rule that tells the states apart").
+- **A rejection reports the fault of the first consistent reading in search order.**
+  When no built reading is consistent and the consistent readings fail in different ways,
+  the guard reports the verdict of the first one its search tries (`_guard_with_reading`),
+  and the search walks the excluded steps in stored step order (`_consistent_columns`).
+  The fault, face and step a rejection reports therefore depend on the stored step order;
+  which mechanisms the guard admits, and by which reading, do not. Under the package's
+  stored order and under the one at commit 56bea2e6, the gate's 78,554 mechanisms
+  (`report-lean.md`, beside `report.md`) get the same admissions, the same admitting
+  readings and, for each consistent reading, the same verdict; but nine ter-bi rejections
+  report `_FILLED` under the first order and `_PUMPED` under the second, 31 rejections
+  report another face, and 800 name another step.
 
 ## Planned
 
