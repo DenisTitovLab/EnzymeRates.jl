@@ -311,6 +311,22 @@ function _testhelper_random_independent_params(m; rng=Random.default_rng())
 end
 
 """
+Random fitted constants of `m` and a random `Keq` (`_testhelper_random_independent_params`),
+then random concentrations of `met_names`, each between 0.1 and 10, and every constant of
+the law, the fitted ones merged with their dependents, for the reference comparisons:
+`(params, Keq, concs, all_params)`.
+"""
+function _testhelper_random_independent_params_concs(
+    m, met_names::Vector{Symbol}; rng=Random.default_rng()
+)
+    params, Keq = _testhelper_random_independent_params(m; rng)
+    conc_vals = Tuple(0.1 + 9.9 * rand(rng) for _ in met_names)
+    concs = NamedTuple{Tuple(met_names)}(conc_vals)
+    all_params = merge(params, dependent_parameter_values(m, params, Keq))
+    return params, Keq, concs, all_params
+end
+
+"""
 Test that `m` stores its steps in the direction the reaction graph gives: `m` written
 back as forms and steps (`_testhelper_written`), each step as stored, builds a scheme that
 turns no step, and writing every step the other way round, in the reverse order, builds
@@ -5371,6 +5387,102 @@ function _testhelper_test_rate_equation_performance(rate, params, Keq, concs)
     end
     return allocs, best
 end
+
+@noinline function _testhelper_rate_rows(rate, rows, params, Keq)
+    acc = 0.0
+    for concs in rows
+        acc += rate(concs, params, Keq)
+    end
+    acc
+end
+
+@noinline function _testhelper_log_rows(rates)
+    acc = 0.0
+    for r in rates
+        acc += log(abs(r))
+    end
+    acc
+end
+
+"""Seconds per data row of `Fitting.loss!` on a 64-row table of `m`, and the most it may
+take: 1.25 times the cost of the compiled rate law on each row, at the parameters `loss!`
+uses, plus eight `log` calls. The bound holds if any of 20 batches meets it, and a real
+slowdown fails every batch. Each batch times `loss!` on a fresh `FittingProblem`, which
+varies the heap, and one level of `_testhelper_at_depth` deeper on the stack than the
+last, which varies where its frame falls within a 4 KB page. A law that reads each row
+from the stack costs 20-30 ns more per row when one of those loads straddles a page
+boundary; `loss!` inlines the law and puts no row there. Where a problem's arrays fall on
+the heap can still slow `loss!` up to about 2× on aarch64; x86 and 16 KB pages are not
+measured. On aarch64 a level takes 576-752 bytes, so the 20 batches fall at 20 offsets
+within the page, at most four in any 430 bytes, the widest slow window seen there. Each
+batch then times the law and the `log` calls, at the gate's own depth. The factor of 1.25
+leaves room for a slowdown once seen on three large laws in one process, 15-25% over the
+law's cost; whether the frame's place on the stack caused it was not tested. The eight
+`log` calls leave room on coverage-instrumented CI jobs: coverage counters on `loss!`'s
+own lines add a cost per row that neither the rate law nor `log` measures. Returns the
+batch with the smallest `per_row / allowed`."""
+function _testhelper_loss_time_per_row(m)
+    table = _testhelper_loss_table(metabolites(m))
+    rows = [NamedTuple{Tuple(metabolites(m))}(Tuple(table[k][i] for k in metabolites(m)))
+            for i in eachindex(table.Rate)]
+    names = parameters(m)
+    x = 0.1 .* randn(Random.MersenneTwister(42), length(names))
+    # `_testhelper_loss_problem` fits at Keq = 2.
+    params = NamedTuple{names}(Tuple(exp.(x)))
+    nrows = length(rows)
+    rate = compile_rate_equation(m)
+    first_problem = _testhelper_loss_problem(m)
+    problems = [first_problem]
+    EnzymeRates.Fitting.loss!(x, first_problem)
+    _testhelper_rate_rows(rate, rows, params, 2.0)
+    _testhelper_log_rows(table.Rate)
+    best(f) = minimum(@elapsed(f()) for _ in 1:10) / nrows
+    out = (; per_row = Inf, allowed = 1.0)
+    for depth in 1:20
+        # Each problem stays alive, so the next one gets new addresses.
+        fresh = _testhelper_loss_problem(m)
+        push!(problems, fresh)
+        per_row = _testhelper_at_depth(depth) do
+            best(() -> EnzymeRates.Fitting.loss!(x, fresh))
+        end
+        t_rate = best(() -> _testhelper_rate_rows(rate, rows, params, 2.0))
+        t_log = best(() -> _testhelper_log_rows(table.Rate))
+        allowed = 1.25 * t_rate + 8 * t_log
+        per_row / allowed < out.per_row / out.allowed && (out = (; per_row, allowed))
+    end
+    out
+end
+
+# Parses the `<label>:<float>` lines a subprocess printed. Returns a Vector{Float64}
+# parallel to `labels` (NaN for any label not found).
+function _testhelper_parse_labeled(out::String, labels::Vector{String})
+    map(labels) do label
+        m = match(Regex("$(label):([0-9.eE+-]+)"), out)
+        m === nothing ? NaN : parse(Float64, m.captures[1])
+    end
+end
+
+# Runs `script` in a fresh Julia subprocess on the test environment, so the script can
+# load test dependencies, and returns what it printed, or "" when it fails, warning with
+# what it wrote to stderr.
+function _testhelper_subprocess_output(script::String)
+    julia_exe = Base.julia_cmd().exec[1]
+    out_buf, err_buf = IOBuffer(), IOBuffer()
+    try
+        run(pipeline(Cmd([julia_exe, "--project=$(Base.active_project())", "-e", script]);
+                     stdout=out_buf, stderr=err_buf); wait=true)
+    catch e
+        @warn "subprocess failed: $e\n$(String(take!(err_buf)))"
+        return ""
+    end
+    String(take!(out_buf))
+end
+
+# Runs `script` as `_testhelper_subprocess_output` does; the script is expected to print
+# `<label>:<float>` for each label in `labels`. Returns a Vector{Float64} parallel to
+# `labels` (NaN for any label not found or on subprocess failure).
+_testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
+    _testhelper_parse_labeled(_testhelper_subprocess_output(script), labels)
 
 # Fixture rules for this file are in CLAUDE.md, "Enumeration-engine tests":
 # every mechanism inline via the macro, every move test asserts the exact

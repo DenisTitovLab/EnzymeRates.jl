@@ -67,37 +67,6 @@ function _testhelper_count_relevant_precompiles(runner_script::String)
     n, String(take!(out_buf))
 end
 
-# Parses the `<label>:<float>` lines a subprocess printed. Returns a Vector{Float64}
-# parallel to `labels` (NaN for any label not found).
-function _testhelper_parse_labeled(out::String, labels::Vector{String})
-    map(labels) do label
-        m = match(Regex("$(label):([0-9.eE+-]+)"), out)
-        m === nothing ? NaN : parse(Float64, m.captures[1])
-    end
-end
-
-# Runs `script` in a fresh Julia subprocess on the test environment, so the script can
-# load test dependencies, and returns what it printed, or "" when it fails, warning with
-# what it wrote to stderr.
-function _testhelper_subprocess_output(script::String)
-    julia_exe = Base.julia_cmd().exec[1]
-    out_buf, err_buf = IOBuffer(), IOBuffer()
-    try
-        run(pipeline(Cmd([julia_exe, "--project=$(Base.active_project())", "-e", script]);
-                     stdout=out_buf, stderr=err_buf); wait=true)
-    catch e
-        @warn "subprocess failed: $e\n$(String(take!(err_buf)))"
-        return ""
-    end
-    String(take!(out_buf))
-end
-
-# Runs `script` as `_testhelper_subprocess_output` does; the script is expected to print
-# `<label>:<float>` for each label in `labels`. Returns a Vector{Float64} parallel to
-# `labels` (NaN for any label not found or on subprocess failure).
-_testhelper_measure_labeled_subprocess(script::String, labels::Vector{String}) =
-    _testhelper_parse_labeled(_testhelper_subprocess_output(script), labels)
-
 @testset "compile-budget" begin
     # Three fresh subprocesses supply every measurement below. Each must be a fresh
     # process: the test process has already loaded the shared fixtures, and whenever
