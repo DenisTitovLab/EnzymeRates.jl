@@ -656,40 +656,12 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
 end
 
 """
-The derived law of `m` over its solve `s`, read without the guard. For a mechanism whose
-active conformation runs a step it is the package's own law (`EnzymeRates.Derivation._law`).
-Otherwise it is a copy of an assembly the package no longer has: the guard rejects such an
-allosteric mechanism (`_NO_ACTIVE_TURNOVER`) and `_law` derives no law for it, so this
-builds its MWC law, its active conformation free E alone (`_flip_only_law`) over the
-inactive law's variables and the rest assembled as `_law` assembles an MWC law. The copy is
-kept only so the oracles can read the mechanisms the guard refuses; it does not follow a
-change to `_law`'s MWC assembly.
-"""
-function _testhelper_unguarded_law(m, s = EnzymeRates.Derivation._solve(m))
-    D = EnzymeRates.Derivation
-    any(EnzymeRates.Mechanisms.steps_in_active_conformation(m)) && return D._law(m, s)
-    LI = D._law(m, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(m);
-                inactive = true)
-    LA = D._flip_only_law(LI)
-    vars = copy(LI.vars)
-    foreach(x -> D._var!(vars, x),
-            view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1)))
-    D._var!(vars, :L)
-    fA, fI = D._cross_weights(LA.trees[1] * LA.shift, LI.trees[1] * LI.shift)
-    sites = Tuple{D._Poly, D._Poly, Int}[(D._site_weight(m, vars, site, false),
-                                          D._site_weight(m, vars, site, true),
-                                          site.multiplicity)
-                                         for site in m.allosteric.regulatory_sites]
-    D._AlloLaw(vars, LI.H, LA, LI, fA, fI, sites, m.allosteric.oligomeric_state)
-end
-
-"""
 The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived law
-(`_testhelper_unguarded_law`) at the parameter values `params` (by name: the fitted
+(`EnzymeRates.Derivation._memo_law`) at the parameter values `params` (by name: the fitted
 constants, `Keq` and, for an allosteric mechanism, `L` and the regulator constants) and the
 concentrations `concs`. `m` is read as it is, without the guard, so the oracles can
-evaluate the law of a mechanism the guard rejects. A law that is 0/0 on a face gives NaN
-there.
+evaluate the law of a mechanism the guard rejects, provided its active conformation runs a
+step. A law that is 0/0 on a face gives NaN there.
 """
 function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
     setprecision(BigFloat, 256) do
@@ -697,7 +669,7 @@ function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
         for (k, v) in concs
             env[k] = BigFloat(v)
         end
-        _testhelper_evaluate_law(_testhelper_unguarded_law(m), env)
+        _testhelper_evaluate_law(EnzymeRates.Derivation._memo_law(m), env)
     end
 end
 
@@ -767,7 +739,7 @@ end
 """
     _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
 
-Detailed-balance residuals of `m`'s derived law (`_testhelper_unguarded_law`) at a random
+Detailed-balance residuals of `m`'s derived law (`EnzymeRates.Derivation._law`) at a random
 parameter point, in 256-bit BigFloat: the law's value at equilibrium concentrations (the
 first product scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times
 lower, then, for an allosteric mechanism, the same ratio of `H·Q` for each conformation
@@ -778,7 +750,7 @@ checked too.
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
         s = EnzymeRates.Derivation._solve(m)
-        L = _testhelper_unguarded_law(m, s)
+        L = EnzymeRates.Derivation._law(m, s)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         g = _testhelper_graph(m)
@@ -913,14 +885,14 @@ end
 
 """Finite-difference rank of ∂v/∂log θ over the fitted parameters (test oracle only). The
 law of a mechanism the guard rejects is derived once, unchecked
-(`_testhelper_unguarded_law`), and evaluated in BigFloat (`_testhelper_evaluate_law`), as
-`_testhelper_law_value` reads it."""
+(`EnzymeRates.Derivation._memo_law`), and evaluated in BigFloat (`_testhelper_evaluate_law`),
+as `_testhelper_law_value` reads it."""
 function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     fitted = _testhelper_dependent_param_exprs(m)[2]
     rate = if _testhelper_is_valid(m)
         compile_rate_equation(m)
     else
-        L = _testhelper_unguarded_law(m)
+        L = EnzymeRates.Derivation._memo_law(m)
         function _testhelper_unchecked_rate(c, p, keq)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
                                          for (k, v) in pairs(merge(p, c, (Keq = keq,))))
@@ -2390,8 +2362,9 @@ the guard (`@_testhelper_unguarded`): a competitive and an uncompetitive inhibit
 with rapid-equilibrium and with steady-state steps; a substrate's and a product's modifier
 copy (the product's twice); a copy group; an inhibitor that bridges it; an essential and
 a nonessential activator; an `:OnlyI` binding beside an `:OnlyA` one; and an ordered bi-bi
-with a regulator. The guard rejects `copy_group_bridge` (`_BRIDGE`) and
-`essential_activator` (`_NO_ACTIVE_TURNOVER`); their laws still exist.
+with a regulator. The guard rejects `copy_group_bridge` (`_BRIDGE`), whose law still
+exists, and `essential_activator` (`_NO_ACTIVE_TURNOVER`), whose active conformation runs
+no step, so the package derives no law for it.
 """
 function _testhelper_onlyi_fixtures()
     competitive_RE = @_testhelper_unguarded @enzyme_mechanism begin

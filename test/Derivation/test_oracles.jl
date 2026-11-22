@@ -1065,17 +1065,21 @@ end
 end
 
 @testset "an :OnlyI law is exact, balanced and counts its declared dimension" begin
-    # The thirteen mechanisms whose :OnlyI groups bind modifiers alone. Each law, read
-    # unchecked from the concrete mechanism, equals the exact limit of the oracle's own
-    # deletion network (each conformation without the steps it excludes and the forms
-    # that strands, pruned by the oracle itself; the conformations flip at free E),
-    # satisfies detailed balance, and fits as many constants as the model declares. The
-    # guard rejects two of them; the identities hold for their laws as well.
+    # The thirteen mechanisms whose :OnlyI groups bind modifiers alone, read unchecked from
+    # the concrete mechanism, each fit as many constants as the model declares. The law of
+    # each of twelve, all but the essential activator, whose active conformation runs no
+    # step and so has none, equals the exact limit of the oracle's own deletion network
+    # (each conformation without the steps it excludes and the forms that strands, pruned
+    # by the oracle itself; the conformations flip at free E) and satisfies detailed
+    # balance. The guard rejects the inhibitor bridge; the identities hold for its law as
+    # well.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
         @testset "$label" begin
-            _testhelper_check_law_against_limit(am; seed = 300 + i)
-            rng = Random.MersenneTwister(450 + i)
-            @test all(<(big(10)^-30), _testhelper_detailed_balance(am, rng))
+            if label !== :essential_activator
+                _testhelper_check_law_against_limit(am; seed = 300 + i)
+                rng = Random.MersenneTwister(450 + i)
+                @test all(<(big(10)^-30), _testhelper_detailed_balance(am, rng))
+            end
             @test length(_testhelper_dependent_param_exprs(am)[2]) ==
                   _testhelper_declared_dimension(am)
         end

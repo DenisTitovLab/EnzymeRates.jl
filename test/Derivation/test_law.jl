@@ -455,16 +455,18 @@ end
 end
 
 @testset "an :OnlyI law is the exact limit of its vanishing constants" begin
-    # The thirteen mechanisms whose :OnlyI groups bind modifiers alone, read without the
-    # guard: each law equals the rapid-equilibrium limit of the oracle's own deletion
-    # network (`_testhelper_limit_law`) at 3 points, and the active conformation's
-    # denominator holds no constant of an :OnlyI group, since the conformation's steps
-    # (`steps_in_active_conformation`) drop them.
+    # The twelve mechanisms whose :OnlyI groups bind modifiers alone and whose laws the
+    # package derives, read without the guard (all but the essential activator, whose
+    # active conformation runs no step): each law equals the rapid-equilibrium limit of
+    # the oracle's own deletion network (`_testhelper_limit_law`) at 3 points, and the
+    # active conformation's denominator holds no constant of an :OnlyI group, since the
+    # conformation's steps (`steps_in_active_conformation`) drop them.
     for (i, (label, am)) in enumerate(pairs(_testhelper_onlyi_fixtures()))
+        label === :essential_activator && continue
         @testset "$label" begin
             sub = _testhelper_single_subunit(am)
             s = EnzymeRates.Derivation._solve(sub)
-            A = _testhelper_unguarded_law(sub, s)
+            A = EnzymeRates.Derivation._law(sub, s)
             rng = Random.MersenneTwister(400 + i)
             for _ in 1:3
                 point, concs, params = _testhelper_law_inputs(sub, s.fitted, rng)
