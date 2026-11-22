@@ -394,11 +394,15 @@ end
 end
 
 """Where the files under `test/` of the tree at `root` break the test-file naming rule, one
-line each: a folder of `test/` that mirrors no source folder; in a module's test folder or
-`test/ext/`, a file not named `test_<file>.jl` or a file in a folder below; a test file
-`test_<file>.jl` with no source file `<file>.jl` in the mirrored folder (directly in
-`test/`, one that checks no package-wide rule either); and a source file, module headers
-aside, with no test file."""
+line each:
+- a folder of `test/` that mirrors no source folder and holds no data (`fixtures`,
+  `reference`);
+- in a module's test folder or `test/ext/`, a file not named `test_<file>.jl`, or a file
+  in a folder below;
+- a test file `test_<file>.jl` with no source file `<file>.jl` in the mirrored folder. A
+  test file directly in `test/` may instead be named for a package-wide rule it checks,
+  such as `test_boundaries.jl`;
+- a source file, module headers aside, with no test file."""
 function _testhelper_test_name_problems(root)
     package_wide_rules = ("boundaries", "type_stability", "compile_budget", "aqua_jet",
                           "oracles")

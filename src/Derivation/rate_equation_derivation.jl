@@ -470,7 +470,7 @@ function _law(am::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Bo
     end
 end
 
-# ─── The MWC law ─────────────────────────────────────────────────────────
+# ─── The MWC law ────────────────────────────────────────────────────────
 
 """
 An MWC rate law over `vars`: `active.vars` (the concentrations of `metabolites(am)`, the
@@ -860,7 +860,7 @@ function _rate_body(m::Mechanisms.Mechanism)
     _body(_program(m, s, _law(m, s)))
 end
 
-# ─── compile_rate_equation ─────────────────────────────────────────────────────
+# ─── compile_rate_equation ──────────────────────────────────────────────
 #
 # A mechanism's Sig, the type parameter of its compiled rate law, is the mechanism as nested
 # tuples of Symbols, Ints and Bools, its fields in declaration order:
@@ -991,7 +991,7 @@ end
 Base.@nospecializeinfer Base.show(io::IO, @nospecialize(rate::_CompiledRateEquation)) =
     print(io, "compiled rate equation")
 
-# ─── Text of powers, terms and sums ─────────────────────────────────────────
+# ─── Text of powers, terms and sums ─────────────────────────────────────
 
 """`x^e` as text for a positive exponent `e`: `x`, `x^2`, `sqrt(x)`, `x^(3/2)`."""
 _power_text(x, e::_Exp) = e == 1 ? string(x) : e == 1 // 2 ? "sqrt($x)" :
@@ -1042,7 +1042,7 @@ function _conc_label(mo::_Mono, names::Vector{Symbol})
     join((string(names[v], sup(e)) for (v, e) in mo), "_")
 end
 
-# ─── A law's polynomials over its normalizer ─────────────────────────────────
+# ─── A law's polynomials over its normalizer ────────────────────────────
 
 """
 One printed term of a law's polynomial: the concentration monomial `conc` times its
@@ -1147,7 +1147,7 @@ end
 const _COEFFICIENTS_COMMENT =
     "# The coefficients are functions of the fitted constants, not parameters:"
 
-# ─── Reference lines and header ──────────────────────────────────────────────
+# ─── Reference lines and header ─────────────────────────────────────────
 
 """
 The reference lines of the solve `s` over the variables `vars`: a `# Wegscheider
@@ -1176,7 +1176,7 @@ _concs_line(m::Mechanisms.Mechanism) =
 _header_lines(m::Mechanisms.Mechanism, s::_Solve) =
     String["(; $(join(s.fitted, ", "))) = params", _concs_line(m)]
 
-# ─── Plain and MWC laws ──────────────────────────────────────────────────────
+# ─── Plain and MWC laws ─────────────────────────────────────────────────
 
 """
     _law_text(m, s, L; coefficients = false, coefficient_values = true) -> String
@@ -1294,7 +1294,7 @@ function _law_text(am::Mechanisms.Mechanism, s::_Solve, A::_AlloLaw;
                    join([head; _reference_lines(s, A.vars); defs; v], "\n")
 end
 
-# ─── rate_equation_string ────────────────────────────────────────────────────
+# ─── rate_equation_string ───────────────────────────────────────────────
 
 """
     rate_equation_string(m; coefficients = false, coefficient_values = true) -> String

@@ -213,7 +213,7 @@ function _bare_name(x)
     x isa Symbol ? x : nothing
 end
 
-# ─── Mechanism macro blocks as written ─────────────────────────────────
+# ─── Mechanism macro blocks as written ──────────────────────────────────
 
 """
     raw_mechanism(block) -> NamedTuple

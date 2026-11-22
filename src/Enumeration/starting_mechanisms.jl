@@ -1,7 +1,7 @@
 # ABOUTME: The starting mechanisms of a reaction, candidate_mechanisms(reaction): catalytic
 # ABOUTME: topologies, dead-end decorations, merged and Theorell–Chance variants, seeds.
 
-# ─── Catalytic topologies ─────────────────────────────────────────────
+# ─── Catalytic topologies ───────────────────────────────────────────────
 
 """`steps` with their group labels renumbered 1, 2, … in order of first occurrence."""
 function _numbered_groups(steps::Vector{Mechanisms.Step})
@@ -202,7 +202,7 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     result
 end
 
-# ─── Dead-End Helpers ────────────────────────────────────────
+# ─── Dead-end helpers ───────────────────────────────────────────────────
 
 """
     _competition_patterns(sub_names, prod_names)
@@ -327,7 +327,7 @@ function _expand_substrate_product_dead_ends(
     result
 end
 
-# ─── Mechanism Enumeration ───────────────────────────────────
+# ─── Mechanism enumeration ──────────────────────────────────────────────
 
 """
     _seed_groups(steps) -> Vector{Int}
@@ -490,7 +490,7 @@ function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     variants
 end
 
-# ─── Entry Points ────────────────────────────────────────────
+# ─── Entry points ───────────────────────────────────────────────────────
 
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{CandidateMechanism}

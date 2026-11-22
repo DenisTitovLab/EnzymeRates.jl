@@ -91,7 +91,7 @@ function _assert_emission_rules(c::CandidateMechanism)
     nothing
 end
 
-# ─── Kinetic groups ──────────────────────────────────────────
+# ─── Kinetic groups ─────────────────────────────────────────────────────
 
 """Whether each kinetic group of graph `m` holds some step `k` with `pred(k)`."""
 function _groups_with(pred, m::Mechanisms.CatalyticScheme)
@@ -144,7 +144,7 @@ function _label_tags(m::Mechanisms.Mechanism, groups::Vector{Int})
            for l in 1:maximum(groups; init = 0)]
 end
 
-# ─── Expansion Moves ─────────────────────────────────────────
+# ─── Expansion moves ────────────────────────────────────────────────────
 
 """
     _inhibitor_competition_patterns(sub_names, prod_names, existing_inhibitors)

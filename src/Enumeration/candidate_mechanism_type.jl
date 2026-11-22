@@ -561,7 +561,7 @@ function _redundant_copy_groups(c::CandidateMechanism)
     end
 end
 
-# ─── Atom-conservation validation ────────────────────────────
+# ─── Atom-conservation validation ───────────────────────────────────────
 
 """
 Net atom multiset of the reactants named in `plus` minus those named in `minus`, with
@@ -616,7 +616,7 @@ function _atom_conserving_message(cm, f::Int, t::Int, taken, given, diff)
     "atoms(to) + atoms(released) − atoms(from) − atoms(consumed) = $diff"
 end
 
-# ─── Regulator-Type Filter ────────────────────────────────────
+# ─── Regulator-type filter ──────────────────────────────────────────────
 
 """
     _respects_reg_type(m, rxn::EnzymeReaction) -> Bool

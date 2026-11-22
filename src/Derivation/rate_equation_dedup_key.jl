@@ -168,7 +168,7 @@ function _canonical(L::Union{_Law, _AlloLaw}, m::Mechanisms.Mechanism)
                st.leaves, false)
 end
 
-# ─── One-subunit L phantoms ─────────────────────────────────────────────────
+# ─── One-subunit L phantoms ─────────────────────────────────────────────
 
 """
     _phantom_weights(A) -> w
@@ -244,7 +244,7 @@ at `L = 0`. A plain mechanism's law (`_Law`) is never one.
 _is_phantom(A::_AlloLaw) = !isempty(_phantom_weights(A))
 _is_phantom(::_Law) = false
 
-# ─── The key a mechanism is fitted under ───────────────────────────────────
+# ─── The key a mechanism is fitted under ────────────────────────────────
 
 """
     rate_equation_dedup_key(m) -> (; key, parameters, fit_key, fit_parameters, capped)

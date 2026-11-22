@@ -126,7 +126,7 @@ end
 
 _name(::_AllostericParameter, ::Mechanisms.Mechanism) = :L
 
-# ─── Kept members of kinetic classes ─────────────────────────────────
+# ─── Kept members of kinetic classes ────────────────────────────────────
 
 """
 The priority key of constant `slot` of step `k` of `m` in conformation block `block`, read
@@ -283,7 +283,7 @@ function _shared_constant_names(m::Mechanisms.Mechanism)
     unique!([x for x in names if count(==(x), names) > 1])
 end
 
-# ─── Regulator constants ────────────────────────────────────
+# ─── Regulator constants ────────────────────────────────────────────────
 
 """
     _regulator_constant(am, lig, tag, inactive) -> Union{Symbol, Nothing}
@@ -303,7 +303,7 @@ end
 derivation read them in."""
 _flat_edges(m::Mechanisms.CatalyticScheme) = reduce(vcat, _kinetic_groups(m); init = Int[])
 
-# ─── Parameters API ─────────────────────────────────────────
+# ─── Parameters API ─────────────────────────────────────────────────────
 
 """
     parameters(m) -> Tuple{Vararg{Symbol}}
@@ -426,7 +426,7 @@ function dependent_parameter_values(m::Mechanisms.Mechanism, params::NamedTuple,
     NamedTuple{Tuple(s.names[d.col] for d in deps)}(Tuple(value(d) for d in deps))
 end
 
-# ─── The joint system ──────────────────────────────────────────────────────
+# ─── The joint system ───────────────────────────────────────────────────
 
 """
 The kinetic class of column `c` of `m`: its edge's group's constant in the column's slot
@@ -554,7 +554,7 @@ function _joint_system(m::Mechanisms.Mechanism, cols = _constant_columns(m))
     (; columns, A, rhs)
 end
 
-# ─── Exact reduction ───────────────────────────────────────────────────────
+# ─── Exact reduction ────────────────────────────────────────────────────
 
 """
 Bring `M` to reduced row echelon form in place over its first `n` columns and return the
@@ -613,7 +613,7 @@ function _reduce_joint_system(A::Matrix{Int}, rhs::Vector{Int})
     M, pivots
 end
 
-# ─── The solve ─────────────────────────────────────────────────────────────
+# ─── The solve ──────────────────────────────────────────────────────────
 
 """
 A dependent constant of the joint solve: pivot column `col` equals `Keq^keq · Π x_f^e`

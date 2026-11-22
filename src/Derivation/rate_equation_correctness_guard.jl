@@ -32,7 +32,7 @@ function _check_verdict(m::Mechanisms.Mechanism, v)
     nothing
 end
 
-# ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
+# ─── The guard: verdicts, networks, faces, classes 1 and 2 ──────────────
 
 """
 What the guard finds wrong with a mechanism, by the check that finds it:
@@ -615,7 +615,7 @@ function _re_turnover_verdict(net::_Network)
              net.edge[cycle[1]])
 end
 
-# ─── Class 3: the structure of every face ──────────────────────────────
+# ─── Class 3: the structure of every face ───────────────────────────────
 
 """Each node's strongly connected component in the digraph with successor lists `next`,
 searched from the nodes `nodes` marks, numbered in the order Tarjan's algorithm closes
@@ -1396,7 +1396,7 @@ function _face_limit_check(mech::Mechanisms.Mechanism, net::_Network, s, face::U
     _LIMIT_EQUAL
 end
 
-# ─── Cycle-space helpers of the limit test ─────────────────────────────────
+# ─── Cycle-space helpers of the limit test ──────────────────────────────
 
 """
 The reduced row echelon form `R` of `A` over `Rational{BigInt}`, as
@@ -1452,7 +1452,7 @@ function _integer_nullspace(A::Matrix{Int})
     result
 end
 
-# ─── Guard messages ────────────────────────────────────────────────────
+# ─── Guard messages ─────────────────────────────────────────────────────
 
 """
     _guard_message(mech) -> String

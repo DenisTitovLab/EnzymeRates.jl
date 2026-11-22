@@ -94,7 +94,7 @@ function _built_reading(am::Mechanisms.Mechanism,
     reading
 end
 
-# ─── Admission: the interior ───────────────────────────────────────────
+# ─── Admission: the interior ────────────────────────────────────────────
 
 """Admission's arcs in conformation `c` of `reading`: the edges of `am`'s catalytic graph
 that lose a direction there, in edge order, each as `(lower side's form, higher side's
@@ -293,7 +293,7 @@ function _consistent_columns(am::Mechanisms.Mechanism, c::Int)
     end
 end
 
-# ─── Admission: the face condition ─────────────────────────────────────
+# ─── Admission: the face condition ──────────────────────────────────────
 
 """
     _face_sets(net, law_nodes, face) -> (; alive, fed, n0, stranded)

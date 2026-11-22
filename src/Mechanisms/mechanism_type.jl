@@ -39,7 +39,7 @@ struct RegulatorySite
     end
 end
 
-# ─── The reaction graph ───────────────────────────────────────────────
+# ─── The reaction graph ─────────────────────────────────────────────────
 
 """
     Step(from, to, taken_up, given_off, rapid_equilibrium, kinetic_group)
