@@ -643,8 +643,8 @@ spanning trees of the segment graph, whose edges are the steady-state steps betw
 segments, parallel ones counted apart. V×τ is the number of spanning-tree products in the
 law's denominator before kinetic grouping, so it bounds fit cost. A plain mechanism's
 count reads every step; an allosteric one's is the active law's count plus the inactive
-law's, a conformation that is free E alone counting 0. Saturates at `typemax(Int)`. The
-term cap, `MAX_RATE_EQUATION_TERMS`, bounds this count.
+law's, a conformation that is free E alone counting 0. Saturates at `typemax(Int)`.
+Deriving a law whose count exceeds the term cap throws `RateEquationTooLargeError`.
 """
 function rate_equation_term_count(am::Mechanisms.Mechanism)
     m = am.catalytic
@@ -663,8 +663,15 @@ compile and is unlikely to be useful for fitting.
 const MAX_RATE_EQUATION_TERMS = 5000
 
 """
-The error `_law` raises for a mechanism whose rate equation would have more than
-`MAX_RATE_EQUATION_TERMS` terms.
+    RateEquationTooLargeError <: Exception
+
+Thrown for a mechanism whose rate law has more terms (`rate_equation_term_count`) than the
+term cap, the most the package derives: a law that large takes too long to compile and is
+unlikely to be useful for fitting. Calling the law that `compile_rate_equation` returns
+throws it, as do `rate_equation_string` and `rate_equation_dedup_key`. To avoid it, check
+the term count, which derives nothing, before asking for the law;
+`identify_rate_equation` proposes no law with more terms than its `eq_complexity_filter`.
+The error has no fields; its message states the cap.
 """
 struct RateEquationTooLargeError <: Exception end
 
@@ -940,7 +947,7 @@ mechanism and session; every later call is fast and allocates nothing, so compil
 outside a loop. Equal mechanisms give the same `rate`. Calling `rate` errors when the rate
 law of `m` is not defined (`check_valid_rate_equation`), and with a
 `RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
-term cap, `MAX_RATE_EQUATION_TERMS`. [`rate_equation_string`](@ref) prints the law.
+term cap. [`rate_equation_string`](@ref) prints the law.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -1335,7 +1342,7 @@ define, so it does not run; it is the readable form the search CSVs hold.
 
 Errors when the rate law of `m` is not defined (`check_valid_rate_equation`), and with a
 `RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
-term cap, `MAX_RATE_EQUATION_TERMS`.
+term cap.
 
 ```jldoctest
 julia> using EnzymeRates

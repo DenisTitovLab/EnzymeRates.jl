@@ -175,6 +175,7 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `fitted_parameter_count` | The number of fitted constants, from the joint solve | Enumeration | |
 | `rate_equation_term_count` | The law's term count, V×τ, before derivation | Enumeration | |
 | `rate_equation_dedup_key` | The law's key: one key, one fit | top level | |
+| `RateEquationTooLargeError` | The error a law over the term cap throws | | |
 
 **`Fitting`**
 

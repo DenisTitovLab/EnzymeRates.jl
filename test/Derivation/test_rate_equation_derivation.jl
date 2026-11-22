@@ -1945,6 +1945,17 @@ end
         end
     end
     @test_throws "polynomial terms" rate_equation_string(m_manual)
+    @testset "a user catches the error by its public name" begin
+        # Only exported and public names, written as a user outside the package writes them.
+        TooLarge = EnzymeRates.Derivation.RateEquationTooLargeError
+        @test Base.ispublic(EnzymeRates.Derivation, :RateEquationTooLargeError)
+        @test_throws TooLarge rate_equation_string(m_manual)
+        @test_throws TooLarge EnzymeRates.Derivation.rate_equation_dedup_key(m_manual)
+        ones_for(names) = NamedTuple{Tuple(names)}(ntuple(_ -> 1.0, length(names)))
+        rate = compile_rate_equation(m_manual)
+        @test_throws TooLarge rate(ones_for(metabolites(m_manual)),
+                                   ones_for(parameters(m_manual)), 2.0)
+    end
 end
 
 # The generated call of a compiled rate law names its type parameter M_type, which holds

@@ -257,7 +257,7 @@ for an L phantom (`_is_phantom`), which reads its active law, its law at `L = 0`
 law holds every fitted constant of `m` but `L`. Two mechanisms with one key share one fit.
 Errors when the rate law of `m` is not defined (`check_valid_rate_equation`), and with a
 `RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
-term cap, `MAX_RATE_EQUATION_TERMS`.
+term cap.
 """
 function rate_equation_dedup_key(m::Mechanisms.Mechanism)
     check_valid_rate_equation(m)
