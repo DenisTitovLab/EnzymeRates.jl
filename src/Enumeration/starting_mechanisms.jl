@@ -45,12 +45,11 @@ end
 """
     _catalytic_topologies(reaction) -> Vector{@NamedTuple{forms, steps}}
 
-Build catalytic cycle topologies by constructive backtracking. Each topology is a written
-graph (`_trimmed`), each of its forms once: steps forming one or more complete catalytic
-cycles (E -> ... -> E), every release written as the binding it reverses, so every
-binding takes its metabolite up. A step's lists index the reaction's substrates, then its
-products. Each step's group is 0, for `_seed_groups` to label. Errors when the reaction has
-none.
+The catalytic topologies of `reaction`, each a written graph (`_trimmed`) with each of its
+forms once: steps forming one or more complete catalytic cycles (E -> ... -> E), every
+release written as the binding it reverses, so every binding takes its metabolite up. A
+step's lists index the reaction's substrates, then its products. Each step's group is 0,
+for `_seed_groups` to label. Errors when the reaction has none.
 """
 function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
     sub_names = Symbol[s.name for s in reaction.substrates]
@@ -131,11 +130,9 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
             step!(Int[], false, consumed, released, Symbol[], subset)
         end
     end
-    # Start from free enzyme (:E, no bound metabolites).
     walk!(walk!, form(Symbol[], Symbol[], Symbol[], Symbol[]), Symbol[], Symbol[],
           Symbol[], Symbol[], Mechanisms.Step[])
 
-    # --- Group paths by isomerization pattern ---
     iso_groups = Dict{Set{Mechanisms.Step}, Vector{Vector{Mechanisms.Step}}}()
     for path in paths
         push!(get!(iso_groups, Set(filter(_is_iso, path)),
@@ -229,17 +226,14 @@ end
     _expand_substrate_product_dead_ends(topos, reaction)
         -> Vector{@NamedTuple{forms, steps}}
 
-For each catalytic topology, a written graph, enumerate substrate/product dead-end
-form combinations and return each resulting mechanism as a written graph: the topology's
-forms and the dead-end forms after them, each once, and the steps between them. A
-dead-end form is a catalytic form with one more
-substrate or product bound, subject to:
-- The resulting form binds at least one substrate AND
-  at least one product (mixed binding required)
-- The resulting form doesn't have all substrates or
-  all products
-- A declared `shared_catalytic_site` pair is never both bound in the
-  resulting form
+For each catalytic topology, a written graph, the mechanisms that add a set of dead-end
+forms to it, each a written graph: the topology's forms and the dead-end forms after them,
+each once, and the steps between them. A dead-end form is a catalytic form with one more
+substrate or product bound that
+
+- binds at least one substrate and at least one product;
+- binds neither every substrate nor every product;
+- never binds both metabolites of a declared `shared_catalytic_site` pair.
 
 Each competition pattern (`_competition_patterns`) keeps the dead-end forms that bind
 none of its (substrate, product) pairs, and each distinct set of kept forms gives one
@@ -392,13 +386,14 @@ seed, a plain mechanism `m`: a function of a candidate's rapid-equilibrium flags
 edge of `m`, some turned steady state) that is true when the candidate has no
 rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both ways
 (`_has_vmax`) and no chemistry in equilibrium with both sides
-(`_chemistry_equilibrates_both_sides`). Each edge's ends, uptake weight and reactants are
-read once per base, so a candidate costs a few passes over arrays. A base holds no
-isomerization, so each chemistry node is a merged complex or a Theorell–Chance step. A set
-of edges holds a turnover cycle iff it closes a cycle of nonzero weight
-(`has_nonzero_weight_cycle`), which reuses the screen's buffers. Each maximal-rate test
-runs on the candidate's rapid-equilibrium edges and more, and adding edges never removes
-such a cycle, so a turnover cycle of the candidate fails both tests.
+(`_chemistry_equilibrates_both_sides`). Errors when the base holds an isomerization.
+
+It reads each edge once per base, so a candidate costs a few passes over arrays. A base
+holds no isomerization, so each chemistry node is a merged complex or a Theorell–Chance
+step. A set of edges holds a turnover cycle iff it closes a cycle of nonzero weight
+(`has_nonzero_weight_cycle`). Each maximal-rate test runs on the candidate's
+rapid-equilibrium edges and more, and adding edges never removes such a cycle, so a
+turnover cycle of the candidate fails both tests.
 """
 function _seed_candidate_screen(c::CandidateMechanism)
     m = c.mechanism.catalytic
@@ -435,12 +430,11 @@ end
 
 """
 The bases of the variants of the seed candidate `c`, a plain mechanism `m`, each a written
-graph of the records of `c`'s forms (`_trimmed`), its group labels numbered 1, 2, …
-(`_numbered_groups`), the merged base first: merging every isomerization of `m` onto its
-product side (`_merge_isomerization`) and setting every step at rapid equilibrium gives the
-merged base; eliminating one merged complex with two steps (`_eliminate_form`) gives a
-Theorell–Chance base, one per complex that can be eliminated, in the order of the
-isomerizations.
+graph of the records of `c`'s forms (`_trimmed`) with its group labels numbered 1, 2, …
+(`_numbered_groups`). The merged base comes first: every isomerization of `m` merged onto
+its product side (`_merge_isomerization`), every step at rapid equilibrium. Then comes one
+Theorell–Chance base per merged complex with two steps (`_eliminate_form`), in the order of
+the isomerizations.
 """
 function _seed_bases(c::CandidateMechanism)
     m = c.mechanism.catalytic
@@ -469,21 +463,16 @@ function _lumping_twin(base::Mechanisms.CatalyticScheme, cx::Vector{Int}, re::Bi
 end
 
 """
-The merged and Theorell–Chance variants of the seed candidate `c`, a plain mechanism, of
-reaction `rxn`, whose atoms each base's edges must conserve. Each base (`_seed_bases`) is
-built through the checked constructor. The merge (`_merge_isomerization`, MERGE in the
-tests) and the elimination (`_eliminate_form`, ELIM) conserve atoms, which each base
-asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`) whose
-flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a variant: no
-rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both ways
-(`_has_vmax`), no chemistry in equilibrium with both sides
-(`_chemistry_equilibrates_both_sides`), every steady-state group carrying flux, and
-`_enumerator_keeps` (the guard, and for an allosteric mechanism the binding filter). The
-first three tests read index arrays (`_seed_candidate_screen`); the other two run only on a
-candidate that passes them. A merged variant that is its seed's lumping twin
-(`_lumping_twin`) is skipped: the unmerged form with rapid-equilibrium flanks has its family
-at the same count. A base's groups come in canonical order, so the variants come in the
-order of their flip sets over those groups; each is built and checked.
+The merged and Theorell–Chance variants of the seed candidate `c`, a plain mechanism of
+reaction `rxn`. For each base (`_seed_bases`), every inclusion-minimal set of its groups
+whose flip to steady state (`_minimal_flips`) passes `_seed_candidate_screen`, leaves every
+flipped group carrying flux and gives a mechanism `_enumerator_keeps` accepts is a variant.
+The variants come in the order of their flip sets over the base's groups, which are in
+canonical order. A merged variant that is its seed's lumping twin (`_lumping_twin`) is
+skipped: the unmerged form with rapid-equilibrium flanks has its family at the same count.
+Errors when a base's edges do not conserve `rxn`'s atoms (`_assert_atom_conserving`); the
+merge (`_merge_isomerization`, MERGE in the tests) and the elimination (`_eliminate_form`,
+ELIM) conserve them.
 """
 function _seed_variants(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     m = c.mechanism.catalytic
@@ -506,18 +495,13 @@ end
 """
     init_mechanisms(reaction::EnzymeReaction) -> Vector{CandidateMechanism}
 
-The unregulated seeds of the search for a reaction, as candidates of plain mechanisms:
-first the seeds, then their merged and Theorell–Chance variants. A seed is built for
-each catalytic topology (`_catalytic_topologies`) and each substrate/product dead-end
-subset (`_expand_substrate_product_dead_ends`), with one steady-state step, a
-chemistry isomerization, and the binding steps of one metabolite at one RE/SS
-flag collapsed into one kinetic group (`_seed_groups`). Dead-end
-enumeration respects `shared_catalytic_site`. The variants of each seed
-(`_seed_variants`) follow in the seeds' order, each once. The parameter counts
-are mixed: a three-group merged variant or a decorated Theorell–Chance variant
-fits more parameters than its seed, a merged ping-pong variant fewer. Errors when
-the reaction has no catalytic topology. A seed that `_enumerator_keeps` refuses is
-dropped; the flip search has run the same test on every variant.
+The unregulated starting mechanisms of `reaction`, as candidates of plain mechanisms: the
+seeds that `_enumerator_keeps` accepts, then the merged and Theorell–Chance variants of
+every seed (`_seed_variants`) in the seeds' order, each once; the flip search has run the
+same test on every variant. A seed is a catalytic topology (`_catalytic_topologies`) with
+a set of dead-end forms (`_expand_substrate_product_dead_ends`), its one steady-state step
+a chemistry isomerization, and its steps grouped by `_seed_groups`. Errors when the
+reaction has no catalytic topology.
 """
 function init_mechanisms(r::Mechanisms.EnzymeReaction)
     # A seed's steps index the reactants, substrates first (`_catalytic_topologies`).
@@ -545,34 +529,26 @@ end
     seed_mechanisms(rxn, required_allo::Set{Symbol}, required_comp::Set{Symbol})
         -> Vector{CandidateMechanism}
 
-Fully-required seed set for the beam. Grows `init_mechanisms(rxn)` by a
-breadth-first closure under the seed-build structure moves and retains the nodes
-that bind every required regulator. The two allosteric-lifting moves
-(`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when an
-allosteric regulator is required; `_expand_add_dead_end_regulator` always runs.
-A competitive-only required set therefore stays non-allosteric — the seeds are
-`Mechanism`s at `base + n_required_comp`, with no `L`.
+The starting mechanisms of `rxn` when it requires the allosteric regulators `required_allo`
+and the competitive inhibitors `required_comp`: the mechanisms that bind all of them at
+regulatory sites and at dead-end sites, grown from `init_mechanisms(rxn)` by the
+regulator-binding moves through seed nodes alone. The dead-end move
+(`_expand_add_dead_end_regulator`) always runs; the tagging and regulator moves
+(`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when an allosteric
+regulator is required, so competitive inhibitors alone keep the seeds plain, with no `L`.
+A seed node (`_is_seed_node`):
 
-A child is enqueued (and marked visited by `hash`) only when it is a valid seed
-node:
-
-1. no `:NonequalAI` tag anywhere (the beam reaches `:NonequalAI` later through
+1. tags nothing `:NonequalAI` (the beam reaches `:NonequalAI` later through
    `_expand_change_allo_state`);
-2. every regulatory site binds a single ligand — one site per required
-   allosteric regulator. This bounds the closure: multi-ligand children (from
-   adding a regulator to an existing site) fail it and are dropped before
-   expansion;
-3. no optional regulator is bound — every bound allosteric ligand ∈
-   `required_allo` and every bound competitive inhibitor ∈ `required_comp`;
-4. every ligand respects its declared type (`_respects_reg_type`).
+2. binds one ligand per regulatory site, which bounds the search: a child that adds a
+   regulator to an existing site fails, and the search drops it before expanding it;
+3. binds no optional regulator: every bound allosteric ligand is in `required_allo` and
+   every bound competitive inhibitor in `required_comp`;
+4. respects every ligand's declared type (`_respects_reg_type`).
 
-The seeds are the valid nodes that additionally bind ALL of `required_allo` at
-regulatory sites and ALL of `required_comp` as competitive-inhibitor dead ends.
-Each seed appears once, in an order that does not depend on the number of workers.
-Errors when no mechanism binds every required regulator; a seed that
-`_enumerator_keeps` refuses (the guard rejects it, or a conformation keeps a form that only
-bindings it excludes enter) is dropped. The search still expands such a node: only the
-seeds it returns are checked.
+Each seed appears once, in an order that does not depend on the number of workers. Errors
+when no mechanism binds every required regulator. The search expands a node that
+`_enumerator_keeps` refuses but never returns it.
 """
 function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
@@ -610,7 +586,7 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
     seeds
 end
 
-"""The children worth expanding (`_is_seed_node`) of each candidate of `frontier`, in
+"""The children of each candidate of `frontier` that are seed nodes (`_is_seed_node`), in
 frontier order. Generating one candidate's children is pure and independent of the
 others', so the candidates are distributed over the workers."""
 function _seed_node_children(
@@ -628,13 +604,6 @@ function _seed_node_children(
     end
 end
 
-"""
-    _is_seed_node(c::CandidateMechanism, rxn::EnzymeReaction, required_allo::Set{Symbol},
-                 required_comp::Set{Symbol}) -> Bool
-
-A child worth expanding: no `:NonequalAI` tag, one ligand per regulatory site, no
-optional regulator bound, and reg-type-respecting.
-"""
 function _is_seed_node(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction,
                        required_allo::Set{Symbol}, required_comp::Set{Symbol})
     m = c.mechanism
@@ -687,9 +656,8 @@ that are not. A degenerate seed's law ignores a substrate or never saturates, so
 worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
 ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
 step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
-degeneracy condition reads. Every flip child must conserve atoms
-(`_assert_atom_conserving`, which errors). The flip search emits only children
-`_enumerator_keeps` accepts.
+degeneracy condition reads. Errors when a flip child does not conserve atoms
+(`_assert_atom_conserving`).
 """
 function _base_tier(mechs::Vector{CandidateMechanism}, rxn::Mechanisms.EnzymeReaction)
     degenerate = _degenerate.(mechs)
@@ -706,12 +674,11 @@ end
 """
 Error unless the names of the metabolites `rxn` binds to an enzyme form spell every
 string one way. The enumerator names each form it builds by joining the names of the
-metabolites the form binds without a separator (`EAB`, `_form_name`), so with `Ac`, `CoA`
-and `AcCoA` the forms with `Ac` and `CoA` bound and with `AcCoA` bound would share a name.
-Each substrate and product is its own label; a competitive inhibitor that is also a
-reactant binds as its modifier copy, named `Xmod`; an allosteric regulator binds no form,
-so its name takes no part. The Sardinas–Patterson test decides it, and the error spells
-both splits.
+metabolites the form binds without a separator (`EAB`, `_form_name`), so two forms could
+share a name (the `@enzyme_reaction` docstring gives an example). Each substrate and
+product is its own label; a competitive inhibitor that is also a reactant binds as its
+modifier copy, named `Xmod`; an allosteric regulator binds no form, so its name takes no
+part. The Sardinas–Patterson test decides it, and the error spells both splits.
 """
 function _check_decodable_names(rxn::Mechanisms.EnzymeReaction)
     reactants = Symbol[[r.name for r in rxn.substrates]; [r.name for r in rxn.products]]

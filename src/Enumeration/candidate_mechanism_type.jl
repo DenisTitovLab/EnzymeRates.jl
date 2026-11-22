@@ -73,17 +73,16 @@ Base.hash(c::CandidateMechanism, h::UInt) = hash(c.mechanism, h)
     _candidate(parent::CandidateMechanism, allosteric_states, oligomeric_state,
                regulatory_sites) -> CandidateMechanism
 
-The candidate whose catalytic scheme has the metabolites `metabolites`, of which
-`substrates` and `products` index the reactants, the forms whose records are `forms`, each
-named after its record (`_form_name`), and the steps `steps` (`from` and `to` index
-`forms`, the lists `metabolites`), with the allostery `allostery`, whose
-`allosteric_states[l]` is the state of written kinetic group `l`, built and checked by the
-`Mechanism` constructor; a plain mechanism by default. A record given twice names one
-form; two different records that take one name are an internal error. The second gives
-`parent`'s catalytic scheme, with its records, the allosteric states, oligomeric state and
-regulatory sites given. The only place in `Enumeration` that builds a mechanism; the
-candidate holds each form's record in the order the constructor
-stores the forms.
+The first method gives the candidate whose catalytic scheme has the metabolites
+`metabolites` (`substrates` and `products` index the reactants among them), one form per
+record of `forms`, named after it (`_form_name`), and the steps `steps`, whose `from` and
+`to` index `forms` and whose lists index `metabolites`. Its allostery is `allostery`, whose
+`allosteric_states[l]` is the state of written kinetic group `l`; a plain mechanism by
+default. A record given twice names one form; two different records that take one name are
+an internal error. The second method gives `parent`'s catalytic scheme and records with the
+allosteric states, oligomeric state and regulatory sites given. The `Mechanism` constructor
+builds and checks the mechanism, and the candidate holds each record at its form's index
+there. No other function in `Enumeration` builds a mechanism.
 """
 function _candidate(metabolites::Vector{Symbol}, forms::Vector{_FormRecord},
                     substrates::Vector{Int}, products::Vector{Int},
@@ -186,8 +185,7 @@ C: no maximal rate in one direction (`_has_vmax`), or chemistry in rapid equilib
 both sides (`_chemistry_equilibrates_both_sides`). Read on the catalytic graph with its own
 flags, over the steps the active conformation runs
 (`steps_running_in_allosteric_conformations`): every edge of a plain mechanism, and the
-edges its tags keep of an allosteric one. The beam expands a degenerate seed without
-fitting it (`_base_tier`)."""
+edges its tags keep of an allosteric one."""
 function _degenerate(c::CandidateMechanism)
     cm = c.mechanism.catalytic
     re = _rapid_equilibrium_flags(cm)
@@ -583,14 +581,14 @@ end
 """
     _assert_atom_conserving(c::CandidateMechanism, rxn::EnzymeReaction)
 
-Assert every edge of the catalytic graph of an enumerated candidate `c` conserves the atoms
-that reaction `rxn` gives its metabolites: the atoms of its source form plus those it takes
-up equal the atoms of its target form plus those it gives off, a form carrying the atoms of
-its bound metabolites and of its residual's added substrates, less those of its residual's
-subtracted products, each read from the reaction's inventory by name (`_net_atoms`). Errors
-on the first edge that does not, group by group, naming its forms and the metabolites it
-exchanges. This is the enumeration-path guardrail against atom-non-conserving covalent
-intermediates; it is intentionally NOT a `Mechanism` constructor check, since a hand-written
+Error unless every edge of the catalytic graph of an enumerated candidate `c` conserves the
+atoms that reaction `rxn` gives its metabolites: the atoms of its source form plus those it
+takes up equal the atoms of its target form plus those it gives off. A form carries the
+atoms of its bound metabolites and of its residual's added substrates, less those of its
+residual's subtracted products, each read from the reaction's inventory by name
+(`_net_atoms`). The error names the first faulty edge, group by group, by its forms and the
+metabolites it exchanges. The enumerator runs this check against covalent intermediates
+that break atom balance, and the `Mechanism` constructor does not: a hand-written
 `@enzyme_mechanism` block carries no atoms and may fold steps.
 """
 function _assert_atom_conserving(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
@@ -627,11 +625,11 @@ Whether every regulatory ligand of `m` respects the type `rxn` declares for it, 
 other ligands at its site. A plain mechanism has no regulatory sites and passes. A ligand's
 type is the `effect` of its allosteric `Regulator` entry in `rxn`, or `:unspecified`
 when `rxn` has no such entry (the name is absent, or declared only as a competitive
-inhibitor). An `:unspecified` ligand always passes. A designated activator is
-never `:OnlyI` and a designated inhibitor is never `:OnlyA`; the type-matching pure
-state and `:NonequalAI` are always allowed. `:EqualAI` is an antagonist state and is
-rejected only when another ligand at the site is a same-type designated effector, since
-it would counteract that ligand's declared direction.
+inhibitor). A ligand of declared type fails when
+
+- it is an activator tagged `:OnlyI`, or an inhibitor tagged `:OnlyA`;
+- it is tagged `:EqualAI`, an antagonist, beside a ligand of its own type at its site,
+  whose declared direction it would counteract.
 """
 function _respects_reg_type(am::Mechanisms.Mechanism, rxn::Mechanisms.EnzymeReaction)
     declared = Dict(reg.name => reg.effect
@@ -663,8 +661,7 @@ _within_size_limits(cands::Vector{CandidateMechanism}, max_param_count::Int,
 
 """Whether the enumerator keeps `m`: the guard (`Derivation.check_valid_rate_equation`)
 accepts it, and no conformation keeps a form that only bindings it excludes enter
-(`_kept_forms_keep_a_binding`). The test the enumerator's exits and its flip, split and
-tagging searches apply to a candidate."""
+(`_kept_forms_keep_a_binding`)."""
 _enumerator_keeps(m) =
     Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_keep_a_binding(m)
 
