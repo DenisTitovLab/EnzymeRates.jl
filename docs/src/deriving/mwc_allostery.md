@@ -328,16 +328,18 @@ or any of these with every modifier-only name zero. `@enzyme_mechanism` throws a
 that names the step and the face, and the mechanism search drops the mechanism. The
 package rejects:
 
-1. no catalytic cycle: no cycle of steps turns substrates into products, so the rate is
+1. an unbalanced cycle: a cycle of steps that takes up or gives off a metabolite in another
+   proportion than the reaction, as when a step leaves out a metabolite;
+2. no catalytic cycle: no cycle of steps turns substrates into products, so the rate is
    zero;
-2. a cycle of rapid-equilibrium steps that turns the reaction over, so the rate is
+3. a cycle of rapid-equilibrium steps that turns the reaction over, so the rate is
    infinite;
-3. a face where the law is not the unique limit: a rapid-equilibrium segment with no form
+4. a face where the law is not the unique limit: a rapid-equilibrium segment with no form
    whose weight keeps the segment's lowest power of each of the face's metabolites, a
    segment whose lowest forms are joined only through other forms, a trap that the face
    feeds and its fast exits cannot drain, a second closed set of forms, or a law with no
    value (0/0) there;
-4. allosteric states under which no choice of energies gives the limit, or that allow too
+5. allosteric states under which no choice of energies gives the limit, or that allow too
    many choices to search when none of the three tried first gives it (admission, above).
 
 The faces leave out the corners that zero one substrate with every product. A law the

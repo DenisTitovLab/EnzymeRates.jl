@@ -11,8 +11,10 @@ The error for the guard's verdict on `mech`:
 cause read under the reading the verdict was judged under (`_guard_with_reading`). Class
 2's fix is printed when each step's variant leaves no fast turnover cycle
 (`_every_step_cures`); every other fix only when its variant passes `_guard`. When two
-constants share a name (`_SHARED_NAME`), the error names them and asks for a renaming. An
-error when the guard admits `mech`.
+constants share a name (`_SHARED_NAME`), the error names them and asks for a renaming;
+for a cycle that does not balance a metabolite (`_UNBALANCED_CYCLE`), it names the
+cycle's steps and the metabolite (`_unbalanced_cycle`) and asks for a missing metabolite.
+An error when the guard admits `mech`.
 """
 function _guard_message(mech::Mechanisms.Mechanism)
     (; verdict, reading) = _guard_with_reading(mech)
@@ -21,6 +23,16 @@ function _guard_message(mech::Mechanisms.Mechanism)
         return "Mechanism: constants of this mechanism's rate equation share a name (" *
                join(_shared_constant_names(mech), ", ") * "). Rename a metabolite or an " *
                "enzyme form so that each constant has a name of its own."
+    if verdict.fault === _UNBALANCED_CYCLE
+        m = mech.catalytic
+        (; steps, metabolite) = _unbalanced_cycle(m)
+        lines = join([Mechanisms.step_text(m, k) for k in steps], ", ", " and ")
+        return "Mechanism: the steps $lines close a cycle that does not balance " *
+               "$(m.metabolites[metabolite]): each time a cycle turns the reaction over, " *
+               "it takes up each substrate once and gives off each product once, and it " *
+               "gives off every modifier it takes up. Check whether one of these steps " *
+               "is missing a metabolite."
+    end
     verdict.fault === _NO_CYCLE &&
         return "Mechanism: no cycle of steps turns substrates into products, so the rate " *
                "is zero everywhere."

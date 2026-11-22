@@ -47,8 +47,11 @@ to equal weight.
 The package takes the fundamental cycles of a spanning forest of the enzyme-form graph,
 one per step outside the forest, so the cycle rows come out **linearly independent by
 construction**. Each cycle is classified by its net metabolite change: proportional to
-the overall reaction makes it a Haldane cycle, zero makes it a Wegscheider cycle. An
-allosteric mechanism writes every cycle once per conformation, and the steps of a kinetic
+the overall reaction makes it a Haldane cycle, zero makes it a Wegscheider cycle. Any
+other change, such as a modifier taken up and never given off, means that a step leaves
+out a metabolite, and the package rejects the mechanism with an error that names the
+cycle's steps.
+An allosteric mechanism writes every cycle once per conformation, and the steps of a kinetic
 group add rows that tie their constants together. One exact rational elimination over
 all of these rows chooses the dependent constants (integer arithmetic that switches to
 big integers if a value grows too large), so the same constraints come out every time.

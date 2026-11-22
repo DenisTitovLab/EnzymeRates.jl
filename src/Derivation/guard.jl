@@ -5,7 +5,8 @@
     check_valid_rate_equation(m) -> true
     check_valid_rate_equation(Bool, m) -> Bool
 
-Whether `m`'s rate law is the unique limit of mass-action kinetics, as its rapid-equilibrium
+Whether every cycle of `m`'s steps takes up and gives off each metabolite as the reaction
+does, `m`'s rate law is the unique limit of mass-action kinetics, as its rapid-equilibrium
 steps speed up and its tagged constants vanish, on every face where data sit (spec
 section 8), and each of its constants has a name of its own: the guard (`_guard`) finds no
 fault. The one-argument form throws an error whose message (`_guard_message`) names each
@@ -39,7 +40,8 @@ _well_posed(m) = (_check_verdict(m, _guard(m)); m)
 
 """
 What the guard finds wrong with a mechanism (spec section 8): nothing (`_NO_FAULT`); two
-constants of its rate law share a name (`_SHARED_NAME`, `_shared_constant_names`); no
+constants of its rate law share a name (`_SHARED_NAME`, `_shared_constant_names`); a cycle
+of steps does not balance a metabolite (`_UNBALANCED_CYCLE`, `_unbalanced_cycle`); no
 cycle turns the reaction over (`_NO_CYCLE`, class 1); a cycle of rapid-equilibrium steps
 turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed class
 (`_NONUNIQUE`), a rapid-equilibrium segment with no lowest form (`_BOTTOMLESS`), or a law
@@ -83,6 +85,7 @@ the guard reports neither `_ARC_CYCLE` nor `_ISLAND` (`_guard_with_reading`).
     _NO_ACTIVE_TURNOVER
     _TOO_MANY_READINGS
     _SHARED_NAME
+    _UNBALANCED_CYCLE
 end
 
 """The faults of admission the guard reports; `_admission_message` writes their text."""
@@ -398,6 +401,40 @@ metabolite name net (class 2: the rate is infinite), in cycle order; empty when 
 face runs at the interior too."""
 _re_turnover_transitions(net::_Network) = _fast_segments(net).cycle
 
+"""
+    _unbalanced_cycle(m) -> (; steps, metabolite)
+
+A cycle of the steps of `m` that does not balance metabolite `metabolite`, an index into
+`m.metabolites`. A cycle turns the reaction over as many times as it takes up the first
+substrate net, and balances when it takes up each substrate and gives off each product
+that many times net, and gives off each modifier as often as it takes it up. `steps` lists
+the cycle's steps in cycle order; it is empty, and `metabolite` 0, when every cycle
+balances. A step that leaves out a metabolite it takes up or gives off makes such a cycle,
+and the joint solve has no law for it (`_fundamental_cycles`).
+"""
+function _unbalanced_cycle(m::Mechanisms.CatalyticScheme)
+    n, nf = length(m.steps), length(m.enzyme_forms)
+    net = _network(m, trues(nf), trues(n, 1), trues(n, 1), falses(n, 1), falses(n, 1))
+    # A transition turns the reaction over as many times as it takes up the first
+    # substrate. With the reaction's uptake over those turns taken off each reactant's
+    # row, a balanced cycle takes up no metabolite net, so the walk of `_fast_segments`,
+    # all of whose transitions are fast here, finds a cycle that does not balance. `turns`
+    # is a copy, as the loop zeroes the first substrate's own row.
+    turns = net.change[first(m.substrates), :]
+    for x in m.substrates
+        net.change[x, :] .-= turns
+    end
+    for x in m.products
+        net.change[x, :] .+= turns
+    end
+    (; offset, cycle) = _fast_segments(net)
+    isempty(cycle) && return (; steps = Int[], metabolite = 0)
+    t = last(cycle)
+    x = findfirst(x -> offset[x, net.to[t]] != offset[x, net.from[t]] + net.change[x, t],
+                  axes(offset, 1))::Int
+    (; steps = net.edge[cycle], metabolite = x)
+end
+
 """The first fault `check(i)` returns over the indices `i` of `faces`, in order;
 `_WELL_POSED` when every face passes."""
 function _first_face_fault(check, faces::Vector{UInt64})
@@ -433,7 +470,8 @@ end
 The well-posedness guard (spec section 8) on `m`, plain or allosteric, and the reading of
 how its conformations switch off its excluded steps (`_Reading`) that its `verdict` was
 judged under. First that each constant has a name of its own (`_shared_constant_names`),
-then class 1 (a cycle turns the reaction over, `Mechanisms.has_turnover_cycle`); then,
+then that every cycle balances each metabolite (`_unbalanced_cycle`), then class 1 (a
+cycle turns the reaction over, `Mechanisms.has_turnover_cycle`); then,
 under a reading (`_verdict_under`), class 2, admission's interior, and on every face class
 3 and admission's face condition. A plain mechanism's one reading runs every step.
 
@@ -456,6 +494,9 @@ function _guard_with_reading(am::Mechanisms.Mechanism)
     first_reading = _built_reading(am)
     isempty(_shared_constant_names(am)) ||
         return (; verdict = _Verdict(_SHARED_NAME, _LIMIT_UNTESTED, 0, 0, 0),
+                reading = first_reading)
+    isempty(_unbalanced_cycle(m).steps) ||
+        return (; verdict = _Verdict(_UNBALANCED_CYCLE, _LIMIT_UNTESTED, 0, 0, 0),
                 reading = first_reading)
     Mechanisms.has_turnover_cycle(m, trues(length(m.steps))) ||
         return (; verdict = _Verdict(_NO_CYCLE, _LIMIT_UNTESTED, 0, 0, 0),

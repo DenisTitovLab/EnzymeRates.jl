@@ -113,9 +113,10 @@ Steps, one per line:
   `E_res_plusA_minusP` for a ping-pong's covalent intermediate after A bound and P left.
 - A name is one form wherever it is written, so a misspelt name is another form:
   `EI + S ⇌ EIS` beside `ES + I ⇌ ESI` makes `EIS` and `ESI` two forms. The constructor
-  rejects a form that no step joins to `E`, and the guard some other misspellings, such
-  as one that leaves no cycle turning substrates into products, but others pass and
-  write another mechanism.
+  rejects a form that no step joins to `E`, and the guard some other slips, such as a
+  name that leaves no cycle turning substrates into products, or a step that forgets a
+  metabolite (`ESI <--> ES` for `ESI <--> ES + I`); others pass and write another
+  mechanism.
 - A parenthesized tuple of steps is one kinetic group, whose steps share their
   constants: `(E + I ⇌ EI, ES + I ⇌ EIS)`.
 - A substrate or product binds wherever a step takes it up. Substrate inhibition is
@@ -151,11 +152,12 @@ conformation still turns substrate into product. The conformations interconvert 
 free E.
 
 When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
-sit, with an error that names the steps at fault: no cycle of steps turns substrates into
-products; a cycle of rapid-equilibrium steps does, so the rate has no finite value; or, with
-every product, every substrate, one reactant or every modifier absent, the steady state is
-not unique or is not the limit the rate law gives as the rapid-equilibrium steps speed up.
-It also rejects a law with no value there (0/0).
+sit, with an error that names the steps at fault: a cycle of steps takes up or gives off a
+metabolite in another proportion than the reaction, as when a step forgets one; no cycle
+of steps turns substrates into products; a cycle of rapid-equilibrium steps does, so the
+rate has no finite value; or, with every product, every substrate, one reactant or every
+modifier absent, the steady state is not unique or is not the limit the rate law gives as
+the rapid-equilibrium steps speed up. It also rejects a law with no value there (0/0).
 
 A step with a state is switched off in the conformation that lacks it, and it keeps its
 kind, rapid equilibrium or steady state, in both. The steps that conformation keeps join

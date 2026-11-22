@@ -543,8 +543,15 @@ The guard builds two networks of one catalytic subunit whose conformations flip 
 reaches through them (`steps_in_active_conformation`, `steps_in_inactive_conformation`),
 and the **ε-network**, every step
 of both conformations, each excluded step switched off as a **reading** says (`_Reading`,
-`_eps_network`). The faces (`_faces`) are bit masks over the metabolite names. Class 1, a
-cycle that turns the reaction over (`has_turnover_cycle`), reads no reading. Under a
+`_eps_network`). The faces (`_faces`) are bit masks over the metabolite names. Before any
+class the guard checks that every cycle of the catalytic scheme balances each metabolite,
+whatever the conformations run: a cycle that takes up the first substrate n times net
+takes up each substrate and gives off each product n times, and gives off each modifier
+as often as it takes it up (`_unbalanced_cycle`, the walk of `_fast_segments` over every
+step, each reactant's change less the reaction's over the step's uptake of the first
+substrate). Form names are opaque, so a step that leaves out a metabolite breaks only a
+cycle, and the joint solve has no law for that cycle. Class 1, a cycle that turns the
+reaction over (`has_turnover_cycle`), reads no reading. Under a
 reading (`_verdict_under`) the guard checks class 2, no fast cycle of the ε-network that
 takes up a name net; admission's interior (`_admission_interior`: the reading is
 consistent, and the active conformation still turns the reaction over); then on each face
@@ -658,8 +665,9 @@ keeps a sampled population test with corner directions ("sampled taggings: the
 energy-level rule agrees with the oracles").
 
 **Faults.** A verdict's fault is one of: two constants of the law share a name, which the
-guard checks first (`_SHARED_NAME`, `_shared_constant_names`); no cycle turns the reaction
-over (`_NO_CYCLE`); a fast cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`,
+guard checks first (`_SHARED_NAME`, `_shared_constant_names`); a cycle does not balance a
+metabolite (`_UNBALANCED_CYCLE`); no cycle turns the reaction over (`_NO_CYCLE`); a fast
+cycle does (`_RE_TURNOVER`); on a face, class 3's `_NONUNIQUE`,
 `_BOTTOMLESS`, `_TRAP`, `_SPLIT`, `_LAW_MULTI` or `_MULTILEVEL`; an excluded
 rapid-equilibrium step inside one island (`_FAST_STEP_PINNED`); an active conformation that
 turns nothing over (`_NO_ACTIVE_TURNOVER`); on a face, admission's `_EPS_NONUNIQUE`,

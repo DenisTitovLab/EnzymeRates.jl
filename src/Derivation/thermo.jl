@@ -21,7 +21,8 @@ The fundamental cycles of a spanning forest of the graph of graph `m`'s edges `f
 grown over the edges in that order: row `i` of `Z` counts each edge of cycle `i` (column
 `j` is edge `flat[j]`) with its sign in the edge's stored direction, and `multiples[i]`
 is the multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). Errors
-on a cycle whose net change is no multiple of the net reaction. Integer arithmetic
+on a cycle whose net change is no multiple of the net reaction, a modifier's included,
+which no mechanism the guard admits holds (`_unbalanced_cycle`). Integer arithmetic
 throughout.
 
 The net change reads what each edge takes up (-1) and gives off (+1) only. A form's name
@@ -47,13 +48,10 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
             end
         end
     end
-    # Each reactant's change in the net reaction, by its index. The check reads the
-    # reactants alone: a cycle that takes up a modifier and gives it off nowhere passes
-    # as a Wegscheider cycle.
+    # Each metabolite's change in the net reaction, by its index; 0 for a modifier.
     net = zeros(Int, length(m.metabolites))
     net[m.substrates] .= -1
     net[m.products] .= 1
-    reactants = [m.substrates; m.products]
     x1 = first(m.substrates)
     rows, multiples = Vector{Int}[], Int[]
     for (j, k) in enumerate(flat)
@@ -68,7 +66,7 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
             foreach(x -> change[x] -= z[i], m.steps[kk].taken_up)
         end
         c = change[x1] * net[x1]
-        all(x -> change[x] == c * net[x], reactants) || error(
+        all(x -> change[x] == c * net[x], eachindex(net)) || error(
             "Cycle $(length(rows) + 1) produces metabolite change not proportional to " *
             "net reaction")
         push!(rows, z)

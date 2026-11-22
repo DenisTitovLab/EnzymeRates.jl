@@ -306,6 +306,207 @@ end
     end
 end
 
+@testset "the guard rejects a cycle that does not balance a metabolite" begin
+    D = EnzymeRates.Derivation
+    unbalanced = D._Verdict(D._UNBALANCED_CYCLE, D._LIMIT_UNTESTED, 0, 0, 0)
+    rule = "each time a cycle turns the reaction over, it takes up each substrate once " *
+           "and gives off each product once, and it gives off every modifier it takes " *
+           "up. Check whether one of these steps is missing a metabolite."
+    # Form names are opaque, so a step that leaves out a metabolite makes no step wrong,
+    # only a cycle. ES <--> ESI forgets `+ I`: the cycle E → EI → ESI → ES → E takes up
+    # I and gives it off nowhere.
+    forgotten_i = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
+            EI + S <--> ESI
+            ES <--> ESI
+        end
+    end
+    msg = "Mechanism: the steps E + S ⇌ ES, E + I ⇌ EI, EI + S <--> ESI and " *
+          "ESI <--> ES close a cycle that does not balance I: " * rule
+    @test D._guard(forgotten_i) === unbalanced
+    @test !D.check_valid_rate_equation(Bool, forgotten_i)
+    @test D._guard_message(forgotten_i) == msg
+    @test_throws ErrorException(msg) parameters(forgotten_i)
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
+            EI + S <--> ESI
+            ES <--> ESI
+        end
+    end
+    # The same steps in an allosteric mechanism: the cycle is the catalytic scheme's.
+    forgotten_i_allosteric = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES          :: EqualAI
+            ES <--> E + P       :: OnlyA
+            E + I ⇌ EI          :: EqualAI
+            EI + S <--> ESI     :: EqualAI
+            ES <--> ESI         :: EqualAI
+        end
+    end
+    @test D._guard(forgotten_i_allosteric) === unbalanced
+    @test !D.check_valid_rate_equation(Bool, forgotten_i_allosteric)
+    @test D._guard_message(forgotten_i_allosteric) == msg
+    # `EP + P ⇌ E` writes P's release as its uptake: the cycle E → ES → EP → E takes up S
+    # and P.
+    forgotten_release = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            EP + P ⇌ E
+        end
+    end
+    msg = "Mechanism: the steps E + S ⇌ ES, EP + P ⇌ E and ES <--> EP close a cycle " *
+          "that does not balance P: " * rule
+    @test D._guard(forgotten_release) === unbalanced
+    @test !D.check_valid_rate_equation(Bool, forgotten_release)
+    @test D._guard_message(forgotten_release) == msg
+    @test_throws ErrorException(msg) parameters(forgotten_release)
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            EP + P ⇌ E
+        end
+    end
+    # E + I ⇌ EI and EI <--> E: the cycle takes up I and returns to E without it.
+    consumes_i = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
+            EI <--> E
+        end
+    end
+    msg = "Mechanism: the steps E <--> EI and E + I ⇌ EI close a cycle that does not " *
+          "balance I: " * rule
+    @test D._guard(consumes_i) === unbalanced
+    @test D._guard_message(consumes_i) == msg
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
+            EI <--> E
+        end
+    end
+    # The forgotten `+ I` written all rapid equilibrium: the fast cycle E → EI → ESI → ES
+    # → E takes up I net, which class 2 would report as a fast cycle that turns the
+    # reaction over, advising to make one of its steps steady-state; that advice leads to
+    # `forgotten_i`. The check runs first and names the missing metabolite instead.
+    forgotten_i_re = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
+            EI + S ⇌ ESI
+            ESI ⇌ ES
+        end
+    end
+    msg = "Mechanism: the steps E + S ⇌ ES, E + I ⇌ EI, EI + S ⇌ ESI and ESI ⇌ ES " *
+          "close a cycle that does not balance I: " * rule
+    @test D._guard(forgotten_i_re) === unbalanced
+    @test D._guard_message(forgotten_i_re) == msg
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            E + I ⇌ EI
+            EI + S ⇌ ESI
+            ESI ⇌ ES
+        end
+    end
+    # An allosteric mechanism whose unbalanced cycle, E → EI → E, lies among steps the
+    # active conformation excludes: the check reads every cycle of the catalytic scheme,
+    # whatever the conformations run, so the guard rejects it.
+    consumes_i_inactive = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES        :: EqualAI
+            ES <--> E + P     :: EqualAI
+            E + I ⇌ EI        :: OnlyI
+            EI <--> E         :: OnlyI
+        end
+    end
+    msg = "Mechanism: the steps E <--> EI and E + I ⇌ EI close a cycle that does not " *
+          "balance I: " * rule
+    @test D._guard(consumes_i_inactive) === unbalanced
+    active = EnzymeRates.Mechanisms.steps_in_active_conformation(consumes_i_inactive)
+    @test !any(active[D._unbalanced_cycle(consumes_i_inactive.catalytic).steps])
+    @test !D.check_valid_rate_equation(Bool, consumes_i_inactive)
+    @test D._guard_message(consumes_i_inactive) == msg
+    @test_throws ErrorException(msg) @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + S ⇌ ES        :: EqualAI
+            ES <--> E + P     :: EqualAI
+            E + I ⇌ EI        :: OnlyI
+            EI <--> E         :: OnlyI
+        end
+    end
+    # A cycle that runs the reaction twice takes up two S and gives off two P: balanced.
+    twice = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES + S ⇌ ESS
+            ESS <--> E + P + P
+        end
+    end
+    @test D._guard(twice) === D._WELL_POSED
+    @test abs.(D._fundamental_cycles(twice.catalytic,
+                                     D._flat_edges(twice.catalytic))[2]) == [2]
+    # S bound twice, by two orders: the cycle E → ES → ESSmod → ESmod → E takes up S twice
+    # and gives it off twice.
+    bound_twice = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> E + P
+            ES + S ⇌ ESSmod
+            E + S ⇌ ESmod
+            ESmod + S ⇌ ESSmod
+        end
+    end
+    @test D._guard(bound_twice) === D._WELL_POSED
+end
+
 @testset "class 2 rejects a rapid-equilibrium cycle that turns the reaction over" begin
     beside = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S

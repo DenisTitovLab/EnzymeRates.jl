@@ -226,36 +226,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   full suite on the allosteric bi-bi mechanism, at 0.387 s against 0.265 s allowed; its
   focused run gave 0.185 s against 0.253 s and the next full suite passed. Whether the
   stack-page effect of the previous entry causes it is not measured.
-- **A cycle unbalanced in the reactants fails only inside the joint solve.**
-  Form names are opaque, so no single step is unbalanced, but a cycle of steps can take up
-  and give off substrates and products in other proportions than the reaction, and
-  `@enzyme_mechanism` writes one: in `E + S ⇌ ES`, `ES <--> EP`, `EP ⇌ E + P`,
-  `EP + P <--> E` the cycle E → ES → EP → E takes up S and P. The macro accepts it (the
-  guard passes it), and so do `compile_rate_equation` and `FittingProblem`. `parameters`,
-  `rate_equation_string` and the first call of the compiled law, so a fit's first
-  evaluation, throw an `ErrorException` from the joint solve, "Cycle 1 produces
-  metabolite change not proportional to net reaction", which names no step. The
-  enumerator checks atom conservation and builds no such cycle. Whether the guard should
-  refuse it, with a message in the user's terms that names the cycle's steps, is the
-  maintainer's call. A cycle unbalanced only in a modifier passes instead (next entry).
-- **A cycle that consumes a modifier passes as a Wegscheider cycle.**
-  A step that forgets a metabolite can give a wrong rate law with no error. In
-  `E + S ⇌ ES`, `ES <--> E + P`, `E + I ⇌ EI`, `EI + S <--> ESI`, `ES <--> ESI` (modifier I)
-  the last step forgets `+ I`, so the cycle E → EI → ESI → ES → E takes up I and gives it
-  off nowhere. The thermodynamic solve checks each fundamental cycle's net change over the
-  substrates and products only, so it ties the cycle's constants as a Wegscheider cycle:
-  `@enzyme_mechanism` accepts the mechanism, and `parameters`, `rate_equation_string` and
-  the compiled law give it a law (`test/Derivation/test_joint_solve.jl` pins the same for
-  `E + I ⇌ EI`, `EI <--> E`). With every step at rapid equilibrium, class 2 refuses the
-  same mechanism and advises making one step of the cycle steady-state, which leads to
-  this case. A guard fault that refuses every cycle unbalanced in some metabolite, checked
-  before class 1 and named by the cycle's steps, is written and tested
-  (`claude-scratchpad/lean-mechanism-spike/fixwave/commit1_check.patch` on the
-  maintainer's machine) but not applied: nine hand-written test mechanisms that the macro
-  accepts hold such a cycle, eight of them by design as malformed input, and one test,
-  "`_base_tier` throws a degenerate seed's expansion error", reaches its error only through
-  such a mechanism. A cycle unbalanced in a substrate or a product fails in the joint solve
-  instead (previous entry).
 - **A pumped-basin message can say "nothing runs back" of a feed that runs back.**
   The guard's `_PUMPED` verdict names a feed into a stranded basin. It prefers a feed whose
   reverse is dead; when every feed has a live reverse and enters from outside the basin and

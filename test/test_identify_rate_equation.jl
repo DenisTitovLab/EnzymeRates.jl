@@ -2425,15 +2425,14 @@ end
 
 @testset "_process_batch failures report the ORIGINAL mechanism" begin
     # A mechanism whose derivation throws: T binds free E only in a dead end, so the
-    # catalytic cycle turns S alone into P, and the derivation's thermodynamic-cycle
-    # check (`_solve`, which `_process_batch` calls after the guard) raises
-    # "Cycle 1 produces metabolite change not proportional to net reaction". The
+    # catalytic cycle turns S alone into P, and the guard, which `_process_batch` runs
+    # before it derives, raises its message for a cycle that does not balance T. The
     # FitFailure must carry the ORIGINAL `m0`.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
     end
-    m_bad = @enzyme_mechanism begin
+    m_bad = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S, T
         products: P
         steps: begin
@@ -2495,12 +2494,13 @@ end
     # chemistry step does not (T binds free E only in a dead end, so the step makes
     # P's N from nothing), and the assertion raises. _expand_parents must catch that
     # and return the parent as a FitFailure (so the beam records it in CSV and
-    # continues), not propagate and abort the search.
+    # continues), not propagate and abort the search. The guard rejects the mechanism, as
+    # its cycle turns S into P without T.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
     end
-    m_bad = @enzyme_mechanism begin
+    m_bad = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S, T
         products: P
         steps: begin

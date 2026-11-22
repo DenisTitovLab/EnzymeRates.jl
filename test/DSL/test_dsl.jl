@@ -210,11 +210,11 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
             products:   P, Q
             steps: begin
                 E + A <--> EA
-                EA <--> Estar_res_plusA_minusP
-                Estar_res_plusA_minusP <--> EstarQ_res_plusA_minusP
-                EstarQ_res_plusA_minusP <--> Estar_res_plusA_minusP + Q
+                EA <--> EstarP_res_plusA_minusP
+                EstarP_res_plusA_minusP <--> Estar_res_plusA_minusP + P
                 Estar_res_plusA_minusP + B <--> EstarB_res_plusA_minusP
-                EstarB_res_plusA_minusP <--> E + P
+                EstarB_res_plusA_minusP <--> EQ
+                EQ <--> E + Q
             end
         end
         @test length(m_res.catalytic.steps) == 6

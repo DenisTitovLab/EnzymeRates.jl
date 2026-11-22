@@ -128,8 +128,8 @@ end
     # Hand-written graphs whose cycles do not each run the reaction a whole number of
     # times: a cycle takes up A and Q and gives off nothing, or takes up B alone. The
     # turnover test weighs each step by its uptake of the first substrate, A, so it finds
-    # the first cycle and not the second.
-    aq = @enzyme_mechanism begin
+    # the first cycle and not the second. The guard rejects both graphs.
+    aq = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin
@@ -145,7 +145,7 @@ end
                          for t in ("E + A <--> EA", "EA + Q <--> EAQ", "EAQ <--> E")]
                    for k in eachindex(aq.catalytic.steps))
     @test M.has_turnover_cycle(aq.catalytic, on)
-    b_only = @enzyme_mechanism begin
+    b_only = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
         steps: begin

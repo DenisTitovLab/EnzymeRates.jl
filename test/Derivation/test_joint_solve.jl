@@ -318,7 +318,9 @@ end
         @test size(Z) == (2, 6)
         @test sort(abs.(multiples)) == [0, 1]
         # A cycle that turns A into P without B and Q is no multiple of the net reaction.
-        slip = @enzyme_mechanism begin
+        # The guard rejects such a mechanism, so the macro would throw before the solve:
+        # the check is an internal assertion, reached here through the unguarded build.
+        slip = @_testhelper_unguarded @enzyme_mechanism begin
             substrates: A, B
             products: P, Q
             steps: begin
@@ -335,11 +337,12 @@ end
             slip.catalytic, EnzymeRates.Derivation._flat_edges(slip.catalytic))
         @test occursin("produces metabolite change not proportional to net reaction",
                        err.value.msg)
+        @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, slip)
         # A cycle that takes up a modifier and gives it off nowhere, E + I ⇌ EI then
-        # EI <--> E, is checked over the reactants alone, so it passes as a Wegscheider
-        # cycle and the law derives. Whether the guard should refuse such a mechanism is
-        # open (ROADMAP).
-        consumes_i = @enzyme_mechanism begin
+        # EI <--> E, is no multiple of the net reaction either, which runs no I: the
+        # guard rejects it (its message is pinned in test_admission.jl), and the
+        # assertion reads every metabolite.
+        consumes_i = @_testhelper_unguarded @enzyme_mechanism begin
             substrates: S
             products: P
             modifiers: I
@@ -350,14 +353,11 @@ end
                 EI <--> E
             end
         end
-        Z, multiples = EnzymeRates.Derivation._fundamental_cycles(
+        @test !EnzymeRates.Derivation.check_valid_rate_equation(Bool, consumes_i)
+        err = @test_throws ErrorException EnzymeRates.Derivation._fundamental_cycles(
             consumes_i.catalytic, EnzymeRates.Derivation._flat_edges(consumes_i.catalytic))
-        @test sort(abs.(multiples)) == [0, 1]
-        @test parameters(consumes_i) ==
-              (:K_EI_to_E_I, :K_ES_to_E_S, :k_ES_to_E_P, :k_E_to_EI)
-        @test occursin("v = (k_ES_to_E_P / K_ES_to_E_S) * (S - P / Keq) / " *
-                       "(1 + S / K_ES_to_E_S + I / K_EI_to_E_I)",
-                       rate_equation_string(consumes_i))
+        @test occursin("produces metabolite change not proportional to net reaction",
+                       err.value.msg)
     end
 
     @testset "the reduction runs in Int64 and retries in BigInt on overflow" begin

@@ -535,7 +535,8 @@ end
 
     # NEGATIVE: bound NADH → bound Lac, no residual (atoms don't balance). Pyr and NAD
     # bind free E in dead ends, which conserve atoms, so that step is the one offender.
-    bad_m = @enzyme_mechanism begin
+    # Its cycle turns NADH into Lac without Pyr and NAD, which the guard rejects.
+    bad_m = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: NADH, Pyr
         products: Lac, NAD
         steps: begin
@@ -17064,11 +17065,13 @@ end
 end
 
 @testset "_base_tier throws a degenerate seed's expansion error" begin
-    # The chemistry step ES ⇌ EP makes P's N from nothing (T binds free E only in a
-    # dead end), so the atom-conservation assertion raises on its flip children. With the P
-    # binding steady state the seed has no maximal rate in products (turning that
-    # binding rapid equilibrium closes an all-RE turnover cycle), so it is degenerate and
-    # expanded.
+    # The form ET is named for T, but the step E + S ⇌ ET binds S. The enumerator's record
+    # of a form holds what its name says, so the steps into and out of ET do not conserve
+    # atoms, and the atom-conservation assertion raises on the seed's flip children. The
+    # cycle takes up S and T and gives off P, so the guard, which reads no form's name,
+    # admits the seed and its flip children. With the P binding steady state the seed has
+    # no maximal rate in products (turning that binding rapid equilibrium closes an all-RE
+    # turnover cycle), so it is degenerate and expanded.
     rxn_bad = @enzyme_reaction begin
         substrates: S[C], T[N]
         products:   P[CN]
@@ -17077,10 +17080,9 @@ end
         substrates: S, T
         products: P
         steps: begin
-            E + S ⇌ ES
-            ES ⇌ EP
+            E + S ⇌ ET
+            ET + T ⇌ EP
             E + P <--> EP
-            E + T ⇌ ET
         end
     end
     @test EnzymeRates.Enumeration._degenerate(_testhelper_candidate(m_bad))
@@ -17091,9 +17093,10 @@ end
         e
     end
     @test err isa ErrorException
-    # The error is the assertion's: the chemistry step ES → EP makes an N.
-    @test occursin("atom-non-conserving step ES → EP", err.msg)
-    @test occursin("= Dict(:N => 1)", err.msg)
+    # The error is the assertion's: the binding E → ET takes up S's C into a form read
+    # as holding T's N.
+    @test occursin("atom-non-conserving step E → ET (consumed [:S]", err.msg)
+    @test occursin(":N => 1", err.msg) && occursin(":C => -1", err.msg)
 end
 
 @testset "the flip move keeps the flips that leave a tagged step between two groups" begin
