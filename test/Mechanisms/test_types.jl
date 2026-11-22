@@ -1033,7 +1033,7 @@ end
                 F <--> E          :: OnlyA
             end
         end
-        v = ER.Derivation._admission(r2, ER.Derivation._built_reading(r2))
+        v = ER.Derivation._verdict_under(r2, ER.Derivation._built_reading(r2))
         @test (v.fault, v.face) == (ER.Derivation._PUMPED, 2)
         @test _testhelper_epath_verdict(r2; rng = Random.MersenneTwister(23),
                                         face = Set([:P])) === :direction_dependent
@@ -2731,7 +2731,7 @@ end
         cm = am.catalytic
         tagged = ER.Mechanism(cm, ER.Mechanisms.Allostery(tags, 1,
                                                           ER.Mechanisms.RegulatorySite[]))
-        v = ER.Derivation._admission(tagged, ER.Derivation._built_reading(tagged))
+        v = ER.Derivation._verdict_under(tagged, ER.Derivation._built_reading(tagged))
         e = v.edge == 0 ? nothing : cm.steps[v.edge]
         (v.fault, e === nothing || !ER.Enumeration._is_binding(e) ? nothing :
                   cm.metabolites[only(e.taken_up)])
@@ -3012,7 +3012,7 @@ end
             EB_res_plusA_minusP <--> E + Q                     :: OnlyA
         end
     end
-    v = ER.Derivation._admission(both, ER.Derivation._built_reading(both))
+    v = ER.Derivation._verdict_under(both, ER.Derivation._built_reading(both))
     @test (v.fault, v.face, v.conformation) == (ER.Derivation._PUMPED, 3, 2)
     @test _testhelper_epath_verdict(both; rng = Random.MersenneTwister(6),
                                     face = Set([:A, :B])) in

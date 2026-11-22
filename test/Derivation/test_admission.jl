@@ -1790,7 +1790,7 @@ end
             EQ + A ⇌ EAQ                                      :: OnlyA
         end
     end
-    w = EnzymeRates.Derivation._admission(
+    w = EnzymeRates.Derivation._verdict_under(
         leading_ss, EnzymeRates.Derivation._built_reading(leading_ss))
     @test (w.fault, w.face, w.conformation) == (EnzymeRates.Derivation._BRIDGE, 2, 2)
     @test EnzymeRates.Derivation._guard(leading_ss) == EnzymeRates.Derivation._WELL_POSED
@@ -2558,7 +2558,7 @@ end
     @test D._admission_interior(am, D._built_reading(am)) ==
           D._Verdict(D._FAST_STEP_PINNED, D._LIMIT_UNTESTED, 0, 2, iso)
     @test D._guard(am) == D._WELL_POSED
-    @test D._admitting_reading(am)[iso, 2] === D._LOSES_FORWARD
+    @test D._guard_with_reading(am).reading[iso, 2] === D._LOSES_FORWARD
     @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(2615),
                                               corners = true))
     _testhelper_check_law_against_limit(am)
@@ -2698,13 +2698,13 @@ end
     end
     # The first reading alone finds a bridge at zero substrates in the inactive
     # conformation.
-    v = D._admission(second_try_a, D._built_reading(second_try_a))
+    v = D._verdict_under(second_try_a, D._built_reading(second_try_a))
     @test (_testhelper_faces(second_try_a)[v.face], v.conformation, v.edge) ==
           (Set([:A, :B, :D]), 2, _testhelper_edge(second_try_a, "EDP + Q ⇌ EDPQ"))
     for am in (second_try_a, third_try)
         # The first try alone.
-        @test D._admission(am, D._built_reading(am)).fault === D._BRIDGE
-        @test D._admission(am, D._built_reading(am, D._ALL_STOPPED)) == D._WELL_POSED
+        @test D._verdict_under(am, D._built_reading(am)).fault === D._BRIDGE
+        @test D._verdict_under(am, D._built_reading(am, D._ALL_STOPPED)) == D._WELL_POSED
         @test D._guard(am) == D._WELL_POSED
         @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
         # The compiled law, derived through the guard, against the oracle's own deletion
@@ -2713,11 +2713,11 @@ end
     end
     # The outward reading admits second_try_a but not third_try, so each later try is
     # needed.
-    @test D._admission(second_try_a,
-                       D._built_reading(second_try_a, D._OUTWARD_LOSE_AFFINITY)) ==
+    @test D._verdict_under(second_try_a,
+                           D._built_reading(second_try_a, D._OUTWARD_LOSE_AFFINITY)) ==
           D._WELL_POSED
-    @test D._admission(third_try,
-                       D._built_reading(third_try, D._OUTWARD_LOSE_AFFINITY)).fault ===
+    @test D._verdict_under(
+        third_try, D._built_reading(third_try, D._OUTWARD_LOSE_AFFINITY)).fault ===
           D._BRIDGE
     # bridge_fast_a: its bridges, the rapid-equilibrium :OnlyA bindings such as the P
     # binding EDQ + P ⇌ EDPQ, lose their affinity under every reading, and stopping its
@@ -2744,14 +2744,14 @@ end
         end
     end
     v = D._guard(bridge_fast_a)
-    @test v == D._admission(bridge_fast_a, D._built_reading(bridge_fast_a))
+    @test v == D._verdict_under(bridge_fast_a, D._built_reading(bridge_fast_a))
     @test (v.fault, v.conformation, v.edge) ==
           (D._BRIDGE, 2,
            _testhelper_edge(bridge_fast_a, "E_res_plusA_plusD_minusR + B ⇌ EPQ"))
-    @test D._admission(bridge_fast_a,
-                       D._built_reading(bridge_fast_a, D._ALL_STOPPED)).fault === D._ISLAND
-    @test D._admission(bridge_fast_a,
-                       D._built_reading(bridge_fast_a, D._OUTWARD_LOSE_AFFINITY)).fault ===
+    @test D._verdict_under(
+        bridge_fast_a, D._built_reading(bridge_fast_a, D._ALL_STOPPED)).fault === D._ISLAND
+    @test D._verdict_under(
+        bridge_fast_a, D._built_reading(bridge_fast_a, D._OUTWARD_LOSE_AFFINITY)).fault ===
           D._BRIDGE
     @test _testhelper_epath_verdict(bridge_fast_a; rng, face = Set([:P])) ===
           :direction_dependent
@@ -2850,9 +2850,9 @@ end
         end
     end
     for am in (both_readings, both_readings_only_i)
-        @test D._admission(am, D._built_reading(am)).fault === D._ARC_CYCLE
-        @test D._admission(am, D._built_reading(am, D._ALL_STOPPED)).fault === D._ISLAND
-        @test D._admission(am, D._built_reading(am, D._OUTWARD_LOSE_AFFINITY)) ==
+        @test D._verdict_under(am, D._built_reading(am)).fault === D._ARC_CYCLE
+        @test D._verdict_under(am, D._built_reading(am, D._ALL_STOPPED)).fault === D._ISLAND
+        @test D._verdict_under(am, D._built_reading(am, D._OUTWARD_LOSE_AFFINITY)) ==
               D._WELL_POSED
         @test D._guard(am) == D._WELL_POSED
         @test all(_testhelper_admission_agreement(am; rng = Random.MersenneTwister(1)))
@@ -2873,10 +2873,10 @@ end
             EAB + D <--> EPR + Q                    :: EqualAI
         end
     end
-    @test D._admission(outward_pumped, D._built_reading(outward_pumped)) == D._WELL_POSED
-    @test D._admission(outward_pumped,
-                       D._built_reading(outward_pumped, D._OUTWARD_LOSE_AFFINITY)).fault ===
-          D._PUMPED
+    @test D._verdict_under(outward_pumped, D._built_reading(outward_pumped)) ==
+          D._WELL_POSED
+    outward = D._built_reading(outward_pumped, D._OUTWARD_LOSE_AFFINITY)
+    @test D._verdict_under(outward_pumped, outward).fault === D._PUMPED
     @test D._guard(outward_pumped) == D._WELL_POSED
     @test all(_testhelper_admission_agreement(outward_pumped;
                                               rng = Random.MersenneTwister(1)))
@@ -3010,7 +3010,7 @@ end
     r[chem_a, 2], r[b_binding, 2] = D._LOSES_FORWARD, D._LOSES_REVERSE
     faces = _testhelper_faces(filled)
     # The first face with B zero zeroes A as well; B alone is refused the same way.
-    v = D._admission(filled, r)
+    v = D._verdict_under(filled, r)
     @test v == D._Verdict(FI, U, 3, 2, b_binding)
     @test faces[3] == Set([:A, :B])
     @test faces[5] == Set([:B])
@@ -3073,7 +3073,7 @@ end
     p = fill(D._RUNS, length(pingpong.catalytic.steps), 2)
     p[_testhelper_edge(pingpong, "EA <--> EP_res_plusA_minusP"), 2] = D._LOSES_FORWARD
     p[_testhelper_edge(pingpong, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
-    @test D._admission(pingpong, p) == D._WELL_POSED
+    @test D._verdict_under(pingpong, p) == D._WELL_POSED
 
     # `slow_source`: a ping-pong whose B binding at F gives EQ at once, every step
     # :OnlyA but F + P ⇌ FP. In the inactive conformation free E stands alone and the
@@ -3098,7 +3098,7 @@ end
         s[_testhelper_edge(slow_source, text), 2] = D._LOSES_FORWARD
     end
     s[b_step, 2] = D._LOSES_REVERSE
-    @test D._admission(slow_source, s) == D._WELL_POSED
+    @test D._verdict_under(slow_source, s) == D._WELL_POSED
     eps = D._eps_network(slow_source, D._re_flags(slow_source.catalytic), s)
     law_nodes = D._law_network(slow_source).present
     sets = D._face_sets(eps, law_nodes, D._faces(slow_source.catalytic)[3])
@@ -3173,7 +3173,7 @@ end
     r[_testhelper_edge(set_aside, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
         D._LOSES_REVERSE
     r[_testhelper_edge(set_aside, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
-    @test D._admission(set_aside, r) == D._WELL_POSED
+    @test D._verdict_under(set_aside, r) == D._WELL_POSED
     @test _testhelper_admission_faults(set_aside; reading = _testhelper_reading(r)) ==
           fill(NO, 7)
     # The face condition alone refuses the interior and the face with A zero. There the
@@ -3223,7 +3223,7 @@ end
     sets = D._face_sets(eps, law.present, UInt64(0))
     @test all(D._fast_law_reach(eps, law.present, sets).to_law[.!law.present])
     @test D._without_set_aside_groups(eps, law.present, UInt64(0)) === eps
-    @test D._admission(kept, k) ==
+    @test D._verdict_under(kept, k) ==
           D._Verdict(BR, U, 1, 2, _testhelper_edge(kept, "EB_res_plusA_minusP ⇌ EQ"))
     @test _testhelper_epath_verdict(kept; rng, corners = true,
                                     reading = _testhelper_reading(k)) ===
@@ -3248,7 +3248,7 @@ end
     o[_testhelper_edge(one_touch, "E + Q ⇌ EQ"), 2] = D._LOSES_FORWARD
     o[_testhelper_edge(one_touch, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"), 2] =
         D._LOSES_REVERSE
-    @test D._admission(one_touch, o) == D._WELL_POSED
+    @test D._verdict_under(one_touch, o) == D._WELL_POSED
     @test _testhelper_admission_faults(one_touch; reading = _testhelper_reading(o)) ==
           fill(NO, 7)
     # The face condition alone refuses five faces. With P zero the uptake F + P → FP is
@@ -3297,7 +3297,7 @@ end
         x = first(first_try.catalytic.substrates)
         @test [D._face_condition(eps, law.present, f, x).fault for f in faces] ==
               [BR, NO, BR, BR, BR, BR, NO, NO, NO]
-        @test D._admission(first_try, reading) == D._WELL_POSED
+        @test D._verdict_under(first_try, reading) == D._WELL_POSED
     end
     @test D._guard(first_try) == D._WELL_POSED
     @test all(_testhelper_admission_agreement(first_try; rng = Random.MersenneTwister(1)))
@@ -3355,7 +3355,7 @@ end
         @test !any(D._face_sets(eps, law.present, faces[3]).stranded)
         @test D._without_set_aside_groups(eps, law.present, faces[3]) === eps
     end
-    @test D._admission(stopped_exit, se) ==
+    @test D._verdict_under(stopped_exit, se) ==
           D._Verdict(BR, U, 3, 2, _testhelper_edge(stopped_exit, "E + Q <--> EQ"))
     @test _testhelper_epath_verdict(stopped_exit; rng,
                                     face = _testhelper_faces(stopped_exit)[3],
@@ -3372,7 +3372,7 @@ end
     for (name, fault) in (("bridge_deadend", BR), ("BS1", D._PUMPED),
                           ("fz101_10232", D._PUMPED))
         am = _testhelper_tag_sets[name]
-        @test (name, D._admission(am, D._built_reading(am)).fault) == (name, fault)
+        @test (name, D._verdict_under(am, D._built_reading(am)).fault) == (name, fault)
     end
     @test D._guard(_testhelper_tag_sets["bridge_deadend"]).fault === BR
 end
@@ -3417,8 +3417,7 @@ end
     r[chem_a, 2], r[chem_b, 2] = D._LOSES_FORWARD, D._LOSES_REVERSE
     @test D._built_reading(pingpong)[chem_b, 2] === D._CANNOT_SWITCH_OFF
     for am in (pingpong, pingpong_dimer)
-        @test D._guard(am) == D._WELL_POSED
-        @test D._admitting_reading(am) == r
+        @test D._guard_with_reading(am) == (; verdict = D._WELL_POSED, reading = r)
         _testhelper_check_law_against_limit(am)
         @test all(_testhelper_admission_agreement(am; rng, corners = true))
     end
@@ -3449,8 +3448,8 @@ end
                                                      cm.steps[back]),
             EnzymeRates.Mechanisms.Allostery(pingpong.allosteric.allosteric_states, 1,
                                              pingpong.allosteric.regulatory_sites))
-        @test D._guard(backward) == D._WELL_POSED
-        @test D._admitting_reading(backward) == r[back, :]
+        @test D._guard_with_reading(backward) ==
+              (; verdict = D._WELL_POSED, reading = r[back, :])
     end
 
     # The three-step ping-pong: the inactive conformation keeps only E + Q <--> EQ. The
@@ -3472,8 +3471,7 @@ end
     t[half_a, 2], t[half_b, 2] = D._LOSES_FORWARD, D._LOSES_REVERSE
     @test D._admission_interior(three_step, D._built_reading(three_step)).fault ===
           D._ISLAND
-    @test D._guard(three_step) == D._WELL_POSED
-    @test D._admitting_reading(three_step) == t
+    @test D._guard_with_reading(three_step) == (; verdict = D._WELL_POSED, reading = t)
     _testhelper_check_law_against_limit(three_step)
     @test all(_testhelper_admission_agreement(three_step; rng, corners = true))
 
@@ -3490,7 +3488,6 @@ end
             E_res_plusA_minusP + B ⇌ EQ                        :: OnlyA
         end
     end
-    @test D._admitting_reading(no_limit) === nothing
     @test D._guard(no_limit).fault !== D._NO_FAULT
     consistent = _testhelper_consistent_readings(no_limit)
     @test length(consistent) == 2
@@ -3513,7 +3510,6 @@ end
             EB_res_plusA_minusP ⇌ EQ                           :: EqualAI
         end
     end
-    @test D._admitting_reading(filled) === nothing
     @test D._guard(filled).fault !== D._NO_FAULT
 
     # A mechanism a built reading admits is admitted with it: `both_readings` of "a
@@ -3529,8 +3525,9 @@ end
             EP + Q ⇌ EPQ                  :: EqualAI
         end
     end
-    @test D._admitting_reading(both_readings) ==
-          D._built_reading(both_readings, D._OUTWARD_LOSE_AFFINITY)
+    @test D._guard_with_reading(both_readings) ==
+          (; verdict = D._WELL_POSED,
+           reading = D._built_reading(both_readings, D._OUTWARD_LOSE_AFFINITY))
 
     # A rapid-equilibrium step inside one group is the fault no reading changes. The
     # message offers the two fixes, each of whose variants passes.
@@ -3607,8 +3604,9 @@ end
     p = fill(D._RUNS, length(pp_ternary.catalytic.steps), 2)
     p[_testhelper_edge(pp_ternary, "EA <--> EP_res_plusA_minusP"), 2] = D._LOSES_FORWARD
     p[_testhelper_edge(pp_ternary, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
-    @test D._admitting_reading(pp_ternary) == p
-    @test D._admitting_reading(mirror) == p[:, [2, 1]]
+    @test D._guard_with_reading(pp_ternary) == (; verdict = D._WELL_POSED, reading = p)
+    @test D._guard_with_reading(mirror) ==
+          (; verdict = D._WELL_POSED, reading = p[:, [2, 1]])
     for am in (pp_ternary, mirror)
         @test D._guard(am) == D._WELL_POSED
         _testhelper_check_law_against_limit(am)
@@ -3682,7 +3680,8 @@ end
     for am in (large_admitted, large_island, large_pumped)
         @test _testhelper_choice_count(am) > D._MAX_CHOICES_PER_CONFORMATION
     end
-    @test D._admitting_reading(large_admitted) == D._built_reading(large_admitted)
+    @test D._guard_with_reading(large_admitted) ==
+          (; verdict = D._WELL_POSED, reading = D._built_reading(large_admitted))
     @test D._guard(large_island) ==
           D._Verdict(D._TOO_MANY_READINGS, D._LIMIT_UNTESTED, 0, 2, 0)
     @test D._guard_message(large_island) ==
@@ -3692,7 +3691,7 @@ end
           "cannot show that the rate law is the limit."
     @test D._guard(large_pumped).fault === D._PUMPED
     @test D._guard(large_pumped) ==
-          D._admission(large_pumped, D._built_reading(large_pumped))
+          D._verdict_under(large_pumped, D._built_reading(large_pumped))
     names = Dict(name => o for (o, name) in _testhelper_switch_off_names)
     LF, LR = :loses_forward, :loses_reverse
     for (am, column) in ((large_island, [LF, LF, LF, :runs, LF, LF, LF, LF, LF, :runs, LF,
@@ -3702,7 +3701,7 @@ end
         reading = [fill(:runs, length(column)) column]
         @test _testhelper_reading_is_consistent(am, reading)
         @test D._verdict_under(am, map(name -> names[name], reading)) == D._WELL_POSED
-        @test D._admitting_reading(am) === nothing
+        @test D._guard(am) != D._WELL_POSED
     end
 
     # The two other ways a search can be too large, each first in a ter-ter tagging that
@@ -4525,7 +4524,7 @@ end
     # on every face under the reading it admits with.
     function _testhelper_admitted_by_search(x)
         @test D._guard(x) == D._WELL_POSED
-        @test !(D._admitting_reading(x) in
+        @test !(D._guard_with_reading(x).reading in
                 [D._built_reading(x, r) for r in instances(D._SlowUptakeReading)])
         @test all(_testhelper_admission_agreement(x; rng, corners = true))
         _testhelper_check_law_against_limit(x)
@@ -4557,7 +4556,7 @@ end
                                        both.catalytic.steps[half1].to]] ==
           [:E_res_plusA_minusP, :EA]
     built = D._built_reading(both)
-    v = D._admission(both, built)
+    v = D._verdict_under(both, built)
     @test v == EnzymeRates.Derivation._Verdict(PU, U, 3, 2, feed)
     @test isempty(_testhelper_exclusion(both, 2).lost)
     @test _testhelper_admission_agrees(
@@ -4754,7 +4753,7 @@ end
     shared_line(t) = EnzymeRates.Mechanisms.step_text(shared_half1.catalytic,
                                                       _testhelper_edge(shared_half1, t))
     built = D._built_reading(shared_half1)
-    v = D._admission(shared_half1, built)
+    v = D._verdict_under(shared_half1, built)
     @test v == EnzymeRates.Derivation._Verdict(
         PU, U, 3, 2,
         _testhelper_edge(shared_half1, "E_res_plusA_minusP + B <--> EB_res_plusA_minusP"))
@@ -4837,7 +4836,7 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
           :direction_dependent
     k, iso = _testhelper_edge(am, "F + P ⇌ EP"), _testhelper_edge(am, "F <--> E")
     built = EnzymeRates.Derivation._built_reading(am)
-    v = EnzymeRates.Derivation._admission(am, built)
+    v = EnzymeRates.Derivation._verdict_under(am, built)
     @test v == EnzymeRates.Derivation._Verdict(
         PU, EnzymeRates.Derivation._LIMIT_UNTESTED, 2, 2, k)
     line(j) = EnzymeRates.Mechanisms.step_text(m, j)
@@ -4847,7 +4846,7 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
           "nothing runs back the way it came, so admission cannot show that their weight " *
           "does not depend on how fast that step vanishes."
     @test EnzymeRates.Derivation._guard(am) == EnzymeRates.Derivation._WELL_POSED
-    @test EnzymeRates.Derivation._admitting_reading(am)[iso, 2] !==
+    @test EnzymeRates.Derivation._guard_with_reading(am).reading[iso, 2] !==
           EnzymeRates.Derivation._STOPPED
     @test all(_testhelper_admission_agreement(am; rng, corners = true))
     _testhelper_check_law_against_limit(am)
@@ -4924,7 +4923,7 @@ end
     built_ss = EnzymeRates.Derivation._built_reading(stranded_ss)
     @test EnzymeRates.Derivation._admission_interior(stranded_ss, built_ss) ==
           EnzymeRates.Derivation._WELL_POSED
-    v = EnzymeRates.Derivation._admission(stranded_ss, built_ss)
+    v = EnzymeRates.Derivation._verdict_under(stranded_ss, built_ss)
     @test (v.fault, v.face, v.conformation) == (EnzymeRates.Derivation._PUMPED, 2, 2)
     @test _testhelper_admission_agrees(
         v.fault, _testhelper_epath_verdict(stranded_ss; rng,
@@ -5028,8 +5027,8 @@ end
             F <--> E            :: OnlyA
         end
     end
-    v = EnzymeRates.Derivation._admission(bs2_ss,
-                                          EnzymeRates.Derivation._built_reading(bs2_ss))
+    v = EnzymeRates.Derivation._verdict_under(bs2_ss,
+                                              EnzymeRates.Derivation._built_reading(bs2_ss))
     @test (v.fault, v.face, v.conformation) == (PU, 2, 2)
     @test _testhelper_admission_faults(bs2_ss) == [NO, PU, NO]
     @test EnzymeRates.Derivation._guard(bs2_ss) == EnzymeRates.Derivation._WELL_POSED
@@ -5127,7 +5126,8 @@ end
     for name in ("R2funnel", "R2funnel_SS")
         x = _testhelper_tag_sets[name]
         @test _testhelper_admission_faults(x) == [NO, BR, NO]
-        w = EnzymeRates.Derivation._admission(x, EnzymeRates.Derivation._built_reading(x))
+        w = EnzymeRates.Derivation._verdict_under(
+            x, EnzymeRates.Derivation._built_reading(x))
         @test (w.fault, w.face, w.conformation) === (BR, 2, 2)
         @test _testhelper_epath_verdict(x; rng, face = _testhelper_faces(x)[2],
                                         corners = true) === :direction_dependent
@@ -5207,7 +5207,7 @@ end
     # The step that rejects BS1 under that reading has both its forms in the basin: it
     # runs one way among them rather than feeding them.
     built = EnzymeRates.Derivation._built_reading(bs1)
-    v = EnzymeRates.Derivation._admission(bs1, built)
+    v = EnzymeRates.Derivation._verdict_under(bs1, built)
     @test (v.fault, v.face, v.conformation) == (PU, 5, 2)
     @test EnzymeRates.Derivation._admission_message(bs1, v, built) ==
           "Mechanism: at zero I and P, F + P ⇌ FP runs one way among the " *
@@ -5257,7 +5257,7 @@ end
     r[_testhelper_edge(rb3, "EB_res_plusA_minusP ⇌ EQ"), 2] = D._LOSES_REVERSE
     # The bridge is led by the last of the two vanishing steps on a cheapest tree, in
     # step order.
-    @test D._admission(rb3, r) ==
+    @test D._verdict_under(rb3, r) ==
           D._Verdict(BR, D._LIMIT_UNTESTED, 1, 2,
                      _testhelper_edge(rb3, "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"))
     @test _testhelper_epath_verdict(rb3; rng, corners = true,
@@ -5291,7 +5291,7 @@ end
         law = D._law_network(rb4), faces = D._faces(rb4.catalytic)
         @test D._without_set_aside_groups(eps, law.present, faces[2]) === eps
     end
-    @test D._admission(rb4, r) ==
+    @test D._verdict_under(rb4, r) ==
           D._Verdict(BR, D._LIMIT_UNTESTED, 2, 2, _testhelper_edge(rb4, "EP + Q ⇌ EPQ"))
     @test _testhelper_epath_verdict(rb4; rng, face = _testhelper_faces(rb4)[2],
                                     corners = true, reading = _testhelper_reading(r)) ===
@@ -5302,8 +5302,7 @@ end
     rng = Random.MersenneTwister(71)
     NO, NU = EnzymeRates.Derivation._NO_FAULT, EnzymeRates.Derivation._NONUNIQUE
     # S1's stray free form F binds B at steady state: with A or B zero the law network has
-    # a second closed class. The ε-network's closed-class count sees the same split, so
-    # admission alone rejects those faces too; the guard reports class 3, which runs first.
+    # a second closed class, which class 3 reports before admission reads those faces.
     s1 = _testhelper_tag_sets["S1"]
     @test EnzymeRates.Derivation._admission_interior(
         s1, EnzymeRates.Derivation._built_reading(s1)) ==
@@ -5311,28 +5310,19 @@ end
     @test _testhelper_admission_faults(s1) == [NO, NO, NU, NU, NU]
     @test EnzymeRates.Derivation._guard(s1).fault === NU
     @test all(_testhelper_admission_agreement(s1; rng))
-    v = EnzymeRates.Derivation._admission(s1, EnzymeRates.Derivation._built_reading(s1))
-    @test (v.fault, v.face, v.conformation) ===
-          (EnzymeRates.Derivation._EPS_NONUNIQUE, 3, 2)
-    @test EnzymeRates.Derivation._admission_message(
-        s1, v, EnzymeRates.Derivation._built_reading(s1)) ==
-          "Mechanism: at zero A and B, the forms F (inactive) hold the enzyme " *
-          "they receive and are reached only through tagged steps, so the steady state " *
-          "depends on where the enzyme starts."
     # AD7b: with I zero no spanning in-tree reaches the fed forms, so the face condition
     # passes and class 3 decides. Its isomerization E ⇌ F is at rapid equilibrium, and
     # the inactive conformation cannot switch it off, so admission rejects the interior.
     ad7b = _testhelper_tag_sets["AD7b"]
-    @test EnzymeRates.Derivation._admission(
+    @test EnzymeRates.Derivation._verdict_under(
         ad7b, EnzymeRates.Derivation._built_reading(ad7b)).fault ===
           EnzymeRates.Derivation._FAST_STEP_PINNED
     @test _testhelper_admission_faults(ad7b) == [NO, NO, NO, NU, NU, NU]
     @test _testhelper_epath_verdict(ad7b; rng) === :no_path
     # Class 3's faces agree with the RE-speed oracle.
     @test all(_testhelper_admission_agreement(ad7b; rng)[4:6])
-    # With E <--> F steady-state it is stopped: admission passes every face, and the guard
-    # itself reaches class 3's second closed class with I zero; both oracles agree on
-    # every face.
+    # With E <--> F steady-state it is stopped: admission's interior passes, and the guard
+    # reaches class 3's second closed class with I zero; both oracles agree on every face.
     ad7b_ss = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A
         products: P
@@ -5345,7 +5335,7 @@ end
             EA <--> EP                  :: EqualAI
         end
     end
-    @test EnzymeRates.Derivation._admission(
+    @test EnzymeRates.Derivation._admission_interior(
         ad7b_ss, EnzymeRates.Derivation._built_reading(ad7b_ss)) ==
           EnzymeRates.Derivation._WELL_POSED
     @test _testhelper_admission_faults(ad7b_ss) == [NO, NO, NO, NU, NU, NU]
@@ -6600,16 +6590,16 @@ end
             EnzymeRates.Mechanisms.Allostery(
                 [isodd(bits >> (g - 1)) ? :OnlyA : :EqualAI for g in 1:G], 1,
                 EnzymeRates.Mechanisms.RegulatorySite[]))
-        reading = D._admitting_reading(am)
-        searched = reading !== nothing && !(reading in built(am))
+        g = D._guard_with_reading(am)
+        searched = g.verdict === D._WELL_POSED && !(g.reading in built(am))
         searched && !(am in sample) && push!(sample, am)
     end
     @test length(sample) == 40
     for am in sample
         @test all(_testhelper_admission_agreement(am; rng, corners = true))
     end
-    @test count(am -> :loses_reverse in _testhelper_reading(D._admitting_reading(am)),
-                sample) >= 5
+    admitting(am) = _testhelper_reading(D._guard_with_reading(am).reading)
+    @test count(am -> :loses_reverse in admitting(am), sample) >= 5
 end
 
 @testset "joint R1 rejects a mechanism whose bridges cut the tree only together" begin

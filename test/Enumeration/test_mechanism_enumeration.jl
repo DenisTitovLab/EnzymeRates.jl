@@ -14275,7 +14275,7 @@ end
     function _testhelper_admission_fault(t)
         am = EnzymeRates.Mechanism(m.catalytic, EnzymeRates.Mechanisms.Allostery(t, 1,
                                              EnzymeRates.Mechanisms.RegulatorySite[]))
-        EnzymeRates.Derivation._admission(
+        EnzymeRates.Derivation._verdict_under(
             am, EnzymeRates.Derivation._built_reading(am)).fault
     end
     vt = [c ? :OnlyA : :EqualAI for c in EnzymeRates.Enumeration._chemistry_groups(
@@ -15643,11 +15643,12 @@ end
     # groups, EA to EP_res_plusA_minusP and EB_res_plusA_minusP to EQ, make the
     # two half-reactions. Tagging both chemistry groups :OnlyA (`every`) cuts the covalent
     # forms off in the inactive conformation, and the guard admits it, so that set is the
-    # one base. Admission accepts the first half's chemistry :OnlyA alone (`half1`), but
-    # the guard does not: a face holds a rapid-equilibrium segment whose lowest forms split
-    # (`_SPLIT`). The move emits two V-types with R on the base and a K-type for each
-    # nonempty set of the four bindings :OnlyA on it (15). The exits keep seven: the
-    # V-types and the K-types without B's binding that tag P's binding only beside A's.
+    # one base. Admission's interior accepts the first half's chemistry :OnlyA alone
+    # (`half1`), but the guard does not: a face holds a rapid-equilibrium segment whose
+    # lowest forms split (`_SPLIT`). The move emits two V-types with R on the base and a
+    # K-type for each nonempty set of the four bindings :OnlyA on it (15). The exits keep
+    # seven: the V-types and the K-types without B's binding that tag P's binding only
+    # beside A's.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -15688,7 +15689,7 @@ end
         end
     end
     D = EnzymeRates.Derivation
-    @test D._admission(half1, D._built_reading(half1)).fault === D._NO_FAULT
+    @test D._admission_interior(half1, D._built_reading(half1)) === D._WELL_POSED
     @test D._guard(half1).fault === D._SPLIT
     @test all(_testhelper_admission_agreement(every; rng = Random.MersenneTwister(15327),
                                               corners = true))

@@ -604,8 +604,8 @@ admits never depends on the order of the steps. Such a mechanism is rejected wit
 consistent built reading's verdict, else with an active conformation that turns nothing over
 (`_NO_ACTIVE_TURNOVER`), else with `_TOO_MANY_READINGS`. A rejection reports the verdict of
 the first consistent reading tried, so its message never says that a step cannot be switched
-off when another reading switches it off. `_admitting_reading` returns the reading the guard
-admits with.
+off when another reading switches it off. `_guard_with_reading` returns the verdict with the
+reading it was judged under, the reading the guard admits with when it admits.
 
 **The face condition.** Admission's face condition (`_face_condition`) reads which
 transitions of the ε-network are alive on a face and which vanish. It refuses, in order, a

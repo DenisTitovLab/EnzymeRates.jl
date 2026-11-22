@@ -467,17 +467,6 @@ The well-posedness guard (spec section 8) on `m`, plain or allosteric: its verdi
 _guard(mech::Mechanisms.Mechanism) = _guard_with_reading(mech).verdict
 
 """
-    _admitting_reading(m) -> Union{_Reading, Nothing}
-
-The reading of how the conformations of `m` switch off its excluded steps with which the
-guard admits `m` (`_guard_with_reading`), `nothing` when it rejects `m`.
-"""
-function _admitting_reading(mech::Mechanisms.Mechanism)
-    g = _guard_with_reading(mech)
-    g.verdict === _WELL_POSED ? g.reading : nothing
-end
-
-"""
     _guard_with_reading(m) -> (; verdict, reading)
 
 The well-posedness guard (spec section 8) on `m`, plain or allosteric, and the reading of

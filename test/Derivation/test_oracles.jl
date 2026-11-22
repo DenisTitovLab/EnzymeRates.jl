@@ -1193,7 +1193,9 @@ end
                                                     law = admitted ? :package : :limit)
             @test all(_testhelper_agrees.(faults, verdicts))
             admitted || continue
-            reading = _testhelper_reading(EnzymeRates.Derivation._admitting_reading(c))
+            g = EnzymeRates.Derivation._guard_with_reading(c)
+            @test g.verdict === EnzymeRates.Derivation._WELL_POSED
+            reading = _testhelper_reading(g.reading)
             @test _testhelper_reading_is_consistent(c, reading)
             @test _testhelper_epath_verdict(c; rng, reading) === :converges
         end
@@ -1277,7 +1279,9 @@ end
             if _testhelper_is_allosteric(m)]
     @test length(allo) >= 30
     for am in allo
-        reading = _testhelper_reading(EnzymeRates.Derivation._admitting_reading(am))
+        g = EnzymeRates.Derivation._guard_with_reading(am)
+        @test g.verdict === EnzymeRates.Derivation._WELL_POSED
+        reading = _testhelper_reading(g.reading)
         @test _testhelper_reading_is_consistent(am, reading)
         @test all(face -> _testhelper_epath_verdict(am; rng, face, reading) === :converges,
                   _testhelper_faces(am))

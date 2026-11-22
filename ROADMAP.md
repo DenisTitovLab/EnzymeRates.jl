@@ -310,11 +310,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   - **The guard's internals carry names and arguments nothing needs.**
     `_ARC_CYCLE` and `_ISLAND` are never reported, so `_interior_verdict` could return one
     "inconsistent" outcome from a Boolean acyclicity test, and `_Fault`'s docstring could
-    become a list. `exclusion_components` lacks the leading underscore.
-    `_admitting_reading` and `_admission` are called only by tests. Of `_eps_network`'s
-    callers, only `_every_step_cures` passes a `re` other than `_re_flags(m)`, and it could
-    build its variant with `_with_steps` instead. The docs call the forms a conformation's
-    kept steps join an island; the code calls them a component, a group and a part.
+    become a list. `exclusion_components` lacks the leading underscore. Of
+    `_eps_network`'s callers, only `_every_step_cures` passes a `re` other than
+    `_re_flags(m)`, and it could build its variant with `_with_steps` instead. The docs call
+    the forms a conformation's kept steps join an island; the code calls them a component, a
+    group and a part.
 - **Decide what the guard keeps that no measured mechanism needs.**
   Whether each part below goes is the maintainer's decision: he chose the three built
   readings, and guard code does not go on a search alone. Priority: medium.

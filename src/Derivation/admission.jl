@@ -550,17 +550,13 @@ end
 
 """
 Of two or more closed classes of the ε-network, the first that holds no node `law_nodes`
-marks, else the second: the class an `_EPS_NONUNIQUE` verdict names. Whenever class 3 has
-accepted the face such a class exists, because a closed class of the ε-network that holds
-a law node holds a closed class of the law network, and class 3 leaves that network only
-one. The fallback arises only from `_admission` on a face that class 3 rejects.
+marks: the class an `_EPS_NONUNIQUE` verdict names. Admission reads a face only once class
+3 has accepted it, and then such a class exists, because a closed class of the ε-network
+that holds a law node holds a closed class of the law network, and class 3 leaves that
+network only one.
 """
-function _class_outside_law(closed::Vector{Vector{Int}}, law_nodes::BitVector)
-    for cls in closed
-        any(view(law_nodes, cls)) || return cls
-    end
-    closed[2]
-end
+_class_outside_law(closed::Vector{Vector{Int}}, law_nodes::BitVector) =
+    closed[something(findfirst(cls -> !any(view(law_nodes, cls)), closed))]
 
 """How a message names face `face` of `m`: nothing for the interior, else `at zero `, its
 zeroed names (`_face_names`) and `place`, then a comma."""
@@ -797,20 +793,4 @@ function _admission_face(am::Mechanisms.Mechanism, eps::_Network, law::_Network,
             return _WELL_POSED
     end
     v.fault === _NO_FAULT ? v : _Verdict(v.fault, v.limit, i, v.conformation, v.edge)
-end
-
-"""
-    _admission(am, reading) -> _Verdict
-
-Admission alone, the excluded steps switched off as `reading` says: the interior checks
-(`_admission_interior`), then the face condition on every face (`_admission_face`) of the
-ε-network of that reading, class 3 not run.
-"""
-function _admission(am::Mechanisms.Mechanism, reading::_Reading)
-    v = _admission_interior(am, reading)
-    v.fault === _NO_FAULT || return v
-    eps = _eps_network(am, _re_flags(am.catalytic), reading)
-    law = _law_network(am)
-    faces = _faces(am.catalytic)
-    _first_face_fault(i -> _admission_face(am, eps, law, faces, i), faces)
 end
