@@ -98,13 +98,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   - **Too large to search.** When a conformation has more than 20,000 ways to switch off its
     excluded steps, or the two conformations' consistent ways form more than 5,000 pairs,
     the guard does not search (`_MAX_CHOICES_PER_CONFORMATION`, `_MAX_READING_PAIRS`,
-    `src/Derivation/guard.jl`) and tries only its three built readings. 441 gate mechanisms
-    are too large to search. The 33 among them with no consistent built reading are rejected
-    with `_TOO_MANY_READINGS`, whatever their law: 27 of the 2,000 ter-ter taggings, 2 of
-    3,000 ter-bi, 1 of 3,000 bi-ter and 3 of the admission tests' mechanisms. Without a
-    regulator, 20 of the 4,885 census ter-bi starting mechanisms keep no allosteric child,
-    since their only K-type is too large to search. Raising the caps costs time: the slowest
-    guard call, on a ter-bi mechanism of 25 steps with 2,157 pairs, takes 0.3 s.
+    `src/Derivation/rate_equation_correctness_guard.jl`) and tries only its three built
+    readings. 441 gate mechanisms are too large to search. The 33 among them with no
+    consistent built reading are rejected with `_TOO_MANY_READINGS`, whatever their law: 27
+    of the 2,000 ter-ter taggings, 2 of 3,000 ter-bi, 1 of 3,000 bi-ter and 3 of the
+    admission tests' mechanisms. Without a regulator, 20 of the 4,885 census ter-bi starting
+    mechanisms keep no allosteric child, since their only K-type is too large to search.
+    Raising the caps costs time: the slowest guard call, on a ter-bi mechanism of 25 steps
+    with 2,157 pairs, takes 0.3 s.
   - **Refused as a bridge.** The face condition refuses vanishing transitions that open a
     faster route between two of the law's forms when it cannot prove the route harmless.
     Gate entry 53246, a ter-ter tagging that holds an excluded rapid-equilibrium step that
@@ -113,13 +114,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     rule would admit it: one that takes a cut-off form the enzyme does not reach on the face
     along with a group set aside when any of its alive transitions leads into it, where the
     rule as built wants all of them to (`_without_set_aside_groups`,
-    `src/Derivation/admission.jl`). It would also set aside unfed forms that empty into a
-    set-aside group only through one another, which the rule as built keeps. One argument
-    makes it sound: the face has one closed class, which free E reaches, so a form free E
-    does not reach holds no enzyme at any ε and any speed. The wider rule was not built; it
-    changes verdicts, so it needs the gate. Entry 53145, of the same kind and refused as a
-    bridge too, is not shown valid: under the one reading tested, the ε-path oracle finds a
-    limit that depends on the path at zero products and at zero P.
+    `src/Derivation/allosteric_rate_equation_correctness_guard.jl`). It would also set aside
+    unfed forms that empty into a set-aside group only through one another, which the rule
+    as built keeps. One argument makes it sound: the face has one closed class, which free E
+    reaches, so a form free E does not reach holds no enzyme at any ε and any speed. The
+    wider rule was not built; it changes verdicts, so it needs the gate. Entry 53145, of the
+    same kind and refused as a bridge too, is not shown valid: under the one reading tested,
+    the ε-path oracle finds a limit that depends on the path at zero products and at zero P.
     The suite pins two more, `bridge_deadend` and R-B3 (`test/Derivation/test_admission.jl`,
     "conservative rejections the oracle admits stay rejected under their reading"). A rule
     that also set aside groups touching forms in equilibrium for another reason, such as a
@@ -303,19 +304,20 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     `src/Enumeration/starting_mechanisms.jl`) asks the turnover question for many step
     subsets and reuses its buffers. The guard calls it at one place, on its own network of
     transitions with a metabolite's uptake as the weight (`_potential_on_sccs`,
-    `src/Derivation/admission.jl`). A signature on a catalytic scheme and a mask, as
-    `has_turnover_cycle` has, would fit the seed screen but not the guard, which passes
-    transitions, not a scheme's steps. The guard also has its own walk over that network
-    that finds a cycle whose offsets disagree (`_fast_segments` with `_tree_cycle`,
-    `src/Derivation/guard.jl`), which its check that every cycle balances each metabolite
-    uses (`_unbalanced_cycle`). Unverified: whether `_potential_on_sccs` could ask its
-    question through that walk. If it can, the seed screen is the only caller outside
-    `Mechanisms`, and with buffers passed to `has_turnover_cycle`, or an allocation accepted
-    there, the routine becomes private: one public name and its six-argument signature
-    fewer. Considered and not recommended: merging the two functions under one name (two
-    call shapes remain); dropping `has_turnover_cycle` (the rule that turnover is uptake of
-    the first substrate would then be written at four call sites); dropping the general
-    routine outright (the guard would need a copy).
+    `src/Derivation/allosteric_rate_equation_correctness_guard.jl`). A signature on a
+    catalytic scheme and a mask, as `has_turnover_cycle` has, would fit the seed screen but
+    not the guard, which passes transitions, not a scheme's steps. The guard also has its
+    own walk over that network that finds a cycle whose offsets disagree (`_fast_segments`
+    with `_tree_cycle`, `src/Derivation/rate_equation_correctness_guard.jl`), which its
+    check that every cycle balances each metabolite uses (`_unbalanced_cycle`). Unverified:
+    whether `_potential_on_sccs` could ask its question through that walk. If it can, the
+    seed screen is the only caller outside `Mechanisms`, and with buffers passed to
+    `has_turnover_cycle`, or an allocation accepted there, the routine becomes private: one
+    public name and its six-argument signature fewer. Considered and not recommended:
+    merging the two functions under one name (two call shapes remain); dropping
+    `has_turnover_cycle` (the rule that turnover is uptake of the first substrate would then
+    be written at four call sites); dropping the general routine outright (the guard would
+    need a copy).
   - **Three modules count which way a step runs.**
     The count of substrates taken up and products given off that orients a step is made
     in `Mechanisms` (`_orientation`, the second row of the table of stored directions),
@@ -334,11 +336,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     `Enumeration._is_binding`. The steps a conformation excludes, those of its groups'
     excluded allosteric state: `Mechanisms._steps_in_conformation`
     (`src/Mechanisms/mechanism_type.jl`) and `Derivation._excluded_steps`
-    (`src/Derivation/conformations.jl`). A mechanism's id, the first 16 hex digits of the
+    (`src/Derivation/Derivation.jl`). A mechanism's id, the first 16 hex digits of the
     SHA-256 of its text: identify's `_mechanism_id` and the capped key of `_canonical`
-    (`src/Derivation/key.jl`); keying a capped law by the whole text instead would change
-    every capped key once. Each copy is a line or two; one owner of each would cost a public
-    name.
+    (`src/Derivation/rate_equation_dedup_key.jl`); keying a capped law by the whole text
+    instead would change every capped key once. Each copy is a line or two; one owner of
+    each would cost a public name.
   - **Store allosteric states as what runs.** Deferred by the maintainer on 2026-11-22.
     `steps_running_in_allosteric_conformations` derives which steps each conformation runs
     from the written states and from which forms the running steps join to free E: a step
@@ -387,12 +389,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     `_ALL_STOPPED` changes no verdict in any of the gate's ten populations, and
     `_OUTWARD_LOSE_AFFINITY` was not measured. Measure both against the mechanisms the
     guard before 0.11.0 admits, those too large to search in particular, and remove what
-    changes nothing: about 45 lines of `src/Derivation/conformations.jl` and their mirror
-    in `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
-  - **Joint R1.** The branch of `_face_condition` (`src/Derivation/admission.jl`) that
-    refuses a bridge the two conformations' vanishing transitions open only together is
-    reached through `_guard` by no mechanism searched: 20,096 variants of its fixture and
-    the 54,927 taggings of the gate's `:OnlyA`, `:OnlyI` and ter-ter populations.
+    changes nothing: about 45 lines of
+    `src/Derivation/allosteric_rate_equation_correctness_guard.jl` and their mirror in
+    `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
+  - **Joint R1.** The branch of `_face_condition`
+    (`src/Derivation/allosteric_rate_equation_correctness_guard.jl`) that refuses a bridge
+    the two conformations' vanishing transitions open only together is reached through
+    `_guard` by no mechanism searched: 20,096 variants of its fixture and the 54,927
+    taggings of the gate's `:OnlyA`, `:OnlyI` and ter-ter populations.
 - **Log the time of each search phase.**
   `progress.log` carries no timestamps, so a cluster run cannot say where its wall time
   goes. In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of
@@ -403,11 +407,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **Profile the search on the HPC runs.**
   In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of
   another fit at the same parameter count. These may be laws the key misses, equal only
-  after a reparametrization (`_canonical`, `src/Derivation/key.jl`), or laws that differ
-  only outside the data. Separating the two would size a saving of up to 3–4×. Still
-  unmeasured on these runs: fits whose parent fails the final parsimony cutoff, children and
-  survivors per move, zero-gain `change_allo_state` children, and how many PGK rows identify
-  flags `L_phantom`. Priority: medium.
+  after a reparametrization (`_canonical`, `src/Derivation/rate_equation_dedup_key.jl`), or
+  laws that differ only outside the data. Separating the two would size a saving of up to
+  3–4×. Still unmeasured on these runs: fits whose parent fails the final parsimony cutoff,
+  children and survivors per move, zero-gain `change_allo_state` children, and how many PGK
+  rows identify flags `L_phantom`. Priority: medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
   numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The
@@ -431,10 +435,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_expand_change_allo_state` (`src/Enumeration/expansion_moves.jl`) has no gain test,
   unlike the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain
   edges. A child whose law equals one already fitted, up to renaming its constants, shares
-  that fit through the key (`_canonical`, `src/Derivation/key.jl`) and costs no fit; a
-  zero-gain child with a law of its own still costs one. First count, over the bi-bi
-  allosteric depth-2 population, the children whose `fitted_parameter_count` does not exceed
-  their parent's and whose key is new, and confirm them with
+  that fit through the key (`_canonical`, `src/Derivation/rate_equation_dedup_key.jl`) and
+  costs no fit; a zero-gain child with a law of its own still costs one. First count, over
+  the bi-bi allosteric depth-2 population, the children whose `fitted_parameter_count` does
+  not exceed their parent's and whose key is new, and confirm them with
   `_testhelper_identifiable_rank`. A naive filter can drop a different model with the same
   count, so check reachability before filtering. Priority: medium-low.
 - **Decide whether to keep the hyperbolic drops above one subunit.**
@@ -501,14 +505,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   Several phantom classes make the beam count a model above its true dimension: chain
   flanks kept after a later split, copy-copy twin pairs, `:NonequalAI` copies and the
   iso dwell-time gauge. The one-subunit L has an exact test of its own: a rescaling
-  certificate (`_phantom_weights`, `src/Derivation/key.jl`) finds an L phantom whose
-  inactive conformation turns nothing over, and identify lets it read the fit of its law at
-  L = 0 when that law holds its other fitted constants and a mechanism with it was fitted in
-  an earlier batch or is fitted in the phantom's own.
+  certificate (`_phantom_weights`, `src/Derivation/rate_equation_dedup_key.jl`) finds an L
+  phantom whose inactive conformation turns nothing over, and identify lets it read the fit
+  of its law at L = 0 when that law holds its other fitted constants and a mechanism with it
+  was fitted in an earlier batch or is fitted in the phantom's own.
   The rank of ∂v/∂log θ modulo a prime at random points of the derived law (`_law`,
-  `src/Derivation/engine.jl`) is exact up to a negligible failure probability, took 3.5 ms
-  per mechanism in a prototype, and has a finite-difference oracle in
-  `_testhelper_identifiable_rank`
+  `src/Derivation/rate_equation_derivation.jl`) is exact up to a negligible failure
+  probability, took 3.5 ms per mechanism in a prototype, and has a finite-difference oracle
+  in `_testhelper_identifiable_rank`
   (`test/mechanism_definitions_for_test_enzyme_derivation.jl`). Run it over several
   saved runs to find the other phantom classes; performance may keep it out of `src/`,
   where it would otherwise replace the beam's parameter count. It must never filter
@@ -558,26 +562,27 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `identify_rate_equation` call, would make each fit independent of the processing order
   while `Random.seed!` still reproduces a run; every saved fit would move once.
 - **Give the thermodynamics one row reduction.**
-  `src/Derivation/thermo.jl` holds two exact row reductions, `_rref!` (the joint solve, in
+  Derivation holds two exact row reductions, `_rref!` (the joint solve, in
   `Rational{Int}` retried in `Rational{BigInt}`) and `_rref_partition` (in
   `Rational{BigInt}`). `_rref_partition` serves only class 3's model point (`_model_point`,
-  `src/Derivation/limit_test.jl`), whose integer null space (`_integer_nullspace`) goes
-  through `_rational_nullspace`. Computing that null space with `_rref!` would leave one.
+  `src/Derivation/rate_equation_correctness_guard.jl`), whose integer null space
+  (`_integer_nullspace`) goes through `_rational_nullspace`. Computing that null space with
+  `_rref!` would leave one.
 - **Decide admission's face condition exactly.**
-  Admission's face condition (`_face_condition`, `src/Derivation/admission.jl`), with the
-  filling check and the set-aside rule, is sound in every test but not exact: it rejects
-  mechanisms whose limit exists (Known issues, "The guard rejects some allosteric
-  mechanisms whose law is the limit"). In an equilibrium bridge (R-B1) a tagged binding
-  joins forms its conformation's other steps keep apart, yet those forms already sit at
-  equilibrium, so the limit is deletion's (`bridge_deadend` in
-  `test/Derivation/test_admission.jl`); the set-aside rule admits such a bridge only when
-  the law's own rapid-equilibrium steps hold the forms it touches in equilibrium. No exact
-  narrower structural rule is known: the one candidate tried, T0++, admits faces the
-  ε-path oracle rejects. The exact test compares Freidlin–Wentzell exponents over the
-  admissible directions: the cut-off forms vanish when, for every rise of the tagged
-  constants, every per-member rate and every order of the two limits, their cheapest
-  in-tree costs more than the law network's; each comparison is one linear-programming
-  feasibility test, not yet prototyped.
+  Admission's face condition (`_face_condition`,
+  `src/Derivation/allosteric_rate_equation_correctness_guard.jl`), with the filling check
+  and the set-aside rule, is sound in every test but not exact: it rejects mechanisms whose
+  limit exists (Known issues, "The guard rejects some allosteric mechanisms whose law is the
+  limit"). In an equilibrium bridge (R-B1) a tagged binding joins forms its conformation's
+  other steps keep apart, yet those forms already sit at equilibrium, so the limit is
+  deletion's (`bridge_deadend` in `test/Derivation/test_admission.jl`); the set-aside rule
+  admits such a bridge only when the law's own rapid-equilibrium steps hold the forms it
+  touches in equilibrium. No exact narrower structural rule is known: the one candidate
+  tried, T0++, admits faces the ε-path oracle rejects. The exact test compares
+  Freidlin–Wentzell exponents over the admissible directions: the cut-off forms vanish when,
+  for every rise of the tagged constants, every per-member rate and every order of the two
+  limits, their cheapest in-tree costs more than the law network's; each comparison is one
+  linear-programming feasibility test, not yet prototyped.
 ## Decided against
 
 - **Scheduled CI and Downgrade runs.**

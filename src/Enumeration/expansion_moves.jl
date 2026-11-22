@@ -901,7 +901,7 @@ without a regulator.
     bi-bi, whose A group takes A up at E and at EB under one rate constant, `L` shows in
     every K-type variant. identify keeps every K-type variant in the frontier, since its
     children can carry laws its parent's children lack. A variant that `_is_phantom`
-    (`src/Derivation/key.jl`) flags is not fitted when another mechanism holds the fit of
+    flags is not fitted when another mechanism holds the fit of
     its law at `L = 0`: it reads that fit, with `L = 0`.
   * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric regulator at
     a new site, one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the

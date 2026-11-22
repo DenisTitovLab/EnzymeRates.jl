@@ -32,20 +32,46 @@ function _kinetic_groups(m::Mechanisms.CatalyticScheme)
     [findall(e -> e.kinetic_group == g, m.steps) for g in 1:G]
 end
 
-include("conformations.jl")
-include("names.jl")
-include("rate_eq_derivation.jl")
-include("thermo.jl")
-include("poly.jl")
-include("engine.jl")
-include("normalize.jl")
-include("print.jl")
-include("key.jl")
-include("codegen.jl")
-include("guard.jl")
-include("limit_test.jl")
-include("admission.jl")
-include("messages.jl")
+# ─── Excluded steps and union-find, which several files use ─────────────
+
+"""The steps conformation `c` of `m` (1 active, 2 inactive) excludes by their kinetic
+group's allosteric state, one flag per catalytic step: the active conformation those of
+`:OnlyI` groups, the inactive one those of `:OnlyA` groups. A plain mechanism excludes
+none."""
+function _excluded_steps(m::Mechanisms.Mechanism, c::Int)
+    state, states = c == 1 ? :OnlyI : :OnlyA, m.allosteric.allosteric_states
+    (e -> !isempty(states) && states[e.kinetic_group] === state).(m.catalytic.steps)
+end
+
+function _union_find_root(parent::Vector{Int}, i::Int)
+    while parent[i] != i
+        i = parent[i]
+    end
+    i
+end
+
+# ─── A reading: how each conformation switches off a step ───────────────
+
+"""
+How a reading switches off a catalytic step in one conformation (`_Reading`): the
+conformation keeps the step (`_RUNS`); the step loses the rate of its stored direction
+(`_LOSES_FORWARD`) or of its reverse (`_LOSES_REVERSE`), the direction that runs uphill,
+into the step's higher side, while the other keeps its rate, so a rapid-equilibrium step
+stays fast; it is stopped, both its rates vanishing (`_STOPPED`); or it cannot be switched
+off (`_CANNOT_SWITCH_OFF`).
+"""
+@enum _SwitchOff::UInt8 _RUNS _LOSES_FORWARD _LOSES_REVERSE _STOPPED _CANNOT_SWITCH_OFF
+
+"""How a mechanism's conformations switch off its catalytic steps (`_SwitchOff`):
+`reading[k, c]` for step `k` in conformation `c`, 1 active and 2 inactive. A plain
+mechanism's reading has its one conformation only."""
+const _Reading = Matrix{_SwitchOff}
+
+include("thermodynamic_constraints.jl")
+include("rate_equation_derivation.jl")
+include("rate_equation_dedup_key.jl")
+include("rate_equation_correctness_guard.jl")
+include("allosteric_rate_equation_correctness_guard.jl")
 include("memo.jl")
 
 # Every mechanism macro call and the flip, split and tagging searches run the guard, and

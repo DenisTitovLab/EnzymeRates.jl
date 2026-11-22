@@ -1,5 +1,98 @@
-# ABOUTME: Admission of allosteric mechanisms: the interior (pinned fast steps, arc cycles,
-# ABOUTME: islands, active turnover) and the face condition on each face of the ε-network.
+# ABOUTME: The guard's allosteric part: how each conformation switches off the steps it
+# ABOUTME: excludes, admission's interior and face conditions, and admission's messages.
+
+# ─── How each conformation switches off the steps it excludes ───────────
+
+"""
+    exclusion_components(m::CatalyticScheme, excluded::BitVector) -> Vector{Int}
+
+Each form's component under the edges of the catalytic scheme `m` that a conformation
+keeps, all but those `excluded` flags (`_excluded_steps`), every form included, labelled
+by its smallest form index, so free E's label is 1. A form outside free E's component is
+cut off in that conformation; the guard's built readings of how it switches off each step
+it excludes (`_built_reading`) read these components.
+"""
+function exclusion_components(m::Mechanisms.CatalyticScheme, excluded::BitVector)
+    parent = collect(eachindex(m.enzyme_forms))
+    for (k, e) in enumerate(m.steps)
+        excluded[k] && continue
+        a, b = _union_find_root(parent, e.from), _union_find_root(parent, e.to)
+        a == b || (parent[max(a, b)] = min(a, b))
+    end
+    [_union_find_root(parent, f) for f in eachindex(m.enzyme_forms)]
+end
+
+"""
+Which excluded steady-state steps that take up one metabolite into a cut-off form lose
+their affinity, the rest being stopped, in the guard's built readings (`_built_reading`):
+every one (`_ALL_LOSE_AFFINITY`); those that lead away from free E
+(`_OUTWARD_LOSE_AFFINITY`); or none (`_ALL_STOPPED`). The guard tries them in this order,
+before it searches the other readings (`_guard_with_reading`).
+
+The steps a conformation keeps join the forms into parts. A part's distance is the fewest
+excluded steps that take up one metabolite into a cut-off form, rapid-equilibrium or
+steady-state, each followed from its unbound side to its bound side, that lead to it from
+free E's part; a part they do not reach is infinitely far. Such a step leads away from
+free E when its bound side's part is farther than its unbound side's.
+"""
+@enum _SlowUptakeReading::UInt8 _ALL_LOSE_AFFINITY _OUTWARD_LOSE_AFFINITY _ALL_STOPPED
+
+"""
+    _built_reading(am, r = _ALL_LOSE_AFFINITY) -> _Reading
+
+How the conformations of `am` switch off its catalytic steps in the guard's built reading
+`r`, read from the reaction graph alone. A conformation keeps a step it does not exclude.
+An excluded step that takes up one metabolite and gives off none into a cut-off form, the
+steps the conformation keeps (`exclusion_components`) joining neither its two sides nor
+its bound side to free E, loses its affinity at rapid equilibrium: its stored direction,
+the uptake, vanishes (`_LOSES_FORWARD`). At steady state it loses its affinity or is
+stopped as `r` says (`_SlowUptakeReading`). Any other excluded step keeps its kind, rapid
+equilibrium or steady state, as every step does in both conformations: a steady-state one
+is stopped, and a rapid-equilibrium one is not switched off (`_CANNOT_SWITCH_OFF`).
+Thermodynamics pins the equilibrium constant only of such a step inside one island (the
+forms the kept steps join); one between two islands could lose a direction, as the search
+tries (`_consistent_columns`), but the built readings let only an uptake lose. A plain
+mechanism has one conformation, which runs every step.
+"""
+function _built_reading(am::Mechanisms.Mechanism,
+                        r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
+    steps = am.catalytic.steps
+    _is_allosteric(am) || return fill(_RUNS, length(steps), 1)
+    reading = fill(_RUNS, length(steps), 2)
+    for c in 1:2
+        excluded = _excluded_steps(am, c)
+        any(excluded) || continue
+        comp = exclusion_components(am.catalytic, excluded)
+        uptake = [excluded[k] && length(e.taken_up) == 1 && isempty(e.given_off) &&
+                  comp[e.from] != comp[e.to] && comp[e.to] != comp[1]
+                  for (k, e) in enumerate(steps)]
+        # Each part's distance from free E's, breadth-first along the uptakes; a part's
+        # label is its smallest form index.
+        distance = fill(typemax(Int), length(comp))
+        distance[comp[1]] = 0
+        queue, head = [comp[1]], 0
+        while head < length(queue)
+            head += 1
+            u = queue[head]
+            for (k, e) in enumerate(steps)
+                uptake[k] && comp[e.from] == u && distance[comp[e.to]] == typemax(Int) ||
+                    continue
+                distance[comp[e.to]] = distance[u] + 1
+                push!(queue, comp[e.to])
+            end
+        end
+        for (k, e) in enumerate(steps)
+            excluded[k] || continue
+            loses = uptake[k] &&
+                    (e.rapid_equilibrium || r === _ALL_LOSE_AFFINITY ||
+                     r === _OUTWARD_LOSE_AFFINITY &&
+                     distance[comp[e.to]] > distance[comp[e.from]])
+            reading[k, c] = loses ? _LOSES_FORWARD :
+                            e.rapid_equilibrium ? _CANNOT_SWITCH_OFF : _STOPPED
+        end
+    end
+    reading
+end
 
 # ─── Admission: the interior ───────────────────────────────────────────
 
@@ -201,202 +294,6 @@ function _consistent_columns(am::Mechanisms.Mechanism, c::Int)
     end
 end
 
-"""The edges of a shortest path from form `a` to form `b` over the edges of `am`'s
-catalytic graph that conformation `c` keeps, in path order; empty when `a == b`. Callers
-pass two forms those edges join."""
-function _kept_path(am::Mechanisms.Mechanism, c::Int, a::Int, b::Int)
-    m = am.catalytic
-    nforms = length(m.enzyme_forms)
-    via = zeros(Int, nforms)
-    seen = falses(nforms)
-    seen[a] = true
-    queue = [a]
-    head = 0
-    excluded = _excluded_steps(am, c)
-    while !seen[b]
-        head += 1
-        u = queue[head]
-        for k in eachindex(m.steps)
-            excluded[k] && continue
-            from, to = m.steps[k].from, m.steps[k].to
-            v = from == u ? to : to == u ? from : 0
-            (v == 0 || seen[v]) && continue
-            seen[v] = true
-            via[v] = k
-            push!(queue, v)
-        end
-    end
-    path = Int[]
-    f = b
-    while f != a
-        k = via[f]
-        pushfirst!(path, k)
-        from, to = m.steps[k].from, m.steps[k].to
-        f = from == f ? to : from
-    end
-    path
-end
-
-"""
-Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the guard
-(`_guard`). Every fix that retags steps in admission's messages is checked this way.
-"""
-function _retag_passes(am::Mechanisms.Mechanism, ks, tag::Symbol)
-    states = copy(am.allosteric.allosteric_states)
-    states[[am.catalytic.steps[k].kinetic_group for k in ks]] .= tag
-    retagged = Mechanisms.Mechanism(am.catalytic,
-                                    Mechanisms.Allostery(states,
-                                                         am.allosteric.oligomeric_state,
-                                                         am.allosteric.regulatory_sites))
-    _guard(retagged) === _WELL_POSED
-end
-
-"""
-Whether `mech` with the kinetic group of edge `k` made steady-state passes the guard
-(`_guard`). Every fix that makes a group steady-state in the guard's messages, but class
-2's, is checked this way.
-"""
-function _steady_state_passes(mech::Mechanisms.Mechanism, k::Int)
-    m = mech.catalytic
-    g = m.steps[k].kinetic_group
-    steps = [Mechanisms.Step(s.from, s.to, s.taken_up, s.given_off,
-                             s.rapid_equilibrium && s.kinetic_group != g, s.kinetic_group)
-             for s in m.steps]
-    _guard(_with_steps(mech, steps)) === _WELL_POSED
-end
-
-"""`m` with the catalytic steps `steps`, each in the kinetic group of `m` its
-`kinetic_group` labels, built by the constructors; it keeps the allostery of `m`."""
-function _with_steps(m::Mechanisms.Mechanism, steps::Vector{Mechanisms.Step})
-    c = m.catalytic
-    Mechanisms.Mechanism(Mechanisms.CatalyticScheme(c.metabolites, c.enzyme_forms,
-                                                    c.substrates, c.products, steps),
-                         m.allosteric)
-end
-
-"""
-The message of admission's verdict `v` on `am`, judged with its excluded steps switched
-off as `reading` says: the cause, naming each step by its DSL line (`step_text`), and each
-fix only when its variant passes the guard: a retag through `_retag_passes`, a
-steady-state fix through `_steady_state_passes`. A fault of the active conformation is
-offered the fixes of the same fault in the inactive conformation, with `:OnlyI` in place
-of `:OnlyA`.
-"""
-function _admission_message(am::Mechanisms.Mechanism, v::_Verdict,
-                            reading::_Reading)
-    m = am.catalytic
-    c, k = v.conformation, v.edge
-    conf = c == 1 ? "active" : "inactive"
-    # The state that excludes steps from conformation `c`, and its text.
-    excluding = c == 1 ? :OnlyI : :OnlyA
-    tag = ":$excluding"
-    line(j) = Mechanisms.step_text(m, j)
-    lines(js) = join((Mechanisms.step_text(m, j) for j in js), "; ")
-    # The steps `js` as "step …" or "steps …", and the clause that says they vanish.
-    steps(js) = (length(js) == 1 ? "step " : "steps ") * lines(js)
-    vanish(js) = length(js) == 1 ? "that step vanishes" : "those steps vanish"
-    # The fixes `found` as one sentence of alternatives; nothing when there are none.
-    offer(found) = isempty(found) ? "" : " " * uppercasefirst(join(found, ", or ")) * "."
-    if v.fault === _FAST_STEP_PINNED
-        # The guard reports the fault only for a step inside one island, whose sides the
-        # steps conformation `c` keeps join.
-        joins = _kept_path(am, c, m.steps[k].from, m.steps[k].to)
-        msg = "Mechanism: in the $conf conformation the rapid-equilibrium step " *
-              "$(line(k)) is tagged $tag, but the steps that conformation keeps still " *
-              "join its two sides. Thermodynamics then fixes its equilibrium constant, " *
-              "and a step keeps its kind in both conformations, so it cannot be switched " *
-              "off."
-        offered = String[]
-        _steady_state_passes(am, k) && push!(offered, "make its kinetic group steady-state")
-        _retag_passes(am, joins, excluding) &&
-            push!(offered, "tag $tag the steps that join its sides: $(lines(joins))")
-        return msg * offer(offered)
-    elseif v.fault === _TOO_MANY_READINGS
-        who = c == 0 ? "the two conformations together" : "the $conf conformation"
-        most = c == 0 ? _MAX_READING_PAIRS : _MAX_CHOICES_PER_CONFORMATION
-        return "Mechanism: $who can switch off the tagged steps in more " *
-               "than $most ways, too many for the guard to search, and none of the three " *
-               "ways it tries first fits the rule for switching them off, so it cannot " *
-               "show that the rate law is the limit."
-    elseif v.fault in (_EPS_NONUNIQUE, _FILLED, _PUMPED, _BRIDGE)
-        eps = _eps_network(am, _re_flags(m), reading)
-        law = _law_network(am)
-        faces = _faces(m)
-        face = faces[v.face]
-        phrase = _face_phrase(m, face)
-        s = _face_sets(eps, law.present, face)
-        if v.fault === _EPS_NONUNIQUE
-            outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
-            forms = [String(m.enzyme_forms[_form_of(eps, u)]) *
-                     _conformation_suffix(eps, u) for u in outside]
-            return "Mechanism: $(phrase)the forms $(join(forms, ", ")) " *
-                   "hold the enzyme they receive and are reached only through tagged " *
-                   "steps, so the steady state depends on where the enzyme starts."
-        elseif v.fault === _FILLED
-            # The step's vanishing direction fills its target; the forms the target reaches
-            # along fast transitions that do not vanish leave only through slower ones.
-            filling = only(t for t in eachindex(eps.from)
-                           if eps.edge[t] == k && eps.conformation[t] == c &&
-                              eps.vanishing[t])
-            filled = eps.to[filling]
-            pool = _reached(_successors(eps, s.n0 .& eps.fast), [filled])
-            ways = unique!([eps.edge[t] for t in eachindex(eps.from)
-                            if s.alive[t] && pool[eps.from[t]] && !pool[eps.to[t]]])
-            name = String(m.enzyme_forms[_form_of(eps, filled)])
-            pooled = [String(m.enzyme_forms[_form_of(eps, u)]) for u in findall(pool)]
-            leave = length(pooled) == 1 ? "$name leaves" :
-                    "the forms $(join(pooled, ", ")) leave"
-            msg = "Mechanism: $(phrase)in the $conf conformation the $tag " *
-                  "rapid-equilibrium step $(line(k)) runs one way into $name, at a rate " *
-                  "that vanishes yet grows with the rapid-equilibrium speed, and $leave " *
-                  "only through the slower $(steps(ways)), so $name fills faster than it " *
-                  "empties and its weight depends on how fast the tagged step vanishes."
-            return _steady_state_passes(am, k) ?
-                   msg * " Make the kinetic group of $(line(k)) steady-state." : msg
-        elseif v.fault === _PUMPED
-            basin = [u for u in findall(s.stranded) if _copy_of(eps, u) == c]
-            exits = unique!([eps.edge[t] for t in eachindex(eps.from)
-                             if s.alive[t] && eps.vanishing[t] && eps.from[t] in basin &&
-                                !s.stranded[eps.to[t]]])
-            out = "which leave only through the vanishing $(steps(exits)) while " *
-                  "nothing runs back the way it came, so admission cannot show that " *
-                  "their weight does not depend on how fast $(vanish(exits))"
-            from, to = m.steps[k].from, m.steps[k].to
-            inside = s.stranded[_node(eps, from, c)] && s.stranded[_node(eps, to, c)]
-            return "Mechanism: $(phrase)$(line(k)) " *
-                   (inside ? "runs one way among" : "feeds") * " the forms " *
-                   "$(join([String(m.enzyme_forms[_form_of(eps, u)])
-                            for u in basin], ", ")) of " *
-                   "the $conf conformation, $out."
-        elseif c == 0
-            ks = _bridging_edges(eps, s.fed .& .!s.stranded, s.n0, s.alive .& eps.vanishing)
-            return "Mechanism: $(phrase)the tagged steps $(lines(ks)) of both " *
-                   "conformations together bridge forms that each conformation's other " *
-                   "steps keep apart, so admission cannot show that the limit does not " *
-                   "depend on how fast those steps vanish."
-        end
-        nodes = s.fed .& .!s.stranded
-        (; van) = _copy_transitions(eps, s.alive, nodes, c)
-        ks = _bridging_edges(eps, nodes, s.n0, van)
-        bridge = steps(ks) * (length(ks) == 1 ? " bridges" : " bridge")
-        msg = "Mechanism: $(phrase)the $tag $bridge forms of the $conf " *
-              "conformation that its other steps keep apart, so admission cannot show " *
-              "that the limit does not depend on how fast $(vanish(ks))."
-        return _steady_state_passes(am, k) ?
-               msg * " Make the kinetic group of $(line(k)) steady-state." : msg
-    elseif v.fault === _NO_ACTIVE_TURNOVER
-        ks = findall(_excluded_steps(am, 1))
-        msg = "Mechanism: without its :OnlyI steps $(lines(ks)) the active " *
-              "conformation turns no substrate into product, but it must catalyze the " *
-              "reaction."
-        # A closure over `ks`, which other branches assign too, would box it.
-        untag = _retag_passes(am, ks, :EqualAI) && _retag_passes(am, ks, :NonequalAI)
-        return untag ? msg * " Tag their kinetic groups :EqualAI or :NonequalAI." : msg
-    else
-        error("_admission_message: $(v.fault) is no admission fault")
-    end
-end
-
 # ─── Admission: the face condition ─────────────────────────────────────
 
 """
@@ -557,12 +454,6 @@ network only one.
 """
 _class_outside_law(closed::Vector{Vector{Int}}, law_nodes::BitVector) =
     closed[findfirst(cls -> !any(view(law_nodes, cls)), closed)::Int]
-
-"""How a message names face `face` of `m`: nothing for the interior, else `at zero `, its
-zeroed names (`_face_names`) and `place`, then a comma."""
-_face_phrase(m::Mechanisms.CatalyticScheme, face::UInt64, place::String = "") =
-    face == 0 ? "" :
-    "at zero " * join(String.(_face_names(m, face)), ", ", " and ") * place * ", "
 
 """
     _fast_law_reach(net, law_nodes, s) -> (; from_law, to_law)
@@ -794,3 +685,185 @@ function _admission_face(am::Mechanisms.Mechanism, eps::_Network, law::_Network,
     end
     v.fault === _NO_FAULT ? v : _Verdict(v.fault, v.limit, i, v.conformation, v.edge)
 end
+
+# ─── Admission's messages and the checks behind their fixes ─────────────
+
+"""The edges of a shortest path from form `a` to form `b` over the edges of `am`'s
+catalytic graph that conformation `c` keeps, in path order; empty when `a == b`. Callers
+pass two forms those edges join."""
+function _kept_path(am::Mechanisms.Mechanism, c::Int, a::Int, b::Int)
+    m = am.catalytic
+    nforms = length(m.enzyme_forms)
+    via = zeros(Int, nforms)
+    seen = falses(nforms)
+    seen[a] = true
+    queue = [a]
+    head = 0
+    excluded = _excluded_steps(am, c)
+    while !seen[b]
+        head += 1
+        u = queue[head]
+        for k in eachindex(m.steps)
+            excluded[k] && continue
+            from, to = m.steps[k].from, m.steps[k].to
+            v = from == u ? to : to == u ? from : 0
+            (v == 0 || seen[v]) && continue
+            seen[v] = true
+            via[v] = k
+            push!(queue, v)
+        end
+    end
+    path = Int[]
+    f = b
+    while f != a
+        k = via[f]
+        pushfirst!(path, k)
+        from, to = m.steps[k].from, m.steps[k].to
+        f = from == f ? to : from
+    end
+    path
+end
+
+"""
+Whether `am` with the kinetic group of each edge in `ks` tagged `tag` passes the guard
+(`_guard`). Every fix that retags steps in admission's messages is checked this way.
+"""
+function _retag_passes(am::Mechanisms.Mechanism, ks, tag::Symbol)
+    states = copy(am.allosteric.allosteric_states)
+    states[[am.catalytic.steps[k].kinetic_group for k in ks]] .= tag
+    retagged = Mechanisms.Mechanism(am.catalytic,
+                                    Mechanisms.Allostery(states,
+                                                         am.allosteric.oligomeric_state,
+                                                         am.allosteric.regulatory_sites))
+    _guard(retagged) === _WELL_POSED
+end
+
+"""
+The message of admission's verdict `v` on `am`, judged with its excluded steps switched
+off as `reading` says: the cause, naming each step by its DSL line (`step_text`), and each
+fix only when its variant passes the guard: a retag through `_retag_passes`, a
+steady-state fix through `_steady_state_passes`. A fault of the active conformation is
+offered the fixes of the same fault in the inactive conformation, with `:OnlyI` in place
+of `:OnlyA`.
+"""
+function _admission_message(am::Mechanisms.Mechanism, v::_Verdict,
+                            reading::_Reading)
+    m = am.catalytic
+    c, k = v.conformation, v.edge
+    conf = c == 1 ? "active" : "inactive"
+    # The state that excludes steps from conformation `c`, and its text.
+    excluding = c == 1 ? :OnlyI : :OnlyA
+    tag = ":$excluding"
+    line(j) = Mechanisms.step_text(m, j)
+    lines(js) = join((Mechanisms.step_text(m, j) for j in js), "; ")
+    # The steps `js` as "step …" or "steps …", and the clause that says they vanish.
+    steps(js) = (length(js) == 1 ? "step " : "steps ") * lines(js)
+    vanish(js) = length(js) == 1 ? "that step vanishes" : "those steps vanish"
+    # The fixes `found` as one sentence of alternatives; nothing when there are none.
+    offer(found) = isempty(found) ? "" : " " * uppercasefirst(join(found, ", or ")) * "."
+    if v.fault === _FAST_STEP_PINNED
+        # The guard reports the fault only for a step inside one island, whose sides the
+        # steps conformation `c` keeps join.
+        joins = _kept_path(am, c, m.steps[k].from, m.steps[k].to)
+        msg = "Mechanism: in the $conf conformation the rapid-equilibrium step " *
+              "$(line(k)) is tagged $tag, but the steps that conformation keeps still " *
+              "join its two sides. Thermodynamics then fixes its equilibrium constant, " *
+              "and a step keeps its kind in both conformations, so it cannot be switched " *
+              "off."
+        offered = String[]
+        _steady_state_passes(am, k) && push!(offered, "make its kinetic group steady-state")
+        _retag_passes(am, joins, excluding) &&
+            push!(offered, "tag $tag the steps that join its sides: $(lines(joins))")
+        return msg * offer(offered)
+    elseif v.fault === _TOO_MANY_READINGS
+        who = c == 0 ? "the two conformations together" : "the $conf conformation"
+        most = c == 0 ? _MAX_READING_PAIRS : _MAX_CHOICES_PER_CONFORMATION
+        return "Mechanism: $who can switch off the tagged steps in more " *
+               "than $most ways, too many for the guard to search, and none of the three " *
+               "ways it tries first fits the rule for switching them off, so it cannot " *
+               "show that the rate law is the limit."
+    elseif v.fault in (_EPS_NONUNIQUE, _FILLED, _PUMPED, _BRIDGE)
+        eps = _eps_network(am, _re_flags(m), reading)
+        law = _law_network(am)
+        faces = _faces(m)
+        face = faces[v.face]
+        phrase = _face_phrase(m, face)
+        s = _face_sets(eps, law.present, face)
+        if v.fault === _EPS_NONUNIQUE
+            outside = _class_outside_law(_closed_classes(eps, s.alive), law.present)
+            forms = [String(m.enzyme_forms[_form_of(eps, u)]) *
+                     _conformation_suffix(eps, u) for u in outside]
+            return "Mechanism: $(phrase)the forms $(join(forms, ", ")) " *
+                   "hold the enzyme they receive and are reached only through tagged " *
+                   "steps, so the steady state depends on where the enzyme starts."
+        elseif v.fault === _FILLED
+            # The step's vanishing direction fills its target; the forms the target reaches
+            # along fast transitions that do not vanish leave only through slower ones.
+            filling = only(t for t in eachindex(eps.from)
+                           if eps.edge[t] == k && eps.conformation[t] == c &&
+                              eps.vanishing[t])
+            filled = eps.to[filling]
+            pool = _reached(_successors(eps, s.n0 .& eps.fast), [filled])
+            ways = unique!([eps.edge[t] for t in eachindex(eps.from)
+                            if s.alive[t] && pool[eps.from[t]] && !pool[eps.to[t]]])
+            name = String(m.enzyme_forms[_form_of(eps, filled)])
+            pooled = [String(m.enzyme_forms[_form_of(eps, u)]) for u in findall(pool)]
+            leave = length(pooled) == 1 ? "$name leaves" :
+                    "the forms $(join(pooled, ", ")) leave"
+            msg = "Mechanism: $(phrase)in the $conf conformation the $tag " *
+                  "rapid-equilibrium step $(line(k)) runs one way into $name, at a rate " *
+                  "that vanishes yet grows with the rapid-equilibrium speed, and $leave " *
+                  "only through the slower $(steps(ways)), so $name fills faster than it " *
+                  "empties and its weight depends on how fast the tagged step vanishes."
+            return _steady_state_passes(am, k) ?
+                   msg * " Make the kinetic group of $(line(k)) steady-state." : msg
+        elseif v.fault === _PUMPED
+            basin = [u for u in findall(s.stranded) if _copy_of(eps, u) == c]
+            exits = unique!([eps.edge[t] for t in eachindex(eps.from)
+                             if s.alive[t] && eps.vanishing[t] && eps.from[t] in basin &&
+                                !s.stranded[eps.to[t]]])
+            out = "which leave only through the vanishing $(steps(exits)) while " *
+                  "nothing runs back the way it came, so admission cannot show that " *
+                  "their weight does not depend on how fast $(vanish(exits))"
+            from, to = m.steps[k].from, m.steps[k].to
+            inside = s.stranded[_node(eps, from, c)] && s.stranded[_node(eps, to, c)]
+            return "Mechanism: $(phrase)$(line(k)) " *
+                   (inside ? "runs one way among" : "feeds") * " the forms " *
+                   "$(join([String(m.enzyme_forms[_form_of(eps, u)])
+                            for u in basin], ", ")) of " *
+                   "the $conf conformation, $out."
+        elseif c == 0
+            ks = _bridging_edges(eps, s.fed .& .!s.stranded, s.n0, s.alive .& eps.vanishing)
+            return "Mechanism: $(phrase)the tagged steps $(lines(ks)) of both " *
+                   "conformations together bridge forms that each conformation's other " *
+                   "steps keep apart, so admission cannot show that the limit does not " *
+                   "depend on how fast those steps vanish."
+        end
+        nodes = s.fed .& .!s.stranded
+        (; van) = _copy_transitions(eps, s.alive, nodes, c)
+        ks = _bridging_edges(eps, nodes, s.n0, van)
+        bridge = steps(ks) * (length(ks) == 1 ? " bridges" : " bridge")
+        msg = "Mechanism: $(phrase)the $tag $bridge forms of the $conf " *
+              "conformation that its other steps keep apart, so admission cannot show " *
+              "that the limit does not depend on how fast $(vanish(ks))."
+        return _steady_state_passes(am, k) ?
+               msg * " Make the kinetic group of $(line(k)) steady-state." : msg
+    elseif v.fault === _NO_ACTIVE_TURNOVER
+        ks = findall(_excluded_steps(am, 1))
+        msg = "Mechanism: without its :OnlyI steps $(lines(ks)) the active " *
+              "conformation turns no substrate into product, but it must catalyze the " *
+              "reaction."
+        # A closure over `ks`, which other branches assign too, would box it.
+        untag = _retag_passes(am, ks, :EqualAI) && _retag_passes(am, ks, :NonequalAI)
+        return untag ? msg * " Tag their kinetic groups :EqualAI or :NonequalAI." : msg
+    else
+        error("_admission_message: $(v.fault) is no admission fault")
+    end
+end
+
+# ─── A form's conformation in a message ─────────────────────────────────
+
+"""The suffix a message writes after the form of node `u` of the two-copy network `net`:
+` (active)` or ` (inactive)`."""
+_conformation_suffix(net::_Network, u::Int) =
+    _copy_of(net, u) == 1 ? " (active)" : " (inactive)"

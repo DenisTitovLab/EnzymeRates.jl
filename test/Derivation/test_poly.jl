@@ -1,4 +1,4 @@
-# ABOUTME: Tests of the sparse polynomials (src/Derivation/poly.jl): monomials, checked
+# ABOUTME: Tests of the sparse polynomials: monomials, checked
 # ABOUTME: arithmetic, division by the Haldane factor, substitution, the shifts and content.
 
 @testset "monomials multiply, raise and read exponents exactly" begin

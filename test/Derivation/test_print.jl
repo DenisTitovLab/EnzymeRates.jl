@@ -1,4 +1,4 @@
-# ABOUTME: Tests of the unit rule and printed laws (src/Derivation/normalize.jl, print.jl):
+# ABOUTME: Tests of the unit rule and printed laws:
 # ABOUTME: each rule's normalizer, both printed forms against the law, names, MWC lines.
 
 # The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete

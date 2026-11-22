@@ -194,7 +194,8 @@ end
         guard = filter(s -> s.function_name == :_guard_message,
                        _testhelper_dispatch_sites(check, (typeof(plain_concrete),)))
         @test !isempty(guard)
-        @test all(s -> endswith(string(s.file), "messages.jl"), guard)
+        @test all(s -> endswith(string(s.file), "rate_equation_correctness_guard.jl"),
+                  guard)
     end
 
     @testset "a row's sets must allow every site, and each set must be used" begin

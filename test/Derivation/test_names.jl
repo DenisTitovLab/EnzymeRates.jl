@@ -894,7 +894,7 @@ _testhelper_count_chokepoint_defs(expr) =
 
 @testset "chokepoint: no Symbol(\"[KkVL]...\") outside parameter-name renderers" begin
     src_dir = normpath(joinpath(@__DIR__, "..", "..", "src"))
-    names_file = joinpath(src_dir, "Derivation", "names.jl")
+    names_file = joinpath(src_dir, "Derivation", "thermodynamic_constraints.jl")
     for f in sort!([joinpath(d, f) for (d, _, fs) in walkdir(src_dir) for f in fs])
         endswith(f, ".jl") || continue
         src = read(f, String)
@@ -905,7 +905,7 @@ _testhelper_count_chokepoint_defs(expr) =
             @info "chokepoint violations" file=basename(f) violations
         end
         @test isempty(violations)
-        # The renderers are in src/Derivation/names.jl and nowhere else.
+        # The renderers are in src/Derivation/thermodynamic_constraints.jl and nowhere else.
         @test (_testhelper_count_chokepoint_defs(expr) > 0) == (f == names_file)
     end
 end

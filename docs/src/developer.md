@@ -321,15 +321,15 @@ underscore. The test also parses this page and fails when a table under
 ## Derivation architecture
 
 A mechanism's rate equation is derived once, at compile time, by the
-King–Altman/Cha method in `@generated` functions (`src/Derivation/codegen.jl`).
-To make that possible, `compile_rate_equation(m)` returns a **singleton callable**,
-`_CompiledRateEquation{Sig}`, whose one type parameter, `Sig`, encodes the whole
-mechanism in canonical form, its catalytic scheme and its allostery, as nested tuples of
-Symbols, Ints and Bools (`_sig_of`), so the order or direction in which the steps were
-written does not change the resulting type. The compiler
-specializes the derivation per type, so the symbolic King–Altman work runs once per
-mechanism and session rather than at every call. The mechanism itself is a plain value;
-only its compiled law carries a type of its own.
+King–Altman/Cha method in `@generated` functions
+(`src/Derivation/rate_equation_derivation.jl`). To make that possible,
+`compile_rate_equation(m)` returns a **singleton callable**, `_CompiledRateEquation{Sig}`,
+whose one type parameter, `Sig`, encodes the whole mechanism in canonical form, its
+catalytic scheme and its allostery, as nested tuples of Symbols, Ints and Bools (`_sig_of`),
+so the order or direction in which the steps were written does not change the resulting
+type. The compiler specializes the derivation per type, so the symbolic King–Altman work
+runs once per mechanism and session rather than at every call. The mechanism itself is a
+plain value; only its compiled law carries a type of its own.
 
 This is the most important architectural decision in the package, and it is
 deliberate. Moving the derivation to compile time leaves the compiled law,
@@ -340,11 +340,11 @@ gated law, including the three largest enumerated bi-bi laws (396 denominator te
 and three ter-bi laws (589, 799 and 858 terms).
 `_testhelper_test_rate_equation_performance` (`test/Derivation/test_rate_eq_derivation.jl`)
 measures each law's allocations and time per call, and the tests assert
-`allocs == 0` and the law's bound. `rate_equation_string` (`src/Derivation/print.jl`)
-prints the law rather than the code: each denominator term over the unit rule's normalizer,
-dimensionless whenever the law has one. The compiled law's speed is the binding
-constraint on the whole package: the fitter is a multi-start, global,
-gradient-free optimizer that
+`allocs == 0` and the law's bound. `rate_equation_string`
+(`src/Derivation/rate_equation_derivation.jl`) prints the law rather than the code: each
+denominator term over the unit rule's normalizer, dimensionless whenever the law has one.
+The compiled law's speed is the binding constraint on the whole package: the fitter is a
+multi-start, global, gradient-free optimizer that
 evaluates the compiled law millions of times per fit, and a single rate equation
 can take minutes to fit, so any per-call allocation or microsecond-scale
 overhead would make fitting — and therefore `identify_rate_equation`, which fits
@@ -395,9 +395,9 @@ enzyme concentration; a caller who wants an absolute rate multiplies by it.
 `parameters(rate)` and `metabolites(rate)` give the compiled law's names as compile-time
 constants, which `loss!` needs.
 
-One type family in `src/Derivation/names.jl`, the union `_Parameter`, describes every
-constant a fit estimates, and the joint solve lists them in `parameters(m)` order
-(`_Solve.info`):
+One type family in `src/Derivation/thermodynamic_constraints.jl`, the union `_Parameter`,
+describes every constant a fit estimates, and the joint solve lists them in `parameters(m)`
+order (`_Solve.info`):
 
 | Type | What it points at |
 |:-----|:------------------|
@@ -424,16 +424,16 @@ constants whose units hold the rate, so it reads no step itself.
 
 ### The joint thermodynamic solve
 
-`_solve` (`src/Derivation/thermo.jl`) builds one integer system per mechanism
-(`_joint_system`) over the columns `_constant_columns(m)` lists, each a `_StepParameter`: a
-column per constant of every edge, with an inactive copy for each edge of a `:NonequalAI`,
-`:OnlyA` or `:OnlyI` group; a row per fundamental cycle and conformation, and a row tying
-each further member of a kinetic class to its first. The columns come ordered by
-`_priority_key` (`_ordered_columns`), which reads the graph alone: the conformation
-block, the step's shape (an isomerization, a step with more than one metabolite, a
-binding), whether neither of its forms is free E, steady state before rapid equilibrium,
-the constant that runs against the reaction, then the places of the step's forms and
-metabolites in stored order (free E, then the forms by name; the metabolites in
+`_solve` (`src/Derivation/thermodynamic_constraints.jl`) builds one integer system per
+mechanism (`_joint_system`) over the columns `_constant_columns(m)` lists, each a
+`_StepParameter`: a column per constant of every edge, with an inactive copy for each edge
+of a `:NonequalAI`, `:OnlyA` or `:OnlyI` group; a row per fundamental cycle and
+conformation, and a row tying each further member of a kinetic class to its first. The
+columns come ordered by `_priority_key` (`_ordered_columns`), which reads the graph alone:
+the conformation block, the step's shape (an isomerization, a step with more than one
+metabolite, a binding), whether neither of its forms is free E, steady state before rapid
+equilibrium, the constant that runs against the reaction, then the places of the step's
+forms and metabolites in stored order (free E, then the forms by name; the metabolites in
 `metabolites(m)` order), so the fitted constants do not follow the order in which steps
 happen to be stored.
 The solve reduces the system
@@ -445,15 +445,15 @@ Columns outside a conformation's law (an `:OnlyA` edge's inactive copy, an `:Onl
 active copy, an edge on a form that conformation cannot reach) come first, so no kept
 dependent reads them. Each class is named after its member that comes last in that order
 (`_kept_members`), through the `_name(p, m)` chokepoint; `_constant_columns` returns each
-column's name with it, so the naming rule lives in `src/Derivation/names.jl`. A testset
-in `test/Derivation/test_names.jl` walks `src/` and fails on a `Symbol("K…")`,
-`Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")` literal outside a parameter-name renderer,
-and on a renderer outside that file. The
+column's name with it, so the naming rule lives in
+`src/Derivation/thermodynamic_constraints.jl`. A testset in `test/Derivation/test_names.jl`
+walks `src/` and fails on a `Symbol("K…")`, `Symbol("k…")`, `Symbol("V…")` or `Symbol("L…")`
+literal outside a parameter-name renderer, and on a renderer outside that file. The
 engine (`_law`,
-`src/Derivation/engine.jl`) derives each conformation's law on a mask of the edges it
-keeps (`steps_running_in_allosteric_conformations(am)`; every edge of a plain mechanism).
-Every edge keeps its stored direction, so both conformations share the mechanism's
-orientation and names. The canonical form
+`src/Derivation/rate_equation_derivation.jl`) derives each conformation's law on a mask of
+the edges it keeps (`steps_running_in_allosteric_conformations(am)`; every edge of a plain
+mechanism). Every edge keeps its stored direction, so both conformations share the
+mechanism's orientation and names. The canonical form
 decides the order and the direction it reads: free E is form 1 and the other forms follow
 by name; each edge runs in the direction the graph gives it (`_orientation`), and a kinetic
 group's edges turn with its lead (`_turn_groups_together!`). The forms' names and the
@@ -463,16 +463,16 @@ up or gives off.
 
 ### The law, its code, its text and its key
 
-`src/Derivation/poly.jl` holds sparse polynomials over integer-indexed variables (`_Poly`),
-with rational exponents for constants and checked `Int64` coefficients: under the term cap
-no coefficient leaves `Int64`, so an overflow is an internal error. `_law(m, s, mask)`
-(`src/Derivation/engine.jl`) derives one conformation's law, `_Law`, as `v = H·Q/D`.
-It contracts each rapid-equilibrium segment to a node rooted at its first form (free E roots
-its own), sums the spanning trees of the segment graph, builds the numerator from each
-steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − Π[P]/Keq`
-exactly and brings `Q` and `D` to lowest terms in the concentrations. An MWC law
-(`_AlloLaw`) holds both conformations' laws, their free-E weights over a common factor and
-the regulatory sites' polynomials. `rate_equation_term_count` counts V×τ, both
+`src/Derivation/rate_equation_derivation.jl` holds sparse polynomials over integer-indexed
+variables (`_Poly`), with rational exponents for constants and checked `Int64` coefficients:
+under the term cap no coefficient leaves `Int64`, so an overflow is an internal error.
+`_law(m, s, mask)` (`src/Derivation/rate_equation_derivation.jl`) derives one conformation's
+law, `_Law`, as `v = H·Q/D`. It contracts each rapid-equilibrium segment to a node rooted at
+its first form (free E roots its own), sums the spanning trees of the segment graph, builds
+the numerator from each steady-state edge's net flux, substitutes the solve, divides out
+`H = Π[S] − Π[P]/Keq` exactly and brings `Q` and `D` to lowest terms in the concentrations.
+An MWC law (`_AlloLaw`) holds both conformations' laws, their free-E weights over a common
+factor and the regulatory sites' polynomials. `rate_equation_term_count` counts V×τ, both
 conformations of an MWC law together, by a checked Bareiss determinant; the cap, which
 `_law` checks, and identify's `eq_complexity_filter` read it before any polynomial is
 built. `_Poly`, `_Law`
@@ -480,33 +480,34 @@ and `_AlloLaw` are mutable structs with `const` fields, never an immutable wrapp
 reference: Julia 1.12 and 1.13 can hoist such a wrapper's box out of a loop that merges it
 with another type, without a write barrier.
 
-`_rate_body` (`src/Derivation/codegen.jl`) emits the law as straight-line locals: the
-dependents in solve-column order, each segment's weight and tree sums, `Q`, `H` and the MWC
-terms, all in greedy Horner form with binary `+` and `*`. Each input is read by name into a
-positional local, so a `NamedTuple` in any field order works, and reciprocals and roots
-(`sqrt`, or `x^(one(x)/q)`) are computed once.
+`_rate_body` (`src/Derivation/rate_equation_derivation.jl`) emits the law as straight-line
+locals: the dependents in solve-column order, each segment's weight and tree sums, `Q`, `H`
+and the MWC terms, all in greedy Horner form with binary `+` and `*`. Each input is read by
+name into a positional local, so a `NamedTuple` in any field order works, and reciprocals
+and roots (`sqrt`, or `x^(one(x)/q)`) are computed once.
 
 `rate_equation_string` divides the law by the unit rule's normalizer (`_normalizer`,
-`src/Derivation/normalize.jl`: the constant term, else Cleland's normalizer when the
-denominator holds `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant term on
-the first affinely independent terms), so every denominator term is dimensionless; a law
-with no such normalizer prints as derived. With `coefficients = true` it prints the law in
-named coefficients, and with `coefficient_values = false` without the lines that define
+`src/Derivation/rate_equation_derivation.jl`: the constant term, else Cleland's normalizer
+when the denominator holds `ΠS/X` for every substrate `X` and `ΠS`, else a virtual constant
+term on the first affinely independent terms), so every denominator term is dimensionless; a
+law with no such normalizer prints as derived. With `coefficients = true` it prints the law
+in named coefficients, and with `coefficient_values = false` without the lines that define
 them. `identify_rate_equation` writes that short form to the search and LOOCV CSVs and the
 full coefficient form to `best_equation.csv`.
 
-`_canonical` (`src/Derivation/key.jl`) labels a law canonically: each part to lowest terms,
-the fitted constants coloured by refinement on the term–constant incidence and
-individualized while colours tie, the concentrations by name. The SHA-256 of its text is the
-law's key, by which identify fits one mechanism per law and reads that fit through each
-mechanism's own names (the canonical order). At 100 labellings the search stops, and the law
-takes its mechanism's own key. The L-phantom certificate (`_phantom_weights`) solves exactly
-for a rescaling of the other constants that absorbs `L` in a one-subunit variant whose
-inactive conformation turns nothing over, and it alone decides an L phantom (`_is_phantom`).
-`rate_equation_dedup_key(m)` gives identify a mechanism's key and the key of the fit it
-reads: its own, or for such a variant its active law's when that law holds every fitted
-constant but `L`. The variant reads that fit when a mechanism with that law was fitted in
-an earlier batch or is fitted in the variant's own (`_process_batch`).
+`_canonical` (`src/Derivation/rate_equation_dedup_key.jl`) labels a law canonically: each
+part to lowest terms, the fitted constants coloured by refinement on the term–constant
+incidence and individualized while colours tie, the concentrations by name. The SHA-256 of
+its text is the law's key, by which identify fits one mechanism per law and reads that fit
+through each mechanism's own names (the canonical order). At 100 labellings the search
+stops, and the law takes its mechanism's own key. The L-phantom certificate
+(`_phantom_weights`) solves exactly for a rescaling of the other constants that absorbs `L`
+in a one-subunit variant whose inactive conformation turns nothing over, and it alone
+decides an L phantom (`_is_phantom`). `rate_equation_dedup_key(m)` gives identify a
+mechanism's key and the key of the fit it reads: its own, or for such a variant its active
+law's when that law holds every fitted constant but `L`. The variant reads that fit when a
+mechanism with that law was fitted in an earlier batch or is fitted in the variant's own
+(`_process_batch`).
 
 Identify asks one mechanism three questions in a row: `parameters`,
 `rate_equation_string` and `rate_equation_dedup_key`. A private memo (`_Memo`,
@@ -519,23 +520,23 @@ share nothing. A compiled law's generated methods never read it.
 
 `BigInt` arithmetic raises `Base.gc_live_bytes` by bytes that no live object holds, so
 the count overstates what a derivation retains. Class 3's model point (`_model_point`,
-`src/Derivation/limit_test.jl`; an integer null space in `Rational{BigInt}`) raises it by
-101 KiB on the six-step bi-bi ping-pong at two conformations, and a 6×6 determinant
-outside the package does the same in `BigInt` and `Rational{BigInt}`, not in
-`Rational{Int}`. The joint solve adds nothing: it runs in `Rational{Int}` on 10,226
-enumerated bi-bi and ter-bi mechanisms without overflow. The count holds no memory and
-raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB resident. Measure
-retained memory by the resident set.
+`src/Derivation/rate_equation_correctness_guard.jl`; an integer null space in
+`Rational{BigInt}`) raises it by 101 KiB on the six-step bi-bi ping-pong at two
+conformations, and a 6×6 determinant outside the package does the same in `BigInt` and
+`Rational{BigInt}`, not in `Rational{Int}`. The joint solve adds nothing: it runs in
+`Rational{Int}` on 10,226 enumerated bi-bi and ter-bi mechanisms without overflow. The count
+holds no memory and raises no peak: a process whose count reaches 2.8 GiB peaks at 1.2 GB
+resident. Measure retained memory by the resident set.
 
 ## Well-posedness guard
 
-The guard (`src/Derivation/guard.jl`, with `limit_test.jl`, `conformations.jl`,
-`admission.jl` and `messages.jl` beside it) decides whether a mechanism's rate law is the
-unique fast-equilibrium limit of mass-action kinetics wherever data sit. `_guard(m)` reads
-the reaction graph through masks and never constructs a mechanism. It returns an isbits
-`_Verdict` (fault, limit-test verdict, face, conformation, edge), never a `Union` that a
-loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a loop
-without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
+The guard (`src/Derivation/rate_equation_correctness_guard.jl`, with
+`allosteric_rate_equation_correctness_guard.jl` beside it) decides whether a mechanism's
+rate law is the unique fast-equilibrium limit of mass-action kinetics wherever data sit.
+`_guard(m)` reads the reaction graph through masks and never constructs a mechanism. It
+returns an isbits `_Verdict` (fault, limit-test verdict, face, conformation, edge), never a
+`Union` that a loop reads: Julia 1.12 and 1.13 can hoist the box of a `Union` value out of a
+loop without a write barrier, which corrupts the heap. `check_valid_rate_equation(m)` throws
 `_guard_message(m)`, which names each step by its DSL line (`step_text`) and the face;
 `check_valid_rate_equation(Bool, m)` returns the verdict instead.
 
@@ -778,13 +779,14 @@ name, as a form named `ES_I` and the side `ES + I` do; the guard rejects such a 
 (`_shared_constant_names`). The enumerator, which names the forms it builds from their
 contents, refuses a reaction whose names spell one string two ways, such as `NAD`, `P` and
 `NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Whether a mechanism's rate
-law is defined is the well-posedness guard's question (`src/Derivation/guard.jl`; see
-[Well-posedness guard](@ref)). The macro, the parser and every derivation entry throw on a
-mechanism it rejects (`check_valid_rate_equation`), and the enumerator's exits and its flip,
-split and tagging searches drop one (`check_valid_rate_equation(Bool, m)`). The constructors
-and the Sig decoder do not run it. Those exits and searches test a candidate with
-`_enumerator_keeps`, which also drops an allosteric mechanism the guard admits in which a
-conformation keeps a form, other than free E, that only bindings it excludes enter
+law is defined is the well-posedness guard's question
+(`src/Derivation/rate_equation_correctness_guard.jl`; see [Well-posedness guard](@ref)). The
+macro, the parser and every derivation entry throw on a mechanism it rejects
+(`check_valid_rate_equation`), and the enumerator's exits and its flip, split and tagging
+searches drop one (`check_valid_rate_equation(Bool, m)`). The constructors and the Sig
+decoder do not run it. Those exits and searches test a candidate with `_enumerator_keeps`,
+which also drops an allosteric mechanism the guard admits in which a conformation keeps a
+form, other than free E, that only bindings it excludes enter
 (`_kept_forms_keep_a_binding`): its law is the limit, so a user may write it, but the
 enumerator does not propose it.
 
@@ -840,9 +842,10 @@ either copy may keep both constants separable.
 `candidate_mechanisms` asserts both rules on every parent (`_assert_emission_rules`).
 Both refinement moves share one minimal-set search (`_minimal_gaining_sets`).
 Duplicate laws that survive these proofs share one fit, an L phantom's key aside:
-identify fits one mechanism per key (`_canonical`, `src/Derivation/key.jl`). A numerical
-identifiability rank exists only in the test suite, as an oracle for the proofs and the
-L-phantom certificate; nothing in `src/` estimates identifiability numerically.
+identify fits one mechanism per key (`_canonical`,
+`src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability rank exists only
+in the test suite, as an oracle for the proofs and the L-phantom certificate; nothing in
+`src/` estimates identifiability numerically.
 
 `init_mechanisms` appends to the seeds their merged and Theorell–Chance variants
 (`_seed_variants`, plain `Mechanism`s only). `_merge_isomerization` removes a

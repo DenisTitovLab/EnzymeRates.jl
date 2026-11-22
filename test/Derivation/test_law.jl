@@ -1,4 +1,4 @@
-# ABOUTME: Tests of the rate-law engine (src/Derivation/engine.jl): spanning trees, V×τ,
+# ABOUTME: Tests of the rate-law engine: spanning trees, V×τ,
 # ABOUTME: plain and MWC laws against exact steady states, form and refusals, summed cap.
 
 @testset "_spanning_trees enumerates each spanning tree once" begin
