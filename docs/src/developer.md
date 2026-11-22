@@ -14,11 +14,12 @@ The two halves and the optimizer layer are described below.
 EnzymeRates is seven submodules and a top level. Each submodule lives in `src/<Module>/`:
 `<Module>.jl` declares the module, includes its files and lists its interface in a `public`
 statement. A module's public names are its interface to the other modules; only the exports
-are promised to users. Its tests live in `test/<Module>/`. The diagram below shows every
-exported name and every name one module takes from another, and the tables list every
-module's public names; `test/test_boundaries.jl` fails when they disagree with `src/`. The
-diagram is generated: each box's sentence is the first sentence of its module's docstring,
-and `julia test/update_module_map.jl` rewrites it, together with the table of modules in
+are promised to users. Its tests live in `test/<Module>/`, a file `test_<file>.jl` for each
+source file `<file>.jl`. The diagram below shows every exported name and every name one
+module takes from another, and the tables list every module's public names;
+`test/test_boundaries.jl` fails when they disagree with `src/`. The diagram is generated:
+each box's sentence is the first sentence of its module's docstring, and
+`julia test/update_module_map.jl` rewrites it, together with the table of modules in
 `.claude/CLAUDE.md`, which the same test checks.
 
 ### The module map
@@ -317,6 +318,14 @@ package, and fails on:
 To use another module's function, it must be public there, under a name without an
 underscore. The test also parses this page and fails when a table under
 "Modules" disagrees with `src/`, naming the module and the names to add or remove.
+
+The test also checks the test files' names. A test file is `test_<file>.jl` for the one
+source file `<file>.jl` whose functions its testsets are about, in the mirrored folder:
+`src/<Module>/` → `test/<Module>/`, `src/` → `test/`, `ext/` → `test/ext/`. A test file
+directly in `test/` may instead check a package-wide rule (`test_boundaries.jl`,
+`test_type_stability.jl`, `test_compile_budget.jl`, `test_aqua_jet.jl`, `test_oracles.jl`).
+The test fails on a test file that names no source file, and on a source file other than a
+module's header that has no test file.
 
 ## Derivation architecture
 

@@ -1,5 +1,5 @@
 # ABOUTME: Checks the module boundaries of src/ by parsing it (public names, layers,
-# ABOUTME: underscore names, exports), the generated module map and table, exported docs.
+# ABOUTME: underscore names, exports), the module map and table, docs and test file names.
 
 import REPL  # defines Base.Docs.doc(::Binding), read by the docstring testset
 
@@ -391,4 +391,38 @@ end
         text = string(Base.Docs.doc(Base.Docs.Binding(EnzymeRates, n)))
         @test !occursin("No documentation found", text)
     end
+end
+
+"""Where the files of the tree at `root` break the test-file naming rule, one line each: a
+`test/<M>/test_<x>.jl` with no `src/<M>/<x>.jl`, a `test/ext/test_<x>.jl` with no
+`ext/<x>.jl`, a `test/test_<x>.jl` with no `src/<x>.jl` that checks no package-wide rule,
+and a source file, module headers aside, with no test file."""
+function _testhelper_test_name_problems(root)
+    rules = ("boundaries", "type_stability", "compile_budget", "aqua_jet", "oracles")
+    jl(dir) = isdir(joinpath(root, dir)) ?
+              filter(endswith(".jl"), readdir(joinpath(root, dir))) : String[]
+    folders = [("src", "test"), ("ext", "test/ext")]
+    for m in readdir(joinpath(root, "src"))
+        isdir(joinpath(root, "src", m)) && push!(folders, ("src/$m", "test/$m"))
+    end
+    problems = String[]
+    for (src, test) in folders
+        sources = setdiff(jl(src), ["$(basename(src)).jl", "EnzymeRates.jl"])
+        for f in filter(startswith("test_"), jl(test))
+            x = f[6:end]
+            x in sources || (test == "test" && chop(x; tail = 3) in rules) ||
+                push!(problems, "$test/$f names no $src/$x")
+        end
+        for x in sources
+            "test_$x" in jl(test) || push!(problems, "$src/$x has no $test/test_$x")
+        end
+    end
+    problems
+end
+
+# A test file is test_<x>.jl for the source file <x>.jl whose functions its testsets are
+# about, in the mirrored folder; a test file directly in test/ may instead check a
+# package-wide rule.
+@testset "every test file is named for the source file it tests" begin
+    @test _testhelper_test_name_problems(joinpath(@__DIR__, "..")) == String[]
 end

@@ -52,13 +52,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     | 45001777789 | dc936ab2 | 286.0 s | 116.1 s | 35 min |
 
     The last three ran pull request #109 on nearly the same code and took 10.5 to 35
-    minutes: no gain on macOS is shown. The enumeration test file bounds the bytes each
-    candidate holds and the bytes the enumeration allocates. In the last run each candidate
-    held 1,594 bytes on Ubuntu, Windows and macOS, and the bytes allocated agreed to within
-    2.5%, so these bytes do not explain a slow macOS run. In that run the ter-ter call spent
-    170 s outside garbage collection and 116 s in it on macOS, against 83 s and 21 s on
-    Ubuntu, and macOS peaked at 2.8 GiB resident against 3.0-3.6 GiB elsewhere. The cause
-    of the slow macOS runs is not known.
+    minutes: no gain on macOS is shown. `test/Enumeration/test_starting_mechanisms.jl`
+    bounds the bytes each candidate holds and the bytes the enumeration allocates. In the
+    last run each candidate held 1,594 bytes on Ubuntu, Windows and macOS, and the bytes
+    allocated agreed to within 2.5%, so these bytes do not explain a slow macOS run. In that
+    run the ter-ter call spent 170 s outside garbage collection and 116 s in it on macOS,
+    against 83 s and 21 s on Ubuntu, and macOS peaked at 2.8 GiB resident against
+    3.0-3.6 GiB elsewhere. The cause of the slow macOS runs is not known.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `EI + J <--> EJ + I` does when `EJ` binds nothing more, no net flux crosses it, so
