@@ -940,8 +940,7 @@ mechanism and session; every later call is fast and allocates nothing, so compil
 outside a loop. Equal mechanisms give the same `rate`. Calling `rate` errors when the rate
 law of `m` is not defined (`check_valid_rate_equation`), and with a
 `RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
-cap of 5,000 (`MAX_RATE_EQUATION_TERMS`). [`rate_equation_string`](@ref)
-prints the law.
+term cap, `MAX_RATE_EQUATION_TERMS`. [`rate_equation_string`](@ref) prints the law.
 
 ```jldoctest
 julia> using EnzymeRates
@@ -1336,7 +1335,7 @@ define, so it does not run; it is the readable form the search CSVs hold.
 
 Errors when the rate law of `m` is not defined (`check_valid_rate_equation`), and with a
 `RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
-cap of 5,000 (`MAX_RATE_EQUATION_TERMS`).
+term cap, `MAX_RATE_EQUATION_TERMS`.
 
 ```jldoctest
 julia> using EnzymeRates

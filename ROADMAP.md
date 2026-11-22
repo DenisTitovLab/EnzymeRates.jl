@@ -402,11 +402,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     taggings of the gate's `:OnlyA`, `:OnlyI` and ter-ter populations.
 - **Log the time of each search phase.**
   `progress.log` carries no timestamps, so a cluster run cannot say where its wall time
-  goes. In the 0.10.0 runs the average worker was idle for 30% of PFKP's time and 75% of
-  PGK's (Developer page, What a fit costs). Workers connect within 15 s and the master's CPU
-  covers under half of that idle time, so workers waiting for the slowest fit of a batch are
-  the leading suspect. A timestamp on each line, and each batch's slowest fit, would rank
-  all the search-speed ideas below. Priority: high.
+  goes. In the searches of 2026-11-02 the average worker was idle for 30% of PFKP's time and
+  75% of PGK's (Developer page, What a fit costs). Workers connect within 15 s and the
+  master's CPU covers under half of that idle time, so workers waiting for the slowest fit
+  of a batch are the leading suspect. A timestamp on each line, and each batch's slowest
+  fit, would rank all the search-speed ideas below. Priority: high.
 - **Profile the search on the HPC runs.**
   In the 0.10.0 runs, 64% of PFKP's and 75% of PGK's fits reach a loss within 10⁻⁸ of
   another fit at the same parameter count. These may be laws the key misses, equal only

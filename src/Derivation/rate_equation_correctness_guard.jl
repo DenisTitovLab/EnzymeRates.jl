@@ -74,7 +74,8 @@ Admission's face condition, on a face (`_admission_face`):
 - `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive step whose
   reverse is dead, or is entered from outside it and the law's forms.
 - `_BRIDGE`: tagged steps shorten the cheapest spanning in-tree of the fed forms
-  (`_face_sets`) where no potential absorbs their turnover.
+  (`_face_sets`): one conformation's where no potential absorbs their turnover, or both
+  conformations' only together (`_face_condition` gives the two cases).
 
 Last, `_TOO_MANY_READINGS`: no reading the guard tried was consistent, the active
 conformation turns the reaction over, and there are more readings than the guard searches.
@@ -1146,7 +1147,7 @@ end
 A random point mod p of the model of `mech`'s catalytic graph `m` for `ncopies`
 conformations on face `face`, as `(; K, ss, re, flip, L, conc)`:
 - `K[k, c]`, each edge's equilibrium constant, and `L`, from log-free energies of every
-  form in each conformation and of every metabolite name. The energies are random
+  form in each conformation and of every metabolite name. Their exponentials are random
   residues raised to an integer null-space basis of the kinetic-group ties (members equal
   in each conformation that keeps them, an `:EqualAI` member equal across);
 - `ss`, a steady-state speed per kinetic group and conformation (one for both of an

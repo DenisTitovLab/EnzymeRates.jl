@@ -27,10 +27,13 @@ most `max_param_count` fitted constants (`Derivation.fitted_parameter_count`). T
 drop only what a method returns: a mechanism over a limit is never returned, so it is
 never expanded either.
 
-Errors: the reaction's metabolite names spell one string two ways (such as `Ac`, `CoA`
-and `AcCoA`), so that two forms would share a name (first method); the reaction has no
-catalytic cycle; no mechanism binds every required regulator; an internal check of the
-enumerator fails, such as atom conservation.
+Errors when
+- the reaction's metabolite names spell one string two ways (such as `Ac`, `CoA` and
+  `AcCoA`), so that two forms would share a name (first method);
+- the reaction has no catalytic cycle: every route needs an isomerization converting more
+  than three substrates, or more than three products counting a covalent residue as one;
+- no mechanism binds every required regulator;
+- an internal check of the enumerator fails, such as atom conservation.
 """
 function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
                               parent::CandidateMechanism;
@@ -65,12 +68,14 @@ end
 
 Error unless the parent candidate `c` obeys the two rules every child of the moves obeys.
 Every steady-state kinetic group holds an edge that carries net flux
-(`_flux_carrying_groups`), read on the whole catalytic graph. That graph is the active
-conformation's: the active conformation leaves out only the groups tagged `:OnlyI` and the
-steps they cut off from free E, and no move tags a catalytic group `:OnlyI`. No kinetic
-group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A parent must
-obey both rules because a flip tests only the groups it flips. The split, the dead-end move
-and `_expand_change_allo_state` filter their children; the other moves preserve both rules.
+(`_flux_carrying_groups`), read on the whole catalytic graph. On every candidate the
+enumerator builds, that graph is the active conformation's: the active conformation leaves
+out only the groups tagged `:OnlyI` and the steps they cut off from free E, and no seed or
+move tags a catalytic group `:OnlyI`; a candidate built by hand may carry such a group. No
+kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A
+parent must obey both rules because a flip tests only the groups it flips. The split, the
+dead-end move and `_expand_change_allo_state` filter their children; the other moves
+preserve both rules.
 """
 function _assert_emission_rules(c::CandidateMechanism)
     cm = c.mechanism.catalytic
@@ -438,15 +443,16 @@ end
     _expand_split_kinetic_group(c::CandidateMechanism) → Vector{CandidateMechanism}
 
 The split move: one child of candidate `c` per inclusion-minimal set of context
-bipartitions (`_context_bipartitions`), at most one per group, that passes two tests.
-Applied together (`_apply_bipartitions`), the set raises the fitted-parameter count, which
-the joint solve gives without deriving a rate polynomial (`fitted_parameter_count`). And
-`_enumerator_keeps` accepts the child. Each split group's second part becomes a group of its
-own, with the group's allosteric state. A part of a steady-state group none of whose edges
-carries flux turns rapid equilibrium (`_revert_zero_flux_parts`): the same family with one
-constant fewer. The child keeps everything else of `c`. The move drops a child that holds a
-redundant copy group (`_redundant_copy_groups`), whose family is that of the same split
-without the copy.
+bipartitions (`_context_bipartitions`), at most one per group, that passes two tests when
+applied together (`_apply_bipartitions`):
+- the set raises the fitted-parameter count, which the joint solve gives without deriving a
+  rate polynomial (`fitted_parameter_count`);
+- `_enumerator_keeps` accepts the child.
+Each split group's second part becomes a group of its own, with the group's allosteric
+state. A part of a steady-state group none of whose edges carries flux turns rapid
+equilibrium (`_revert_zero_flux_parts`): the same family with one constant fewer. The
+child keeps everything else of `c`. The move drops a child that holds a redundant copy
+group (`_redundant_copy_groups`), whose family is that of the same split without the copy.
 
 A single bipartition whose new constant a Wegscheider cycle ties straight back gains
 nothing, but the search extends it, since splitting another group on that cycle breaks the
@@ -455,14 +461,15 @@ extends a failed set only by the rapid-equilibrium groups that share a segment w
 its split groups: a tie needs a rapid-equilibrium cycle through the split, and every group
 on that cycle lies in that segment.
 
-A copy is redundant when each of its complexes has a twin and a dwell gauge exists. A twin
-is a productive form whose weight is proportional to the complex's (`_productive_twin`). A
-dwell gauge is a rescaling of the constants that moves the copy's constant where the rate
-law cannot see it (`_gauge_rescaling`). Bindings elsewhere in the group of a binding that
-forms or leaves a twin can block the gauge. A split that separates them completes the
-gauge, and the copy, which the shared group pinned before, becomes redundant. A split of a
-group that forms a copy's twins can break the gauge. So the move tests each child as a
-whole.
+A copy is redundant when each of its complexes has a twin and a dwell gauge exists; in an
+allosteric mechanism, a twin in every conformation where the copy binds, and one gauge over
+both conformations (`_redundant_copy_groups`). A twin is a productive form whose weight is
+proportional to the complex's (`_productive_twin`). A dwell gauge is a rescaling of the
+constants that moves the copy's constant where the rate law cannot see it
+(`_gauge_rescaling`). Bindings elsewhere in the group of a binding that forms or leaves a
+twin can block the gauge, since they share the constant it must move. A split that
+separates them completes the gauge and makes the copy redundant. A split of a group that
+forms a copy's twins can break the gauge. So the move tests each child as a whole.
 """
 function _expand_split_kinetic_group(c::CandidateMechanism)
     cm = c.mechanism.catalytic

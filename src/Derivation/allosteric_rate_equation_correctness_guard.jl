@@ -22,19 +22,19 @@ function exclusion_components(m::Mechanisms.CatalyticScheme, excluded::BitVector
 end
 
 """
-Which excluded steady-state steps that take up one metabolite into a cut-off form lose
-their affinity in a built reading of the guard (`_built_reading`); the others stop:
+Which excluded steady-state uptakes into a cut-off form (`_built_reading` defines them)
+lose their affinity in a built reading of the guard; the others stop:
 - `_ALL_LOSE_AFFINITY`: every one;
 - `_OUTWARD_LOSE_AFFINITY`: those that lead away from free E;
 - `_ALL_STOPPED`: none.
 The guard tries the built readings in this order, before it searches the other readings
 (`_guard_with_reading`).
 
-The steps a conformation keeps join the forms into parts. A part's distance is the fewest
-excluded steps that take up one metabolite into a cut-off form, rapid-equilibrium or
+The steps a conformation keeps join the forms into islands (`exclusion_components`). An
+island's distance is the fewest excluded uptakes into a cut-off form, rapid-equilibrium or
 steady-state, each followed from its unbound side to its bound side, that lead to it from
-free E's part; a part they do not reach is infinitely far. Such a step leads away from
-free E when its bound side's part is farther than its unbound side's.
+free E's island; an island they do not reach is infinitely far. Such an uptake leads away
+from free E when its bound side's island is farther than its unbound side's.
 """
 @enum _SlowUptakeReading::UInt8 _ALL_LOSE_AFFINITY _OUTWARD_LOSE_AFFINITY _ALL_STOPPED
 
@@ -50,11 +50,11 @@ affinity: its stored direction, the uptake, vanishes (`_LOSES_FORWARD`). At stea
 loses its affinity or stops, as `r` says (`_SlowUptakeReading`). Any other excluded step
 keeps its kind, rapid equilibrium or steady state, as every step does in both
 conformations. At steady state it stops (`_STOPPED`). At rapid equilibrium the built
-reading leaves it unswitched (`_CANNOT_SWITCH_OFF`), which makes the reading inconsistent;
-a searched reading (`_consistent_columns`) may still switch off such a step between two
-islands by letting it lose a direction. The developer page, "Well-posedness guard", says
-why no reading switches off one inside an island. A plain mechanism has one conformation,
-which runs every step.
+reading has no way to switch it off (`_CANNOT_SWITCH_OFF`): the ε-network treats it as
+slow, vanishing both ways, which makes the reading inconsistent. A searched reading
+(`_consistent_columns`) may still switch off such a step between two islands by letting it
+lose a direction. The developer page, "Well-posedness guard", says why no reading switches
+off one inside an island. A plain mechanism has one conformation, which runs every step.
 """
 function _built_reading(am::Mechanisms.Mechanism,
                         r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
@@ -68,8 +68,8 @@ function _built_reading(am::Mechanisms.Mechanism,
         uptake = [excluded[k] && length(e.taken_up) == 1 && isempty(e.given_off) &&
                   comp[e.from] != comp[e.to] && comp[e.to] != comp[1]
                   for (k, e) in enumerate(steps)]
-        # Each part's distance from free E's, breadth-first along the uptakes; a part's
-        # label is its smallest form index.
+        # Each island's distance from free E's, breadth-first along the uptakes; an
+        # island's label is its smallest form index.
         distance = fill(typemax(Int), length(comp))
         distance[comp[1]] = 0
         queue, head = [comp[1]], 0

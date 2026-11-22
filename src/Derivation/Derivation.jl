@@ -57,10 +57,12 @@ How a reading switches off a catalytic step in one conformation (`_Reading`):
   of its reverse, the direction that runs uphill, into the step's higher side. The other
   direction keeps its rate, so a rapid-equilibrium step stays fast;
 - `_STOPPED`: both its rates vanish;
-- `_CANNOT_SWITCH_OFF`: the reading leaves the step unswitched, which makes the reading
-  inconsistent. Only a built reading does this, to an excluded rapid-equilibrium step it
-  cannot switch off (`_built_reading`). A searched reading may switch off such a step when
-  it lies between two islands.
+- `_CANNOT_SWITCH_OFF`: the reading has no way to switch the step off, which makes the
+  reading inconsistent. Only a built reading does this, to an excluded rapid-equilibrium
+  step it cannot switch off (`_built_reading`). The ε-network (`_eps_network`) treats such
+  a step as slow and vanishing both ways, as it treats `_STOPPED`. A searched reading
+  (`_consistent_columns`) may switch off such a step when it lies between two islands, the
+  sets of forms a conformation's kept steps join (`exclusion_components`).
 The developer page, "Well-posedness guard", says which readings the guard accepts.
 """
 @enum _SwitchOff::UInt8 _RUNS _LOSES_FORWARD _LOSES_REVERSE _STOPPED _CANNOT_SWITCH_OFF

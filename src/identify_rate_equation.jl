@@ -157,10 +157,13 @@ Errors when
 - `n_cv_candidates` is less than 1;
 - `save_dir` already holds a `.csv` file or a `progress.log`, so that the results of two
   runs never mix;
-- the starting mechanisms cannot be built: the reaction's metabolite names spell one
-  string two ways (such as `Ac`, `CoA` and `AcCoA`); every catalytic cycle would need an
-  isomerization converting more than three substrates, or more than three products
-  counting a covalent residue as one; or no mechanism binds every required regulator;
+- the starting mechanisms cannot be built:
+  - the reaction's metabolite names spell one string two ways (such as `Ac`, `CoA` and
+    `AcCoA`);
+  - the reaction has no catalytic cycle: every route needs an isomerization converting
+    more than three substrates, or more than three products counting a covalent residue
+    as one;
+  - no mechanism binds every required regulator;
 - no mechanism is fitted to a finite loss (when every starting mechanism throws, the error
   quotes the first failure);
 - a cross-validation fold's loss is not finite;

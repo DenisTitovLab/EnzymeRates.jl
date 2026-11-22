@@ -1851,8 +1851,8 @@ end
     # only by taking up Q: it holds enzyme apart from free E, so the steady state there is
     # not unique (`_NONUNIQUE`), as both oracles find. Every move keeps that binding :OnlyA
     # and those steps untagged: a split's parts inherit their group's tag, and the
-    # change-tag move relaxes binding groups only, while the A group holds chemistry. So no
-    # child has a limit either. Of change-tag's three relaxations, Q's group and Q's
+    # relaxing move relaxes binding groups only, while the A group holds chemistry. So no
+    # child has a limit either. Of the relaxing move's three relaxations, Q's group and Q's
     # abortive binding of A keep EA stranded; P's group joins the two sides of the
     # rapid-equilibrium binding EA + B ⇌ EPQ, which then cannot be switched off
     # (`_FAST_STEP_PINNED`). The flip move emits nothing, and the exit drops the three
@@ -1941,8 +1941,8 @@ end
     # E + A <--> EA, so that conformation stops it. At zero P and Q, EA then leaves
     # only by taking up P: it holds enzyme apart from free E, so the steady state there is
     # not unique (`_NONUNIQUE`), as both oracles find. No child has a limit either. Of
-    # change-tag's four relaxations, I's group, P's group and P's abortive binding of A
-    # keep EA stranded; Q's group joins the two sides of the rapid-equilibrium binding
+    # the relaxing move's four relaxations, I's group, P's group and P's abortive binding
+    # of A keep EA stranded; Q's group joins the two sides of the rapid-equilibrium binding
     # EA + B ⇌ EPQ, which then cannot be switched off (`_FAST_STEP_PINNED`). The flip
     # move emits nothing, and the exit drops the four relaxations. Six split sets raise the
     # count, but the split search asks the guard on each child, so they count as failed,

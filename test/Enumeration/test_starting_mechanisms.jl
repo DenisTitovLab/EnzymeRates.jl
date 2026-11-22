@@ -784,12 +784,12 @@ function _testhelper_value_and_bytes(f)
 end
 
 @testset "the enumeration holds and allocates a bounded number of bytes" begin
-    # Aggregate check over the whole bi-bi starting set. On the macOS CI runner the ter-ter
-    # call spent 13.9-116.1 s in garbage collection in three runs after mechanisms stopped
-    # storing facts derived from their steps, against 171.0 s in one run before, so no
-    # gain there is established (ROADMAP). Time and peak memory depend on the machine, so
-    # these bounds gate what does not: the same bytes in every process on a Julia version,
-    # measured on Julia 1.11.9 and 1.13.4.
+    # Aggregate check over the whole bi-bi starting set. It bounds the bytes a candidate
+    # holds and the bytes the enumeration allocates, which are the same in every process on
+    # a Julia version (measured on Julia 1.11.9 and 1.13.4), so the bounds do not depend on
+    # the machine. Time and peak memory do: on the macOS CI runner the ter-ter call spent
+    # 13.9-116.1 s in garbage collection in three runs of nearly the same code, and
+    # ROADMAP's known issue on the slow macOS tests says their cause is not known.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]

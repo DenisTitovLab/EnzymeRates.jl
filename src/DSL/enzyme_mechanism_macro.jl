@@ -87,7 +87,8 @@ conformation still turns substrate into product. The conformations interconvert 
 free E.
 
 When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
-sit, with an error that names the steps at fault, when:
+sit, with an error that states the fault and names the steps at fault where it has them,
+when:
 - a cycle of steps takes up or gives off a metabolite in another proportion than the
   reaction, as when a step forgets one;
 - no cycle of steps turns substrates into products;
