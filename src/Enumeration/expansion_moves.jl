@@ -3,12 +3,6 @@
 
 # ─── candidate_mechanisms(reaction, parent) ─────────────────────────────
 
-# Each child must pass the regulator-type filter (`_respects_reg_type`) and conserve atoms
-# (`_assert_atom_conserving`, which errors on the first child that does not); a child that
-# `_enumerator_keeps` refuses (the guard rejects it, or a conformation keeps a form that
-# only bindings it excludes enter) is dropped. The parent must satisfy the two emission
-# rules (`_assert_emission_rules`): every steady-state group carries flux and no
-# competitive-inhibitor group is redundant (`_redundant_copy_groups`).
 """
     candidate_mechanisms(reaction; max_param_count = typemax(Int),
                          eq_complexity_filter = typemax(Int),
@@ -69,12 +63,12 @@ end
 """
     _assert_emission_rules(c::CandidateMechanism)
 
-The two rules every mechanism the moves emit satisfies, checked on a parent candidate before
-it is expanded. Every steady-state kinetic group holds an edge that carries net flux
-(`_flux_carrying_groups` on the catalytic graph, an allosteric mechanism's active state). No
-kinetic group binds a competitive inhibitor redundantly (`_redundant_copy_groups`). A parent
-must obey both because a flip tests only the groups it flips. The split, the dead-end move,
-and `_expand_change_allo_state` filter their children; the other moves preserve both rules.
+Error unless the parent candidate `c` obeys the two rules every child of the moves obeys:
+every steady-state kinetic group holds an edge that carries net flux
+(`_flux_carrying_groups`, on the whole catalytic graph), and no kinetic group binds a
+competitive inhibitor redundantly (`_redundant_copy_groups`). A parent must obey both
+because a flip tests only the groups it flips. The split, the dead-end move and
+`_expand_change_allo_state` filter their children; the other moves preserve both rules.
 """
 function _assert_emission_rules(c::CandidateMechanism)
     cm = c.mechanism.catalytic
@@ -136,8 +130,6 @@ holds, every step in its kinetic group (`_regrouped` with `c`'s own groups)."""
 _with_flags(c::CandidateMechanism, re::BitVector) =
     _regrouped(c, Int[e.kinetic_group for e in c.mechanism.catalytic.steps], re)
 
-"""The steps of `m`, step `k` labelled `groups[k]` and at rapid equilibrium where `re[k]`
-holds."""
 _regrouped_steps(m::Mechanisms.CatalyticScheme, groups::Vector{Int}, re::BitVector) =
     Mechanisms.Step[Mechanisms.Step(e.from, e.to, e.taken_up, e.given_off, re[k], groups[k])
                     for (k, e) in enumerate(m.steps)]
@@ -155,14 +147,12 @@ end
 # ─── Expansion Moves ─────────────────────────────────────────
 
 """
-    _inhibitor_competition_patterns(sub_names, prod_names,
-        existing_inhibitors)
-        → Vector{Tuple{Set{Symbol},Set{Symbol},Set{Symbol}}}
+    _inhibitor_competition_patterns(sub_names, prod_names, existing_inhibitors)
+        -> Vector{Tuple{Set{Symbol},Set{Symbol},Set{Symbol}}}
 
-Enumerate inhibitor competition patterns: (competing_subs,
-competing_prods, competing_inhibitors). Each inhibitor must
-compete with ≥1 substrate and ≥1 product. Competition with
-existing inhibitors is a free binary choice.
+Every pattern of competition for a new inhibitor, as the substrates, the products and the
+existing inhibitors it competes with: at least one substrate, at least one product, and any
+subset of the existing inhibitors.
 """
 function _inhibitor_competition_patterns(
     sub_names::Set{Symbol},
@@ -178,37 +168,28 @@ end
 """
     _expand_re_to_ss(c::CandidateMechanism) -> Vector{CandidateMechanism}
 
-RE→SS expansion move. A flip unit is a whole kinetic group that is all-RE, takes up
-or gives off no modifier (competitive-inhibitor binding stays at rapid equilibrium by
-modeling choice), and holds a flux-carrying step (`_flux_carrying_groups` with every
-edge steady state; a group with none exposes only equilibrium ratios under every
-assignment and would gain a phantom parameter).
-A flank of a qualifying chain whose isomerization is steady state is no unit
-(`_chain_flank_groups`). One child is produced per minimal set of units whose joint flip
-raises the RE segment count (`_minimal_flips`): a single group when it
-cuts a segment on its own, several groups when each alone is bridged by an RE
-route through the others — as happens once a split has separated a
-metabolite's binding steps, or a catalytic step from its inhibitor-bound
-mirror. A flip that leaves the segment count unchanged adds an SS step whose
-endpoints share a segment, which the rate equation never sees. A flip set whose child
-`_enumerator_keeps` refuses (the guard rejects it, or a conformation keeps a form that only
-bindings it excludes enter) also counts as failed, so the minimal-set search
-extends it instead of emitting it; so does
-a set one of whose flipped groups carries no flux in the child
-(`_flux_carrying_groups` on the flipped groups): the child is its parent plus
-one phantom per such group, and its flux-carrying supersets are the smallest
-identifiable relaxations. The non-degenerate mechanisms beyond a set that counts as failed
-stay reachable — through the other cut orders of the same ring, or through the extended
-set when no other order gains. Every other flag, the declared
-names and, for an allosteric mechanism, the allosteric states, oligomeric state and
-regulatory sites are kept; each child goes through the checked constructor.
+The flip move: one child of candidate `c` per inclusion-minimal set of flip units whose
+joint flip to steady state (`_minimal_flips`) passes three tests:
 
-A parent that `_requires_hyperbolic_catalysis` (a conformational mechanism over
-more than one catalytic subunit) keeps only the children whose laws pass
-`_hyperbolic_catalysis` (each conformation's, for an allosteric child). The check
-runs on the emitted minimal sets, not inside the gain predicate: a failing set
-would otherwise be extended with more flips, and more steady-state steps never
-restore a hyperbolic equation, so its supersets need no visit.
+- it raises the number of rapid-equilibrium segments, since a steady-state step whose two
+  ends share a segment never reaches the rate law;
+- every flipped group carries flux in the child;
+- `_enumerator_keeps` accepts the child.
+
+A flip unit is a kinetic group that is all rapid equilibrium, takes up or gives off no
+modifier copy, carries flux with every edge steady state (`_flux_carrying_groups`) and is
+no chain flank (`_chain_flank_groups`). The child keeps everything else of `c`. A parent
+that `_requires_hyperbolic_catalysis` keeps only the children that pass
+`_hyperbolic_catalysis`. The engine page gives the reasons for each rule ("Flip
+rapid-equilibrium groups to steady state" in "The enumeration engine").
+
+The search extends a set that fails a test. A set that leaves a flipped group without flux
+gives the parent plus one phantom per such group, and its flux-carrying supersets are the
+smallest identifiable relaxations. The mechanisms that are not degenerate beyond a failed
+set stay reachable, through the other cut orders of the same ring, or through the extended
+set when no other order gains. The hyperbolic test runs on the emitted sets, not inside the
+search: there a failing set would be extended with more flips, and more steady-state steps
+never restore a hyperbolic equation, so its supersets need no visit.
 """
 function _expand_re_to_ss(c::CandidateMechanism)
     cm = c.mechanism.catalytic
@@ -228,11 +209,12 @@ end
 """
 Kinetic groups of `m` that are a flank of a qualifying chain whose isomerization is steady
 state: an isomerization X1 → X2 alone in its group, where X1 and X2 each have exactly one
-other step, each a binding into that form and alone in its group. By the chain lemma the
+other step, each a binding into that form and alone in its group. The rest of the
 mechanism sees such a chain only through its flux and enzyme content, four numbers that
 the form with both flanks at rapid equilibrium already covers, so flipping a flank adds
-parameters and no rate law. An allosteric mechanism has none: at more than one catalytic
-subunit a flank's flip can be visible through the two conformations.
+parameters and no rate law ("Apparent constants on a steady-state chain" in the docs). An
+allosteric mechanism has none: at more than one catalytic subunit a flank's flip can be
+visible through the two conformations.
 """
 function _chain_flank_groups(am::Mechanisms.Mechanism)
     _is_allosteric(am) && return Set{Int}()
@@ -273,9 +255,7 @@ flip set. A unit is a rapid-equilibrium kinetic group that carries flux with eve
 steady state (`_flux_carrying_groups`) and passes `eligible`. A candidate turns its units'
 edges steady state and keeps every other flag. It passes when `admissible` holds on its
 flags, every flipped group carries flux in it, and `_enumerator_keeps` accepts the mechanism
-it builds. The first two tests read the flags, so only a candidate that passes them is
-built. The sets come from `_minimal_gaining_sets`, so a failing set is extended and a
-passing one is not.
+it builds.
 """
 function _minimal_flips(admissible, c::CandidateMechanism, eligible = _ -> true)
     cm = c.mechanism.catalytic
@@ -418,22 +398,17 @@ function _unbalanced_blocks(nv::Int, edges::Vector{Tuple{Int, Int}}, weights::Ve
                     if weights[e] != phi[v] - phi[u])
 end
 
-"""Number of rapid-equilibrium segments of graph `m`, edge `k` at rapid equilibrium where
-`re[k]` holds (`rapid_equilibrium_segments`). The flip move measures each candidate on its
-flags, so it builds only the candidates that raise the count."""
 _re_segment_count(m::Mechanisms.CatalyticScheme, re::BitVector) =
     length(Mechanisms.rapid_equilibrium_segments(m, trues(length(m.steps)), re).segments)
 
 """
     _minimal_gaining_sets(gains, partners) -> Vector{Vector{Int}}
 
-Every minimal set of units for which `gains(set)` holds, found Apriori-style:
-level 1 tests each unit of `partners(Int[])`; a level-`j` set is tested only if
-every `(j−1)`-subset was tested and failed at the previous level, so no superset
-of a gaining set is ever tested. `partners(set)` lists the units allowed to
-extend `set` (units already in `set` are skipped). The loop ends when a level
-fails nothing. Each returned set is sorted; sets are ordered by level, then
-lexicographically.
+Every minimal set of units for which `gains(set)` holds, found Apriori-style.
+`partners(set)` lists the units that may extend `set`, and `partners(Int[])` the units
+tried alone. `gains` runs on a set only after failing on each of its subsets one unit
+smaller, so never on a superset of a gaining set. Each set is sorted; they come by size,
+then in lexicographic order.
 """
 function _minimal_gaining_sets(gains, partners)
     out = Vector{Int}[]
@@ -459,44 +434,32 @@ end
 """
     _expand_split_kinetic_group(c::CandidateMechanism) → Vector{CandidateMechanism}
 
-Kinetic-group split move. A unit is one context bipartition of one group
-(`_context_bipartitions`: the affinity for a metabolite may depend on which
-other ligand is already bound). One child is produced per minimal set of units,
-at most one per group, whose joint application raises the independent-parameter
-count and gives a child `_enumerator_keeps` accepts (`_minimal_gaining_sets`). A single
-bipartition whose new constant a Wegscheider cycle ties straight back is not a model:
-the cycle ties the new constant to the others, so the child's rate function is the
-parent's. Such a bipartition
-is kept as a seed for pairs and larger sets, because the cycle that absorbs it
-is broken by also splitting another group on that cycle — random-order binding
-needs one split per substrate before any constant frees up. Partners for a
-rejected set are the all-RE groups sharing a rapid-equilibrium segment with any
-step of the split groups: a tie needs an RE cycle through the carve, and every
-group on that cycle lies in that segment. The count is the joint solve's on the built
-child (`fitted_parameter_count`), which derives no rate polynomial, and a set whose
-child `_enumerator_keeps` refuses also counts as failed, so the search extends it instead
-of emitting it.
-A part of a steady-state group none of whose edges carries flux
-(`_flux_carrying_edges`, computed once on the parent, since a split moves no edge)
-is emitted at rapid equilibrium (`_revert_zero_flux_parts`), the same family with
-one constant fewer; the count takes the reverted part under
-its new kind, so a reverted constant the Wegscheider ties pull back is absorbed
-like any tied split. A split of any group can complete a
-copy's gauge, by separating a binding that forms or leaves a twin from the bindings
-elsewhere in its group that blocked the gauge (the split then holds the family of the
-copy its shared group pinned), and a split of a group that forms a copy's
-twins can break the gauge, so the copy rule is decided on each child: a child with a
-redundant copy group (`_redundant_copy_groups`) is not emitted; its family is that of
-the same split without the copy.
-The declared names and, for an allosteric mechanism, the oligomeric state and regulatory
-sites are kept; both parts of a split group inherit its allosteric state. Each
-child is the parent's steps regrouped (`_apply_bipartitions`), through the checked
-constructor, since a regrouping can turn a tied group's member.
+The split move: one child of candidate `c` per inclusion-minimal set of context
+bipartitions (`_context_bipartitions`), at most one per group, whose joint application
+(`_apply_bipartitions`) raises the fitted-parameter count (`fitted_parameter_count`, the
+joint solve, which derives no rate polynomial) and gives a child `_enumerator_keeps`
+accepts. Each split group's second part becomes a group of its own, with the group's
+allosteric state. A part of a steady-state group none of whose edges carries flux turns
+rapid equilibrium (`_revert_zero_flux_parts`): the same family with one constant fewer. The
+child keeps everything else of `c`. The move drops a child that holds a redundant copy group
+(`_redundant_copy_groups`), whose family is that of the same split without the copy.
+
+A single bipartition whose new constant a Wegscheider cycle ties straight back gains
+nothing, but the search extends it, since splitting another group on that cycle breaks the
+tie: random-order binding needs one split per substrate before any constant frees up. It
+extends a failed set only by the rapid-equilibrium groups that share a segment with one of
+its split groups: a tie needs a rapid-equilibrium cycle through the split, and every group
+on that cycle lies in that segment. Redundancy is judged on each child whole. A split can
+complete a copy's dwell gauge, by separating a binding that forms or leaves a twin from the
+bindings elsewhere in its group that blocked the gauge; the child then has the family of
+the copy its shared group pinned. A split of a group that forms a copy's twins can break
+the gauge.
 """
 function _expand_split_kinetic_group(c::CandidateMechanism)
     cm = c.mechanism.catalytic
     members = _kinetic_groups(cm)
     flags = _rapid_equilibrium_flags(cm)
+    # The parent's flux serves every child, since a split moves no edge.
     flux = _flux_carrying_edges(cm, flags)
     units = Tuple{Int, Tuple{Vector{Int}, Vector{Int}}}[]
     reverted = Vector{Int}[]
@@ -557,20 +520,17 @@ end
 """
     _context_bipartitions(c, g) -> Vector{Tuple{Vector{Int}, Vector{Int}}}
 
-Ways to divide kinetic group `g` of the catalytic graph of candidate `c` in two by binding
-context, each part a list of edges: another ligand already bound, the enzyme's conformation,
-or its covalent residual. Encodes "the affinity for this metabolite may depend on what else
-is bound, on the conformation, or on the covalent state" — the ligand family includes a
-modifier, which separates a catalytic step from its inhibitor-bound mirror. A ligand is a
-metabolite name bound productively or as a modifier copy (the form's record), so a reactant
-and its modifier copy are two ligands. Each context value divides the edges whose context
-form (`_context_form`) carries it from the rest; the group's own bound ligand is never a
-context, and a group whose forms share one conformation and one residual gets no bipartition
-from those two families. Both parts are nonempty, the first part holds the group's first
-edge, each part lists its edges in edge order, context values that induce the same division
-give one bipartition, and the order is ligands (modifiers, then products, then substrates,
-each by name), then conformations (by label), then residuals (by the names they add, then
-those they subtract), for deterministic output.
+The ways to divide kinetic group `g` of the catalytic graph of candidate `c` in two by
+binding context, each a pair of edge lists. A context value is a ligand bound at an edge's
+context form (`_context_form`), the form's conformation or its covalent residual; it
+divides the edges whose context form carries it from the rest. A ligand is a name bound
+productively or as a modifier copy, so a reactant and its copy are two ligands, and a
+modifier separates a catalytic step from its inhibitor-bound mirror. The group's own bound
+ligand is no context. Both parts are nonempty, the first holds the group's first edge, each
+lists its edges in edge order, and values that divide alike give one bipartition. The
+bipartitions come by ligand (modifiers, then products, then substrates, each by name), then
+by conformation (by label), then by residual (by the names it adds, then those it
+subtracts).
 """
 function _context_bipartitions(c::CandidateMechanism, g::Int)
     m = c.mechanism.catalytic
@@ -647,8 +607,7 @@ copy when `copy` holds (`_copy_change`), is free on some edge: the edge's first 
 takes the metabolite up, its second when it gives it off, so a Theorell–Chance step EA + B
 → EQ + P frees B at EA and P at EQ. A reactant and its modifier copy share a name but
 bind different sites: the reactant asks where the metabolite binds productively, the copy
-where it binds its dead-end site. The dead-end move targets these forms for competition with
-the metabolite. A metabolite `c` does not hold is free nowhere.
+where it binds its dead-end site. A metabolite `c` does not hold is free nowhere.
 """
 function _forms_where_free(c::CandidateMechanism, name::Symbol, copy::Bool)
     cm = c.mechanism.catalytic
@@ -668,12 +627,15 @@ function _forms_where_free(c::CandidateMechanism, name::Symbol, copy::Bool)
 end
 
 """
-The metabolites, the records of the forms and the steps of the dead-end move's child of
-candidate `c`: the metabolites of `c`'s catalytic graph, with `reg` after them unless it is
-one, and its records and steps, each step in its group, with modifier `reg` also bound at
-each form of `sites`, a complex appended in the site's conformation and residual; each
-step between two sites mirrored between their complexes, in the step's own group; and one
-new group, after `c`'s, of the rapid-equilibrium bindings of `reg` at the sites.
+The metabolites, the form records and the steps of the dead-end move's child of candidate
+`c` that binds modifier `reg` at each form of `sites`:
+
+- `c`'s metabolites, with `reg` after them unless it is one;
+- `c`'s records, with one complex after them per site, in the site's conformation and
+  residual;
+- `c`'s steps in their groups, with each step between two sites mirrored between their
+  complexes in the step's own group, and one new group, after `c`'s, of the
+  rapid-equilibrium bindings of `reg` at the sites.
 """
 function _dead_end_graph(c::CandidateMechanism, reg::Symbol, sites::Vector{Int})
     m = c.mechanism.catalytic
@@ -701,22 +663,21 @@ function _dead_end_graph(c::CandidateMechanism, reg::Symbol, sites::Vector{Int})
 end
 
 """
-The dead-end move's candidate child of the mechanism `m` whose metabolites are
-`metabolites`, whose forms have the records `forms` and whose steps are `steps`
-(`_dead_end_graph`), binding modifier `reg` in a new
-group; `nothing` when the copy is redundant in it (`_redundant_copy_groups`). A `Mechanism`
-child's new group, the group of the steps that take the copy up, is tested by
-`_gauge_rescaling` on the child's own twins (`_productive_twin`). The twins are the child's,
-not the parent's, though they are the same forms: the complexes are not productive, and
-their edges attach each complex to its site's segment and join no two segments, so every
-form of `m` keeps its segment and offsets; but the complexes sort in among `m`'s forms, so
-`m`'s form indices do not hold in the child. Only the new group is tested: `m` holds no
-redundant copy group (the parent rule), and in each of about 218,000 enumerated parents
-checked, the placement made no older copy redundant (an empirical finding, not a proof). An
-allosteric child takes its copy's group tagged `:EqualAI`, with `m`'s oligomeric state and
-regulatory sites, and runs `_redundant_copy_groups` only when every complex of the copy has
-a twin in the active state (`_all_twin`), which redundancy needs. Each child is built
-through the checked constructor (`_candidate`).
+The dead-end move's child of the mechanism `m` with the metabolites `metabolites`, the form
+records `forms` and the steps `steps` (`_dead_end_graph`), binding modifier `reg` in a new
+group; `nothing` when the copy is redundant in it. An allosteric child tags the new group
+`:EqualAI` and keeps `m`'s oligomeric state and regulatory sites.
+
+A plain child's new group, the group of the steps that take the copy up, goes through
+`_gauge_rescaling` on the child's own twins (`_productive_twin`). The twins are the same
+forms as the parent's: the complexes are not productive, and their edges attach each complex
+to its site's segment and join no two segments, so every form of `m` keeps its segment and
+offsets. But the complexes sort in among `m`'s forms, so `m`'s form indices do not hold in
+the child. Only the new group is tested: `m` holds no redundant copy group (the parent
+rule), and in each of about 218,000 enumerated parents checked, the placement made no older
+copy redundant (an empirical finding, not a proof). An allosteric child goes through
+`_redundant_copy_groups` only when the copy has a twin at each of its bindings, the only
+edges that take it up (`_all_twin`), which redundancy needs.
 """
 function _dead_end_child(m::Mechanisms.Mechanism, metabolites::Vector{Symbol},
                          forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step},
@@ -728,9 +689,6 @@ function _dead_end_child(m::Mechanisms.Mechanism, metabolites::Vector{Symbol},
                        Mechanisms.Allostery(states, a.oligomeric_state, a.regulatory_sites))
     cm = child.mechanism.catalytic
     twin = _productive_twin(child, trues(length(cm.steps)))
-    # A plain child's one state takes the gauge test of the new group alone; an
-    # allosteric child's two states take `_redundant_copy_groups`, run only when the
-    # copy has a twin at each of its bindings, the only edges that take it up.
     if !_is_allosteric(m)
         binding = findfirst(k -> _copy_change(child, k, reg) > 0, eachindex(cm.steps))::Int
         return _gauge_rescaling(child, _kinetic_groups(cm), cm.steps[binding].kinetic_group,
@@ -743,29 +701,23 @@ end
 
 """
     _expand_add_dead_end_regulator(c::CandidateMechanism, rxn::EnzymeReaction)
-        → Vector{CandidateMechanism}
+        -> Vector{CandidateMechanism}
 
-Add a dead-end regulator binding step set. For each competitive inhibitor declared in `rxn`
-but not yet bound by the steps of `c`'s mechanism, enumerate inhibitor competition patterns
-(S × P × existing inhibitors); for each pattern, add RE binding steps to the forms where a
-competing metabolite is free, unless the form already holds a competing metabolite or holds
-every substrate or every product. Competition is decided per site, not per name. A substrate
-or product declared as a competitive inhibitor is a copy that binds a dead-end site of its
-own, and that site and the reactant's catalytic site are different sites by definition.
-Competition with a substrate or product M targets the forms where M is free on a productive
-step and excludes the forms that hold M productively; competition with an existing inhibitor
-I targets the forms where I binds as a modifier (its binding steps' source forms) and
-excludes the forms that hold I; the capacity test counts productive bindings only. A form
-that carries only the copy of M is therefore a site for an inhibitor that competes with M.
-Mirror steps inherit their catalytic counterpart's kinetic group. All new binding steps for
-a single regulator share one fresh trailing kinetic group (one K_R parameter). Each child is
-the parent's graph with the copy added (`_dead_end_graph`). A pattern is skipped when its
-child binds the new copy redundantly (`_redundant_copy_groups`), as `_dead_end_child`
-decides. Ligands of an allosteric mechanism's regulatory sites are not eligible: they belong
-on a regulatory site.
+The dead-end move: the children of candidate `c` that bind one more competitive inhibitor
+of `rxn`, one that `c` binds neither as a modifier copy nor at a regulatory site. Each
+competition pattern (`_inhibitor_competition_patterns`) places the inhibitor at the forms
+where a metabolite it competes with is free (`_forms_where_free`): a substrate or product
+on a productive step, an existing inhibitor at its own binding. The placement leaves out
+each form that holds, productively, every substrate, every product or a substrate or
+product the inhibitor competes with, and each form that holds an inhibitor it competes
+with. A reactant declared as a competitive inhibitor binds as a copy at a dead-end site of
+its own, so a form that carries only the copy of M is a site for an inhibitor that
+competes with M.
 
-The caller must pass the declared `rxn`: its regulators decide which inhibitors are
-eligible.
+Each distinct nonempty placement gives one child (`_dead_end_graph`): the inhibitor binds
+every form of the placement at rapid equilibrium, in one new kinetic group (one new
+constant), and each step between two placed forms is mirrored between their complexes in
+its own group. The move drops a child whose copy is redundant (`_dead_end_child`).
 """
 function _expand_add_dead_end_regulator(c::CandidateMechanism,
                                         rxn::Mechanisms.EnzymeReaction)
@@ -846,11 +798,10 @@ of candidate `c`'s plain mechanism. The first candidate tags every chemistry gro
 `_valid_tagging` it is the only base. Otherwise the bases are the smallest sets of
 chemistry groups, by inclusion, that stop every catalytic cycle of the inactive
 conformation (`_stops_inactive_turnover`) and pass `_valid_tagging`, each tagged `:OnlyA`
-with every other group `:EqualAI`; a set that fails leaves its supersets in the search. On
-a ping-pong mechanism the first candidate cuts the covalent forms off in the inactive
-conformation. When it fails, a half-reaction's chemistry groups can be a base alone, the
-other half running in both conformations, and a half spread over several chemistry groups
-can give several bases. The bases come by size, each size in `_subsets` order.
+with every other group `:EqualAI`; a set that fails leaves its supersets in the search. The
+bases come by size, each size in `_subsets` order. The engine page works the ping-pong
+case, where one half-reaction can be a base alone ("Promote a non-allosteric to allosteric
+mechanism" in "The enumeration engine").
 """
 function _tagging_bases(c::CandidateMechanism)
     chem = _chemistry_groups(c)
@@ -871,62 +822,31 @@ end
     _expand_to_allosteric(c::CandidateMechanism, rxn::EnzymeReaction)
         → Vector{CandidateMechanism}
 
-Convert the plain mechanism `m` of candidate `c` into allosteric variants, each built on a
-base of `_tagging_bases`: the tag set with every chemistry group `:OnlyA` and every binding
-group `:EqualAI` when it passes `_valid_tagging`, else each smallest set of chemistry groups
-that stops the inactive conformation's catalysis and passes. A chemistry group is one
-holding a chemistry step (`_chemistry_groups`): an isomerization, a fused binding or a
-Theorell–Chance step; every other group is a binding group. On a ping-pong mechanism,
-tagging both half-reactions cuts the covalent forms off in the inactive conformation; when
-that fails, a base can tag one half alone, the other half running in both conformations, and
-a half spread over several chemistry groups can give several. Two kinds are not
-enumerated: the all-`:EqualAI` baseline and a V-type variant without a regulator.
+The tagging move: the allosteric variants of candidate `c`, whose mechanism `m` is plain,
+each built on a base of `_tagging_bases` and sharing `m`'s catalytic scheme. For each
+oligomeric state of `rxn`'s `allowed_oligomeric_states` in turn, the move emits the
+K-types, then the V-types:
 
-  * The all-`:EqualAI` baseline is never emitted — the two conformations
-    are identical, `L` cancels, and the mechanism is indistinguishable
-    from `m`.
-  * K-type: a nonempty set of binding groups set `:OnlyA` on top of a base, and on top of
-    the every-chemistry set when that set is no base, since a tagged binding can restore its
-    limit; each is emitted bare, and the exits drop those `_enumerator_keeps` refuses. Over
-    more than one catalytic subunit the conformational equilibrium enters the rate with the
-    oligomeric state as its power. Over one subunit the inactive conformation is a dead-end
-    branch of the free enzyme, and `L` is a phantom in some K-type variants and not in
-    others. In every K-type variant of the rapid-equilibrium ordered bi-bi seed a rescaling
-    of the active state's constants absorbs it, whatever that conformation binds. In the
-    merged ordered bi-bi whose B group mixes a fused and a plain binding it is a phantom
-    only in the variants whose inactive conformation binds nothing: no rescaling absorbs an
-    A or Q binding kept there. Binding nothing is not enough: in a random-order merged
-    bi-bi, whose A group takes A up at E and at EB under one rate constant, `L` shows in
-    every K-type variant. identify keeps every K-type variant in the frontier, since its
-    children can carry laws its parent's children lack. A variant that `_is_phantom`
-    flags is not fitted when another mechanism holds the fit of
-    its law at `L = 0`: it reads that fit, with `L = 0`.
-  * V-type: a base, with no `:OnlyA` binding, paired with a declared allosteric regulator at
-    a new site, one variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the
-    every-chemistry base the inactive state binds substrate and product as the active state
-    does and runs no chemistry, so over one subunit, without a regulator, `L` folds entirely
-    into `kcat` (`v = kcat/(1+L)·shape`) and is not observable; above one subunit it can
-    show. On a one-half base the inactive conformation runs the other half-reaction, and `L`
-    shows without a regulator too. Yet every base is emitted only with one. A reaction with
-    no declared allosteric regulators emits no V-type.
+  * K-type: a nonempty set of binding groups (those outside `_chemistry_groups`) tagged
+    `:OnlyA` on top of a base, and on top of the every-chemistry tag set when that set is
+    no base, since a tagged binding can restore its limit. Each is emitted bare; the exits
+    drop those `_enumerator_keeps` refuses. Over one subunit `L` can be a phantom
+    (`_is_phantom`); the move emits such variants anyway, since their children can carry
+    laws no other child does. The engine page works the cases ("Promote a non-allosteric
+    to allosteric mechanism" in "The enumeration engine").
+  * V-type: a base paired with a declared allosteric regulator at a new site, one variant
+    per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry base the
+    inactive state binds as the active state does and runs no chemistry, so over one
+    subunit, without a regulator, `L` folds into `kcat` (`v = kcat/(1+L)·shape`). Above one
+    subunit, or on a base that stops one half-reaction, `L` can show without a regulator,
+    yet the move pairs every base with one.
 
-A parent with no declared regulator ends with no child at the exits when it has no binding
-group, and so no K-type, or when `_enumerator_keeps` refuses every K-type.
-
-For each value in `rxn`'s `allowed_oligomeric_states`, the move emits
-the K-types, then the V-types, at that `oligomeric_state`. Every variant
-composes `m`'s graph, which it shares, with its allosteric states, oligomeric state and
-sites. The variants are distinct by construction: each differs from the others in its
-allosteric states, its regulatory site or its oligomeric state.
-
-A parent whose catalytic scheme fails `_hyperbolic_catalysis` (random-order
-steady-state binding, or a substrate that traps a steady-state intermediate in
-an abortive complex, whose own equation carries concentration powers) emits
-variants at oligomeric state 1 only: above one subunit the conformational
-equilibrium would add a second source of powers
-(`_requires_hyperbolic_catalysis`). Above one subunit a variant is also dropped when
-either conformation's law fails the test: on a base that stops one half-reaction, a
-ping-pong's abortive complexes can give the inactive law a power the parent lacks.
+The move never emits the all-`:EqualAI` tagging: its two conformations are identical, `L`
+cancels, and the law is `m`'s. The variants are distinct: each differs from the others in
+its tags, its regulatory site or its oligomeric state. A parent that fails
+`_hyperbolic_catalysis` gets variants at oligomeric state 1 only, and above one subunit the
+move drops a variant whose conformations' laws fail it (`_requires_hyperbolic_catalysis`).
+Errors on an allosteric `c`.
 """
 function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     # The variants carry states and sites of their own; an allosteric parent's would be
@@ -942,9 +862,7 @@ function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReac
     vtags = [is_chem ? :OnlyA : :EqualAI for is_chem in chem]
     regs = [reg.name for reg in rxn.regulators if reg.kind === :allosteric]
     bases = _tagging_bases(c)
-    # K-type: a nonempty set of binding groups :OnlyA on top of a base, and on top of the
-    # every-chemistry set when it is no base; the exits drop those `_enumerator_keeps`
-    # refuses.
+    # K-types sit on every base and on the every-chemistry tag set.
     kbases = vtags in bases ? bases : [bases; [vtags]]
     ktags = Vector{Symbol}[]
     for base in kbases, sel in _subsets(findall(!, chem))[2:end]
@@ -971,25 +889,20 @@ end
     _expand_add_allosteric_regulator(c::CandidateMechanism, rxn::EnzymeReaction)
         → Vector{CandidateMechanism}
 
-Add one allosteric regulator declared in `rxn` not yet bound by the allosteric mechanism
-`am` of candidate `c` at a regulatory site. A name already bound as a catalytic-step
-dead-end competitive inhibitor is still eligible: a metabolite may play both roles, and the
-two render to distinct parameters. For each (new ligand, target site, tag) combination, emit
-a variant:
+The children of candidate `c`, whose mechanism is allosteric, that bind one more allosteric
+regulator of `rxn`, one that no regulatory site of `c` binds, one child per site and tag:
 
-  * target site ∈ {new site} ∪ {existing sites}
-  * tag ∈ {:OnlyA, :OnlyI, :NonequalAI} for any target site
-  * tag = :EqualAI only at an existing site that already has at least
-    one non-`:EqualAI` ligand. A site whose ligands are all `:EqualAI`
-    binds both conformations alike and cancels from the rate equation;
-    this guard, not the `RegulatorySite` constructor, keeps the move from
-    building one.
+  * `:OnlyA`, `:OnlyI` or `:NonequalAI` at a new site, or at an existing site that acts on
+    a conformation the tag acts on. At an all-`:OnlyA` site an `:OnlyI` ligand, or the
+    reverse, gives the rate equation of the new-site child.
+  * `:EqualAI` only at an existing site that holds a ligand of another tag. A site whose
+    ligands are all `:EqualAI` binds both conformations alike and cancels from the rate
+    equation; this rule, not the `RegulatorySite` constructor, keeps the move from building
+    one.
 
-New sites take the mechanism's oligomeric state as their multiplicity.
-The mechanism's catalytic side and regulatory_sites' multiplicities pass
-through unchanged.
-
-The regulators declared in `rxn` decide which regulators are eligible.
+A name `c` binds as a dead-end competitive inhibitor stays eligible: a metabolite may play
+both roles, and the two have distinct parameters. A new site takes the mechanism's
+oligomeric state as its multiplicity; the rest of `c` is kept.
 """
 function _expand_add_allosteric_regulator(c::CandidateMechanism,
                                           rxn::Mechanisms.EnzymeReaction)
@@ -999,18 +912,11 @@ function _expand_add_allosteric_regulator(c::CandidateMechanism,
     results = CandidateMechanism[]
     for reg in rxn.regulators
         reg.kind === :allosteric && !(reg.name in taken) || continue
-        # Non-:EqualAI tags at any (new or existing) site.
         for tag in (:OnlyA, :OnlyI, :NonequalAI), site_idx in 0:length(sites)
-            # Appending to an existing site whose conformations are disjoint
-            # from the new ligand's (an all-:OnlyA site gaining an :OnlyI
-            # ligand, or the reverse) reproduces the add-at-a-new-site
-            # equation — redundant, so skip it.
             site_idx >= 1 && isempty(intersect(_state_conformations(tag),
                 _site_active_states(sites[site_idx]))) && continue
             push!(results, _make_am_with_added_reg(c, reg.name, tag, site_idx))
         end
-        # :EqualAI only at an existing site that keeps a non-:EqualAI ligand: an
-        # all-:EqualAI site binds both conformations alike and cancels from the rate.
         for site_idx in findall(site -> any(!=(:EqualAI), site.allosteric_states),
                                 sites)
             push!(results, _make_am_with_added_reg(c, reg.name, :EqualAI, site_idx))
@@ -1044,40 +950,34 @@ end
 """
     _expand_change_allo_state(c::CandidateMechanism) → Vector{CandidateMechanism}
 
-Relax a "constrained" tag (`:EqualAI`, `:OnlyA`, `:OnlyI`) to `:NonequalAI`. A binding
-catalytic group and a regulatory ligand each relax individually — one variant per group
-not already `:NonequalAI`. The chemistry groups (those holding a chemistry step,
-`_chemistry_groups`) relax **together**, one variant setting every non-`:NonequalAI`
-chemistry group to `:NonequalAI` at once, so a fully live inactive conformation is one
-move from every V-type, the tagging move's one-half bases included. The base catalytic
-steps, oligomeric state, and untouched allosteric states are preserved.
+The relaxing move: the children of candidate `c`, whose mechanism is allosteric, that tag
+`:NonequalAI` what `c` tags `:EqualAI`, `:OnlyA` or `:OnlyI`, keeping the rest of `c`:
 
-The chemistry relaxation is tried only while no binding group is `:OnlyA`. Beside an
-`:OnlyA` binding the restored chemistry can join the binding's two sides in the inactive
-conformation and leave its affinity no path to zero; where the inactive conformation
-binds nothing (every binding `:OnlyA`), the skipped variant is rate-equivalent to the
-form emitted directly, so no observable hypothesis is lost.
+  * one child per binding group, and one per regulatory ligand;
+  * one child that relaxes every chemistry group (`_chemistry_groups`) at once, so a fully
+    live inactive conformation is one move from every V-type, the tagging move's one-half
+    bases included. The move makes it only while no binding group is `:OnlyA`. Beside an
+    `:OnlyA` binding the restored chemistry can join the binding's two sides in the
+    inactive conformation and leave its affinity no path to zero. Where the inactive
+    conformation binds nothing (every binding `:OnlyA`), the skipped variant is
+    rate-equivalent to the form emitted directly, so no observable hypothesis is lost.
 
-The test at the enumerator's exits (`_enumerator_keeps`) judges each child:
-relaxing an `:OnlyA` binding joins its two sides, which can leave another tagged binding
-inside one component or close a cycle of tagged bindings, and a face can fail. A
-regulatory ligand's tag does not enter the guard — a regulator site completes no catalytic
-cycle. Above one subunit a child is kept only when each conformation's law passes
-`_hyperbolic_catalysis` (`_requires_hyperbolic_catalysis`): relaxing an `:OnlyA` abortive
-binding brings its complex into the inactive law, which can then carry a power.
-
-A child with a redundant competitive-inhibitor group (`_redundant_copy_groups`)
-is dropped. The per-state test reads the tags this move changes: relaxing an
-`:OnlyA` binding to `:NonequalAI` brings its complex into the inactive state,
-where a copy that was new there can become its twin with a consistent gauge, and
-the copy's constant then shows in neither state.
+The move drops a child with a redundant competitive-inhibitor group
+(`_redundant_copy_groups`): relaxing an `:OnlyA` binding brings its complex into the
+inactive state, where a copy's complex that had no twin there can gain one, and with a
+consistent gauge the copy's constant then shows in neither state. Above one subunit it
+drops a child whose conformations' laws fail `_hyperbolic_catalysis`
+(`_requires_hyperbolic_catalysis`): relaxing an `:OnlyA` abortive binding brings its
+complex into the inactive law, which can then carry a power. The exits (`_enumerator_keeps`)
+judge the rest. Relaxing an `:OnlyA` binding joins its two sides, which can leave another
+tagged binding inside one component or close a cycle of tagged bindings, and a face can
+fail. A regulatory ligand's tag does not enter the guard, since a regulator site completes
+no catalytic cycle.
 """
 function _expand_change_allo_state(c::CandidateMechanism)
     a = c.mechanism.allosteric
     states = a.allosteric_states
     chem = _chemistry_groups(c)
-    # Binding catalytic groups relax individually; the chemistry groups relax together,
-    # in one variant, and only while no binding group is :OnlyA.
     relaxations = [[g] for g in eachindex(states) if !chem[g] && states[g] != :NonequalAI]
     any(chem .& (states .!= :NonequalAI)) && !any(.!chem .& (states .== :OnlyA)) &&
         push!(relaxations, findall(chem))
@@ -1117,10 +1017,8 @@ end
 """
     _site_active_states(site::RegulatorySite) -> Set{Symbol}
 
-The conformations a regulatory site's ligands act on — the union of
-`_state_conformations` over its states. Two sites with disjoint active states —
-an all-`:OnlyA` site and an all-`:OnlyI` site — merge to a rate equation
-identical to keeping them separate, so that all-keep merge is redundant.
+The conformations a regulatory site's ligands act on: the union of `_state_conformations`
+over its states.
 """
 function _site_active_states(site::Mechanisms.RegulatorySite)
     active = Set{Symbol}()
@@ -1133,28 +1031,22 @@ end
 """
     _expand_merge_regulatory_sites(c::CandidateMechanism) → Vector{CandidateMechanism}
 
-Merge each unordered pair of regulatory sites into one shared site holding
-both sites' ligands, at no parameter cost (Δ0 — every ligand keeps its own
-dissociation constant). This lets two regulators compete at one site,
-including the activator↔antagonist ambiguity. For the merged ligands,
-enumerate the Δ0-valid allosteric state assignments:
+The merge move: for each pair of regulatory sites of candidate `c`, the children whose two
+sites become one shared site that holds both sites' ligands, so that they compete. Every
+ligand keeps its own dissociation constant, so a merge adds no parameter. The shared site
+takes each of these tag assignments:
 
-  * the all-keep assignment — every ligand retains its current state
-    (co-binding), skipped when the two sites act on disjoint conformations
-    (an all-`:OnlyA` site merged with an all-`:OnlyI` site), since that merge
-    derives to the same rate equation as keeping the sites separate (see
-    `_site_active_states`);
-  * each assignment retagging exactly one ligand to `:EqualAI` — the
-    antagonist forms (a ligand that binds both conformations equally,
-    competing for the shared site).
+  * every ligand's own tag (co-binding), unless the two sites act on disjoint conformations
+    (`_site_active_states`): an all-`:OnlyA` site merged with an all-`:OnlyI` site derives
+    the rate equation of the two sites kept apart;
+  * each ligand in turn retagged `:EqualAI`, an antagonist that binds both conformations
+    equally and acts by competing for the site.
 
-The all-`:EqualAI` assignment (degenerate) is dropped by this move's own
-guard; the `RegulatorySite` constructor does not reject it, so that guard is
-load-bearing. The merged site reuses one site's `multiplicity` (equal to
-`oligomeric_state`), and the `RegulatorySite` constructor sorts its
-ligands by name, so two merge routes reaching the same ligand partition produce
-`==` mechanisms and dedup by `hash`. Regulator type is not enforced here;
-`candidate_mechanisms` drops every child that fails `_respects_reg_type`.
+The move's own test drops the all-`:EqualAI` assignment, which cancels from the rate
+equation and which the `RegulatorySite` constructor accepts. The shared site keeps the
+first site's multiplicity (the oligomeric state), and the constructor sorts its ligands by
+name, so two routes to one ligand partition give `==` mechanisms. `candidate_mechanisms`
+drops a child that breaks a declared regulator type (`_respects_reg_type`).
 """
 function _expand_merge_regulatory_sites(c::CandidateMechanism)
     a = c.mechanism.allosteric
