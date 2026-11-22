@@ -2651,7 +2651,7 @@ end
 end
 
 @testset "a reading may lose a step in either direction" begin
-    # The ping-pong of the spec's fourth example, both chemistry steps :OnlyA. In the
+    # A ping-pong with both chemistry steps :OnlyA. In the
     # inactive conformation the covalent forms F, FB and FP form one cut-off group
     # (F is E_res_plusA_minusP). EA <--> FP loses its stored direction, into that
     # group, and FB ⇌ EQ its reverse, also into that group: both point uphill from
@@ -3122,7 +3122,7 @@ end
 @testset "the guard searches for a reading" begin
     D = EnzymeRates.Derivation
     rng = Random.MersenneTwister(2652)
-    # The six-step ping-pong of the spec's fourth example, both chemistry steps :OnlyA (F is
+    # A six-step ping-pong with both chemistry steps :OnlyA (F is
     # E_res_plusA_minusP). No built reading switches off FB ⇌ EQ, a
     # rapid-equilibrium step that takes up nothing, so the guard searches. The first
     # reading it finds loses EA <--> FP's stored direction and FB ⇌ EQ's reverse,
@@ -3274,8 +3274,8 @@ end
     @test D._admitting_reading(both_readings) ==
           D._built_reading(both_readings, D._OUTWARD_LOSE_AFFINITY)
 
-    # A rapid-equilibrium step inside one group is the fault no reading changes: the spec's
-    # second example. The message offers the two fixes, each of whose variants passes.
+    # A rapid-equilibrium step inside one group is the fault no reading changes. The
+    # message offers the two fixes, each of whose variants passes.
     pinned = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P

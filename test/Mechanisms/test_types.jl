@@ -49,7 +49,7 @@ _testhelper_builds_back(m) = eval(Meta.parse(sprint(show, m))) == m
 
 @testset "a mechanism is a graph of form names and steps by index" begin
     M = ER.Mechanisms
-    # Spec decision 4's example: every name on a step side that is no declared metabolite
+    # Every name on a step side that is no declared metabolite
     # is a form, and the free enzyme is the form named E.
     m = @enzyme_mechanism begin
         substrates: A, B
@@ -3399,7 +3399,7 @@ end
 @testset "a conformation's steps" begin
     M = ER.Mechanisms
     texts(am, mask) = Set(_testhelper_edge_text(am, k) for k in findall(mask))
-    # The spec's example. The inactive conformation excludes the :OnlyA binding of S and
+    # The inactive conformation excludes the :OnlyA binding of S and
     # the :OnlyA chemistry, which cuts ES off; the binding of P still runs there.
     example = @enzyme_mechanism begin
         substrates: S
@@ -3438,7 +3438,7 @@ end
     @test texts(dead_end, M.steps_in_inactive_conformation(dead_end)) ==
           Set(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
 
-    # The spec's ping-pong, F the modified enzyme E_res_plusA_minusP. The inactive
+    # A ping-pong, F the modified enzyme E_res_plusA_minusP. The inactive
     # conformation excludes both :OnlyA chemistries, which cuts F, FP and FB off as one
     # island; the bindings of P and B inside it do not run either. The active
     # conformation excludes the :OnlyI binding of I, which cuts EI off.
