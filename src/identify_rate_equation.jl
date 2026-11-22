@@ -64,7 +64,7 @@ with a reference, `prob.rate_data.reference` with each anchor's concentrations l
 the metabolites `mechanism` binds (it does not respond to the others). The reference keeps
 the problem's element type, so every fit and fold passes keywords of one type.
 """
-function _fit_keywords(@nospecialize(mechanism), prob::IdentifyRateEquationProblem)
+function _fit_keywords(mechanism::Mechanisms.Mechanism, prob::IdentifyRateEquationProblem)
     (; absolute, reference) = prob.rate_data
     (absolute || isempty(reference)) && return (; absolute)
     mets = Mechanisms.metabolites(mechanism)
@@ -991,7 +991,7 @@ and the `FittingProblem` `keywords`. The fold copies its rows rather than viewin
 its problem has the full fit's type and `loss!` does not compile a second time for it; the
 copy is small next to a fit.
 """
-function _fold_problem(@nospecialize(mechanism), data::NamedTuple, mask, Keq::Real;
+function _fold_problem(mechanism::Mechanisms.Mechanism, data::NamedTuple, mask, Keq::Real;
                        keywords...)
     FittingProblem(mechanism, map(col -> col[mask], data), Keq; keywords...)
 end
@@ -1009,13 +1009,9 @@ other rows: `fit_rate_equation(problem, optimizer; kwargs...)` on a `FittingProb
 (`:ReferenceFailed`) keeps its parameters unscaled, and the relative loss, blind to the
 scale, still scores them. A non-finite loss raises (naming the held-out group): a
 corrupted fold must abort model selection rather than propagate a bad score.
-
-This function and `_fold_problem` take `mechanism` `@nospecialize`. Cross-validation runs a
-candidate's folds after its full fit, which compiled `loss!` for that type, so a fold
-infers and compiles nothing for the mechanism.
 """
 function _cross_validation_loss(
-    @nospecialize(mechanism), data::NamedTuple, held_out, Keq::Real;
+    mechanism::Mechanisms.Mechanism, data::NamedTuple, held_out, Keq::Real;
     absolute, reference = nothing, optimizer, kwargs...)
     held = isequal.(data.group, held_out)
     fit = fit_rate_equation(
@@ -1091,8 +1087,7 @@ function _cv_model_selection(
     end
 
     _progress(save_dir, show_progress,
-        "Selected: $(nameof(typeof(best.candidate.mechanism))) " *
-        "(key=$(best.key)), n_params=$(best.n_params)")
+        "Selected: key=$(best.key), n_params=$(best.n_params)")
 
     # Save the LOOCV table and the selected best equation alongside the
     # per-iteration fit CSVs, so cluster runs persist the model-selection

@@ -8684,13 +8684,13 @@ end
         end
     end
     # The enumerator returns a mechanism only within identify's limits
-    # (`Enumeration._candidates`). At the default 337 a random-order bi-bi (V×τ = 336)
-    # passes, while a random-order ter-ter (V×τ ≈ 5.9M) is dropped by its term count,
-    # before any derivation. A tighter limit drops the bi-bi too.
+    # (`Enumeration._within_size_limits`). At the default 337 a random-order bi-bi
+    # (V×τ = 336) passes, while a random-order ter-ter (V×τ ≈ 5.9M) is dropped by its term
+    # count, before any derivation. A tighter limit drops the bi-bi too.
     batch = [random_bibi,
              _testhelper_random_terter()]
     within(limit) = [c.mechanism
-                     for c in EnzymeRates.Enumeration._candidates(
+                     for c in EnzymeRates.Enumeration._within_size_limits(
                          _testhelper_candidate.(batch), typemax(Int), limit)]
     @test within(337) == [random_bibi]
     @test isempty(within(100))
@@ -8701,8 +8701,8 @@ end
     # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
     # conformation keeps the substrate square E, ES1, ES1S2, ES2, four segments and
     # four spanning trees, so the law counts 336 + 16 = 352. The default filter drops it
-    # (`Enumeration._candidates`, the enumerator's limits), where the active count alone
-    # would let it through; the parameter limit reads its 16 fitted constants.
+    # (`Enumeration._within_size_limits`, the enumerator's limits), where the active count
+    # alone would let it through; the parameter limit reads its 16 fitted constants.
     ktype = @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
@@ -8727,7 +8727,7 @@ end
     @test EnzymeRates.Derivation.rate_equation_term_count(ktype) == 352
     @test EnzymeRates.Derivation.fitted_parameter_count(ktype) == 16
     within(max_param_count, eq_complexity_filter) =
-        [c.mechanism for c in EnzymeRates.Enumeration._candidates(
+        [c.mechanism for c in EnzymeRates.Enumeration._within_size_limits(
              _testhelper_candidate.([ktype]), max_param_count, eq_complexity_filter)]
     @test isempty(within(typemax(Int), 337))
     @test within(typemax(Int), 352) == [ktype]

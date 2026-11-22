@@ -1214,7 +1214,7 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
         @test "EP" in forms       # product-bound form (catalytic release)
         @test "EPmod" in forms    # inhibitor-bound form — DISTINCT from EP
         @test "EP" != "EPmod"
-        # rate_equation must reference concs.P for the inhibitor term, not concs.Pmod:
+        # The rate equation reads concs.P for the inhibitor term, not concs.Pmod:
         re_str = rate_equation_string(m)
         @test occursin("P", re_str)             # real metabolite name appears
         @test occursin("(; S, P) = concs", re_str)  # concentration is P, never Pmod
@@ -1465,6 +1465,11 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
                          "`E(A, B)`.",
                          eval(_testhelper_block_with(step)))
         end
+        # A count is an error: a step names a metabolite once for each copy.
+        @test_throws("@enzyme_mechanism: `2S` writes a count; a step names a metabolite " *
+                     "once for each copy it takes up or gives off, as in " *
+                     "`E + S + S ⇌ ESS`.",
+                     eval(_testhelper_block_with(:(E + 2S ⇌ ES))))
 
         # A step group's tag is a name.
         @test_throws("@enzyme_mechanism: step-group tag must be a Symbol; got 1",
@@ -1474,6 +1479,23 @@ _testhelper_ends(x, e) = x.catalytic.enzyme_forms[[e.from, e.to]]
             steps: begin
                 (E + S ⇌ ES, ES <--> EP) :: 1
                 EP ⇌ E + P                   :: EqualAI
+            end
+        end)))
+        # A step inside a group carries no state of its own: the group's state follows its
+        # closing parenthesis.
+        @test_throws("@enzyme_mechanism: the step `ES + I ⇌ EIS::EqualAI` carries a " *
+                     "state inside a parenthesized group; a group's state is written " *
+                     "after its closing parenthesis, as in " *
+                     "`(E + I ⇌ EI, ES + I ⇌ EIS) :: EqualAI`.",
+                     eval(:(@enzyme_mechanism begin
+            substrates: S
+            products:   P
+            modifiers: I
+            steps: begin
+                E + S ⇌ ES                           :: EqualAI
+                ES <--> EP                           :: OnlyA
+                EP ⇌ E + P                           :: EqualAI
+                (E + I ⇌ EI, ES + I ⇌ EIS :: EqualAI)
             end
         end)))
     end

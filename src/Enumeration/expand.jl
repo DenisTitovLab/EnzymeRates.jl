@@ -25,10 +25,10 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
     filter!(c -> _respects_reg_type(c.mechanism, reaction), children)
     foreach(child -> _assert_atom_conserving(child, reaction), children)
     # The term count reads the graph alone, where the guard derives, so the term limit
-    # runs first and `_candidates` applies only the other.
+    # runs first and `_within_size_limits` applies only the other.
     eq_complexity_filter == typemax(Int) || filter!(
         c -> Derivation.rate_equation_term_count(c.mechanism) <= eq_complexity_filter,
         children)
     filter!(c -> _enumerator_keeps(c.mechanism), children)
-    _candidates(children, max_param_count, typemax(Int))
+    _within_size_limits(children, max_param_count, typemax(Int))
 end

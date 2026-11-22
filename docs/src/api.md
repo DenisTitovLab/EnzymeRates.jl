@@ -31,7 +31,7 @@ rate_equation_string(::Mechanism)
 `test_rate_equation` is not exported; call it as `EnzymeRates.test_rate_equation`.
 
 ```@docs
-EnzymeRates.test_rate_equation(::Any, ::NamedTuple, ::Any, ::Real)
+EnzymeRates.test_rate_equation(::Mechanism, ::NamedTuple, ::Any, ::Real)
 ```
 
 ## Macros

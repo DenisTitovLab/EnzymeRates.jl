@@ -101,7 +101,8 @@ Labels:
 
 Steps, one per line:
 - `lhs ⇌ rhs` is a rapid-equilibrium step and `lhs <--> rhs` a steady-state one; either
-  direction may be written.
+  direction may be written, but the isomerizations of one kinetic group share their
+  constants in the direction each is written, so write them the same way round.
 - Each side holds one enzyme form and the metabolites the step takes up (left) or gives
   off (right): `E + S ⇌ ES`, `EA + B <--> EQ + P`. A name on a side that no label
   declares is an enzyme form, and each side holds exactly one.
@@ -110,6 +111,11 @@ Steps, one per line:
   part of its constants' names, so a name that tells what the form holds keeps the rate
   law readable: the mechanism search writes `EAB` for E with A and B bound, and
   `E_res_plusA_minusP` for a ping-pong's covalent intermediate after A bound and P left.
+- A name is one form wherever it is written, so a misspelt name is another form:
+  `EI + S ⇌ EIS` beside `ES + I ⇌ ESI` makes `EIS` and `ESI` two forms. The constructor
+  rejects a form that no step joins to `E`, and the guard some other misspellings, such
+  as one that leaves no cycle turning substrates into products, but others pass and
+  write another mechanism.
 - A parenthesized tuple of steps is one kinetic group, whose steps share their
   constants: `(E + I ⇌ EI, ES + I ⇌ EIS)`.
 - A substrate or product binds wherever a step takes it up. Substrate inhibition is

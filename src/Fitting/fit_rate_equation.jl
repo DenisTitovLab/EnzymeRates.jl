@@ -413,8 +413,8 @@ fit = fit_rate_equation(FittingProblem(m, train, 2.0), optimizer)
 EnzymeRates.test_rate_equation(m, fit.params, test, 2.0)
 ```
 """
-function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple), table,
-                            Keq::Real; absolute::Bool = false)
+function test_rate_equation(m::Mechanisms.Mechanism, @nospecialize(params::NamedTuple),
+                            table, Keq::Real; absolute::Bool = false)
     fp = FittingProblem(m, table, Keq; absolute)
     names = Derivation.parameters(fp.rate)
     for name in names

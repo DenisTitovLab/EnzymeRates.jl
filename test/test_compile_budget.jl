@@ -21,10 +21,11 @@ const RATE_EQUATION_WALLCLOCK_BUDGET_S   = 1.5   # baseline 2026-10-23: 0.12 s l
 const FIT_INSTANCE_BUDGET                = 250   # baseline 2026-10-09: 64
 const FIT_NATIVE_BUDGET_KB               = 300   # baseline 2026-10-09: 54
 # Encoding the Sigs of the 239 bi-bi seeds, the type parameters of their compiled rate
-# laws, once per process: each Sig is one vector of Ints made a tuple, so encoding compiles
-# once, whatever the mechanism. Both budgets sit a few times above the baseline: the
-# instance budget fails a compile of one method instance per seed, the native-code budget
-# a compile that emits more than about 0.3 KB of code per seed.
+# laws, once per process: each Sig is nested tuples of Symbols, Ints and Bools, each built
+# by splatting a typed vector into `tuple`, so encoding compiles once, whatever the
+# mechanism. Both budgets sit a few times above the baseline: the instance budget fails a
+# compile of one method instance per seed, the native-code budget a compile that emits
+# more than about 0.3 KB of code per seed.
 const SIG_INSTANCE_BUDGET                = 250   # baseline 2026-10-14: 52
 const SIG_NATIVE_BUDGET_KB               = 100   # baseline 2026-10-14: 34
 

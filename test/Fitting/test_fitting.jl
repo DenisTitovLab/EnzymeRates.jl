@@ -506,7 +506,8 @@ end
             regulatory_site(2): R::OnlyI
         end
         n_restarts = 5
-        for m in (ordered_bi_bi, allosteric_bi_bi)
+        for (name, m) in (("ordered bi-bi", ordered_bi_bi),
+                          ("allosteric bi-bi", allosteric_bi_bi))
             rng = Random.MersenneTwister(5)
             law_params = NamedTuple{parameters(m)}(
                 Tuple(1.0 .+ 9.0 .* rand(rng, length(parameters(m)))))
@@ -534,7 +535,7 @@ end
             (; t, evals) = argmin(a -> a.t / a.evals, attempts)
             # 3 ms is about 2-7x a restart's fixed cost on an aarch64 development machine.
             allowed = 1.5 * evals * t_loss + n_restarts * 3e-3
-            @info "fit of $(nameof(typeof(m))): $evals evaluations, " *
+            @info "fit of the $name: $evals evaluations, " *
                   "$(round(1e6 * t_loss; digits = 2)) µs per loss!, " *
                   "$(round(t; digits = 3)) s, allowed $(round(allowed; digits = 3)) s"
             @test t <= allowed

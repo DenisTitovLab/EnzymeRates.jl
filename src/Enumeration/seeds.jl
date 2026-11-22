@@ -699,7 +699,8 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction;
         reaction, optional_allosteric_regulators, optional_competitive_inhibitors)
     seeds = (isempty(required_allo) && isempty(required_comp)) ?
         init_mechanisms(reaction) : seed_mechanisms(reaction, required_allo, required_comp)
-    _candidates(_base_tier(unique(seeds), reaction), max_param_count, eq_complexity_filter)
+    _within_size_limits(_base_tier(unique(seeds), reaction), max_param_count,
+                        eq_complexity_filter)
 end
 
 """

@@ -45,8 +45,8 @@ function candidate_mechanisms end
 """The candidates of `cands` whose law has at most `eq_complexity_filter` terms and at
 most `max_param_count` fitted constants, in order. A limit of `typemax(Int)` limits
 nothing, so its count is not computed: the fitted count solves the mechanism."""
-_candidates(cands::Vector{CandidateMechanism}, max_param_count::Int,
-            eq_complexity_filter::Int) =
+_within_size_limits(cands::Vector{CandidateMechanism}, max_param_count::Int,
+                    eq_complexity_filter::Int) =
     filter(cands) do c
         (eq_complexity_filter == typemax(Int) ||
          Derivation.rate_equation_term_count(c.mechanism) <= eq_complexity_filter) &&

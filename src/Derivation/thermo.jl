@@ -24,11 +24,9 @@ is the multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). 
 on a cycle whose net change is no multiple of the net reaction. Integer arithmetic
 throughout.
 
-The net change reads what each edge takes up (-1) and gives off (+1) only. An
-isomerization carries no free-pool metabolite — its bound content is encoded in the
-enzyme forms it joins — so it contributes zero. Do NOT add a from-bound/to-bound
-difference for it: that double-counts metabolites already accounted for by the binding
-and release steps and inflates the cycle's net change (e.g. 1/Keq -> 1/Keq^2).
+The net change reads what each edge takes up (-1) and gives off (+1) only. A form's name
+holds no metabolites, so an isomerization, which takes up and gives off nothing,
+contributes zero, and the binding and release steps count every metabolite once.
 """
 function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
     forms = eachindex(m.enzyme_forms)

@@ -12,7 +12,7 @@ and lives in the task's local storage, so tasks share nothing. A compiled rate l
 generated methods (`compile_rate_equation`, `_derivation_input`) never read it.
 """
 mutable struct _Memo
-    m::Any
+    m::Union{Nothing, Mechanisms.Mechanism}
     verdict::Union{Nothing, _Verdict}
     solve::Union{Nothing, _Solve}
     law::Union{Nothing, _Law, _AlloLaw}

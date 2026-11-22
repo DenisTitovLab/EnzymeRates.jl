@@ -90,7 +90,7 @@ segment (`Mechanisms.rapid_equilibrium_segments`) is a node, rooted at its first
 free E (form 1) roots its own; a form weighs its root's weight, 1, times the equilibrium
 ratio of each edge on its path from the root. The forms join the tree in the order of
 `Mechanisms.rapid_equilibrium_segments`, each by the first kept
-rapid-equilibrium edge in edge (content) order from a form placed before it.
+rapid-equilibrium edge in step order from a form placed before it.
 `den = Σ_g sigma[g]·trees[g]`: `sigma[g]` sums segment `g`'s weights and `trees[g]` its
 spanning trees of the segment graph oriented toward it, each tree edge weighing the
 steady-state flux out of its source. The numerator sums each steady-state edge's net flux

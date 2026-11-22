@@ -356,17 +356,20 @@ and takes up and gives off metabolites by index (`Step`); its `kinetic_group` la
 kinetic group, the labels running 1, 2, … with each used. The lists may come in any order
 and a step may be written in either direction.
 
-The constructor checks the representation and stores the scheme in canonical form: the
-metabolites as substrates, then products, then modifiers, each by name; `E` first and the
-other forms by name; each step in the direction the graph gives it (`_orientation`), the
-steps sorted. Each step keeps the kinetic group label it is written with;
-[`Mechanism`](@ref) reads the labels to give each group its allosteric state, then numbers
-the groups by their first step. It throws an `ArgumentError` when no form is named `E`,
-and an `ErrorException` when an index is out of range, the substrates or the products are
-empty, a name is listed twice or cannot be written, a form is named like a metabolite,
-the kinetic group labels do not run from 1 with each used, a step joins a form to itself
-or takes up and gives off one metabolite, a form is not joined to `E`, a kinetic group
-mixes kinds of step, a reaction appears twice, or a metabolite takes part in no step.
+The constructor checks the representation and stores the scheme in canonical form, all
+but its kinetic group labels: the metabolites as substrates, then products, then
+modifiers, each by name; `E` first and the other forms by name; each step in the direction
+the graph gives it (`_orientation`), the steps sorted. Each step keeps the kinetic group
+label it is written with. Only [`Mechanism`](@ref), which reads the labels to give each
+group its allosteric state, numbers the groups canonically, by their first step, so two
+schemes of one graph can differ (`!=`) where the mechanisms built on them are equal.
+
+It throws an `ArgumentError` when no form is named `E`, and an `ErrorException` when an
+index is out of range, the substrates or the products are empty, a name is listed twice or
+cannot be written, a form is named like a metabolite, the kinetic group labels do not run
+from 1 with each used, a step joins a form to itself or takes up and gives off one
+metabolite, a form is not joined to `E`, a kinetic group mixes kinds of step, a reaction
+appears twice, or a metabolite takes part in no step.
 """
 struct CatalyticScheme
     metabolites::Vector{Symbol}

@@ -353,10 +353,11 @@ by their place among the declared names, `[names.substrates; names.products;
 names.modifiers]` (`_raw_step!`), and its `kinetic_group` is its statement's label, the
 statements numbered from 1. A statement is one kinetic group: a step (`lhs ⇌ rhs` rapid
 equilibrium, `lhs <--> rhs` steady state) or a parenthesized tuple of steps (`(step,)` for
-one), and it may end in its state (`step :: State`, `(step, step) :: State`). Either every
-statement carries a state, and `states` holds them in statement order, or none does and
-`states` is empty; an `ArgumentError` names a statement without a state when others carry
-one. `names` holds the block's declared names.
+one), and it may end in its state (`step :: State`, `(step, step) :: State`), a step inside
+a group carrying none of its own. Either every statement carries a state, and `states`
+holds them in statement order, or none does and `states` is empty; an `ArgumentError`
+names a statement without a state when others carry one. `names` holds the block's
+declared names.
 """
 function _raw_steps(steps_block, names)
     forms, steps = Symbol[], Mechanisms.Step[]
@@ -394,7 +395,12 @@ function _raw_steps(steps_block, names)
         isempty(members) && error("@enzyme_mechanism: a parenthesized group holds no " *
                                   "step; a kinetic group holds at least one step.")
         for s in members
-            push!(steps, _raw_step!(forms, _step_parts(s)..., n, names))
+            op, lhs, rhs = _step_parts(s)
+            _peel_tag!(rhs) === nothing ||
+                error("@enzyme_mechanism: the step `$s` carries a state inside a " *
+                      "parenthesized group; a group's state is written after its closing " *
+                      "parenthesis, as in `(E + I ⇌ EI, ES + I ⇌ EIS) :: EqualAI`.")
+            push!(steps, _raw_step!(forms, op, lhs, rhs, n, names))
         end
     end
     with = findfirst(!isnothing, states)
@@ -479,8 +485,8 @@ _is_declared(x, names) = x in names.substrates || x in names.products ||
 A term of a step side as written, `(is_form, name)`: a declared metabolite (`_is_declared`)
 is `(false, name)`, and any other name `(true, name)`, the name of an enzyme form, used as
 written. An allosteric regulator binds only at its regulatory site, unless `modifiers:`
-lists it too. A reactant's modifier copy `X::Mod` and a form in call notation (`E(A, B)`)
-are errors that say what to write instead.
+lists it too. A reactant's modifier copy `X::Mod`, a form in call notation (`E(A, B)`) and
+a count (`2S`) are errors that say what to write instead.
 """
 function _raw_term(t, names)
     if t isa Symbol
@@ -498,6 +504,9 @@ function _raw_term(t, names)
         error("@enzyme_mechanism: unknown tag ::$tag on $x; a step ends in its " *
               "allosteric state, written after its right-hand side.")
     end
+    t isa Expr && t.head === :call && t.args[1] === :* &&
+        error("@enzyme_mechanism: `$t` writes a count; a step names a metabolite once " *
+              "for each copy it takes up or gives off, as in `E + S + S ⇌ ESS`.")
     if t isa Expr && t.head === :call && t.args[1] isa Symbol
         name = _called_form_name(t)
         error("@enzyme_mechanism: `$t` is call notation; an enzyme form is a name, so " *
