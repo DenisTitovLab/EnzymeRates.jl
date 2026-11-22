@@ -42,9 +42,11 @@ const _Parameter = Union{_StepParameter, _RegulatorParameter, _AllostericParamet
 
 """
 The text a constant's name takes after its type prefix (`K_`, `k_`) for conformation tag
-`state` (`_conformation_tag`): `A_` for `:A`, an allosteric mechanism's active constant;
-`I_` for `:I`, an inactive one; none for `:EqualAI`, one constant of both conformations,
-or for `:None`, a plain mechanism's.
+`state` (`_conformation_tag`):
+- `A_` for `:A`, an allosteric mechanism's active constant;
+- `I_` for `:I`, an inactive one;
+- none for `:EqualAI`, one constant of both conformations, and for `:None`, a plain
+  mechanism's.
 """
 _state_tag(state::Symbol) = state === :A ? "A_" : state === :I ? "I_" : ""
 
@@ -143,12 +145,12 @@ Its entries, in turn:
    of a step stored against the reaction, the reverse rate of any other step;
 6. its two forms' indices, the smaller first, then its metabolites' indices, sorted;
 7. its stored place `k`.
-A step is stored against the reaction when, as stored, it takes up fewer substrates and
-gives off fewer products than it gives off substrates and takes up products, as a product
-binding or a release of products stored as its uptake does. The constructor stores every
-other step the way the reaction runs, or the reaction gives it no direction. The indices
-follow the forms' and metabolites' names (`CatalyticScheme`), so the key does not change
-with the order in which a writing gives them.
+A step is stored against the reaction when, as stored, the substrates it takes up and the
+products it gives off are fewer than the substrates it gives off and the products it takes
+up. A product binding is, and so is a release of products stored as its uptake. The
+constructor stores every other step the way the reaction runs, or the reaction gives it no
+direction. The indices follow the forms' and metabolites' names (`CatalyticScheme`), so
+the key does not change with the order in which a writing gives them.
 """
 function _priority_key(m::Mechanisms.CatalyticScheme, k::Int, slot::Int, block::Int)
     e = m.steps[k]
@@ -288,10 +290,10 @@ end
 """
     _regulator_constant(am, lig, tag, inactive) -> Union{Symbol, Nothing}
 
-The name of the dissociation constant (`_name`) of the ligand named `lig` (allosteric
-state `tag`) of `am` in the active (`inactive = false`) or inactive conformation, or
-`nothing` when the ligand is absent from that conformation (`:OnlyI` in the active state,
-`:OnlyA` in the inactive one).
+The name (`_name`) of the dissociation constant of the ligand named `lig`, in allosteric
+state `tag`, of `am` in the active (`inactive = false`) or inactive conformation. Returns
+`nothing` when the ligand is absent from that conformation: `:OnlyI` in the active one,
+`:OnlyA` in the inactive one.
 """
 function _regulator_constant(am::Mechanisms.Mechanism, lig::Symbol, tag::Symbol,
                              inactive::Bool)
@@ -443,11 +445,11 @@ _class(m::Mechanisms.Mechanism, excluded::NTuple{2, BitVector}, c::_StepParamete
     _fundamental_cycles(m, flat) -> (Z, multiples)
 
 The fundamental cycles of a spanning forest of the graph of `m`'s edges `flat`, grown over
-the edges in that order: row `i` of `Z` counts each edge of cycle `i` (column `j` is edge
-`flat[j]`) with its sign in the edge's stored direction, and `multiples[i]` is the
-multiple of the net reaction the cycle runs (0 for a Wegscheider cycle). Errors on a cycle
-whose net change is no multiple of the net reaction, a modifier's included, which no
-mechanism the guard admits holds (`_unbalanced_cycle`).
+the edges in that order. Row `i` of `Z` counts each edge of cycle `i` (column `j` is edge
+`flat[j]`) with its sign in the edge's stored direction. `multiples[i]` is the multiple of
+the net reaction the cycle runs (0 for a Wegscheider cycle). Errors on a cycle whose net
+change is no multiple of the net reaction, a modifier's included, which no mechanism the
+guard admits holds (`_unbalanced_cycle`).
 
 The net change reads what each edge takes up (-1) and gives off (+1) only. A form's name
 holds no metabolites, so an isomerization, which takes up and gives off nothing,

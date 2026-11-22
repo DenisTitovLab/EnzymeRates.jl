@@ -148,9 +148,9 @@ ping-pong and multi-substrate reactions, whose residues and atom balance the sea
 from them. The constructor sorts substrates, products and regulators by name, a name's
 competitive inhibitor before its allosteric regulator, so two equivalent declarations
 compare equal under `==`/`hash`. It rejects unbalanced atoms, a name listed as both a
-substrate and a product, the names that `@enzyme_reaction` says no metabolite takes, and a
-name that reads in Julia code as another (a micro sign as `μ`), which no DSL text can
-write. A reaction prints as the `@enzyme_reaction` block that builds it.
+substrate and a product, and the names that `@enzyme_reaction` says no metabolite takes.
+It also rejects a name that reads in Julia code as another (a micro sign as `μ`), which no
+DSL text can write. A reaction prints as the `@enzyme_reaction` block that builds it.
 
 ```jldoctest
 julia> using EnzymeRates

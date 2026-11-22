@@ -102,9 +102,10 @@ the forms into islands; every island but free E's lies higher in energy and hold
 enzyme. A switched-off step between two islands loses its rate uphill and keeps its rate
 downhill, or, at steady state, may stop. One inside an island stops at steady state; at
 rapid equilibrium it cannot be switched off, and the macro rejects it. The macro also
-rejects the states when no choice of the islands' energies makes the rate law the limit,
-or when the states allow more choices than it searches and none of the few it tries first
-gives the limit. [How an excluded step is switched off](@ref) gives the rules.
+rejects the states when it finds no choice of the islands' energies under which it can
+show that the rate law is the limit. It rejects them too when they allow more choices than
+it searches and it can show the limit under none of the three it tries first.
+[How an excluded step is switched off](@ref) gives the rules.
 
 Below, the inhibitor I binds E and ES with one constant, and a second S binds ES, which
 inhibits at high substrate:

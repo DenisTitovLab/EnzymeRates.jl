@@ -1,5 +1,5 @@
-# ABOUTME: The guard's allosteric part: how each conformation switches off the steps it
-# ABOUTME: excludes, admission's interior and face conditions, and admission's messages.
+# ABOUTME: Admission, the guard's check that an allosteric law is the limit as the excluded
+# ABOUTME: steps are switched off: the readings, its interior and face conditions, messages.
 
 # ─── How each conformation switches off the steps it excludes ───────────
 
@@ -43,16 +43,18 @@ free E when its bound side's part is farther than its unbound side's.
 
 How the conformations of `am` switch off its catalytic steps in the guard's built reading
 `r`, read from the reaction graph alone. A conformation keeps a step it does not exclude.
-Some excluded steps take up one metabolite, give off none, and lead into a cut-off form:
-the steps the conformation keeps (`exclusion_components`) join neither the step's two
-sides nor its bound side to free E. At rapid equilibrium such a step loses its affinity:
-its stored direction, the uptake, vanishes (`_LOSES_FORWARD`). At steady state it loses
-its affinity or stops, as `r` says (`_SlowUptakeReading`). Any other excluded step keeps
-its kind, rapid equilibrium or steady state, as every step does in both conformations. At
-steady state it stops (`_STOPPED`); at rapid equilibrium the reading cannot switch it off
-(`_CANNOT_SWITCH_OFF`), which makes the reading inconsistent. The developer page,
-"Well-posedness guard", says why. A plain mechanism has one conformation, which runs every
-step.
+An excluded uptake into a cut-off form is an excluded step that takes up one metabolite
+and gives off none, whose two sides lie in different islands (`exclusion_components`) and
+whose bound side lies outside free E's island. At rapid equilibrium such a step loses its
+affinity: its stored direction, the uptake, vanishes (`_LOSES_FORWARD`). At steady state it
+loses its affinity or stops, as `r` says (`_SlowUptakeReading`). Any other excluded step
+keeps its kind, rapid equilibrium or steady state, as every step does in both
+conformations. At steady state it stops (`_STOPPED`). At rapid equilibrium the built
+reading leaves it unswitched (`_CANNOT_SWITCH_OFF`), which makes the reading inconsistent;
+a searched reading (`_consistent_columns`) may still switch off such a step between two
+islands by letting it lose a direction. The developer page, "Well-posedness guard", says
+why no reading switches off one inside an island. A plain mechanism has one conformation,
+which runs every step.
 """
 function _built_reading(am::Mechanisms.Mechanism,
                         r::_SlowUptakeReading = _ALL_LOSE_AFFINITY)
@@ -330,10 +332,11 @@ end
 
 """
 The cost of a cheapest spanning out-arborescence of the nodes `1:n` rooted at `root` over
-`arcs`, each `(from, to, cost)`, by Chu–Liu/Edmonds: take each node's cheapest entering
-arc, contract the cycles they close and repeat; -1 when some node has no entering arc.
+`arcs`, each `(from, to, cost)`; -1 when some node has no entering arc.
 """
 function _min_arborescence(n::Int, arcs::Vector{NTuple{3, Int}}, root::Int)
+    # Chu–Liu/Edmonds: take each node's cheapest entering arc, contract the cycles they
+    # close and repeat.
     INF = typemax(Int) ÷ 4
     cost = 0
     while true
@@ -481,30 +484,35 @@ first substrate (`first(m.substrates)`). It refuses, in order:
 - `_EPS_NONUNIQUE`: the alive transitions leave two closed classes, so at every ε the
   steady state depends on where the enzyme starts. The verdict names the closed class
   outside the law network (`_class_outside_law`).
-- `_FILLED`: a rapid-equilibrium transition that vanishes is alive while its reverse,
-  which does not vanish, is dead; its source is fed and reached from the law network along
-  alive rapid-equilibrium transitions, vanishing or not; and its target reaches the law
-  network along no alive rapid-equilibrium transitions that do not vanish. The target then
-  fills faster than it empties. The verdict names that transition's step and
-  conformation.
+- `_FILLED`, naming the step and conformation of a rapid-equilibrium transition that
+  vanishes and meets all three conditions below, so that its target fills faster than it
+  empties:
+  - the transition is alive while its reverse, which does not vanish, is dead;
+  - its source is fed and reached from the law network along alive rapid-equilibrium
+    transitions, vanishing or not;
+  - its target reaches the law network along no alive rapid-equilibrium transitions that
+    do not vanish.
 - `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive transition
   whose reverse is dead, or is entered from outside it and the law network, so admission
   cannot show that its weight does not depend on how fast its exits vanish. The verdict
   names a feed whose reverse is dead when there is one. A basin entered only reversibly
   from the law network is sealed: its weight vanishes, and it leaves the fed nodes.
-- `_BRIDGE`: in some conformation the vanishing transitions shorten the cheapest spanning
-  in-tree of the fed nodes (`_shortens_in_tree`), and the first substrate's uptake is no
-  potential on the strongly connected parts of its alive transitions that do not vanish or
-  are fast (`_potential_on_sccs`); the verdict leads with the first of its vanishing steps
-  on a cheapest tree (`_bridging_edges`). Or no conformation's vanishing transitions
-  shorten the in-tree alone, but both conformations' together do; the verdict names no
-  conformation or step.
+- `_BRIDGE`, in either of two cases:
+  - in some conformation both of these hold, and the verdict leads with the first of that
+    conformation's vanishing steps on a cheapest tree (`_bridging_edges`):
+    - its vanishing transitions shorten the cheapest spanning in-tree of the fed nodes
+      (`_shortens_in_tree`);
+    - the first substrate's uptake is no potential on the strongly connected parts of its
+      alive transitions that do not vanish or are fast (`_potential_on_sccs`);
+  - no conformation's vanishing transitions shorten the in-tree alone, but both
+    conformations' together do; the verdict names no conformation or step.
 The tests label these conditions. R1: a conformation's vanishing transitions do not shorten
 the in-tree. Joint R1: both conformations' vanishing transitions together do not. T0+: the
 first substrate's uptake is a potential on those strongly connected parts. A face whose fed
 nodes no in-tree spans passes: class 3 decides it. The verdict leaves the face index 0
-(`_admission_face` sets it). The developer page, "Well-posedness guard", gives the reasons
-for these conditions and the numerical evidence behind them.
+(`_admission_face` sets it). The developer page, "Well-posedness guard", argues for the
+filling check and for the set-aside rule (`_admission_face`), and gives the numerical
+evidence for both.
 """
 function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::Int)
     s = _face_sets(net, law_nodes, face)
@@ -513,9 +521,9 @@ function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::I
         return _Verdict(_EPS_NONUNIQUE, _LIMIT_UNTESTED, 0,
                         _copy_of(net, _class_outside_law(closed, law_nodes)[1]), 0)
     # Why a one-way fast transition must not fill its form, and the numerical evidence for
-    # this check: the developer page, "Well-posedness guard" (the filling check). No built
-    # reading has such a transition, since the direction it keeps is a release, alive on
-    # every face, so under them the searches of `_fast_law_reach` never run here.
+    # this check: the developer page, "Well-posedness guard", on the filling check. No
+    # built reading has such a transition, since the direction it keeps is a release, alive
+    # on every face, so under them the searches of `_fast_law_reach` never run here.
     one_way(t) = (r = isodd(t) ? t + 1 : t - 1;
                   s.alive[t] && !s.alive[r] && net.vanishing[t] && !net.vanishing[r] &&
                   net.fast[t] && s.fed[net.from[t]])
@@ -578,10 +586,13 @@ direction. It is set aside when
   - both directions are alive; or
   - one direction alone is alive, and it does not vanish, so it only empties its source;
     or
-  - the pair joins two nodes outside the law network, and its vanishing direction alone
-    is alive. That direction is slow, leaves a node the law network does not reach along
-    alive rapid-equilibrium transitions, or enters one that reaches the law network along
-    alive rapid-equilibrium transitions that do not vanish (`_fast_law_reach`).
+  - the pair joins two nodes outside the law network, its vanishing direction alone is
+    alive, and that direction does one of these (`_fast_law_reach`):
+    - it is slow;
+    - it leaves a node the law network does not reach along alive rapid-equilibrium
+      transitions;
+    - it enters a node that reaches the law network along alive rapid-equilibrium
+      transitions that do not vanish.
 A node outside the law network that free E's active copy does not reach on the face and
 whose alive transitions all lead to nodes set aside goes with them: left alone it would
 read as a second closed class. The developer page, "Well-posedness guard", says why such a
@@ -678,7 +689,7 @@ function _admission_face(am::Mechanisms.Mechanism, eps::_Network, law::_Network,
     v = _face_condition(eps, law.present, faces[i], x)
     if v.fault === _BRIDGE
         # Why a group set aside cannot change the limit, and the numerical evidence for
-        # it: the developer page, "Well-posedness guard" (the set-aside rule).
+        # it: the developer page, "Well-posedness guard", on the set-aside rule.
         rest = _without_set_aside_groups(eps, law.present, faces[i])
         rest !== eps && _face_condition(rest, law.present, faces[i], x) === _WELL_POSED &&
             return _WELL_POSED

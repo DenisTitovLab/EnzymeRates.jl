@@ -10,14 +10,16 @@
 Check that the rate law of `m` is defined:
 - no two of its constants share a name;
 - every cycle of its steps balances each metabolite as the reaction does;
-- some cycle of the steps its active conformation runs turns the reaction over;
+- some cycle of its steps turns the reaction over, and for an allosteric mechanism some
+  cycle of the steps its active conformation runs;
 - the law is the unique limit of mass-action kinetics as the rapid-equilibrium steps speed
   up and the steps its allosteric states exclude are switched off, at interior
-  concentrations and on every face where data sit (`_faces`).
+  concentrations and on every face, each set of zero concentrations where data sit.
 It also rejects an allosteric mechanism whose limit it cannot show. The first form returns
-`true` or throws an error naming the steps at fault by their DSL lines and the face, or
-the shared names; the second returns `false` instead. The developer page, "Well-posedness
-guard", says how the guard decides and who runs it.
+`true` or throws an error that states the fault. The error names the steps at fault by
+their DSL lines, and the face, where the fault has them, or the names the constants share.
+The second form returns `false` instead. The developer page, "Well-posedness guard", says
+how the guard decides and who runs it.
 """
 function check_valid_rate_equation(m::Mechanisms.Mechanism)
     _check_verdict(m, _memo_verdict(m))
@@ -43,7 +45,7 @@ What the guard finds wrong with a mechanism, by the check that finds it:
 - `_NO_CYCLE`, class 1: no cycle turns the reaction over.
 - `_RE_TURNOVER`, class 2: a cycle of rapid-equilibrium steps turns it over.
 
-Class 3, on a face:
+Class 3, on a face (`_faces`):
 - `_NONUNIQUE`: a second closed class.
 - `_BOTTOMLESS`: a rapid-equilibrium segment with no lowest form.
 - The limit test rejects the law where the face's structure (`_face_stage`) stopped at
@@ -52,23 +54,27 @@ Class 3, on a face:
   - `_LAW_MULTI`: a law segment chain with several closed classes;
   - `_MULTILEVEL`: an aggregated chain with several closed classes.
 
-Admission's interior, each excluded step switched off as a reading says (`_Reading`):
+Admission checks that the law is the limit as the steps an allosteric mechanism's states
+exclude are switched off. In its interior (`_admission_interior`), each excluded step
+switched off as a reading says (`_Reading`):
 - `_FAST_STEP_PINNED`: a rapid-equilibrium step that a conformation excludes and the
   reading cannot switch off or stops. The guard reports it only for a step inside one
-  island, which no reading switches off.
+  island, a set of forms the conformation's kept steps join (`exclusion_components`): no
+  reading switches such a step off.
 - `_ARC_CYCLE`: the steps that lose a direction, each pointing uphill, close a directed
-  cycle or point into free E's component.
-- `_ISLAND`: free E's component does not reach some forms along those steps.
-- `_NO_ACTIVE_TURNOVER`: the active conformation no longer turns the reaction over.
+  cycle or point into free E's island.
+- `_ISLAND`: free E's island does not reach some forms along those steps.
+- `_NO_ACTIVE_TURNOVER`: no cycle of the steps the active conformation runs turns the
+  reaction over.
 
-Admission's face condition, on a face:
-- `_EPS_NONUNIQUE`: a second closed class of the ε-network.
-- `_FILLED`: a fast step's vanishing direction fills a form one way, faster than it
+Admission's face condition, on a face (`_admission_face`):
+- `_EPS_NONUNIQUE`: a second closed class of the ε-network (`_eps_network`).
+- `_FILLED`: a fast step's vanishing direction fills a form one way, faster than the form
   empties.
-- `_PUMPED`: a stranded basin is entered by, or holds, an alive step whose reverse is
-  dead, or is entered from outside it and the law's forms.
-- `_BRIDGE`: tagged steps shorten the fed forms' cheapest spanning in-tree where no
-  potential absorbs their turnover.
+- `_PUMPED`: a stranded basin (`_face_sets`) is entered by, or holds, an alive step whose
+  reverse is dead, or is entered from outside it and the law's forms.
+- `_BRIDGE`: tagged steps shorten the cheapest spanning in-tree of the fed forms
+  (`_face_sets`) where no potential absorbs their turnover.
 
 Last, `_TOO_MANY_READINGS`: no reading the guard tried was consistent, the active
 conformation turns the reaction over, and there are more readings than the guard searches.
@@ -480,11 +486,13 @@ _guard(mech::Mechanisms.Mechanism) = _guard_with_reading(mech).verdict
 
 The well-posedness guard's verdict on `m`, plain or allosteric, and the reading
 (`_Reading`) it was judged under, or the first built reading (`_built_reading`) for a
-verdict that no reading decides. The checks run in order: each constant has a name of its
-own (`_shared_constant_names`); every cycle balances each metabolite (`_unbalanced_cycle`);
-class 1, a cycle turns the reaction over (`Mechanisms.has_turnover_cycle`); then, under a
-reading (`_verdict_under`), class 2, admission's interior, and on every face class 3 and
-admission's face condition. A plain mechanism's one reading runs every step.
+verdict that no reading decides. The checks run in order:
+- each constant has a name of its own (`_shared_constant_names`);
+- every cycle balances each metabolite (`_unbalanced_cycle`);
+- class 1, a cycle turns the reaction over (`Mechanisms.has_turnover_cycle`);
+- under a reading (`_verdict_under`), class 2, admission's interior, and on every face
+  class 3 and admission's face condition.
+A plain mechanism's one reading runs every step.
 
 An allosteric mechanism's verdict follows the energy-level rule: each conformation cuts off
 every island but free E's, and every island it cuts off lies above free E's in energy and
@@ -492,8 +500,11 @@ holds none of that conformation's enzyme. A reading is consistent with the rule 
 admission's interior finds none of `_interior_verdict`'s faults (`_FAST_STEP_PINNED`,
 `_ARC_CYCLE`, `_ISLAND`) under it; the interior's last check, `_NO_ACTIVE_TURNOVER`, reads
 no reading. The guard admits the mechanism under the first consistent reading that passes
-every check, in the order the developer page gives ("Well-posedness guard", the paragraph
-"The search"). Past class 1, a rejection reports the first of these that applies:
+every check. It tries the built readings in the order of `_SlowUptakeReading`, then each
+pair of consistent columns (`_consistent_columns`), one per conformation, the active
+conformation's column varying slowest. When there are more ways than it searches
+(`_MAX_CHOICES_PER_CONFORMATION`, `_MAX_READING_PAIRS`), it tries the built readings alone.
+Past class 1, a rejection reports the first of these that applies:
 - a fast cycle that turns the reaction over under the built readings (`_RE_TURNOVER`),
   which is fast under every consistent reading too;
 - an excluded rapid-equilibrium step inside one island (`_FAST_STEP_PINNED`), which no
@@ -591,10 +602,11 @@ end
 """
     _verdict_under(m, reading) -> _Verdict
 
-The guard's checks past class 1 on `m`, its excluded steps switched off as `reading` says,
-the first fault winning: class 2 on the ε-network of that reading (`_re_turnover_verdict`),
-admission's interior (`_admission_interior`), then class 3 and admission's face condition
-on every face (`_faces_verdict`); `_WELL_POSED` when every check passes.
+The guard's checks past class 1 on `m`, its excluded steps switched off as `reading` says.
+They run in order, the first fault winning: class 2 on the ε-network of that reading
+(`_re_turnover_verdict`); admission's interior (`_admission_interior`); class 3 and
+admission's face condition on every face (`_faces_verdict`). `_WELL_POSED` when every
+check passes.
 """
 function _verdict_under(mech::Mechanisms.Mechanism, reading::_Reading)
     eps = _eps_network(mech, _re_flags(mech.catalytic), reading)
@@ -787,10 +799,11 @@ What the structure `s` of a face (`_face_structure`) settles, the first that app
 - `_BOTTOMLESS`: a segment with no lowest form;
 - `_NO_FAULT`: every segment holds one fast class, and the law's segment chain one closed
   class.
-Otherwise it returns the stage at which the limit test decides: the law's chain has
-several closed classes (`_LAW_MULTI`), the aggregated chain has (`_MULTILEVEL`), its closed
-class holds a trap (`_TRAP`), or none of these (`_SPLIT`, where a segment it meets may
-split).
+Otherwise it returns the stage at which the limit test decides, the first that applies:
+- `_LAW_MULTI`: the law's chain has several closed classes;
+- `_MULTILEVEL`: the aggregated chain has several;
+- `_TRAP`: the aggregated chain's closed class holds a trap;
+- `_SPLIT`: none of these, and a segment that closed class meets may split.
 """
 function _face_stage(s)
     length(s.closed) > 1 && return _NONUNIQUE
@@ -831,7 +844,7 @@ class feeds a trap of that class when an alive fast path leads from its target i
 trap: the edge is that path's last fast transition (`joined` false). When the slow
 transition lands in the trap, or no transition feeds one (the closed class is a trap
 alone), the edge is the rapid-equilibrium edge that joins the trap to the rest of its
-segment, whose way out takes up a zeroed name (`joined` true).
+segment (`joined` true). That edge's way out of the trap takes up a zeroed name.
 """
 function _trap_feeder(net::_Network, s)
     nn = net.nforms * net.ncopies
@@ -869,10 +882,11 @@ function _trap_feeder(net::_Network, s)
 end
 
 """
-The split class 3 found on a face (stage `_SPLIT`), in the first rapid-equilibrium segment
-that the aggregated chain's closed class meets and that holds more than one lowest fast
-class: those classes (`parts`), and the rapid-equilibrium edges whose transitions leave
-one of them and take up a zeroed name (`joins`). Only these edges could join the parts.
+The split class 3 found on a face (stage `_SPLIT`), as `(; parts, joins)`. It lies in the
+first rapid-equilibrium segment that the aggregated chain's closed class meets and that
+holds more than one lowest fast class. `parts` are those classes, and `joins` the
+rapid-equilibrium edges whose transitions leave one of them and take up a zeroed name, the
+only edges that could join the parts.
 """
 function _split_parts(net::_Network, s)
     lowest_classes = [Int[] for _ in s.segments]
@@ -1132,9 +1146,9 @@ end
 A random point mod p of the model of `mech`'s catalytic graph `m` for `ncopies`
 conformations on face `face`, as `(; K, ss, re, flip, L, conc)`:
 - `K[k, c]`, each edge's equilibrium constant, and `L`, from log-free energies of every
-  form in each conformation and of every metabolite name: an integer null-space basis of
-  the kinetic-group ties (members equal in each conformation that keeps them, an
-  `:EqualAI` member equal across) raised to random residues;
+  form in each conformation and of every metabolite name. The energies are random
+  residues raised to an integer null-space basis of the kinetic-group ties (members equal
+  in each conformation that keeps them, an `:EqualAI` member equal across);
 - `ss`, a steady-state speed per kinetic group and conformation (one for both of an
   `:EqualAI` group);
 - `re`, a rapid-equilibrium speed per edge and conformation, and `flip`, the flip's speed;
@@ -1457,7 +1471,7 @@ end
 """
     _guard_message(mech) -> String
 
-The error for the guard's verdict on `mech`, `Mechanism: <cause>. <fix>.`. The cause names
+The error for the guard's verdict on `mech`: `Mechanism: <cause>. <fix>.` The cause names
 each step at fault by its DSL line and is read under the reading the verdict was judged
 under (`_guard_with_reading`). Class 2's fix is printed when each step's variant leaves no
 fast turnover cycle (`_every_step_cures`), and every other fix only when its variant
@@ -1516,8 +1530,9 @@ end
 """Class 2's message, the excluded steps switched off as `reading` says: the steps of the
 first fast cycle that turns the reaction over. Each excluded step among them is marked
 with the conformation where it loses a direction (its affinity, when it takes up one
-metabolite and loses that uptake). It offers the fix when making any one step of the cycle
-steady-state leaves no fast turnover cycle (`_every_step_cures`)."""
+metabolite and loses that uptake). It offers the fix only when every step of the cycle,
+made steady-state, leaves no fast turnover cycle (`_every_step_cures`), so the fix holds
+whichever step the user picks."""
 function _re_turnover_message(mech::Mechanisms.Mechanism, reading::_Reading)
     m = mech.catalytic
     net = _eps_network(mech, _re_flags(m), reading)

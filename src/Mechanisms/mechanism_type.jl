@@ -80,7 +80,10 @@ schemes of one graph can differ (`!=`) where the mechanisms built on them are eq
 
 It throws an `ArgumentError` when no form is named `E`, and an `ErrorException` when:
 - an index is out of range, or the substrates or the products are empty;
-- a name is listed twice or cannot be written, or a form is named like a metabolite;
+- a name is listed twice, a substrate is also a product, or a modifier is also a reactant;
+- a metabolite's name is one `_check_metabolite_names` rejects: `E`, a reserved name such
+  as `Keq`, a name holding `_`, or one no DSL text can write;
+- a form's name is one no DSL text can write, or a form is named like a metabolite;
 - the kinetic group labels do not run from 1 with each used;
 - a step joins a form to itself, or takes up and gives off one metabolite;
 - a form is not joined to `E`;
@@ -341,8 +344,14 @@ end
 # ─── Checks ─────────────────────────────────────────────────────────────
 
 """
-Error unless the scheme as written can be stored: the checks of `CatalyticScheme` that read
-names, indices and kinetic group labels, which `_canonical` relies on.
+Error unless the scheme as written can be stored:
+- every index in range, and `substrates` and `products` not empty;
+- each metabolite name once, a substrate's not a product's and a modifier's not a
+  reactant's, and each one a name a metabolite can take (`_check_metabolite_names`);
+- the form names distinct, names a text can write (`_check_identifiers`) and no
+  metabolite's;
+- a form named `E` (an `ArgumentError`);
+- the kinetic group labels running from 1 with each used.
 """
 function _check_written(metabolites::Vector{Symbol}, enzyme_forms::Vector{Symbol},
                         substrates::Vector{Int}, products::Vector{Int},

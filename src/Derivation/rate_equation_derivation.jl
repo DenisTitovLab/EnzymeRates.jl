@@ -938,7 +938,9 @@ may come in any order, and fields the law does not read are ignored.
 The first call derives the law and compiles it to straight-line arithmetic, once per
 mechanism and session; every later call is fast and allocates nothing, so compile once,
 outside a loop. Equal mechanisms give the same `rate`. Calling `rate` errors when the rate
-law of `m` is not defined (`check_valid_rate_equation`). [`rate_equation_string`](@ref)
+law of `m` is not defined (`check_valid_rate_equation`), and with a
+`RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
+cap of 5,000 (`MAX_RATE_EQUATION_TERMS`). [`rate_equation_string`](@ref)
 prints the law.
 
 ```jldoctest
@@ -1313,7 +1315,7 @@ have positive terms. Numerator and denominator are divided by a normalizer that 
 every term of `D` dimensionless, when one exists, chosen by the rules of
 [Normalization](@ref); a law with none prints as derived, and its terms keep their units.
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
-prints once as `N = …`.
+prints once as `N = …`, after the reference lines.
 An allosteric mechanism prints each conformation's numerator `Q_A`, `Q_I`, denominator
 `D_A`, `D_I`, normalizer `N_A`, `N_I`, free-enzyme weight `F_A`, `F_I` (when they differ)
 and regulatory-site factor `W_A`, `W_I`, then the MWC combination.
@@ -1331,6 +1333,10 @@ out everything that defines a coefficient: the `params` line, the comment, `N` a
 coefficient's value. What remains is the `concs` line, for an allosteric law the `Q_c`,
 `D_c`, `F_c` and `W_c` lines, and the `v` line. This text names coefficients it does not
 define, so it does not run; it is the readable form the search CSVs hold.
+
+Errors when the rate law of `m` is not defined (`check_valid_rate_equation`), and with a
+`RateEquationTooLargeError` when its term count (`rate_equation_term_count`) exceeds the
+cap of 5,000 (`MAX_RATE_EQUATION_TERMS`).
 
 ```jldoctest
 julia> using EnzymeRates

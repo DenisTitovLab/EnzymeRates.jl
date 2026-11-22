@@ -57,7 +57,10 @@ How a reading switches off a catalytic step in one conformation (`_Reading`):
   of its reverse, the direction that runs uphill, into the step's higher side. The other
   direction keeps its rate, so a rapid-equilibrium step stays fast;
 - `_STOPPED`: both its rates vanish;
-- `_CANNOT_SWITCH_OFF`: it cannot be switched off.
+- `_CANNOT_SWITCH_OFF`: the reading leaves the step unswitched, which makes the reading
+  inconsistent. Only a built reading does this, to an excluded rapid-equilibrium step it
+  cannot switch off (`_built_reading`). A searched reading may switch off such a step when
+  it lies between two islands.
 The developer page, "Well-posedness guard", says which readings the guard accepts.
 """
 @enum _SwitchOff::UInt8 _RUNS _LOSES_FORWARD _LOSES_REVERSE _STOPPED _CANNOT_SWITCH_OFF
