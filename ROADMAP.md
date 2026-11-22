@@ -17,8 +17,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   (2.09-2.10), and its result holds 930 MiB. These are medians of three runs, ranges in
   brackets, by `claude-scratchpad/lean-mechanism-spike/gate/measure_terter.jl` on the
   maintainer's machine (a fresh process per run under `--startup-file=no` and
-  `--heap-size-hint=2500M`, Julia 1.13.4, a warm-up on ter-bi). No benchmark or pin covers
-  the live bytes of a held result set. Two options may cut the time, by amounts not
+  `--heap-size-hint=2500M`, Julia 1.13.4, a warm-up on ter-bi). The testset "the
+  enumeration holds and allocates a bounded number of bytes" in the same file bounds the
+  bytes each candidate of the bi-bi starting set holds (`Base.summarysize`), and the bytes
+  that set and one expansion allocate; the ter-ter testset bounds the bytes its call
+  allocates. Two options may cut the time, by amounts not
   measured on the mechanisms as stored: keep already-sorted input vectors instead of
   copying them, so that a mechanism shares the caller's vectors; and reuse the variants the
   flip search in `_seed_variants` already builds.
@@ -39,7 +42,17 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     Ubuntu. A `--heap-size-hint=2500M` on macOS gave 25.6 and 32.4 minutes in two runs,
     inside the range without it, and slows Ubuntu and Windows to about 20 minutes. macOS
     runner speed varies about 30% between runs, so one run proves nothing. These runs
-    predate the lean graph, which stores no facts; measure macOS again before acting.
+    predate the lean graph, which stores no facts. On the macOS runner, `init_mechanisms`
+    on ter-ter took 318.9 s, 171.0 s of it in garbage collection, on `main` (261c7eb4;
+    suite 37 minutes); on this branch it took 187.1 s, 76.6 s in garbage collection, in
+    run 44986745521 (61f3bf5b; suite about 22 minutes) and 78.2 s, 13.9 s in garbage
+    collection, in run 44990337442 (6b37a084; suite 10.5 minutes). Linux takes 115-135 s
+    on `main` and on the branch, 19-30 s of it in garbage collection, so the gain on macOS
+    is in memory. Two branch runs are not a distribution: the runner's time differed by
+    more than a factor of two between them, on nearly the same code. The enumeration test
+    file now bounds the bytes the enumeration holds and allocates, which do not depend on
+    the runner, and logs the ter-ter call's time, garbage collection, bytes allocated and
+    the process's peak resident memory.
 - **A steady-state step that only reaches dead-end forms fits both rate constants.**
   When a steady-state step's only role is to reach forms that lead nowhere else, as
   `EI + J <--> EJ + I` does when `EJ` binds nothing more, no net flux crosses it, so

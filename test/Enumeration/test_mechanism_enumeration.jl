@@ -1421,18 +1421,68 @@ end
     end
 end
 
-@testset "init_mechanisms on ter-ter within its time budget" begin
+"""The bytes one call of `f()` allocates, after a warm-up call that compiles it."""
+_testhelper_allocated_bytes(f) = (f(); @allocated f())
+
+@testset "the enumeration holds and allocates a bounded number of bytes" begin
+    # Aggregate check over the whole bi-bi starting set. macOS CI runners have 7 GiB, and
+    # the tests there slowed by tens of minutes, most of it in garbage collection, when
+    # each mechanism stored facts derived from its steps (ROADMAP). Time and peak memory
+    # depend on the machine, so these bounds gate their causes, which do not: the same
+    # bytes in every process on a Julia version. Each bound sits about 25% above the
+    # largest value measured on Julia 1.11.9 and 1.13.4.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+    end
+    parent = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+            EAB <--> EPQ
+        end
+    end
+    start = EnzymeRates.Enumeration.candidate_mechanisms(rxn)
+    held = Base.summarysize(start) / length(start)
+    start_bytes = _testhelper_allocated_bytes(
+        () -> EnzymeRates.Enumeration.candidate_mechanisms(rxn))
+    candidate = _testhelper_candidate(parent)
+    expand_bytes = _testhelper_allocated_bytes(
+        () -> EnzymeRates.Enumeration.candidate_mechanisms(rxn, candidate))
+    @info "bi-bi enumeration: $(round(Int, held)) bytes held per candidate; " *
+          "$start_bytes bytes allocated by the starting set, $expand_bytes by one expansion"
+    # 1,594 bytes on both versions. A field derived from the steps and stored on
+    # `Mechanism`, `Step` or the candidate's record of a form raises it.
+    @test held < 2_000
+    # 42,545,112 bytes on 1.11, 38,788,376 on 1.13; more work per seed or variant raises it.
+    @test start_bytes < 53_000_000
+    # 13,750,248 bytes on 1.13, 12,683,288 on 1.11; more work per child raises it.
+    @test expand_bytes < 17_200_000
+end
+
+@testset "init_mechanisms on ter-ter within its time and allocation budgets" begin
     # Aggregate pin over the whole ter-ter seed set: 35,665 seeds and their 215,442 merged
     # and Theorell–Chance variants that the guard admits. Garbage collection varies with
     # the heap, from about 23% of the call on CI to about 70% under a local heap-size hint,
     # so the budget excludes it. Without it the call takes 38 s in a full local suite and
     # 59-109 s on a CI runner; a macOS runner that took 430 s in all would be near 330 s.
+    # The bytes the call allocates depend neither on the machine nor on garbage
+    # collection; peak resident memory depends on how the collector sizes the heap, so it
+    # is logged and not bounded.
     run = @timed _testhelper_mechanisms(
         EnzymeRates.Enumeration.init_mechanisms(ter_ter_rxn))
     @info "init_mechanisms on ter-ter: $(round(run.time; digits = 1)) s, " *
-          "$(round(run.gctime; digits = 1)) s of it in garbage collection"
+          "$(round(run.gctime; digits = 1)) s of it in garbage collection; " *
+          "$(round(run.bytes / 2^30; digits = 2)) GiB allocated; " *
+          "the process's peak resident memory $(round(Sys.maxrss() / 2^30; digits = 2)) GiB"
     @test length(run.value) == 251107
     @test run.time - run.gctime < 400
+    # 89.3 GiB on Julia 1.11.9, 81.2 GiB on 1.13.4; more work per candidate raises it.
+    @test run.bytes < 112 * 2^30
 end
 
 @testset "Drops unbound regulators from init Mechanism" begin

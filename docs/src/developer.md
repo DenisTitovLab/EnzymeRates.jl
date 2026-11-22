@@ -894,6 +894,16 @@ conformational type (KNF, mnemonic, slow isomerization) adds one
 `_requires_hyperbolic_catalysis` method and calls the predicate in its promotion
 move.
 
+`test/Enumeration/test_mechanism_enumeration.jl` bounds the memory the enumeration holds
+and allocates: the bytes each candidate of the bi-bi starting set holds
+(`Base.summarysize`), the bytes the bi-bi starting set and one expansion allocate, and the
+bytes the ter-ter `init_mechanisms` call allocates. A field derived from the steps and
+stored on `Mechanism`, `Step` or a candidate's record raises the first; more work per
+candidate raises the others. The macOS CI runner has 7 GiB, and its tests slowed by tens
+of minutes when each mechanism stored such facts. Time and peak resident memory depend on
+the machine and its collector: the ter-ter testset logs both, and bounds only the time
+outside garbage collection.
+
 ## Optimization algorithm architecture
 
 Fitting reaches solvers only through Optimization.jl; the package ships no solver of
