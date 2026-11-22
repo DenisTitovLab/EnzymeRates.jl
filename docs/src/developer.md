@@ -472,8 +472,8 @@ steady-state edge's net flux, substitutes the solve, divides out `H = Π[S] − 
 exactly and brings `Q` and `D` to lowest terms in the concentrations. An MWC law
 (`_AlloLaw`) holds both conformations' laws, their free-E weights over a common factor and
 the regulatory sites' polynomials. `rate_equation_term_count` counts V×τ, both
-conformations of an MWC law together, by a checked Bareiss determinant; the cap
-(`_assert_derivable`) and identify's `eq_complexity_filter` read it before any polynomial is
+conformations of an MWC law together, by a checked Bareiss determinant; the cap, which
+`_law` checks, and identify's `eq_complexity_filter` read it before any polynomial is
 built. `_Poly`, `_Law`
 and `_AlloLaw` are mutable structs with `const` fields, never an immutable wrapper of one
 reference: Julia 1.12 and 1.13 can hoist such a wrapper's box out of a loop that merges it

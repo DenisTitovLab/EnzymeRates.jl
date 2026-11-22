@@ -25,8 +25,7 @@ const ER = EnzymeRates
                         col(1, 1, false)]
     @test c.names == [:k_EP_to_ES, :k_ES_to_EP, :K_ES_to_E_S, :K_EP_to_E_P]
     @test c.in_law == trues(4)
-    # A plain mechanism's one conformation runs every step.
-    @test (c.flat, c.tags, c.law) == ([1, 2, 3], [:None, :None, :None], trues(3))
+    @test c.flat == [1, 2, 3]
 
     # Allosteric uni-uni: E + P → EP :EqualAI, E + S → ES :NonequalAI and
     # ES → EP :OnlyA, one group each. The :NonequalAI and :OnlyA groups get inactive
@@ -51,8 +50,7 @@ const ER = EnzymeRates
     @test a.names == [:k_I_EP_to_ES, :k_I_ES_to_EP, :K_I_ES_to_E_S, :k_A_EP_to_ES,
                       :k_A_ES_to_EP, :K_A_ES_to_E_S, :K_EP_to_E_P]
     @test a.in_law == BitVector([0, 0, 1, 1, 1, 1, 1])
-    @test (a.flat, a.tags, a.law) ==
-          ([1, 2, 3], [:EqualAI, :NonequalAI, :OnlyA], BitVector([1, 1, 0]))
+    @test a.flat == [1, 2, 3]
 end
 
 @testset "_regulator_constant: a regulator ligand's constant per conformation" begin

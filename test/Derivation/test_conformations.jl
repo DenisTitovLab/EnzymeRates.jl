@@ -73,8 +73,8 @@ end
     @test M.step_text(m, 4) == "ES + S ⇌ ESSmod"
     @test D._excluded_steps(am, 1) == [false, false, false, false]
     @test D._excluded_steps(am, 2) == [false, false, false, true]
-    @test D.exclusion_components(am, :active) == [1, 1, 1, 1]
-    @test D.exclusion_components(am, :inactive) == [1, 1, 1, 4]
+    @test D.exclusion_components(m, D._excluded_steps(am, 1)) == [1, 1, 1, 1]
+    @test D.exclusion_components(m, D._excluded_steps(am, 2)) == [1, 1, 1, 4]
     # The rule by tag, one tag per group: an :OnlyA step leaves the inactive conformation,
     # an :OnlyI step the active one; an :EqualAI or :NonequalAI step stays in both.
     tags = [:OnlyA, :OnlyI, :EqualAI, :NonequalAI]
@@ -82,5 +82,4 @@ end
     step_tags = [tags[e.kinetic_group] for e in m.steps]
     @test step_tags[D._excluded_steps(every_tag, 1)] == [:OnlyI]
     @test step_tags[D._excluded_steps(every_tag, 2)] == [:OnlyA]
-    @test_throws ArgumentError D.exclusion_components(am, :both)
 end

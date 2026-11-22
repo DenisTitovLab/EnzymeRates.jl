@@ -46,10 +46,7 @@ State token — placed right after the type prefix:
   :EqualAI → ""    (allosteric shared symbol; shared between A and I state)
   :None    → ""    (non-allosteric mechanism)
 """
-_state_tag(state::Symbol) =
-    state === :A ? "A_" : state === :I ? "I_" : state in (:EqualAI, :None) ? "" :
-    error("_state_tag: unexpected state $state " *
-          "(must be one of :None, :EqualAI, :A, :I)")
+_state_tag(state::Symbol) = state === :A ? "A_" : state === :I ? "I_" : ""
 
 """
 The constant of the reaction `a → b`: `prefix`, the state tag, then
@@ -240,7 +237,7 @@ function _kept_members(m::Mechanisms.Mechanism, cols = _ordered_columns(m))
 end
 
 """
-    _constant_columns(m) -> (; columns, names, in_law, kept_in_law, flat, tags, law)
+    _constant_columns(m) -> (; columns, names, in_law, kept_in_law, flat)
 
 The constants of the steps of `m` as the joint solve's columns, in elimination order
 (`_ordered_columns`), with the name each column takes. `columns[i]` is a `_StepParameter`:
@@ -256,9 +253,7 @@ an active column when its step lies in the active one's or is an `:EqualAI` step
 inactive one's, whose one constant the inactive law reads; `kept_in_law[i]` whether it
 enters the law as its class's kept member, the last of its class (`_class`) in
 elimination order, so that it stands for the class. `flat` holds the steps group by
-group, `tags` each group's tag (`:None` for a plain mechanism) and `law` the steps of the
-inactive conformation (`steps_in_inactive_conformation`; every step for a plain mechanism,
-whose one conformation runs them all).
+group.
 """
 function _constant_columns(m::Mechanisms.Mechanism)
     cols = _ordered_columns(m)
@@ -272,7 +267,7 @@ function _constant_columns(m::Mechanisms.Mechanism)
     last_of = Dict(_class(m, excluded, c) => i for (i, c) in enumerate(cols.columns))
     kept_in_law = BitVector([in_law[i] && last_of[_class(m, excluded, c)] == i
                              for (i, c) in enumerate(cols.columns)])
-    (; cols.columns, names, in_law, kept_in_law, cols.flat, cols.tags, cols.law)
+    (; cols.columns, names, in_law, kept_in_law, cols.flat)
 end
 
 """

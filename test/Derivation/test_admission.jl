@@ -4367,9 +4367,11 @@ end
     end
     b = _testhelper_edge(am, "EA + B ⇌ EAB")
     @test _testhelper_exclusion(am, 2).failure === :fast
-    @test EnzymeRates.Derivation.exclusion_components(am, :inactive) ==
+    excluded(c) = EnzymeRates.Derivation._excluded_steps(am, c)
+    @test EnzymeRates.Derivation.exclusion_components(am.catalytic, excluded(2)) ==
           [1, 2, 1, 1]  # E, EA, EAB, EP
-    @test EnzymeRates.Derivation.exclusion_components(am, :active) == [1, 1, 1, 1]
+    @test EnzymeRates.Derivation.exclusion_components(am.catalytic, excluded(1)) ==
+          [1, 1, 1, 1]
     v = EnzymeRates.Derivation._guard(am)
     @test v == EnzymeRates.Derivation._Verdict(EnzymeRates.Derivation._BRIDGE, U, 1, 2, b)
     @test _testhelper_epath_verdict(am; rng) === :no_path

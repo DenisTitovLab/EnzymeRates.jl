@@ -362,11 +362,10 @@ end
         # identify fits one law per key (spec section 10). The key reads the law, not its
         # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
         # call, and another law gets another key.
-        id = EnzymeRates._mechanism_id(sprint(show, _testhelper_uni_seed))
         c = EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(_testhelper_uni_seed), id)
+            EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
         again = EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(_testhelper_uni_seed), id)
+            EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
         @test (again.key, again.text, again.order) == (c.key, c.text, c.order)
         @test c.key == bytes2hex(EnzymeRates.Derivation.sha256(c.text))
         @test occursin(r"^[0-9a-f]{64}$", c.key)
@@ -379,9 +378,8 @@ end
                 EP <--> E + P
             end
         end
-        other = EnzymeRates._mechanism_id(sprint(show, ss_release))
         @test EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(ss_release), other).key != c.key
+            EnzymeRates.Derivation._memo_law(ss_release), ss_release).key != c.key
     end
 
     # ── Run pipeline ONCE, test everything ───────────
@@ -541,7 +539,8 @@ end
                 end
                 if r.L_phantom
                     m = EnzymeRates.DSL.parse_mechanism(r.mechanism)
-                    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(m))
+                    @test EnzymeRates.Derivation._is_phantom(
+                        EnzymeRates.Derivation._memo_law(m))
                     @test r.L == 0.0 && r.fit_inherited
                 end
                 @test r.key == _testhelper_key_of(r.mechanism)
@@ -1611,8 +1610,8 @@ end
     @test m1 != m2
     @test typeof(compile_rate_equation(m1)) != typeof(compile_rate_equation(m2))
     @test c1.key == c2.key
-    @test _testhelper_same_law_under_map(EnzymeRates.Derivation._law(m1),
-                                         EnzymeRates.Derivation._law(m2),
+    @test _testhelper_same_law_under_map(EnzymeRates.Derivation._memo_law(m1),
+                                         EnzymeRates.Derivation._memo_law(m2),
                                          c1.order, c2.order;
                                          rng = Random.MersenneTwister(1))
     @test parameters(m1) == parameters(m2)
@@ -1806,7 +1805,7 @@ end
     @test fit.loss == entries[1].loss == entries[2].loss
     for e in entries
         c = EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(e.candidate.mechanism), e.row.mechanism_id)
+            EnzymeRates.Derivation._memo_law(e.candidate.mechanism), e.candidate.mechanism)
         @test Float64[e.row.params[x] for x in [c.order; :L]] == fit.values
     end
 end
@@ -1963,7 +1962,7 @@ end
     # and a sweep whose width floor admits one key expands it.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
-    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(phantom))
+    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(phantom))
     opt = _testhelper_SpreadStubOpt()
     batch_log = String[]
     entries, failures = EnzymeRates._process_batch(
@@ -2016,7 +2015,7 @@ end
             EQ + P ⇌ EPQ        :: EqualAI
         end
     end
-    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(m3268))
+    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(m3268))
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -2065,10 +2064,11 @@ end
         end
         regulatory_site(1): R::EqualAI
     end
-    A = EnzymeRates.Derivation._law(regulated)
+    A = EnzymeRates.Derivation._memo_law(regulated)
     @test EnzymeRates.Derivation._is_phantom(A)
-    @test EnzymeRates.Derivation._canonical(A.active, "regulated").key ==
-          EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._law(plain), "plain").key
+    @test EnzymeRates.Derivation._canonical(A.active, regulated).key ==
+          EnzymeRates.Derivation._canonical(EnzymeRates.Derivation._memo_law(plain),
+                                            plain).key
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
@@ -2339,8 +2339,8 @@ end
           EnzymeRates.Derivation.fitted_parameter_count(m2)
     c1, c2 = _testhelper_pass1_canonical.((m1, m2))
     @test c1.key == c2.key
-    @test _testhelper_same_law_under_map(EnzymeRates.Derivation._law(m1),
-                                         EnzymeRates.Derivation._law(m2),
+    @test _testhelper_same_law_under_map(EnzymeRates.Derivation._memo_law(m1),
+                                         EnzymeRates.Derivation._memo_law(m2),
                                          c1.order, c2.order;
                                          rng = Random.MersenneTwister(2))
     # identify fits the pair once; the second form inherits the first's fit.
@@ -2406,8 +2406,8 @@ end
     # one law under the canonical map, so one key
     c1, c2 = _testhelper_pass1_canonical.((am1, am2))
     @test c1.key == c2.key
-    @test _testhelper_same_law_under_map(EnzymeRates.Derivation._law(am1),
-                                         EnzymeRates.Derivation._law(am2),
+    @test _testhelper_same_law_under_map(EnzymeRates.Derivation._memo_law(am1),
+                                         EnzymeRates.Derivation._memo_law(am2),
                                          c1.order, c2.order;
                                          rng = Random.MersenneTwister(3))
     # The split constant is tied back: the square E, ELactate, ELactateNADH,

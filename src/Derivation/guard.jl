@@ -14,9 +14,10 @@ step at fault by its DSL line, or the names its constants share, and returns `tr
 otherwise; the `Bool` form returns the verdict (`false` on a fault) instead of
 throwing. It reads the reaction graph through masks and builds nothing. The mechanism
 macro and the parser call the one-argument form, and every derivation entry runs its
-check (`_derivation_input`, `_well_posed`). Both read the verdict through the memo
-(`_Memo`). The constructors and the Sig decoder do not call it, so code that builds a
-mechanism internally never trips a check meant for the mechanisms it returns.
+check; both forms read the verdict through the memo (`_Memo`), and a compiled law's
+generated methods take it afresh (`_derivation_input`). The constructors and the Sig
+decoder do not call it, so code that builds a mechanism internally never trips a check
+meant for the mechanisms it returns.
 """
 function check_valid_rate_equation(m::Mechanisms.Mechanism)
     _check_verdict(m, _memo_verdict(m))
@@ -31,10 +32,6 @@ function _check_verdict(m::Mechanisms.Mechanism, v)
     v.fault === _NO_FAULT || error(_guard_message(m))
     nothing
 end
-
-"""`m`, once its guard verdict, taken afresh rather than through the memo (`_Memo`),
-holds no fault (`_check_verdict`)."""
-_well_posed(m) = (_check_verdict(m, _guard(m)); m)
 
 # ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
 

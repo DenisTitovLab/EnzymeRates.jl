@@ -139,8 +139,7 @@ include("type_stability_harness.jl")
         end
         @_testhelper_no_dispatch Deriv._name(::Deriv._RegulatorParameter, allosteric)
         @_testhelper_no_dispatch Deriv._name(::Deriv._AllostericParameter, allosteric)
-        @_testhelper_no_dispatch Deriv.rate_equation_term_count(plain.catalytic,
-                                                                ::BitVector)
+        @_testhelper_no_dispatch Deriv._term_count(plain.catalytic, ::BitVector)
     end
 
     @testset "Enumeration" begin

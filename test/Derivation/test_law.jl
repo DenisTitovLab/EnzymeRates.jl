@@ -39,9 +39,8 @@ end
         m = spec.mechanism
         _testhelper_is_allosteric(m) && continue
         n_plain += 1
-        mask = trues(length(m.catalytic.steps))
-        @test EnzymeRates.Derivation.rate_equation_term_count(m.catalytic, mask) ===
-              Int(_testhelper_laplacian_tree_count(m, mask))
+        @test EnzymeRates.Derivation.rate_equation_term_count(m) ===
+              Int(_testhelper_laplacian_tree_count(m, trues(length(m.catalytic.steps))))
     end
     @test n_plain == 31
     random_bibi = @enzyme_mechanism begin
@@ -76,7 +75,7 @@ end
         m = spec.mechanism
         _testhelper_is_allosteric(m) && continue
         @testset "$(spec.name)" begin
-            L = EnzymeRates.Derivation._law(m)
+            L = EnzymeRates.Derivation._memo_law(m)
             rng = Random.MersenneTwister(500 + i)
             for _ in 1:3
                 point, concs, params =
@@ -95,7 +94,7 @@ end
         m = spec.mechanism
         _testhelper_is_allosteric(m) && continue
         @testset "$(spec.name)" begin
-            L = EnzymeRates.Derivation._law(m)
+            L = EnzymeRates.Derivation._memo_law(m)
             @test L.vars.names == [EnzymeRates.metabolites(m);
                                    EnzymeRates.Derivation._solve(m).fitted; :Keq]
             env = Dict{Symbol, BigFloat}(x => exp(2 * big(rand(rng)) - 1)
@@ -148,13 +147,11 @@ end
         end
     end
     s = EnzymeRates.Derivation._solve(am)
-    cm, mets = am.catalytic, EnzymeRates.metabolites(am)
+    mets = EnzymeRates.metabolites(am)
     active = EnzymeRates.Derivation._law(
-        cm, s, EnzymeRates.Mechanisms.steps_in_active_conformation(am);
-        concentrations = mets, shown = am)
+        am, s, EnzymeRates.Mechanisms.steps_in_active_conformation(am))
     inactive = EnzymeRates.Derivation._law(
-        cm, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am);
-        inactive = true, concentrations = mets, shown = am)
+        am, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(am); inactive = true)
     @test active.vars == inactive.vars
     @test active.vars.names == [mets; s.names[s.independents]; :Keq]
     rng = Random.MersenneTwister(71)
@@ -163,11 +160,11 @@ end
                                      for x in active.vars.names)
         env[:K_EI_to_E_I] = env[:K_I_EI_to_E_I]
         @test isapprox(_testhelper_evaluate_law(active, env),
-                       _testhelper_evaluate_law(EnzymeRates.Derivation._law(mm), env);
+                       _testhelper_evaluate_law(EnzymeRates.Derivation._memo_law(mm), env);
                        rtol = big(10)^-60)
         @test isapprox(
             _testhelper_evaluate_law(inactive, env),
-            _testhelper_evaluate_law(EnzymeRates.Derivation._law(competitive), env);
+            _testhelper_evaluate_law(EnzymeRates.Derivation._memo_law(competitive), env);
             rtol = big(10)^-60)
     end
 end
@@ -182,7 +179,7 @@ end
         back = _testhelper_plain_mechanism(c.metabolites, c.enzyme_forms, c.substrates,
                                            c.products,
                                            reverse(_testhelper_turned.(c.steps)))
-        @test EnzymeRates.Derivation._law(back) == EnzymeRates.Derivation._law(m)
+        @test EnzymeRates.Derivation._memo_law(back) == EnzymeRates.Derivation._memo_law(m)
     end
     # A same-model regrouping: the binding square ties B's two dissociation constants,
     # so tying them as one group as well leaves the model and its fitted names alone.
@@ -210,14 +207,14 @@ end
     @test folded != tied
     @test EnzymeRates.Derivation._solve(folded).fitted ==
           EnzymeRates.Derivation._solve(tied).fitted
-    @test EnzymeRates.Derivation._law(folded) == EnzymeRates.Derivation._law(tied)
+    @test EnzymeRates.Derivation._memo_law(folded) == EnzymeRates.Derivation._memo_law(tied)
 end
 
 @testset "plain laws satisfy detailed balance" begin
     for (i, spec) in enumerate(MECHANISM_TEST_SPECS)
         m = spec.mechanism
         _testhelper_is_allosteric(m) && continue
-        L = EnzymeRates.Derivation._law(m)
+        L = EnzymeRates.Derivation._memo_law(m)
         rng = Random.MersenneTwister(600 + i)
         env = Dict{Symbol, BigFloat}(x => exp(4 * big(rand(rng)) - 2)
                                      for x in L.vars.names)
@@ -249,7 +246,7 @@ end
     end
     msg = "internal error: a rapid-equilibrium cycle of this mechanism turns the " *
           "reaction over (class 2)"
-    @test_throws ErrorException(msg) EnzymeRates.Derivation._law(beside)
+    @test_throws ErrorException(msg) EnzymeRates.Derivation._memo_law(beside)
     err = @test_throws ErrorException @enzyme_mechanism begin
         substrates: S
         products: P
@@ -283,12 +280,11 @@ end
     mask = BitVector([EnzymeRates.Mechanisms.step_text(m.catalytic, k) in
                       ("E + A <--> EA", "EQ + P <--> EPQ")
                       for k in eachindex(m.catalytic.steps)])
-    @test EnzymeRates.Derivation.rate_equation_term_count(m.catalytic, mask) == 0
+    @test EnzymeRates.Derivation._term_count(m.catalytic, mask) == 0
     msg = "internal error: the steady-state steps of this mechanism " *
           "do not join its rapid-equilibrium segments"
     @test_throws ErrorException(msg) EnzymeRates.Derivation._law(
-        m.catalytic, EnzymeRates.Derivation._solve(m), mask;
-        concentrations = metabolites(m), shown = m)
+        m, EnzymeRates.Derivation._solve(m), mask)
 end
 
 @testset "_law refuses a law over the term cap" begin
@@ -320,7 +316,7 @@ end
     @test EnzymeRates.Derivation.rate_equation_term_count(m_manual) >
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     err = @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
-                       EnzymeRates.Derivation._law(m_manual))
+                       EnzymeRates.Derivation._memo_law(m_manual))
     @test sprint(showerror, err.value) ==
           "Rate equation for this mechanism has more than 5000 polynomial terms (limit: " *
           "5000). Equations this large take a very long time to compile and are " *
@@ -468,7 +464,7 @@ end
         @testset "$label" begin
             sub = _testhelper_single_subunit(am)
             s = EnzymeRates.Derivation._solve(sub)
-            A = EnzymeRates.Derivation._law(sub, s)
+            A = _testhelper_law(sub, s)
             rng = Random.MersenneTwister(400 + i)
             for _ in 1:3
                 point, concs, params = _testhelper_law_inputs(sub, s.fitted, rng)
@@ -573,11 +569,11 @@ end
         EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)
     @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), amask) == 4320
     @test _testhelper_laplacian_tree_count(_testhelper_plain_of(am), imask) == 4320
-    @test EnzymeRates.Derivation.rate_equation_term_count(cm, amask) <=
+    @test EnzymeRates.Derivation._term_count(cm, amask) <=
           EnzymeRates.Derivation.MAX_RATE_EQUATION_TERMS
     @test EnzymeRates.Derivation.rate_equation_term_count(am) == 8640
     @test_throws(EnzymeRates.Derivation.RateEquationTooLargeError,
-                 EnzymeRates.Derivation._law(am))
-    @test_throws "has more than 5000 polynomial terms" EnzymeRates.Derivation._law(am)
+                 EnzymeRates.Derivation._memo_law(am))
+    @test_throws "has more than 5000 polynomial terms" EnzymeRates.Derivation._memo_law(am)
     @test_throws EnzymeRates.Derivation.RateEquationTooLargeError rate_equation_string(am)
 end

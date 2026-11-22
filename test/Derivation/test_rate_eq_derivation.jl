@@ -558,7 +558,7 @@ end
 substituted: an MWC law counts both conformations, an inactive conformation that is free E
 alone counting 1."""
 function _testhelper_denominator_terms(m)
-    L = EnzymeRates.Derivation._law(m)
+    L = EnzymeRates.Derivation._memo_law(m)
     L isa EnzymeRates.Derivation._Law && return EnzymeRates.Derivation._nterms(L.D)
     EnzymeRates.Derivation._nterms(L.active.D) +
         EnzymeRates.Derivation._nterms(L.inactive.D)
@@ -1707,7 +1707,7 @@ end
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
             m = spec.mechanism
-            L = EnzymeRates.Derivation._law(m)
+            L = EnzymeRates.Derivation._memo_law(m)
             rng = Random.MersenneTwister(778 + hash(spec.name) % 1000)
             params, Keq = _testhelper_random_independent_params(m; rng)
             mets = collect(metabolites(m))
@@ -1733,7 +1733,7 @@ end
     for name in ("PFK-1", "MWC Tetramer Random Bi-Bi RE + Two Allosteric Sites")
         @testset "$name" begin
             m = only(s for s in MECHANISM_TEST_SPECS if s.name == name).mechanism
-            L = EnzymeRates.Derivation._law(m)
+            L = EnzymeRates.Derivation._memo_law(m)
             @test L.n == 4
             rng = Random.MersenneTwister(779 + hash(name) % 1000)
             setprecision(BigFloat, 256) do
@@ -2231,8 +2231,8 @@ end
 
 @testset "Rate equation too large error" begin
     # Manually defined mechanism (11 forms, 16 steps; V×τ ≈ 29k denominator
-    # terms) exceeds MAX_RATE_EQUATION_TERMS, so the upfront V×τ check
-    # (_assert_derivable) aborts the derivation before it builds the polynomial.
+    # terms) exceeds MAX_RATE_EQUATION_TERMS, so the upfront V×τ check in `_law`
+    # aborts the derivation before it builds the polynomial.
     m_manual = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q

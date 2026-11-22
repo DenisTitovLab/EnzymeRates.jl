@@ -180,9 +180,11 @@ function _body(p::_Program)
 end
 
 """The body of the generated call of `m`'s compiled rate law: the program's code
-(`_body`) of its law (`_with_law`)."""
-_rate_body(m::Mechanisms.Mechanism) =
-    _with_law((m, s, L) -> _body(_program(m, s, L)), m)
+(`_body`) of its law (`_law`)."""
+function _rate_body(m::Mechanisms.Mechanism)
+    s = _solve(m)
+    _body(_program(m, s, _law(m, s)))
+end
 
 # ─── compile_rate_equation ─────────────────────────────────────────────────────
 #
@@ -232,11 +234,15 @@ instance and its call is generated once per mechanism."""
 struct _CompiledRateEquation{Sig} end
 
 """The mechanism whose compiled rate law has the type `R`, decoded from its Sig
-(`_mechanism_from_sig`) and checked as `check_valid_rate_equation` checks it, without the
-memo (`_well_posed`): what the law's generated methods derive from. It reads the Sig off
-`R` at run time, so it and the decoder compile once, whatever the mechanism."""
-_derivation_input(@nospecialize(R::Type{<:_CompiledRateEquation})) =
-    _well_posed(_mechanism_from_sig(R.parameters[1]))
+(`_mechanism_from_sig`) and checked as `check_valid_rate_equation` checks it, its guard
+verdict taken afresh rather than through the memo (`_Memo`): what the law's generated
+methods derive from. It reads the Sig off `R` at run time, so it and the decoder compile
+once, whatever the mechanism."""
+function _derivation_input(@nospecialize(R::Type{<:_CompiledRateEquation}))
+    m = _mechanism_from_sig(R.parameters[1])
+    _check_verdict(m, _guard(m))
+    m
+end
 
 """
     compile_rate_equation(m) -> rate

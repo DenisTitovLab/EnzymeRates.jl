@@ -4,7 +4,7 @@
 # The unit rule's normalizer of the plain mechanism `m`'s law, the law and the concrete
 # mechanism.
 function _testhelper_normalizer(m)
-    L = EnzymeRates.Derivation._law(m)
+    L = EnzymeRates.Derivation._memo_law(m)
     EnzymeRates.Derivation._normalizer(
         L.D, L.vars, EnzymeRates.Derivation._substrate_vars(m, L.vars)), L, m
 end
@@ -59,8 +59,7 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(mm)
-    @test nz.rule === :constant
-    @test nz.lambda == [EnzymeRates.Derivation._Mono() => 1 // 1]
+    @test nz == [EnzymeRates.Derivation._Mono() => 1 // 1]
     _testhelper_check_units(mech, L)
 end
 
@@ -80,9 +79,8 @@ end
     end
     nz, L, mech = _testhelper_normalizer(pp)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :cleland
-    @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
-                        m(:A => 1, :B => 1) => -1 // 1]
+    @test nz == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
+                 m(:A => 1, :B => 1) => -1 // 1]
     @test _testhelper_n_text(pp) ==
           "(k_EA_to_E_A + k_EA_to_F_P) * (k_EA_to_E_A * k_E_Q_to_FB * k_F_P_to_EA * Keq " *
           "+ k_EA_to_F_P * k_E_A_to_EA * k_F_B_to_FB) / (k_EA_to_F_P + k_FB_to_E_Q)"
@@ -107,10 +105,9 @@ end
     end
     nz, L, mech = _testhelper_normalizer(terbi)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :cleland
-    @test nz.lambda == [m(:B => 1, :C => 1) => 1 // 1, m(:A => 1, :C => 1) => 1 // 1,
-                        m(:A => 1, :B => 1) => 1 // 1,
-                        m(:A => 1, :B => 1, :C => 1) => -2 // 1]
+    @test nz == [m(:B => 1, :C => 1) => 1 // 1, m(:A => 1, :C => 1) => 1 // 1,
+                 m(:A => 1, :B => 1) => 1 // 1,
+                 m(:A => 1, :B => 1, :C => 1) => -2 // 1]
     _testhelper_check_units(mech, L)
 end
 
@@ -132,9 +129,8 @@ end
     end
     nz, L, mech = _testhelper_normalizer(power)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :cleland
-    @test nz.lambda == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
-                        m(:A => 1, :B => 1) => -1 // 1]
+    @test nz == [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
+                 m(:A => 1, :B => 1) => -1 // 1]
     _testhelper_check_units(mech, L)
 end
 
@@ -163,8 +159,7 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(f1)
-    @test nz.rule === :none
-    @test isempty(nz.lambda)
+    @test isempty(nz)
     _testhelper_check_units(mech, L)
 end
 
@@ -182,8 +177,7 @@ end
     end
     nz, L, mech = _testhelper_normalizer(f2)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :graded
-    @test nz.lambda == [m(:A => 1) => 3 // 2, m(:A => 3) => -1 // 2]
+    @test nz == [m(:A => 1) => 3 // 2, m(:A => 3) => -1 // 2]
     _testhelper_check_units(mech, L)
 end
 
@@ -202,8 +196,7 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(f3)
-    @test nz.rule === :none
-    @test isempty(nz.lambda)
+    @test isempty(nz)
     _testhelper_check_units(mech, L)
 end
 
@@ -221,8 +214,7 @@ end
         end
     end
     nz, L, mech = _testhelper_normalizer(covalent)
-    @test nz.rule === :none
-    @test isempty(nz.lambda)
+    @test isempty(nz)
     _testhelper_check_units(mech, L)
     @test _testhelper_printed_law_error(covalent) <= big(10)^-20
 end
@@ -242,8 +234,7 @@ end
     end
     nz, L, mech = _testhelper_normalizer(f4)
     m(ps...) = _testhelper_conc_mono(L, ps...)
-    @test nz.rule === :graded
-    @test nz.lambda == [m(:A => 1) => 2 // 1, m(:A => 2) => -1 // 1]
+    @test nz == [m(:A => 1) => 2 // 1, m(:A => 2) => -1 // 1]
     _testhelper_check_units(mech, L)
 end
 
@@ -310,12 +301,10 @@ end
         if i == 1
             cleland = [m(:B => 1) => 1 // 1, m(:A => 1) => 1 // 1,
                        m(:A => 1, :B => 1) => -1 // 1]
-            @test (nA.rule, nI.rule) == (:cleland, :cleland)
-            @test nA.lambda == nI.lambda == cleland
+            @test nA == nI == cleland
         else
-            @test (nA.rule, nI.rule) == (:none, :constant)
-            @test isempty(nA.lambda)
-            @test nI.lambda == [EnzymeRates.Derivation._Mono() => 1 // 1]
+            @test isempty(nA)
+            @test nI == [EnzymeRates.Derivation._Mono() => 1 // 1]
         end
         _testhelper_check_units(am, A)
         # The normalized polynomials in the MWC combination give the law. That holds for
@@ -597,10 +586,14 @@ end
     end
     law = EnzymeRates.Derivation._law(pp, EnzymeRates.Derivation._solve(pp))
     subs = EnzymeRates.Derivation._substrate_vars(pp, law.vars)
-    @test (
-        EnzymeRates.Derivation._normalizer(law.active.D, law.active.vars, subs).rule,
-        EnzymeRates.Derivation._normalizer(law.inactive.D, law.inactive.vars, subs).rule) ==
-          (:cleland, :none)
+    mono(ps...) = _testhelper_conc_mono(law.active, ps...)
+    # Cleland's terms normalize the active law; no product of coefficients has the
+    # inactive denominator's unit.
+    @test EnzymeRates.Derivation._normalizer(law.active.D, law.active.vars, subs) ==
+          [mono(:B => 1) => 1 // 1, mono(:A => 1) => 1 // 1,
+           mono(:A => 1, :B => 1) => -1 // 1]
+    @test isempty(EnzymeRates.Derivation._normalizer(law.inactive.D, law.inactive.vars,
+                                                     subs))
     full = split(rate_equation_string(pp), '\n')
     coef = split(rate_equation_string(pp; coefficients = true), '\n')
     heads(t) = [l[1:3] for l in t if occursin(r"^[QDFWN]_[AI] = ", l)]

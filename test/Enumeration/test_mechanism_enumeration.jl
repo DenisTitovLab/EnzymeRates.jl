@@ -9407,7 +9407,7 @@ end
             ES <--> EP    :: OnlyA
         end
     end
-    @test iszero(EnzymeRates.Derivation._law(m).inactive.Q)
+    @test iszero(EnzymeRates.Derivation._memo_law(m).inactive.Q)
     params = parameters(m)
     # K_I_ES_to_E_S and K_I_EP_to_E_P are referenced in the I-state
     # denominator of the body (the binding partition function for :NonequalAI
@@ -11600,7 +11600,7 @@ end
     with_a =
         _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, ordered_ss,
                          rxn_a_inhibits)
-    _testhelper_den_a_degree(k) = (L = EnzymeRates.Derivation._law(k);
+    _testhelper_den_a_degree(k) = (L = EnzymeRates.Derivation._memo_law(k);
         maximum(numerator(EnzymeRates.Derivation._mexp(mono, L.vars.index[:A]))
                 for mono in keys(L.D.terms)))
     @test length(with_a) == 4
@@ -11659,7 +11659,7 @@ end
     end
     @test EnzymeRates.Derivation._guard(merged_abortive).fault ===
           EnzymeRates.Derivation._BRIDGE
-    _testhelper_inactive_degree(am, x) = (C = EnzymeRates.Derivation._law(am).inactive;
+    _testhelper_inactive_degree(am, x) = (C = EnzymeRates.Derivation._memo_law(am).inactive;
         maximum(numerator(EnzymeRates.Derivation._mexp(mono, C.vars.index[x]))
                 for mono in keys(C.D.terms)))
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(
@@ -11783,7 +11783,7 @@ end
             (state, m.catalytic,
              state === :A ? EnzymeRates.Mechanisms.steps_in_active_conformation(m) :
              EnzymeRates.Mechanisms.steps_in_inactive_conformation(m))) do
-            L = EnzymeRates.Derivation._law(m)
+            L = EnzymeRates.Derivation._memo_law(m)
             _testhelper_hyperbolic(state === :A ? L.active : L.inactive, mets)
         end
         for m in mechs
@@ -11792,7 +11792,7 @@ end
                 _testhelper_candidate(m))
             if !_testhelper_is_allosteric(m)
                 @test structural ==
-                      _testhelper_hyperbolic(EnzymeRates.Derivation._law(m), mets)
+                      _testhelper_hyperbolic(EnzymeRates.Derivation._memo_law(m), mets)
             else
                 hyp_a = _testhelper_state_hyperbolic(m, :A)
                 @test structural == (hyp_a && _testhelper_state_hyperbolic(m, :I))
@@ -13769,7 +13769,7 @@ end
     # The K-type child, whose inactive conformation is free E alone, is an L phantom
     # (spec section 13): its rescaling certificate maps it onto the law of its catalytic
     # mechanism.
-    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k_type))
+    @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k_type))
     @test _testhelper_phantom_map_holds(k_type; rng = Random.MersenneTwister(1))
 end
 
@@ -13870,7 +13870,7 @@ end
     # All three are L phantoms, each mapped onto the parent's law by its certificate,
     # only_a and only_q though their inactive conformation keeps a binding at free E.
     for k in (only_a, only_q, a_and_q)
-        @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k))
+        @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k))
         @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(2))
     end
 end
@@ -13986,7 +13986,7 @@ end
     end
     # At two subunits no variant is an L phantom.
     @test !any(
-        k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k)), kids)
+        k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k)), kids)
 end
 
 @testset "_expand_to_allosteric on a merged bi-bi whose B group mixes fused and plain" begin
@@ -14103,11 +14103,11 @@ end
     # the parent's law by its certificate; the five that keep a binding there have no
     # certificate and are fitted.
     for k in (a_and_q, all_three)
-        @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k))
+        @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k))
         @test _testhelper_phantom_map_holds(k; rng = Random.MersenneTwister(3))
     end
     for k in (only_a, only_p, only_q, a_and_p, p_and_q)
-        @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k))
+        @test !EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k))
     end
 end
 
@@ -14192,7 +14192,7 @@ end
     for k in (only_q, p_and_q)
         @test !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(k))
     end
-    @test !any(k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(k)),
+    @test !any(k -> EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k)),
                (only_q, only_p, p_and_q))
 end
 
@@ -14921,7 +14921,7 @@ end
             end
         end
         key(m) = EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(m), "tme").key
+            EnzymeRates.Derivation._memo_law(m), m).key
         @test key(m_ordered) != key(m_random)
     end
 
@@ -14962,10 +14962,10 @@ end
             end
         end
 
-        law_a = EnzymeRates.Derivation._law(ldh_m_a)
-        law_b = EnzymeRates.Derivation._law(ldh_m_b)
-        canon_a = EnzymeRates.Derivation._canonical(law_a, "a")
-        canon_b = EnzymeRates.Derivation._canonical(law_b, "b")
+        law_a = EnzymeRates.Derivation._memo_law(ldh_m_a)
+        law_b = EnzymeRates.Derivation._memo_law(ldh_m_b)
+        canon_a = EnzymeRates.Derivation._canonical(law_a, ldh_m_a)
+        canon_b = EnzymeRates.Derivation._canonical(law_b, ldh_m_b)
         key_a = canon_a.key
         @test key_a == canon_b.key
         @test _testhelper_same_law_under_map(law_a, law_b, canon_a.order, canon_b.order;
@@ -14989,7 +14989,7 @@ end
             end
         end
         @test key_a != EnzymeRates.Derivation._canonical(
-            EnzymeRates.Derivation._law(ldh_m_c), "c").key
+            EnzymeRates.Derivation._memo_law(ldh_m_c), ldh_m_c).key
     end
 
     @testset "rate_equation_string emits section labels" begin

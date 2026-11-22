@@ -198,24 +198,21 @@ function _column_values(vars::_Vars, s::_Solve, wrap = identity)
 end
 
 """
-    _law(m::CatalyticScheme, s, mask; inactive = false, concentrations, shown) -> _Law
+    _law(am, s, mask; inactive = false) -> _Law
 
-The rate law of the edges of the catalytic scheme `m` that `mask` keeps, over the
-metabolites `concentrations`, in the inactive conformation's constants when `inactive`,
-over the independents of the solve `s`: the bare law
-(`_bare_law`) with each bare constant replaced by its column's value (an independent, or a
-dependent's power product of independents and `Keq`), the numerator divided exactly by `H`,
-then both brought to lowest terms in the concentrations. Every law derived from one solve
-numbers its variables alike: `concentrations`, then `s.independents`, then `Keq`.
+The rate law of the edges of `am`'s catalytic scheme that `mask` keeps, over the
+concentrations of `metabolites(am)`, in the inactive conformation's constants when
+`inactive`, over the independents of the solve `s`: the bare law (`_bare_law`) with each
+bare constant replaced by its column's value (an independent, or a dependent's power
+product of independents and `Keq`), the numerator divided exactly by `H`, then both
+brought to lowest terms in the concentrations. Every law derived from one solve numbers
+its variables alike: the concentrations, then `s.independents`, then `Keq`.
 
-Runs `_assert_derivable` first. Checked `Int64` arithmetic throughout: under the term cap
-no coefficient leaves it, so an `OverflowError` becomes an internal error that names the
-mechanism `shown`, whose catalytic scheme `m` is.
+Checked `Int64` arithmetic throughout: under the term cap, which `_law(am, s)` checks, no
+coefficient leaves it, so an `OverflowError` becomes an internal error that names `am`.
 """
-function _law(m::Mechanisms.CatalyticScheme, s::_Solve, mask::BitVector;
-              inactive::Bool = false, concentrations::Vector{Symbol},
-              shown::Mechanisms.Mechanism)
-    _assert_derivable(m, mask)
+function _law(am::Mechanisms.Mechanism, s::_Solve, mask::BitVector; inactive::Bool = false)
+    m, concentrations = am.catalytic, Mechanisms.metabolites(am)
     try
         b = _bare_law(m, mask, concentrations)
         vars = _Vars()
@@ -236,7 +233,7 @@ function _law(m::Mechanisms.CatalyticScheme, s::_Solve, mask::BitVector;
     catch err
         err isa OverflowError || rethrow()
         error("internal error: the rate law of this mechanism leaves Int64 arithmetic, " *
-              "which the term cap rules out:\n" * sprint(show, shown))
+              "which the term cap rules out:\n" * sprint(show, am))
     end
 end
 
@@ -246,7 +243,7 @@ end
 An MWC rate law over `vars`: `active.vars` (the concentrations of `metabolites(am)`, the
 independents of both conformations and `:Keq`), then the regulator constants (in
 `_Solve.fitted` order) and `:L`. With `QA, DA` from `active` and `QI, DI` from `inactive`
-(0 and 1 for a conformation that is free E alone, `_flip_only_law`), and
+(0 and 1 for an inactive conformation that is free E alone, `_flip_only_law`), and
 `WA = Π_s sites[s][1]^sites[s][3]`, `WI = Π_s sites[s][2]^sites[s][3]`:
 
     v = H·(fI^n·QA·DA^(n−1)·WA + L·fA^n·QI·DI^(n−1)·WI) /
@@ -320,30 +317,27 @@ function _site_weight(am::Mechanisms.Mechanism, vars::_Vars,
 end
 
 """
-    _law(m, s = _solve(m)) -> Union{_Law, _AlloLaw}
+    _law(m, s) -> Union{_Law, _AlloLaw}
 
-The law of mechanism `m` over the independents of `s`: a plain mechanism's law on every
-step, a `_Law`; an allosteric mechanism's MWC law, an `_AlloLaw`: each conformation's law
-on its steps (`steps_in_active_conformation`, `steps_in_inactive_conformation`),
-`_flip_only_law` for a conformation that runs none, both over the concentrations of
-`metabolites(m)`, so their polynomials multiply directly; free E's weight in each over
-their common factor; and each regulatory site's binding polynomials. Free E roots segment
-1, so its weight is that segment's tree sum times the law's shift. A law over the summed
-cap is refused before any polynomial product (`_assert_derivable`). The guard rejects an
-active conformation that runs no step (`_NO_ACTIVE_TURNOVER`), but the oracles read its
-law.
+The law of mechanism `m` over the independents of its solve `s`: a plain mechanism's law
+on every step, a `_Law`; an allosteric mechanism's MWC law, an `_AlloLaw`: each
+conformation's law on its steps (`steps_in_active_conformation`,
+`steps_in_inactive_conformation`), `_flip_only_law` for an inactive conformation that runs
+none, both over the concentrations of `metabolites(m)`, so their polynomials multiply
+directly; free E's weight in each over their common factor; and each regulatory site's
+binding polynomials. Free E roots segment 1, so its weight is that segment's tree sum times
+the law's shift. A law over the term cap (`rate_equation_term_count`,
+`MAX_RATE_EQUATION_TERMS`) throws a `RateEquationTooLargeError` before any polynomial is
+built. `m` passes the guard, which rejects an active conformation that runs no step
+(`_NO_ACTIVE_TURNOVER`).
 """
 function _law(am::Mechanisms.Mechanism, s::_Solve)
-    m, concentrations = am.catalytic, Mechanisms.metabolites(am)
-    _is_allosteric(am) ||
-        return _law(m, s, trues(length(m.steps)); concentrations, shown = am)
-    _assert_derivable(am)
-    amask, imask = Mechanisms.steps_in_active_conformation(am),
-                   Mechanisms.steps_in_inactive_conformation(am)
-    LA = any(amask) ? _law(m, s, amask; concentrations, shown = am) :
-         _flip_only_law(_law(m, s, imask; inactive = true, concentrations, shown = am))
-    LI = any(imask) ? _law(m, s, imask; inactive = true, concentrations, shown = am) :
-         _flip_only_law(LA)
+    rate_equation_term_count(am) > MAX_RATE_EQUATION_TERMS &&
+        throw(RateEquationTooLargeError())
+    _is_allosteric(am) || return _law(am, s, trues(length(am.catalytic.steps)))
+    imask = Mechanisms.steps_in_inactive_conformation(am)
+    LA = _law(am, s, Mechanisms.steps_in_active_conformation(am))
+    LI = any(imask) ? _law(am, s, imask; inactive = true) : _flip_only_law(LA)
     vars = copy(LA.vars)
     for x in view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1))
         _var!(vars, x)
@@ -356,15 +350,6 @@ function _law(am::Mechanisms.Mechanism, s::_Solve)
                                      for site in am.allosteric.regulatory_sites]
     _AlloLaw(vars, LA.H, LA, LI, fA, fI, sites, am.allosteric.oligomeric_state)
 end
-_law(m::Mechanisms.Mechanism) = _law(m, _solve(m))
-
-"""
-    _with_law(f, m, s = _solve(m)) -> f(m, s, L)
-
-`f` called on `m`, its solve `s` and its law `L = _law(m, s)`.
-"""
-_with_law(f, m::Mechanisms.Mechanism, s::_Solve = _solve(m)) = f(m, s, _law(m, s))
-
 """
 The spanning trees of the multigraph whose Laplacian is `lap`: the determinant of `lap`
 without its first row and column (Kirchhoff's matrix-tree theorem), by fraction-free
@@ -396,18 +381,16 @@ function _tree_count(lap::Matrix{Int})
 end
 
 """
-Estimate the term count of the law of the edges of catalytic scheme `m` that `mask` keeps,
-segment graph (`Mechanisms.rapid_equilibrium_segments`), without deriving the law: `V` is
-the number of rapid-equilibrium segments, `τ` the spanning trees of the segment graph
-whose edges are the kept steady-state edges between segments, parallel ones counted apart
-(`_tree_count`).
-V×τ is the number of spanning-tree products in the law's denominator before kinetic
-grouping, so it bounds fit cost. It guards the derivation (`_assert_derivable` aborts
-when V×τ exceeds `MAX_RATE_EQUATION_TERMS`, before any polynomial is built) and backs the
-`eq_complexity_filter` keyword of [`identify_rate_equation`](@ref). Saturates at
-`typemax(Int)`.
+    _term_count(m, mask) -> Int
+
+The term count V×τ of the law of the edges of catalytic scheme `m` that `mask` keeps, read
+off its segment graph (`Mechanisms.rapid_equilibrium_segments`) without deriving the law:
+`V` is the number of rapid-equilibrium segments, `τ` the spanning trees of the segment
+graph whose edges are the kept steady-state edges between segments, parallel ones counted
+apart (`_tree_count`). V×τ is the number of spanning-tree products in the law's
+denominator before kinetic grouping, so it bounds fit cost. Saturates at `typemax(Int)`.
 """
-function rate_equation_term_count(m::Mechanisms.CatalyticScheme, mask::BitVector)
+function _term_count(m::Mechanisms.CatalyticScheme, mask::BitVector)
     s = Mechanisms.rapid_equilibrium_segments(m, mask)
     G = length(s.segments)
     G <= 1 && return G
@@ -424,18 +407,18 @@ end
 """
     rate_equation_term_count(m) -> Int
 
-The size of `m`'s rate law in spanning-tree products, V×τ
-(`rate_equation_term_count(m, mask)`): over every edge of a plain mechanism; for an
-allosteric one, the active law's count plus the inactive law's, a conformation that is
-free E alone counting 0, saturated at `typemax(Int)`. The cap (`_assert_derivable`) and
-identify's `eq_complexity_filter` read it.
+The size of `m`'s rate law in spanning-tree products, V×τ (`_term_count`): over every
+edge of a plain mechanism; for an allosteric one, the active law's count plus the inactive
+law's, a conformation that is free E alone counting 0, saturated at `typemax(Int)`. The
+term cap (`MAX_RATE_EQUATION_TERMS`, which `_law` checks before it builds any polynomial)
+and identify's `eq_complexity_filter` read it.
 """
 function rate_equation_term_count(am::Mechanisms.Mechanism)
     m = am.catalytic
-    a = rate_equation_term_count(m, Mechanisms.steps_in_active_conformation(am))
+    a = _term_count(m, Mechanisms.steps_in_active_conformation(am))
     _is_allosteric(am) || return a
     imask = Mechanisms.steps_in_inactive_conformation(am)
-    i = any(imask) ? rate_equation_term_count(m, imask) : 0
+    i = any(imask) ? _term_count(m, imask) : 0
     a > typemax(Int) - i ? typemax(Int) : a + i
 end
 
@@ -447,8 +430,8 @@ compile and is unlikely to be useful for fitting.
 const MAX_RATE_EQUATION_TERMS = 5000
 
 """
-The error `_assert_derivable` raises for a mechanism whose rate equation would have more
-than `MAX_RATE_EQUATION_TERMS` terms.
+The error `_law` raises for a mechanism whose rate equation would have more than
+`MAX_RATE_EQUATION_TERMS` terms.
 """
 struct RateEquationTooLargeError <: Exception end
 
@@ -457,19 +440,3 @@ Base.showerror(io::IO, ::RateEquationTooLargeError) = print(io,
     "polynomial terms (limit: $MAX_RATE_EQUATION_TERMS). Equations this large " *
     "take a very long time to compile and are unlikely to be practically " *
     "useful for parameter fitting.")
-
-"""
-    _assert_derivable(m, mask)
-    _assert_derivable(am)
-
-Abort a derivation whose term count (V×τ, `rate_equation_term_count` of the same
-arguments) exceeds `MAX_RATE_EQUATION_TERMS`: the law of the edges of `m` that `mask`
-keeps, or both conformations of `am`'s MWC law together. A quick count on the segment
-graph that throws a `RateEquationTooLargeError` before any polynomial is built. Every
-derivation entry calls it (`_law`).
-"""
-function _assert_derivable(args...)
-    rate_equation_term_count(args...) > MAX_RATE_EQUATION_TERMS &&
-        throw(RateEquationTooLargeError())
-    return nothing
-end

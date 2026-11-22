@@ -48,6 +48,5 @@ function _memo_law(m::Mechanisms.Mechanism)
     _memo(m).law = _law(m, _memo_solve(m))
 end
 
-"""`f` called on `m`, its joint solve `s` and its law `L`, both through the memo: the
-memo's counterpart of `_with_law`."""
+"""`f` called on `m`, its joint solve `s` and its law `L`, both through the memo."""
 _with_memo_law(f, m::Mechanisms.Mechanism) = f(m, _memo_solve(m), _memo_law(m))

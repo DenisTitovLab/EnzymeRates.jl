@@ -15,11 +15,6 @@ function _arcs(am::Mechanisms.Mechanism, c::Int, reading::_Reading)
     arcs
 end
 
-"""The first edge of `am`'s catalytic graph that conformation `c` excludes; 0 when it
-excludes none."""
-_first_excluded(am::Mechanisms.Mechanism, c::Int) =
-    something(findfirst(_excluded_steps(am, c)), 0)
-
 """
 The arcs (`_arcs`) of one directed cycle that `arcs` close over the components `comp`,
 each arc read from its lower side's component to its higher side's, in cycle order; empty
@@ -129,7 +124,7 @@ function _admission_interior(am::Mechanisms.Mechanism, reading::_Reading)
     for c in 1:2
         excluded = _excluded_steps(am, c)
         any(excluded) || continue
-        v = _interior_verdict(am, c, excluded, exclusion_components(am, _CONFORMATIONS[c]),
+        v = _interior_verdict(am, c, excluded, exclusion_components(am.catalytic, excluded),
                               reading)
         v === _WELL_POSED || return v
     end
@@ -140,7 +135,7 @@ end
 active conformation of `am`, its law network still holds a cycle that turns the reaction
 over (`_NO_ACTIVE_TURNOVER`, led by the first edge it excludes); `_WELL_POSED` otherwise."""
 function _active_turnover_verdict(am::Mechanisms.Mechanism)
-    k = _first_excluded(am, 1)
+    k = something(findfirst(_excluded_steps(am, 1)), 0)
     k != 0 &&
         !Mechanisms.has_turnover_cycle(am.catalytic,
                                        Mechanisms.steps_in_active_conformation(am)) &&
@@ -165,7 +160,7 @@ holds and `columns` is empty.
 function _consistent_columns(am::Mechanisms.Mechanism, c::Int)
     steps = am.catalytic.steps
     excluded = _excluded_steps(am, c)
-    comp = exclusion_components(am, _CONFORMATIONS[c])
+    comp = exclusion_components(am.catalytic, excluded)
     reading = fill(_RUNS, length(steps), 2)
     between, options = Int[], Vector{_SwitchOff}[]
     columns = Vector{_SwitchOff}[]

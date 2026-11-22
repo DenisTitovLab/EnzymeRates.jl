@@ -15,6 +15,8 @@ random.
 function _testhelper_solve_point(m, rng)
     g = _testhelper_graph(m)
     sys = _testhelper_JS.Derivation._joint_system(m)
+    law = _testhelper_JS.Mechanisms.steps_in_inactive_conformation(m)
+    tags = _testhelper_JS.Derivation._solve_tags(m)
     edges = _testhelper_JS.Derivation._flat_edges(m.catalytic)
     M, pivots = _testhelper_JS.Derivation._reduce_joint_system(sys.A, sys.rhs)
     n = length(sys.columns)
@@ -32,9 +34,8 @@ function _testhelper_solve_point(m, rng)
         out = []
         for (j, s) in enumerate(g.steps)
             k = edges[j]
-            inactive && !sys.law[k] && continue
-            own = inactive &&
-                _testhelper_JS.Derivation._has_inactive_columns(sys.tags[s.group])
+            inactive && !law[k] && continue
+            own = inactive && _testhelper_JS.Derivation._has_inactive_columns(tags[s.group])
             col(slot) = value[_testhelper_JS.Derivation._StepParameter(k, slot, own)]
             if s.rapid_equilibrium
                 K = col(1)
@@ -439,12 +440,13 @@ end
             @testset "$(spec.name)" begin
                 mech = spec.mechanism
                 sys = EnzymeRates.Derivation._joint_system(mech)
+                law = EnzymeRates.Mechanisms.steps_in_inactive_conformation(mech)
                 _, pivots = EnzymeRates.Derivation._reduce_joint_system(sys.A, sys.rhs)
                 excluded = (EnzymeRates.Derivation._excluded_steps(mech, 1),
                             EnzymeRates.Derivation._excluded_steps(mech, 2))
                 class(c) = EnzymeRates.Derivation._class(mech, excluded, c)
                 last_of = Dict(class(c) => i for (i, c) in enumerate(sys.columns))
-                n_law = count(i -> (c = sys.columns[i]; (!c.inactive || sys.law[c.step]) &&
+                n_law = count(i -> (c = sys.columns[i]; (!c.inactive || law[c.step]) &&
                                                         last_of[class(c)] == i &&
                                                         i ∉ pivots), eachindex(sys.columns))
                 n_reg = _testhelper_is_allosteric(mech) ?
@@ -462,6 +464,7 @@ end
             @testset "$(spec.name)" begin
                 mech = spec.mechanism
                 sys = EnzymeRates.Derivation._joint_system(mech)
+                tags = EnzymeRates.Derivation._solve_tags(mech)
                 # In elimination order the last column of a class overwrites the earlier
                 # ones. The inactive copy of an :OnlyA step is a class of its own, which
                 # `_kept_members` leaves out.
@@ -469,7 +472,7 @@ end
                 last_of_class = Dict{Tuple{Int, Int, Bool}, Int}()
                 for c in sys.columns
                     g = group[c.step]
-                    c.inactive && sys.tags[g] === :OnlyA && continue
+                    c.inactive && tags[g] === :OnlyA && continue
                     last_of_class[(g, c.slot, c.inactive)] = c.step
                 end
                 @test EnzymeRates.Derivation._kept_members(mech) == last_of_class

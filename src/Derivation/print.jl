@@ -87,10 +87,11 @@ when there is none. `terms[j]` holds a `_Term` for each concentration monomial o
 `polys[j]`, in the unit rule's order (`_term_key`). A coefficient whose polynomial factor
 is `N`'s one factor drops it and is not over `N`.
 """
-function _printed(L::_Law, nz::_Norm, polys::Vector{_Poly}, subs::Vector{Int})
+function _printed(L::_Law, nz::Vector{Pair{_Mono, _Exp}}, polys::Vector{_Poly},
+                  subs::Vector{Int})
     D, names = _split_conc(L.D, L.vars), L.vars.names
     k, mu, apart = 1 // 1, _Mono(), Tuple{_Poly, _Exp}[]
-    for (mo, e) in nz.lambda
+    for (mo, e) in nz
         c, u, rest = _content(D[mo])
         if isinteger(e)
             k *= (c // 1)^numerator(e)
@@ -308,10 +309,6 @@ end
 
 # ─── rate_equation_string ────────────────────────────────────────────────────
 
-_check_coefficient_values(coefficients::Bool, coefficient_values::Bool) =
-    coefficient_values || coefficients ||
-        throw(ArgumentError("coefficient_values = false needs coefficients = true"))
-
 """
     rate_equation_string(m; coefficients = false, coefficient_values = true) -> String
 
@@ -392,7 +389,8 @@ v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 """
 function rate_equation_string(m::Mechanisms.Mechanism; coefficients::Bool = false,
                               coefficient_values::Bool = true)
-    _check_coefficient_values(coefficients, coefficient_values)
+    coefficient_values || coefficients ||
+        throw(ArgumentError("coefficient_values = false needs coefficients = true"))
     check_valid_rate_equation(m)
     _with_memo_law((m, s, L) -> _law_text(m, s, L; coefficients, coefficient_values), m)
 end

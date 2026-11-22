@@ -14,9 +14,6 @@ public check_valid_rate_equation, compile_rate_equation, dependent_parameter_val
 """Whether `m` is allosteric: its kinetic groups carry allosteric states."""
 _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)
 
-"""The two conformations by the index the guard gives them: 1 active, 2 inactive."""
-const _CONFORMATIONS = (:active, :inactive)
-
 """The rapid-equilibrium flag of each step of `m`."""
 _re_flags(m::Mechanisms.CatalyticScheme) = BitVector(s.rapid_equilibrium for s in m.steps)
 

@@ -113,21 +113,19 @@ function _search!(st::_KeySearch, pcol::Vector{Int}, tcol::Vector{Int}, inc, occ
 end
 
 """
-    _canonical(L, mechanism_id) -> _Canonical
+    _canonical(L, m) -> _Canonical
 
-The canonical form of the rate law `L` (a `_Law` or an `_AlloLaw`). Each unit of
-`_key_parts` is multiplied by the monomial that brings every variable to lowest terms
-(`_lowest_shift`) and divided by its integer content. A term is labelled by its
+The canonical form of the rate law `L` (a `_Law` or an `_AlloLaw`) of mechanism `m`. Each
+unit of `_key_parts` is multiplied by the monomial that brings every variable to lowest
+terms (`_lowest_shift`) and divided by its integer content. A term is labelled by its
 component, coefficient and fixed factors (concentrations as `c_<name>`, `Keq`, `L`),
 sorted. The fitted constants, every other variable a term holds, are coloured by
 refinement on the term–constant incidence; while colours tie, each constant of the first
 tied class is individualized in turn, keeping the smallest text (`_search!`). At
-`_KEY_LEAF_CAP` labellings the law takes the key of `"mechanism|" * mechanism_id`.
-`mechanism_id` may be the mechanism itself, whose id (the first 16 hex digits of the
-SHA-256 of its text, `show`) is then taken only at the cap.
+`_KEY_LEAF_CAP` labellings the law takes the key of `"mechanism|"` and `m`'s id, the first
+16 hex digits of the SHA-256 of its text (`show`).
 """
-function _canonical(L::Union{_Law, _AlloLaw},
-                    mechanism_id::Union{AbstractString, Mechanisms.Mechanism})
+function _canonical(L::Union{_Law, _AlloLaw}, m::Mechanisms.Mechanism)
     comps, units, header = _key_parts(L)
     vars = L.vars
     fixed(v) = vars.conc[v] || vars.names[v] === :Keq || vars.names[v] === :L
@@ -157,8 +155,7 @@ function _canonical(L::Union{_Law, _AlloLaw},
     st = _search!(_KeySearch("", Int[], 0), ones(Int, length(present)), _ranks(labels),
                   inc, occ, labels)
     if st.leaves >= _KEY_LEAF_CAP
-        text = "mechanism|" * (mechanism_id isa AbstractString ? mechanism_id :
-                               bytes2hex(sha256(sprint(show, mechanism_id)))[1:16])
+        text = "mechanism|" * bytes2hex(sha256(sprint(show, m)))[1:16]
         return _Canonical(vars.names[params], text, bytes2hex(sha256(text)), st.leaves,
                           true)
     end

@@ -1369,8 +1369,8 @@ end
                     siblings])
     keyed = Dict{String, Vector{Any}}()
     for m in pool
-        L = EnzymeRates.Derivation._law(m)
-        c = EnzymeRates.Derivation._canonical(L, sprint(show, m))
+        L = EnzymeRates.Derivation._memo_law(m)
+        c = EnzymeRates.Derivation._canonical(L, m)
         @test !c.capped
         push!(get!(keyed, c.key, Any[]), (L, c))
     end
@@ -1528,22 +1528,23 @@ end
     rng = Random.MersenneTwister(612)
     n_regrouped = 0
     for (m, regrouped) in zip(_testhelper_population_sample, _testhelper_sample_regroupings)
-        L = EnzymeRates.Derivation._law(m)
-        c = EnzymeRates.Derivation._canonical(L, "q2")
+        L = EnzymeRates.Derivation._memo_law(m)
+        c = EnzymeRates.Derivation._canonical(L, m)
         @test !c.capped
-        back = EnzymeRates.Derivation._law(_testhelper_written_backwards(m))
-        @test EnzymeRates.Derivation._canonical(back, "q2").key == c.key
+        backwards = _testhelper_written_backwards(m)
+        back = EnzymeRates.Derivation._memo_law(backwards)
+        @test EnzymeRates.Derivation._canonical(back, backwards).key == c.key
         for child in regrouped
             n_regrouped += 1
-            Lc = EnzymeRates.Derivation._law(child)
-            cc = EnzymeRates.Derivation._canonical(Lc, "q2")
+            Lc = EnzymeRates.Derivation._memo_law(child)
+            cc = EnzymeRates.Derivation._canonical(Lc, child)
             @test cc.key == c.key
             @test _testhelper_same_law_under_map(L, Lc, c.order, cc.order; rng)
         end
         constants = filter(x -> x ∉ (:Keq, :L), L.vars.names[.!L.vars.conc])
         rename = Dict(zip(constants, shuffle(rng, constants)))
         R = _testhelper_renamed_law(L, rename)
-        r = EnzymeRates.Derivation._canonical(R, "q2")
+        r = EnzymeRates.Derivation._canonical(R, m)
         @test r.key == c.key
         @test Set(r.order) == Set(rename[x] for x in c.order)
         @test _testhelper_same_law_under_map(L, R, c.order, r.order; rng)
@@ -1600,7 +1601,7 @@ end
     kids = _testhelper_spaced(_testhelper_tagging_children(parents, rxn), 200)
     @test length(kids) == 200
     flagged = [am for am in kids
-               if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))]
+               if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(am))]
     @test length(flagged) == 76
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
@@ -1633,7 +1634,7 @@ end
     @test count(am -> !any(EnzymeRates.Mechanisms.steps_in_inactive_conformation(am)),
                 kids) == 93
     flagged = [am for am in kids
-               if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._law(am))]
+               if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(am))]
     @test length(flagged) == 111
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)

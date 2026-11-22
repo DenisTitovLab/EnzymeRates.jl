@@ -77,7 +77,7 @@ function _fundamental_cycles(m::Mechanisms.CatalyticScheme, flat::Vector{Int})
 end
 
 """
-    _joint_system(m, cols = _constant_columns(m)) -> (; columns, A, rhs, law, tags, flat)
+    _joint_system(m, cols = _constant_columns(m)) -> (; columns, A, rhs)
 
 The thermodynamic system of `m`, `A · log(constants) = rhs · log(Keq)`, over one column
 per bare constant in elimination order (`_constant_columns`).
@@ -89,12 +89,11 @@ column; a cycle row sums, over its edges, the log of each edge's forward equilib
 binding's dissociation constant, `K` otherwise), and its right side is the cycle's
 multiple of the net reaction. Then one row per further
 member of each kinetic class (`_class`), setting it equal to the class's first member,
-slot by slot. `law[k]` tells whether edge `k` lies in the inactive conformation's law,
-`tags` holds each group's tag and `flat` the edges group by group.
+slot by slot.
 """
 function _joint_system(m::Mechanisms.Mechanism, cols = _constant_columns(m))
     cm = m.catalytic
-    (; columns, flat, tags, law) = cols
+    (; columns, flat) = cols
     allosteric = _is_allosteric(m)
     index = Dict(c => i for (i, c) in enumerate(columns))
     # An inactive constant reads its own column when its group has one, else the active.
@@ -127,7 +126,7 @@ function _joint_system(m::Mechanisms.Mechanism, cols = _constant_columns(m))
         push!(rhs, 0)
     end
     A = isempty(rows) ? zeros(Int, 0, length(columns)) : permutedims(reduce(hcat, rows))
-    (; columns, A, rhs, law, tags, flat)
+    (; columns, A, rhs)
 end
 
 # ─── Exact reduction ───────────────────────────────────────────────────────

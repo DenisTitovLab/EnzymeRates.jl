@@ -109,7 +109,8 @@ julia> dependent_parameter_values(m, p, 4.0)
 ```
 """
 function dependent_parameter_values(m::Mechanisms.Mechanism, params::NamedTuple, Keq::Real)
-    s = _solve(_well_posed(m))
+    check_valid_rate_equation(m)
+    s = _memo_solve(m)
     absent = Symbol[k for k in s.fitted if !haskey(params, k)]
     isempty(absent) || error("dependent_parameter_values: params must hold every name " *
                              "of parameters(m); it lacks " * join(absent, ", "))

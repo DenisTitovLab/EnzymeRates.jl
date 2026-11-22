@@ -11,19 +11,15 @@ function _excluded_steps(m::Mechanisms.Mechanism, c::Int)
 end
 
 """
-    exclusion_components(am, c::Symbol) -> Vector{Int}
+    exclusion_components(m::CatalyticScheme, excluded::BitVector) -> Vector{Int}
 
-Each form's component under the edges of `am`'s catalytic graph that conformation `c`
-(`:active` or `:inactive`) keeps (all but `_excluded_steps`, the edges of `:OnlyI`
-groups in the active conformation, those of `:OnlyA` groups in the inactive), every form
-included, labelled by its smallest form index, so free E's label is 1. A form outside free
-E's component is cut off in `c`; the guard's built readings of how `c` switches off each
-step it excludes (`_built_reading`) read these components.
+Each form's component under the edges of the catalytic scheme `m` that a conformation
+keeps, all but those `excluded` flags (`_excluded_steps`), every form included, labelled
+by its smallest form index, so free E's label is 1. A form outside free E's component is
+cut off in that conformation; the guard's built readings of how it switches off each step
+it excludes (`_built_reading`) read these components.
 """
-function exclusion_components(am::Mechanisms.Mechanism, c::Symbol)
-    excluded = _excluded_steps(am, c === :active ? 1 : c === :inactive ? 2 :
-        throw(ArgumentError("a conformation is :active or :inactive, not :$c")))
-    m = am.catalytic
+function exclusion_components(m::Mechanisms.CatalyticScheme, excluded::BitVector)
     parent = collect(eachindex(m.enzyme_forms))
     for (k, e) in enumerate(m.steps)
         excluded[k] && continue
@@ -95,7 +91,7 @@ function _built_reading(am::Mechanisms.Mechanism,
     for c in 1:2
         excluded = _excluded_steps(am, c)
         any(excluded) || continue
-        comp = exclusion_components(am, _CONFORMATIONS[c])
+        comp = exclusion_components(am.catalytic, excluded)
         uptake = [excluded[k] && length(e.taken_up) == 1 && isempty(e.given_off) &&
                   comp[e.from] != comp[e.to] && comp[e.to] != comp[1]
                   for (k, e) in enumerate(steps)]

@@ -656,8 +656,33 @@ function _testhelper_steady_state_rate(m, point, concs::AbstractDict; Λ = big(1
 end
 
 """
+The derived law of `m` over its solve `s` (`EnzymeRates.Derivation._law`), read without
+the guard. The guard rejects an allosteric mechanism whose active conformation runs no step
+(`_NO_ACTIVE_TURNOVER`), so `_law` derives none; the oracles still read its MWC law, its
+active conformation free E alone (`_flip_only_law`) over the inactive law's variables and
+the rest assembled as `_law` assembles an MWC law.
+"""
+function _testhelper_law(m, s = EnzymeRates.Derivation._solve(m))
+    D = EnzymeRates.Derivation
+    any(EnzymeRates.Mechanisms.steps_in_active_conformation(m)) && return D._law(m, s)
+    LI = D._law(m, s, EnzymeRates.Mechanisms.steps_in_inactive_conformation(m);
+                inactive = true)
+    LA = D._flip_only_law(LI)
+    vars = copy(LI.vars)
+    foreach(x -> D._var!(vars, x),
+            view(s.fitted, (length(s.independents) + 1):(length(s.fitted) - 1)))
+    D._var!(vars, :L)
+    fA, fI = D._cross_weights(LA.trees[1] * LA.shift, LI.trees[1] * LI.shift)
+    sites = Tuple{D._Poly, D._Poly, Int}[(D._site_weight(m, vars, site, false),
+                                          D._site_weight(m, vars, site, true),
+                                          site.multiplicity)
+                                         for site in m.allosteric.regulatory_sites]
+    D._AlloLaw(vars, LI.H, LA, LI, fA, fI, sites, m.allosteric.oligomeric_state)
+end
+
+"""
 The rate law of `m` per enzyme, evaluated in 256-bit BigFloat from its derived law
-(`EnzymeRates.Derivation._law`) at the parameter values `params` (by name: the fitted
+(`_testhelper_law`) at the parameter values `params` (by name: the fitted
 constants, `Keq` and, for an allosteric mechanism, `L` and the regulator constants) and the
 concentrations `concs`. `m` is read as it is, without the guard, so the oracles can
 evaluate the law of a mechanism the guard rejects. A law that is 0/0 on a face gives NaN
@@ -669,7 +694,7 @@ function _testhelper_law_value(m, params::AbstractDict, concs::AbstractDict)
         for (k, v) in concs
             env[k] = BigFloat(v)
         end
-        _testhelper_evaluate_law(EnzymeRates.Derivation._law(m), env)
+        _testhelper_evaluate_law(_testhelper_law(m), env)
     end
 end
 
@@ -739,7 +764,7 @@ end
 """
     _testhelper_detailed_balance(m, rng) -> Vector{BigFloat}
 
-Detailed-balance residuals of `m`'s derived law (`EnzymeRates.Derivation._law`) at a random
+Detailed-balance residuals of `m`'s derived law (`_testhelper_law`) at a random
 parameter point, in 256-bit BigFloat: the law's value at equilibrium concentrations (the
 first product scaled so that Π[P]/Π[S] = Keq) over its value with that product ten times
 lower, then, for an allosteric mechanism, the same ratio of `H·Q` for each conformation
@@ -750,7 +775,7 @@ checked too.
 function _testhelper_detailed_balance(m, rng)
     setprecision(BigFloat, 256) do
         s = EnzymeRates.Derivation._solve(m)
-        L = EnzymeRates.Derivation._law(m, s)
+        L = _testhelper_law(m, s)
         params = Dict{Symbol, BigFloat}(k => exp(4 * big(rand(rng)) - 2) for k in s.fitted)
         params[:Keq] = exp(4 * big(rand(rng)) - 2)
         g = _testhelper_graph(m)
@@ -892,7 +917,7 @@ function _testhelper_identifiable_rank(m; npts = 60, ndraws = 3, h = 1e-5)
     rate = if _testhelper_is_valid(m)
         compile_rate_equation(m)
     else
-        L = EnzymeRates.Derivation._law(m)
+        L = EnzymeRates.Derivation._memo_law(m)
         function _testhelper_unchecked_rate(c, p, keq)
             env = Dict{Symbol, BigFloat}(k => BigFloat(v)
                                          for (k, v) in pairs(merge(p, c, (Keq = keq,))))
@@ -2660,21 +2685,19 @@ function _testhelper_check_units(m, L)
         uD = _testhelper_unit(C.D)
         nz = EnzymeRates.Derivation._normalizer(C.D, vars, subs)
         Dc = EnzymeRates.Derivation._split_conc(C.D, vars)
-        uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* _testhelper_unit(Dc[mo])), nz.lambda;
+        uN = foldl((acc, (mo, λ)) -> plus(acc, λ .* _testhelper_unit(Dc[mo])), nz;
                    init = (0 // 1, 0 // 1))
-        if nz.rule === :none
-            @test isempty(nz.lambda)
+        # A constant term is the normalizer whenever `D` has one.
+        haskey(Dc, EnzymeRates.Derivation._Mono()) &&
+            @test nz == [EnzymeRates.Derivation._Mono() => 1 // 1]
+        if isempty(nz)
             # No weights solve the units equation: [1; 0] is outside the span of [1; a_m].
             M = reduce(hcat, [EnzymeRates.Derivation._Exp[1; expo(mo)] for mo in keys(Dc)])
             @test rank(Float64.(M)) < rank(Float64.([M [1; zeros(Int, size(M, 1) - 1)]]))
-        elseif nz.rule === :constant
-            @test nz.lambda == [EnzymeRates.Derivation._Mono() => 1 // 1]
-            @test uN == uD
         else
-            @test nz.rule in (:cleland, :graded)
             @test uN == uD
-            @test sum(last, nz.lambda) == 1
-            @test iszero(sum(λ * expo(mo) for (mo, λ) in nz.lambda))
+            @test sum(last, nz) == 1
+            @test iszero(sum(λ * expo(mo) for (mo, λ) in nz))
         end
         iszero(C.Q) ||
             @test plus(_testhelper_unit(L.H), _testhelper_unit(C.Q)) ==
@@ -2692,11 +2715,11 @@ function _testhelper_check_units(m, L)
 end
 
 """The value at `env` (by name), in BigFloat, of the normalizer `nz` of the denominator
-`D` over `vars`: Π c(m)^λ_m over `nz.lambda`, `c(m)` the coefficient of the concentration
-monomial `m` in `D`, and 1 when `nz.lambda` is empty."""
+`D` over `vars`: Π c(m)^λ_m over the pairs `m => λ_m` of `nz`, `c(m)` the coefficient of
+the concentration monomial `m` in `D`, and 1 when `nz` is empty."""
 function _testhelper_norm_value(nz, D, vars, env)
     Dc = EnzymeRates.Derivation._split_conc(D, vars)
-    prod((_testhelper_poly_value(Dc[mo], vars, env)^BigFloat(λ) for (mo, λ) in nz.lambda);
+    prod((_testhelper_poly_value(Dc[mo], vars, env)^BigFloat(λ) for (mo, λ) in nz);
          init = big(1))
 end
 
@@ -2849,7 +2872,7 @@ allosteric mechanism's point is drawn at one catalytic subunit, and the law is r
 own multiplicity.
 """
 function _testhelper_printed_law_error(m; points::Int = 2, seed::Int = 31)
-    L = EnzymeRates.Derivation._law(m)
+    L = EnzymeRates.Derivation._memo_law(m)
     fitted = collect(EnzymeRates.Derivation._solve(m).fitted)
     texts = (rate_equation_string(m), rate_equation_string(m; coefficients = true))
     rng = Random.MersenneTwister(seed)
