@@ -5330,12 +5330,18 @@ include("reference/allosteric_undefvar_reproducers.jl")
 compiler may not inline, so it cannot hoist the call out of the timing loop."""
 @noinline _testhelper_rate_barrier(rate, concs, params, Keq) = rate(concs, params, Keq)
 
+"""`f()`, called `n` levels of this function below the caller. Each level adds `0.0` to
+what the level below returns, so no call is a tail call and each level keeps its frame."""
+@noinline _testhelper_at_depth(f, n::Int) =
+    n == 0 ? f() : _testhelper_at_depth(f, n - 1) + 0.0
+
 """
 `(allocs, seconds)`: the allocations of one call of the compiled rate law `rate`, and its
-best time per call over five batches of 10,000 calls. It takes the law, not its mechanism,
-so it compiles for the law's type, which carries the mechanism: a law compiled inside it
-has an abstract type there, and each timed call would be dispatched at run time, which
-costs more than a small law on CI runners. Each call goes through
+best time per call over five batches of 10,000 calls, each batch 50 stack frames deeper
+than the last and with its own copy of `concs` and `params`. It takes the law, not its
+mechanism, so it compiles for the law's type, which carries the mechanism: a law compiled
+inside it has an abstract type there, and each timed call would be dispatched at run time,
+which costs more than a small law on CI runners. Each call goes through
 `_testhelper_rate_barrier`, so every one of the 10,000 calls per batch runs.
 """
 function _testhelper_test_rate_equation_performance(rate, params, Keq, concs)
@@ -5344,16 +5350,25 @@ function _testhelper_test_rate_equation_performance(rate, params, Keq, concs)
     # Minimum over several batches defeats the GC/scheduling inflation a
     # single mean suffers; accumulating into `acc` (and observing it via the
     # finite-result check) prevents the optimizer from eliding the calls.
+    # Where the law's frame and its inputs fall in a 4 KB page can slow every call of a
+    # process: an input that straddles a page boundary, or a frame at one of a few offsets.
+    # So each batch runs 50 levels (800 bytes on aarch64) deeper than the last, and reads
+    # the inputs through a `Ref`, which puts a copy of them in the batch's own frame.
+    # Captured directly, they would stay in this frame for all five batches.
     best = Inf
-    acc = 0.0
-    for _ in 1:5
-        acc = 0.0
-        t = @elapsed for _ in 1:10_000
-            acc += _testhelper_rate_barrier(rate, concs, params, Keq)
+    inputs = Ref((concs, params))
+    for batch in 1:5
+        t = _testhelper_at_depth(50 * batch) do
+            c, p = inputs[]
+            acc = 0.0
+            seconds = @elapsed for _ in 1:10_000
+                acc += _testhelper_rate_barrier(rate, c, p, Keq)
+            end
+            isfinite(acc) || error("the rate law produced a non-finite result")
+            seconds
         end
         best = min(best, t / 10_000)
     end
-    isfinite(acc) || error("the rate law produced a non-finite result")
     return allocs, best
 end
 

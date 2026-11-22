@@ -848,7 +848,9 @@ compiled law, and `_testhelper_loss_time_per_row`, in the derivation test file, 
 
 - The compiled law's bound has a large intercept because small laws take 1-8 ns on an
   aarch64 development machine and 5-38 ns on CI, varying by runner. It catches only a large
-  slowdown of a small law; its part per denominator term binds on large laws.
+  slowdown of a small law; its part per denominator term binds on large laws. Where the
+  law's frame and its inputs fall in a 4 KB page can slow every call of a process, so each
+  of the five batches has its own stack depth and its own copy of the inputs.
 - `loss!` is timed against the compiled law and `log` in one process, so machine speed
   cancels out. The bound holds if any batch meets it. Each batch times `loss!` on a new
   `FittingProblem` and one stack frame deeper than the last, since a law whose loads

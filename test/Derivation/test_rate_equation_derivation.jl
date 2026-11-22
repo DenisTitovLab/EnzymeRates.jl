@@ -553,11 +553,6 @@ end
     acc
 end
 
-"""`f()`, called `n` levels of this function below the caller. Each level adds `0.0` to
-what the level below returns, so no call is a tail call and each level keeps its frame."""
-@noinline _testhelper_at_depth(f, n::Int) =
-    n == 0 ? f() : _testhelper_at_depth(f, n - 1) + 0.0
-
 """Seconds per data row of `Fitting.loss!` on a 64-row table of `m`, and the most it may
 take: 1.25 times the cost of the compiled rate law on each row, at the parameters `loss!`
 uses, plus eight `log` calls. The bound holds if any of 20 batches meets it, and a real
