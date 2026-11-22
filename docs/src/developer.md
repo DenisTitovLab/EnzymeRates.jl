@@ -534,15 +534,16 @@ The guard reads three networks (`_Network`). Two are of one catalytic subunit wh
 conformations flip at free E. The **law network** (`_law_network`) holds the steps each
 conformation runs. The **ε-network** (`_eps_network`) holds every step of both
 conformations, each excluded step switched off as a **reading** says (`_Reading`). The third
-holds every step once, each fast. On it, after checking that no two constants share a name
-(`_shared_constant_names`) and before any class, the guard checks that every cycle balances
-each metabolite (`_unbalanced_cycle`). Form names are opaque, so a step that leaves out a
-metabolite, writes one on the wrong side or names the wrong form breaks only a cycle, and
-the joint solve has no law for that cycle; the message states the cycle's net change. The
-checks that follow are classes 1 to 3, which `_Fault` names, and **admission**. Admission is
-the guard's check that an allosteric law is the limit as the excluded steps are switched
-off, in the interior and on each face. `_guard_with_reading` and `_verdict_under` give the
-order of all the checks, and `_check_face` the steps of class 3.
+holds every step once, each fast. The guard first checks on the mechanism that no two
+constants share a name (`_shared_constant_names`). Then, before any class, it checks on the
+third network that every cycle balances each metabolite (`_unbalanced_cycle`). Form names
+are opaque, so a step that leaves out a metabolite, writes one on the wrong side or names
+the wrong form breaks only a cycle, and the joint solve has no law for that cycle; the
+message states the cycle's net change. The checks that follow are classes 1 to 3, which
+`_Fault` names, and **admission**. Admission is the guard's check that an allosteric law is
+the limit as the excluded steps are switched off, in the interior and on each face.
+`_guard_with_reading` and `_verdict_under` give the order of all the checks, and
+`_check_face` the steps of class 3.
 
 **Readings.** The steps a conformation keeps join the forms into **islands**
 (`exclusion_components`), which are neither kinetic groups nor rapid-equilibrium segments.
@@ -816,23 +817,26 @@ allosteric law often repeats the loss of a plain one.
   such calls per evaluation. Written out, they take 11 ns per row in place of 27, and 20 in
   place of 64.
 
-None of these figures is today's: the first table above gives `loss!` a median of 8.5 ns
-per row on PGK's sampled laws and 13 ns on PFKP's.
+None of the figures of the two bullets above or of the next paragraph is today's: the first
+table above gives `loss!` a median of 8.5 ns per row on PGK's sampled laws and 13 ns on
+PFKP's.
 
 The law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on a slow path,
 since the result is a `Float64` either way. `loss!` reads `parameters(rate)` and
 `metabolites(rate)` as compile-time constants (see [Parameters](@ref)): their generated
-methods return tuple literals. If either returned a `Vector`, or a tuple whose length the
-compiler cannot infer, every row of `loss!` would dispatch at run time, for every mechanism.
-`_testhelper_test_performance` checks both with `@inferred`. The cost was measured when the
-`metabolites` method of an allosteric mechanism splatted a `Vector` into its result; for a
-mechanism of four reactants the compiler inferred
-`Tuple{Symbol, Symbol, Symbol, Symbol, Vararg{Symbol}}`. Each row then dispatched `ntuple`,
-the law, `sign` and `log` at run time, and plain mechanisms did not pay it. On the
-13-parameter PFKP law `loss!` took about 1,000 ns per row and allocated 778 KB per call,
-against about 41 ns per call for the law. Every fit of the PFKP search measured with that
-dispatch was allosteric. In the PGK search, allosteric fits were 55% of the fits and, in a
-random sample, 97% of the fit time.
+methods return tuple literals. It builds `NamedTuple` types from those names and their
+lengths, one for the parameters and one for each row's concentrations. If either name list
+were a tuple whose length the compiler cannot infer, those types would be built, and the law
+called, by run-time dispatch, so a plain mechanism would pay it too.
+`_testhelper_test_performance` checks both lists with `@inferred`. The cost was measured
+when the `metabolites` method of an allosteric mechanism splatted a `Vector` into its
+result, and the compiler inferred `Tuple{Symbol, Symbol, Symbol, Symbol, Vararg{Symbol}}`
+for the measured law's mechanism. Each row then dispatched `ntuple`, the law, `sign` and
+`log` at run time, and plain mechanisms did not pay it. On the 13-parameter PFKP law `loss!`
+took about 1,000 ns per row and allocated 778 KB per call, against about 41 ns per call for
+the law. In the PFKP search measured with that dispatch, every fit was allosteric. In the
+PGK search, allosteric fits were 55% of the fits and, in a random sample measured with that
+dispatch, 97% of the fit time.
 
 So the speed gate in `test/Derivation/test_rate_equation_derivation.jl` times `loss!` as
 well as the compiled law. It runs on every gated law: each mechanism of

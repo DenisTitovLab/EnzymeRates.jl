@@ -786,12 +786,12 @@ end
 @testset "the enumeration holds and allocates a bounded number of bytes" begin
     # Aggregate check over the whole bi-bi starting set. It bounds the bytes a candidate
     # holds and the bytes the enumeration allocates, measured on Julia 1.11.9 and 1.13.4.
-    # On one Julia version the bytes held are the same in every process and on every CI
-    # runner, and the bytes allocated agreed within 2.5% across runners. Time and peak
-    # memory depend on the machine. On the macOS CI runner the next testset's ter-ter
-    # `init_mechanisms` call spent 13.9-116.1 s in garbage collection in three runs of
-    # nearly the same code; ROADMAP's known issue on the slow macOS tests says their cause
-    # is not known.
+    # On one Julia version the bytes held are the same in every process. In the last CI
+    # run, on all three runners, each candidate held 1,594 bytes and the bytes allocated
+    # agreed within 2.5%. Time and peak memory depend on the machine. On the macOS CI
+    # runner the next testset's ter-ter `init_mechanisms` call spent 13.9-116.1 s in garbage
+    # collection in three runs of nearly the same code; ROADMAP's known issue on the slow
+    # macOS tests says their cause is not known.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]

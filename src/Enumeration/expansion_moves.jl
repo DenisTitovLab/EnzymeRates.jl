@@ -27,14 +27,18 @@ most `max_param_count` fitted constants (`Derivation.fitted_parameter_count`). T
 drop only what a method returns: a mechanism over a limit is never returned, so it is
 never expanded either.
 
-The first method, which builds the starting set, errors when
+Errors when
 - the reaction's metabolite names spell one string two ways (such as `Ac`, `CoA` and
-  `AcCoA`), so that two forms would share a name;
+  `AcCoA`), so that two forms would share a name (first method);
 - the reaction has no catalytic cycle: every route needs an isomerization converting more
-  than three substrates, or more than three products counting a covalent residue as one;
-- no mechanism binds every required regulator.
-Either method errors when an internal check of the enumerator fails, such as atom
-conservation.
+  than three substrates, or more than three products counting a covalent residue as one
+  (first method);
+- no mechanism binds every required regulator (first method);
+- `parent` breaks a rule that every candidate the enumerator returns obeys: a steady-state
+  kinetic group has no step that carries net flux, or a kinetic group binds a competitive
+  inhibitor only where its complex duplicates a productive form (second method,
+  `_assert_emission_rules`);
+- an internal check of the enumerator fails, such as atom conservation (either method).
 """
 function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
                               parent::CandidateMechanism;
