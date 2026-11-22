@@ -261,22 +261,21 @@ end
            concentrations = [1 0 0; 0 1 0; 0 0 0; 0 0 1; 0 0 1; 0 0 0])
 end
 
-@testset "parameter_units reproduces the pinned starting values" begin
+@testset "parameter_units gives each constant the units its name reads" begin
     # A fit starts each constant at r^rate × Π s_j^power, r the typical rate and s_j the
     # typical concentration of metabolite j; in logs, at the rate 3 and concentrations
-    # 10^-j of `_testhelper_typical_table`, the centres pinned in
-    # `_testhelper_typical_log_centres`. Each call returns arrays of its own.
+    # 10^-j of `_testhelper_typical_table`, the centre the rule reads from the constant's
+    # name (`_testhelper_typical_log_centre`). Each call returns arrays of its own.
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         units = ER.Derivation.parameter_units(m)
         n, k = length(parameters(m)), length(metabolites(m))
         @test units.rate isa Vector{Int} && size(units.rate) == (n,)
         @test units.concentrations isa Matrix{Int} && size(units.concentrations) == (n, k)
-        pinned = _testhelper_typical_log_centres[spec.name]
-        @test first.(pinned) == collect(parameters(m))
+        expected = [_testhelper_typical_log_centre(x, metabolites(m))
+                    for x in parameters(m)]
         log_s = [log(10.0^-j) for j in 1:k]
-        @test units.rate .* log(3.0) .+ units.concentrations * log_s ≈ last.(pinned) atol =
-            1e-12
+        @test units.rate .* log(3.0) .+ units.concentrations * log_s ≈ expected atol = 1e-12
         fill!(ER.Derivation.parameter_units(m).rate, 7)
         @test ER.Derivation.parameter_units(m) == units
     end

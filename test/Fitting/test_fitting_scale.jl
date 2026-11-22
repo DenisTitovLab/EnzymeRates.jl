@@ -199,16 +199,16 @@ using OptimizationCMAEvolutionStrategy
 
 end
 
-@testset "starting values are unchanged" begin
+@testset "each constant starts at the typical value of its units" begin
     # Each spec's log centres at the typical rate and concentrations of
-    # `_testhelper_typical_table`, against the values pinned before Fitting read its
-    # constants' units from `parameter_units`.
+    # `_testhelper_typical_table`, against the rule read from each constant's name
+    # (`_testhelper_typical_log_centre`).
     for spec in MECHANISM_TEST_SPECS
         m = spec.mechanism
         fp = FittingProblem(m, _testhelper_typical_table(m), 2.0)
-        pinned = _testhelper_typical_log_centres[spec.name]
-        @test first.(pinned) == collect(parameters(m))
-        @test EnzymeRates.Fitting._log_centres(fp) ≈ last.(pinned) atol = 1e-12
+        expected = [_testhelper_typical_log_centre(x, metabolites(m))
+                    for x in parameters(m)]
+        @test EnzymeRates.Fitting._log_centres(fp) ≈ expected atol = 1e-12
     end
 end
 
