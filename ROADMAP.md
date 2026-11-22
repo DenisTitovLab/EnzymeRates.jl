@@ -8,40 +8,20 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 ## Known issues
 
 - **The ter-ter starting set is large to hold.**
-  The ter-ter `init_mechanisms` testset retains 251,107 mechanisms. When each `Mechanism`
-  stored its modifiers, groups, step kinds, directions toward products and step sides, the
-  live heap grew 48% (1,272 to 1,883 MiB), the peak resident set from 2.3 to 3.1 GiB and the
-  extra garbage collection made the call about 20% slower (94 s to 117 s on Julia 1.13); its
-  time limit of 400 s excludes garbage collection, about 23% of the call on CI, since a slow
-  macOS runner reached 430 s with it and a fast one took 77 s. The step sides cost most: two
-  strings per step, 668 of the 5,408 retained bytes per mechanism. Denis raised the limit
-  instead of taking one of the measured options. Two do not depend on the stored facts: (A)
-  keep already-sorted input vectors instead of copying them, which lets a mechanism share
-  the caller's vectors (72 s, 24% under the time before the facts were stored); (D) reuse
-  the variants the flip search in `_seed_variants` already builds (51 s together with (A)
-  and with the step sides computed on demand, 45% under the time before the facts). A
-  mechanism stores no facts: a catalytic scheme holds its metabolites, its forms' names, its
-  substrates and products and its steps, and an allostery its states, its oligomeric state
-  and its sites. Computing a conformation's steps on demand in place of its four stored
-  masks left the enumeration test file at 137.0 and 138.4 s against 135.7 and 133.8 s, the
-  admission test file at 87.9 and 92.6 s against 89.1 and 89.2 s, and the ter-ter
-  `init_mechanisms` line at 52.4 and 52.3 s against 54.0 and 53.6 s. The lean graph then
-  took that line from 56.1 to 44.1 s and the enumeration test file from 123.2 and 124.2 s to
-  110.8 and 111.3 s (Julia 1.13.4, one process at a time), and builds a mechanism 1.5-2.5×
-  faster (1.90 to 1.29 µs for Michaelis–Menten, 28.9 to 11.5 µs for a ter-ter seed of 27
-  forms and 55 steps).
-  Measured as those figures were, by
-  `claude-scratchpad/lean-mechanism-spike/gate/measure_terter.jl` (a fresh process per run
-  under `--startup-file=no` and `--heap-size-hint=2500M`, Julia 1.13.4, a warm-up on
-  ter-bi; medians of three runs alternating with commit 56bea2e6, ranges in brackets), the
-  251,107 mechanisms the ter-ter testset keeps hold 723 MiB of live heap (3,019 bytes each)
-  on the lean graph against 1,883 MiB (7,863 bytes) at 56bea2e6. The testset's call peaks
-  at 1.83 GiB resident (1.82-1.83) against 2.99 GiB (2.96-2.99), and takes 61.9 s
-  (60.4-62.0), 27.6 s of it in garbage collection, against 103.4 s (101.6-103.5) with
-  67.7 s. `candidate_mechanisms` on the ter-ter reaction returns 271,621 candidates in
-  104.0 s (103.2-104.5), 56.9 s of it in garbage collection; it peaks at 2.09 GiB resident
-  (2.09-2.10), and its result holds 930 MiB. No benchmark or pin covers the live bytes of a
-  held result set.
+  The ter-ter `init_mechanisms` testset (`test/Enumeration/test_mechanism_enumeration.jl`)
+  keeps 251,107 mechanisms, which hold 723 MiB of live heap (3,019 bytes each). Its call
+  peaks at 1.83 GiB resident (1.82-1.83) and takes 61.9 s (60.4-62.0), 27.6 s of it in
+  garbage collection, against a time limit of 400 s that excludes garbage collection.
+  `candidate_mechanisms` on the ter-ter reaction returns 271,621 candidates in 104.0 s
+  (103.2-104.5), 56.9 s of it in garbage collection, peaks at 2.09 GiB resident
+  (2.09-2.10), and its result holds 930 MiB. These are medians of three runs, ranges in
+  brackets, by `claude-scratchpad/lean-mechanism-spike/gate/measure_terter.jl` on the
+  maintainer's machine (a fresh process per run under `--startup-file=no` and
+  `--heap-size-hint=2500M`, Julia 1.13.4, a warm-up on ter-bi). No benchmark or pin covers
+  the live bytes of a held result set. Two options may cut the time, by amounts not
+  measured on the mechanisms as stored: keep already-sorted input vectors instead of
+  copying them, so that a mechanism shares the caller's vectors; and reuse the variants the
+  flip search in `_seed_variants` already builds.
   - **On Julia 1.11 the full suite can peak above 4 GB.**
     With the full-suite command in `.claude/CLAUDE.md`, Julia 1.11.9 peaked at 4.12-4.15 GB
     (3.84-3.86 GiB) in two runs; Julia 1.12 and 1.13 peaked at 4.0 and 3.8 GB in one run
@@ -241,6 +221,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   on six laws is more likely coverage counters, unproven. The investigation, with its
   scripts and scans, is `claude-scratchpad/loss-timing-investigation/report.md` on the
   maintainer's machine.
+- **The fit-cost pin failed once in a full suite.**
+  "A fit costs about its loss! calls" (`test/Fitting/test_fitting.jl`) failed once in a
+  full suite on the allosteric bi-bi mechanism, at 0.387 s against 0.265 s allowed; its
+  focused run gave 0.185 s against 0.253 s and the next full suite passed. Whether the
+  stack-page effect of the previous entry causes it is not measured.
 - **A cycle unbalanced in the reactants fails only inside the joint solve.**
   Form names are opaque, so no single step is unbalanced, but a cycle of steps can take up
   and give off substrates and products in other proportions than the reaction, and
@@ -287,14 +272,32 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **A rejection reports the fault of the first consistent reading in search order.**
   When no built reading is consistent and the consistent readings fail in different ways,
   the guard reports the verdict of the first one its search tries (`_guard_with_reading`),
-  and the search walks the excluded steps in stored step order (`_consistent_columns`).
-  The fault, face and step a rejection reports therefore depend on the stored step order;
-  which mechanisms the guard admits, and by which reading, do not. Under the package's
-  stored order and under the one at commit 56bea2e6, the gate's 78,554 mechanisms
-  (`report-lean.md`, beside `report.md`) get the same admissions, the same admitting
-  readings and, for each consistent reading, the same verdict; but nine ter-bi rejections
-  report `_FILLED` under the first order and `_PUMPED` under the second, 31 rejections
-  report another face, and 800 name another step.
+  and the search walks the excluded steps in stored step order (`_consistent_columns`), so
+  the fault and face a rejection reports depend on that order. The step a verdict names
+  follows the stored step order too and, for `_PUMPED`, the rule that prefers a feed whose
+  reverse is dead. Which mechanisms the guard admits does not depend on the order. The
+  admitting reading could, since the guard admits under the first passing reading in
+  search order, but on the gate's 78,554 mechanisms it does not: the guard at commit
+  56bea2e6, which stores the steps in another order and differs in code too (no
+  `_SHARED_NAME` check, another `_PUMPED` feed rule), gives them the same admissions and
+  admitting readings as the package's (`report-lean.md`, beside `report.md`). Nine ter-bi
+  rejections report `_FILLED` under the package's guard where that one reports `_PUMPED`,
+  and 31 rejections, the nine among them, report another face, because the first
+  consistent reading differs; for the nine and for 30 of the 31, every consistent reading
+  gets the same verdict from both guards. 800 rejections name another step, 279 of them by
+  the feed rule.
+- **The search solves each candidate twice.**
+  Under identify's `max_param_count`, `candidate_mechanisms` solves every candidate at its
+  exit to count its fitted constants (`Enumeration._within_size_limits`), and identify's
+  first pass solves it again to derive its law; for the starting set those counts run
+  serially on the master. A count that throws on one child fails its parent's whole
+  expansion, which identify records as one failure (`_expand_parents`). The reaction's
+  name-decodability error (`_check_decodable_names`) fires after identify, with
+  `show_progress` on (the default), has created `save_dir` and its `progress.log`.
+- **The fitting tutorial shows a `FittingProblem`'s uninitialised buffer.**
+  The block of `docs/src/fitting/tutorial.md` that builds `fp` ends with the assignment,
+  so the page prints the problem with Julia's default `show`, which includes
+  `log_ratios_buffer`, allocated `undef`, at whatever values its memory held.
 
 ## Planned
 
@@ -302,18 +305,33 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The package aims at deep modules: few public names, simple arguments, the complexity
   inside (`.claude/CLAUDE.md`). The lean mechanism took `Mechanisms` from 25 public names
   to 15, `Derivation` from 16 to 9 and `Enumeration` to two, `CandidateMechanism` and
-  `candidate_mechanisms`. Five places still fall short. Priority: high.
+  `candidate_mechanisms`. Seven places still fall short. Priority: high.
   - **`has_unbalanced_cycle` takes six vectors.**
     `Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)` is a union-find
     whose two callers, Enumeration's seed screen and Derivation's admission, pass the
     working arrays it fills. A signature on a catalytic scheme and a mask, as
     `has_turnover_cycle` has, would hide them.
-  - **Two modules count which way a step runs.**
+  - **Three modules count which way a step runs.**
     The count of substrates taken up and products given off that orients a step is made
-    in `Mechanisms` (`_orientation`, the second row of the table of stored directions) and
-    again in `Derivation` (`_priority_key`, "stored against the reaction"). One owner needs
-    a sixteenth public name in `Mechanisms`, or `_priority_key` reading the direction
-    another way, which moves fitted names.
+    in `Mechanisms` (`_orientation`, the second row of the table of stored directions),
+    again in `Derivation` (`_priority_key`, "stored against the reaction") and a third time
+    in `Enumeration` (`_uptake_weight`). One owner needs a sixteenth public name in
+    `Mechanisms`, or `_priority_key` reading the direction another way, which moves fitted
+    names.
+  - **Small facts of a mechanism are read in several modules.**
+    Whether a mechanism is allosteric: `_is_allosteric` in `Derivation` and in
+    `Enumeration`, inline in identify's `_fit_order` and in `Mechanisms`. A scheme's
+    kinetic groups: `Mechanisms._groups` and `_kinetic_groups` in `Derivation` and in
+    `Enumeration`. Its rapid-equilibrium flags: `Derivation._re_flags`,
+    `Enumeration._rapid_equilibrium_flags` and the default argument of
+    `rapid_equilibrium_segments`. An isomerization: `_is_iso` in `Mechanisms` and in
+    `Enumeration`; a binding's shape is written four times in `Derivation` and as
+    `Enumeration._is_binding`. Each copy is a line or two; one owner of each would cost a
+    public name.
+  - **`rate_equation_panels` takes a `Keq` it only passes on.**
+    `Plotting.rate_equation_panels` hands `Keq` to `Data.RateData` and reads it nowhere
+    else, and the method of `plot_rate_equation_on_data` for a rate function passes a
+    placeholder `1.0`.
   - **`identify_rate_equation` has at least 18 keyword arguments,** such as
     `eq_complexity_filter = 337`. Each becomes an internal constant unless users have a
     real reason to change it, as they do for optimizer settings.
