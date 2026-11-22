@@ -9,17 +9,16 @@
 
 Whether every cycle of `m`'s steps takes up and gives off each metabolite as the reaction
 does, `m`'s rate law is the unique limit of mass-action kinetics, as its rapid-equilibrium
-steps speed up and its tagged constants vanish, on every face where data sit (spec
-section 8), and each of its constants has a name of its own: the guard (`_guard`) finds no
-fault. The one-argument form throws an error whose message (`_guard_message`) names each
-step at fault by its DSL line, or the names its constants share, and returns `true`
-otherwise; the `Bool` form returns the verdict (`false` on a fault) instead of
-throwing. It reads the reaction graph through masks and builds nothing. The mechanism
-macro and the parser call the one-argument form, and every derivation entry runs its
-check; both forms read the verdict through the memo (`_Memo`), and a compiled law's
-generated methods take it afresh (`_derivation_input`). The constructors and the Sig
-decoder do not call it, so code that builds a mechanism internally never trips a check
-meant for the mechanisms it returns.
+steps speed up and its tagged constants vanish, on every face where data sit, and each of
+its constants has a name of its own: the guard (`_guard`) finds no fault. The one-argument
+form throws an error whose message (`_guard_message`) names each step at fault by its DSL
+line, or the names its constants share, and returns `true` otherwise; the `Bool` form
+returns the verdict (`false` on a fault) instead of throwing. It reads the reaction graph
+through masks and builds nothing. The mechanism macro and the parser call the one-argument
+form, and every derivation entry runs its check; both forms read the verdict through the
+memo (`_Memo`), and a compiled law's generated methods take it afresh (`_derivation_input`).
+The constructors and the Sig decoder do not call it, so code that builds a mechanism
+internally never trips a check meant for the mechanisms it returns.
 """
 function check_valid_rate_equation(m::Mechanisms.Mechanism)
     _check_verdict(m, _memo_verdict(m))
@@ -38,16 +37,16 @@ end
 # ─── The guard: verdicts, networks, faces, classes 1 and 2 ─────────────
 
 """
-What the guard finds wrong with a mechanism (spec section 8): nothing (`_NO_FAULT`); two
-constants of its rate law share a name (`_SHARED_NAME`, `_shared_constant_names`); a cycle
-of steps does not balance a metabolite (`_UNBALANCED_CYCLE`, `_unbalanced_cycle`); no
-cycle turns the reaction over (`_NO_CYCLE`, class 1); a cycle of rapid-equilibrium steps
-turns it over (`_RE_TURNOVER`, class 2); on a face (class 3), a second closed class
-(`_NONUNIQUE`), a rapid-equilibrium segment with no lowest form (`_BOTTOMLESS`), or a law
-the limit test rejects where procedure A stopped at a trap fed on the face (`_TRAP`), a
-segment whose lowest forms split (`_SPLIT`), a law segment chain with several closed
-classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in admission's
-interior (class 4), each excluded step switched off as a reading says (`_Reading`), a
+What the guard finds wrong with a mechanism: nothing (`_NO_FAULT`); two constants of its
+rate law share a name (`_SHARED_NAME`, `_shared_constant_names`); a cycle of steps does
+not balance a metabolite (`_UNBALANCED_CYCLE`, `_unbalanced_cycle`); no cycle turns the
+reaction over (`_NO_CYCLE`, class 1); a cycle of rapid-equilibrium steps turns it over
+(`_RE_TURNOVER`, class 2); on a face (class 3), a second closed class (`_NONUNIQUE`), a
+rapid-equilibrium segment with no lowest form (`_BOTTOMLESS`), or a law the limit test
+rejects where the face's structure (`_face_stage`) stopped at a trap fed on the face
+(`_TRAP`), a segment whose lowest forms split (`_SPLIT`), a law segment chain with several
+closed classes (`_LAW_MULTI`) or an aggregated chain with several (`_MULTILEVEL`); in
+admission's interior, each excluded step switched off as a reading says (`_Reading`), a
 rapid-equilibrium step that a conformation excludes and the reading cannot switch off or
 stops (`_FAST_STEP_PINNED`; the guard reports it only for a step inside one island, which
 no reading switches off), steps that lose a direction and, each pointing uphill, close a
@@ -60,9 +59,9 @@ entered by, or holding, an alive step whose reverse is dead, or entered from out
 and the law's forms (`_PUMPED`), or tagged steps that shorten the fed forms' cheapest
 spanning in-tree where no potential absorbs their turnover (`_BRIDGE`); or, no reading the
 guard tried being consistent and the active conformation turning the reaction over, more
-readings than it searches (`_TOO_MANY_READINGS`). A
-reading is consistent when admission's interior finds none of its first three faults, so
-the guard reports neither `_ARC_CYCLE` nor `_ISLAND` (`_guard_with_reading`).
+readings than it searches (`_TOO_MANY_READINGS`). A reading is consistent when
+admission's interior finds none of its first three faults, so the guard reports neither
+`_ARC_CYCLE` nor `_ISLAND` (`_guard_with_reading`).
 """
 @enum _Fault::UInt8 begin
     _NO_FAULT
@@ -296,12 +295,11 @@ function _eps_network(mech::Mechanisms.Mechanism, re::BitVector, reading::_Readi
 end
 
 """
-The faces the guard checks (spec section 8) of `m`, each a mask of the metabolite names it
-zeroes (bit `n - 1` for metabolite `n` of `m.metabolites`), in order: the interior (0),
-every product, every substrate, each substrate and then each product alone on a side of
-two or more; then each of these with every modifier too. A regulatory-site ligand is
-zeroed only when it also binds the catalytic site. No face zeroes a substrate together
-with a product.
+The faces the guard checks of `m`, each a mask of the metabolite names it zeroes (bit
+`n - 1` for metabolite `n` of `m.metabolites`), in order: the interior (0), every product,
+every substrate, each substrate and then each product alone on a side of two or more; then
+each of these with every modifier too. A regulatory-site ligand is zeroed only when it
+also binds the catalytic site. No face zeroes a substrate together with a product.
 """
 function _faces(m::Mechanisms.CatalyticScheme)
     substrates, products = m.substrates, m.products
@@ -463,7 +461,7 @@ end
 """
     _guard(m) -> _Verdict
 
-The well-posedness guard (spec section 8) on `m`, plain or allosteric: its verdict
+The well-posedness guard on `m`, plain or allosteric: its verdict
 (`_guard_with_reading`), `_WELL_POSED` when every check passes.
 """
 _guard(mech::Mechanisms.Mechanism) = _guard_with_reading(mech).verdict
@@ -471,27 +469,28 @@ _guard(mech::Mechanisms.Mechanism) = _guard_with_reading(mech).verdict
 """
     _guard_with_reading(m) -> (; verdict, reading)
 
-The well-posedness guard (spec section 8) on `m`, plain or allosteric, and the reading of
-how its conformations switch off its excluded steps (`_Reading`) that its `verdict` was
-judged under. First that each constant has a name of its own (`_shared_constant_names`),
-then that every cycle balances each metabolite (`_unbalanced_cycle`), then class 1 (a
-cycle turns the reaction over, `Mechanisms.has_turnover_cycle`); then,
-under a reading (`_verdict_under`), class 2, admission's interior, and on every face class
-3 and admission's face condition. A plain mechanism's one reading runs every step.
+The well-posedness guard on `m`, plain or allosteric, and the reading of how its
+conformations switch off its excluded steps (`_Reading`) that its `verdict` was judged
+under. First that each constant has a name of its own (`_shared_constant_names`), then
+that every cycle balances each metabolite (`_unbalanced_cycle`), then class 1 (a cycle
+turns the reaction over, `Mechanisms.has_turnover_cycle`); then, under a reading
+(`_verdict_under`), class 2, admission's interior, and on every face class 3 and
+admission's face condition. A plain mechanism's one reading runs every step.
 
-An allosteric mechanism's verdict follows the energy-level rule. A reading is consistent
-when admission's interior accepts it. The guard admits the mechanism under the first
-consistent reading that passes every check: its three built readings first
-(`_built_reading`), then every other pair of consistent columns (`_consistent_columns`),
-conformation 1's outer, each in its order. When a conformation has more than
-`_MAX_CHOICES_PER_CONFORMATION` ways, or the pairs number more than `_MAX_READING_PAIRS`,
-it searches none of them, so its verdict depends on no order. A rejection reports, in
-order: a fast cycle that turns the reaction over under the first built reading
-(`_RE_TURNOVER`), fast under every consistent reading too; an excluded rapid-equilibrium
-step inside one island (`_FAST_STEP_PINNED`), which no reading switches off; the verdict of
-the first consistent reading tried; or, when it tried none, an active conformation that
-turns nothing over (`_NO_ACTIVE_TURNOVER`), else that there are too many readings to
-search (`_TOO_MANY_READINGS`).
+An allosteric mechanism's verdict follows the energy-level rule: every island that a
+conformation cuts off lies above free E's in energy and holds none of that conformation's
+enzyme. A reading is consistent with the rule when admission's interior accepts the
+reading. The guard admits the mechanism under the first consistent reading that passes
+every check: its three built readings first (`_built_reading`), then every other pair of
+consistent columns (`_consistent_columns`), conformation 1's outer, each in its order.
+When a conformation has more than `_MAX_CHOICES_PER_CONFORMATION` ways, or the pairs
+number more than `_MAX_READING_PAIRS`, it searches none of them, so its verdict depends on
+no order. A rejection reports, in order: a fast cycle that turns the reaction over under
+the first built reading (`_RE_TURNOVER`), fast under every consistent reading too; an
+excluded rapid-equilibrium step inside one island (`_FAST_STEP_PINNED`), which no reading
+switches off; the verdict of the first consistent reading tried; or, when it tried none,
+an active conformation that turns nothing over (`_NO_ACTIVE_TURNOVER`), else that there
+are too many readings to search (`_TOO_MANY_READINGS`).
 """
 function _guard_with_reading(am::Mechanisms.Mechanism)
     m = am.catalytic
@@ -606,7 +605,7 @@ function _re_turnover_verdict(net::_Network)
              net.edge[cycle[1]])
 end
 
-# ─── Class 3: procedure A on every face ────────────────────────────────
+# ─── Class 3: the structure of every face ──────────────────────────────
 
 """Each node's strongly connected component in the digraph with successor lists `next`,
 searched from the nodes `nodes` marks, numbered in the order Tarjan's algorithm closes
@@ -726,7 +725,7 @@ end
 """
     _face_structure(net, face) -> NamedTuple
 
-The structure procedure A reads on face `face` of the law network
+The structure that `_face_stage` reads on face `face` of the law network
 `net`: `alive`, the transitions that take up no zeroed name; `closed`, the closed classes
 of the alive ones; the rapid-equilibrium segments (`segment` per node, `segments`
 breadth-first) and each node's uptake of every name from its segment's first node
@@ -769,13 +768,12 @@ function _face_structure(net::_Network, face::UInt64)
 end
 
 """
-Where procedure A settles a face from its structure `s`
-(`_face_structure`): a second closed class (`_NONUNIQUE`); a segment with no lowest form
-(`_BOTTOMLESS`); `_NO_FAULT` by Case I (every segment holds one fast class, the law's
-segment chain one closed class); else the stage at which the limit test decides: the
-law's chain has several closed classes (`_LAW_MULTI`), the aggregated chain has
-(`_MULTILEVEL`), its closed class holds a trap (`_TRAP`), or none of these (`_SPLIT`,
-where a segment it meets may split).
+What the structure `s` of a face (`_face_structure`) settles: a second closed class
+(`_NONUNIQUE`); a segment with no lowest form (`_BOTTOMLESS`); `_NO_FAULT` when every
+segment holds one fast class and the law's segment chain one closed class; else the stage
+at which the limit test decides: the law's chain has several closed classes
+(`_LAW_MULTI`), the aggregated chain has (`_MULTILEVEL`), its closed class holds a trap
+(`_TRAP`), or none of these (`_SPLIT`, where a segment it meets may split).
 """
 function _face_stage(s)
     length(s.closed) > 1 && return _NONUNIQUE
@@ -879,14 +877,13 @@ end
 """
     _check_face(mech, net, faces, i) -> _Verdict
 
-Class 3 (spec section 8) on face `faces[i]` of `mech`, whose law
-network is `net`: procedure A rejects a second closed class or a bottomless segment and
-accepts a face whose structure fixes the limit (`_face_stage`); otherwise the limit test
-(`_face_limit_check`, seeded by the content hash and the face) decides, and a rejection
-carries the stage it stopped at, the edge that feeds the trap or joins it to its segment
-(`_trap_feeder`) and the split's first joining edge. A bottomless segment, a split or a
-trap carries the copy its forms share (`_common_copy`). A face the limit test accepts
-reports `_LIMIT_EQUAL`.
+Class 3 on face `faces[i]` of `mech`, whose law network is `net`. The face's structure
+(`_face_stage`) rejects a second closed class or a bottomless segment and accepts a face
+where it fixes the limit; otherwise the limit test (`_face_limit_check`, seeded by the
+content hash and the face) decides, and a rejection carries the stage it stopped at, the
+edge that feeds the trap or joins it to its segment (`_trap_feeder`) and the split's first
+joining edge. A bottomless segment, a split or a trap carries the copy its forms share
+(`_common_copy`). A face the limit test accepts reports `_LIMIT_EQUAL`.
 """
 function _check_face(mech::Mechanisms.Mechanism, net::_Network, faces::Vector{UInt64},
                      i::Int)

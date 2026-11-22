@@ -6343,7 +6343,7 @@ end
     # parameter. Only the catalytic relaxation (its derived reverse absorbs
     # the cycle) and the reg-ligand relaxation each add one. So the two
     # binding relaxations contribute 0: `[0, 0, 1, 1]`. (The enumerator
-    # will skip such degenerate configs in a follow-up PR.)
+    # emits such degenerate configs.)
     @test _testhelper_param_deltas(am, result) == [0, 0, 1, 1]
 
     # 3. invariants; the deltas above compile every result.
@@ -6389,7 +6389,7 @@ end
     # fitted parameter (a thermodynamic cycle forbids the split). The two
     # binding relaxations contribute 0; the catalytic relaxation and the two
     # reg-ligand relaxations each add one: `[0, 0, 1, 1, 1]`. (The enumerator
-    # will skip such degenerate configs in a follow-up PR.)
+    # emits such degenerate configs.)
     @test _testhelper_param_deltas(am, result) == [0, 0, 1, 1, 1]
 
     # 3. invariants; the deltas above compile every result.
@@ -9760,9 +9760,8 @@ end
     @test _testhelper_fitted(m) == _testhelper_identifiable_rank(m) == 2
     @test _testhelper_fitted(flipped) == _testhelper_identifiable_rank(flipped) == 3
     @test _testhelper_fitted(k_type) == 3 && _testhelper_identifiable_rank(k_type) == 2
-    # The K-type child, whose inactive conformation is free E alone, is an L phantom
-    # (spec section 13): its rescaling certificate maps it onto the law of its catalytic
-    # mechanism.
+    # The K-type child, whose inactive conformation is free E alone, is an L phantom: its
+    # rescaling certificate maps it onto the law of its catalytic mechanism.
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(k_type))
     @test _testhelper_phantom_map_holds(k_type; rng = Random.MersenneTwister(1))
 end

@@ -1144,10 +1144,10 @@ end
 end
 
 @testset "_select_count! charges the budget once per key" begin
-    # Spec section 10: the beam counts each key once. Five mechanisms on two keys, the
-    # three of key a sharing their fit's loss. With a budget of two, ranking mechanisms
-    # would spend it on two of a's three and leave b out; ranking keys spends one unit on
-    # each key and expands all five mechanisms.
+    # The beam counts each key once. Five mechanisms on two keys, the three of key a
+    # sharing their fit's loss. With a budget of two, ranking mechanisms would spend it on
+    # two of a's three and leave b out; ranking keys spends one unit on each key and
+    # expands all five mechanisms.
     expanded = Dict{Int,Int}()
     selected = Set{String}()
     sel = EnzymeRates._select_count!(expanded, Dict(5 => 1.0), 5,
@@ -1490,7 +1490,7 @@ end
     end
 end
 
-# ── §2 fit-dedup by key ──────────────────────────────────────────────────────
+# ── Fit dedup by key ─────────────────────────────────────────────────────────
 # A stub optimizer that counts `solve` invocations and returns a canned
 # log-space optimum (`uval` for every coordinate), so a batch's fits can be
 # counted exactly and the raw→rescale path exercised deterministically. With
@@ -1706,9 +1706,9 @@ function _testhelper_unibi_pair()
 end
 
 @testset "two same-key mechanisms read one fit under their own names" begin
-    # Spec section 10: identify fits one representative per key and stores the fit at
-    # canonical positions; the other mechanism reads it through its own labelling, so its
-    # row carries its own names and both rows compute one rate.
+    # Identify fits one representative per key and stores the fit at canonical
+    # positions; the other mechanism reads it through its own labelling, so its row
+    # carries its own names and both rows compute one rate.
     a, b, prob = _testhelper_unibi_pair()
     ca, cb = _testhelper_pass1_canonical.((a, b))
     fa, fb = parameters(a), parameters(b)
@@ -1769,8 +1769,8 @@ end
 end
 
 @testset "LOOCV fits each fit key's source once per fold" begin
-    # Spec section 10: rows that read one fit share their fold losses, so LOOCV fits
-    # that fit's source once per fold. Handed to model selection beside a second law, the
+    # Rows that read one fit share their fold losses, so LOOCV fits that fit's source
+    # once per fold. Handed to model selection beside a second law, the
     # dedup twins (one key) cost two fits per fold, not three, and share their fold columns.
     m1, m2 = _testhelper_dedup_twins()
     rxn = @enzyme_reaction begin
@@ -1900,11 +1900,11 @@ function _testhelper_phantom_pair()
 end
 
 @testset "a phantom inherits the fit of whoever holds its L→0 key" begin
-    # Spec section 13: the phantom is not fitted. It reads the fit of its law at
-    # L = 0 from the parent, which holds that key and is fitted in the same batch, with
-    # L = 0, the parent's loss and its own parameter count; its row names the parent as
-    # the fit's source, and the two rates agree. It then joins the frontier and the cv pool,
-    # and a sweep whose width floor admits one key expands it.
+    # The phantom is not fitted. It reads the fit of its law at L = 0 from the parent,
+    # which holds that key and is fitted in the same batch, with L = 0, the parent's loss
+    # and its own parameter count; its row names the parent as the fit's source, and the
+    # two rates agree. It then joins the frontier and the cv pool, and a sweep whose width
+    # floor admits one key expands it.
     parent, phantom = _testhelper_phantom_pair()
     prob = _testhelper_uni_prob(NamedTuple)
     @test EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(phantom))

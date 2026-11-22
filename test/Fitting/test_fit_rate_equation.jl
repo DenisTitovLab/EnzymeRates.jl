@@ -668,7 +668,7 @@ end
             fp, CMAEvolutionStrategyOpt(); n_restarts=1, maxtime=1.0, verbose=-9)
     end
 
-    # ── maxtime forwarded from fit_rate_equation to Optimization.solve (§6) ─
+    # ── maxtime forwarded from fit_rate_equation to Optimization.solve ──────
     @testset "maxtime forwarded to Optimization.solve" begin
         # A stub optimizer that records the `maxtime` kwarg it receives, so the
         # forwarding path (fit_rate_equation -> the `common = (; maxtime,
@@ -1547,8 +1547,8 @@ end
 @testset "a law the guard admits can be 0/0 at a mixed corner, scored as a 0 in a fit" begin
     # Census mechanism d7a09031d5dd2fc6 (ter-bi). At B = P = Q = 0 the rapid-equilibrium
     # segment {EBD, EBDP, EDP} has no form free of B and P, so the law is 0/0
-    # there; the guard's faces never zero one substrate with every product (spec section
-    # 8). At A = P = Q = 0, another such corner, the law is 0.
+    # there; the guard's faces never zero one substrate with every product (`_faces`).
+    # At A = P = Q = 0, another such corner, the law is 0.
     am = @enzyme_mechanism begin
         substrates: A, B, D
         products: P, Q

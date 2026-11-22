@@ -274,7 +274,7 @@ end
 end
 
 @testset "five spec keys are pinned" begin
-    # A key is the same in every process and Julia version (spec section 2, criterion 3).
+    # A key is the same in every process and Julia version.
     # These digests were read and checked on Julia 1.12.5 and 1.13.1, that of Segel Ping
     # Pong Bi Bi on 1.13.4.
     pinned = ("Uni-Uni" =>
@@ -302,8 +302,7 @@ end
     # E + P ⇌ EP, both :OnlyA. Its inactive conformation is free E alone, so the law is
     # v = N/(Y + L·X) with X a term of Y. The certificate scales P's dissociation constant
     # by (1 + L) and the uptake rate constant by 1/(1 + L): at every L the variant is its
-    # law at L = 0, the law of its catalytic mechanism, at those constants (spec
-    # section 13).
+    # law at L = 0, the law of its catalytic mechanism, at those constants.
     am = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -741,9 +740,9 @@ end
 # ── The key's hash and the bi-bi classes ──────────────────────────────────────────────
 
 @testset "the key of a law is the SHA-256 of its canonical text" begin
-    # identify fits one law per key (spec section 10). The key reads the law, not its
-    # printed text: it is the 64-hex SHA-256 of the canonical text, the same on every
-    # call, and another law gets another key.
+    # identify fits one law per key. The key reads the law, not its printed text: it is the
+    # 64-hex SHA-256 of the canonical text, the same on every call, and another law gets
+    # another key.
     c = EnzymeRates.Derivation._canonical(
         EnzymeRates.Derivation._memo_law(_testhelper_uni_seed), _testhelper_uni_seed)
     again = EnzymeRates.Derivation._canonical(

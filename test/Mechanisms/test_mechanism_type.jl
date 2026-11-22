@@ -3218,8 +3218,8 @@ end
 
 @testset "the constructor builds a spec's graph in under 30 µs, the median over specs" begin
     # Each spec's time per call is the best of five batches; the gate is on their median.
-    # The spec's goal is about 2 µs and the median is about 5 µs locally; shared CI
-    # runners take about 5× as long (23 µs on Ubuntu), so the gate is 30 µs.
+    # The median is about 5 µs locally; shared CI runners take about 5× as long (23 µs
+    # on Ubuntu), so the gate is 30 µs.
     per_call = map(MECHANISM_TEST_SPECS) do spec
         _testhelper_build(spec.raw)
         minimum(@elapsed(for _ in 1:200

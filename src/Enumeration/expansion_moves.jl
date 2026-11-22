@@ -622,8 +622,8 @@ end
 The child of candidate `c` with each selected group divided in two (`_bipartitioned_groups`)
 and edge `k` at rapid equilibrium where `re[k]` holds, built through the checked constructor
 (`_regrouped`). For an allosteric mechanism both parts inherit the group's catalytic
-allosteric state (splitting is a parameter-relaxation move that must not change A/I
-semantics).
+allosteric state: the split relaxes parameters and must not change which conformations
+run a step.
 """
 function _apply_bipartitions(c::CandidateMechanism, selection,
                              re::BitVector = _rapid_equilibrium_flags(
@@ -841,17 +841,16 @@ end
     _tagging_bases(c::CandidateMechanism) -> Vector{Vector{Symbol}}
 
 The tag sets the tagging move (`_expand_to_allosteric`) builds on, one tag per kinetic group
-of candidate `c`'s plain mechanism (spec section 7, "Allosteric ping-pong"). The first
-candidate tags every chemistry group (`_chemistry_groups`) `:OnlyA` and every binding group
-`:EqualAI`; when it passes `_valid_tagging` it is the only base. Otherwise the bases are the
-smallest sets of chemistry groups, by inclusion, that stop every catalytic cycle of the
-inactive conformation (`_stops_inactive_turnover`) and pass `_valid_tagging`, each tagged
-`:OnlyA` with every other group `:EqualAI`; a set that fails leaves its supersets in the
-search. On a ping-pong mechanism the first candidate cuts the covalent forms off in the
-inactive conformation. When it fails, a half-reaction's chemistry groups can be a base
-alone, the other half running in both conformations, and a half spread over several
-chemistry groups can give several bases. The bases come by size, each size in `_subsets`
-order.
+of candidate `c`'s plain mechanism. The first candidate tags every chemistry group
+(`_chemistry_groups`) `:OnlyA` and every binding group `:EqualAI`; when it passes
+`_valid_tagging` it is the only base. Otherwise the bases are the smallest sets of
+chemistry groups, by inclusion, that stop every catalytic cycle of the inactive
+conformation (`_stops_inactive_turnover`) and pass `_valid_tagging`, each tagged `:OnlyA`
+with every other group `:EqualAI`; a set that fails leaves its supersets in the search. On
+a ping-pong mechanism the first candidate cuts the covalent forms off in the inactive
+conformation. When it fails, a half-reaction's chemistry groups can be a base alone, the
+other half running in both conformations, and a half spread over several chemistry groups
+can give several bases. The bases come by size, each size in `_subsets` order.
 """
 function _tagging_bases(c::CandidateMechanism)
     chem = _chemistry_groups(c)
@@ -880,9 +879,8 @@ holding a chemistry step (`_chemistry_groups`): an isomerization, a fused bindin
 Theorell–Chance step; every other group is a binding group. On a ping-pong mechanism,
 tagging both half-reactions cuts the covalent forms off in the inactive conformation; when
 that fails, a base can tag one half alone, the other half running in both conformations, and
-a half spread over several chemistry groups can give several (spec section 7, "Allosteric
-ping-pong"). Two kinds are not enumerated: the all-`:EqualAI` baseline and a V-type variant
-without a regulator.
+a half spread over several chemistry groups can give several. Two kinds are not
+enumerated: the all-`:EqualAI` baseline and a V-type variant without a regulator.
 
   * The all-`:EqualAI` baseline is never emitted — the two conformations
     are identical, `L` cancels, and the mechanism is indistinguishable

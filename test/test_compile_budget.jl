@@ -438,10 +438,10 @@ end
 
 @testset "a second process derives the same rate-law bodies, keys and \
           printed laws" begin
-    # Spec section 2, criterion 3: a fresh process reads each mechanism back from its
-    # text and derives the same generated body, compared by SHA-256, the same key and the
-    # same printed law in both forms, for the 42 specs and the six gate laws (PASS1
-    # derives and prints on the workers).
+    # A fresh process reads each mechanism back from its text and derives the same
+    # generated body, compared by SHA-256, the same key and the same printed law in both
+    # forms, for the 42 specs and the six gate laws (PASS1 derives and prints on the
+    # workers).
     sha256 = EnzymeRates.Derivation.sha256
     mechs = [s.mechanism for s in MECHANISM_TEST_SPECS]
     append!(mechs, _testhelper_largest_enumerated_mechanisms)

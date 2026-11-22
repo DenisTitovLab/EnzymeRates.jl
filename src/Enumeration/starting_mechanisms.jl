@@ -113,20 +113,21 @@ function _catalytic_topologies(reaction::Mechanisms.EnzymeReaction)
             step!([reactant_index(s)], false, [consumed; s], released, [on_subs; s],
                   Symbol[])
         end
-        # C7: only a substrate-bound form isomerizes. C6: at most three substrates react.
+        # Only a substrate-bound form isomerizes (rule C7), and an isomerization turns at
+        # most three substrates into at most three products (rule C6).
         (isempty(on_subs) || length(on_subs) > 3) && return
         for subset in _subsets(setdiff(prod_names, released))[2:end]
             residue = _net_atoms(reaction, consumed, [released; subset])
             any(<(0), values(residue)) && continue
-            # Admissible-residual rule: an isomerization leaves a covalent residue
-            # exactly when substrates remain to bind. Without a residue while substrates
-            # remain, the enzyme would return to apo E mid-cycle, splitting the reaction
-            # into disconnected half-cycles. With a residue after the last substrate,
-            # the route strands it: only a substrate-bound form isomerizes (C7).
+            # An isomerization leaves a covalent residue exactly when substrates remain to
+            # bind. Without a residue while substrates remain, the enzyme would return to
+            # apo E mid-cycle, splitting the reaction into disconnected half-cycles. With a
+            # residue after the last substrate, the route strands it, since only a
+            # substrate-bound form isomerizes (C7).
             isempty(residue) == isempty(remaining_subs) || continue
-            # C6: iso size limit, the residue counting as one product
+            # Rule C6 on the products, the residue counting as one.
             length(subset) + !isempty(residue) > 3 && continue
-            # C8: product-only iso form
+            # Its product side binds those products and no substrate (rule C8).
             step!(Int[], false, consumed, released, Symbol[], subset)
         end
     end
@@ -470,7 +471,8 @@ end
 """
 The merged and Theorell–Chance variants of the seed candidate `c`, a plain mechanism, of
 reaction `rxn`, whose atoms each base's edges must conserve. Each base (`_seed_bases`) is
-built through the checked constructor. MERGE and ELIM conserve atoms, which each base
+built through the checked constructor. The merge (`_merge_isomerization`, MERGE in the
+tests) and the elimination (`_eliminate_form`, ELIM) conserve atoms, which each base
 asserts. For each base, every inclusion-minimal set of its groups (`_minimal_flips`) whose
 flip to steady state gives a valid, flux-carrying, non-degenerate candidate is a variant: no
 rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both ways
@@ -554,8 +556,8 @@ A competitive-only required set therefore stays non-allosteric — the seeds are
 A child is enqueued (and marked visited by `hash`) only when it is a valid seed
 node:
 
-1. no `:NonequalAI` tag anywhere (cheap states only; the beam reaches
-   `:NonequalAI` later via `change_allo_state`);
+1. no `:NonequalAI` tag anywhere (the beam reaches `:NonequalAI` later through
+   `_expand_change_allo_state`);
 2. every regulatory site binds a single ligand — one site per required
    allosteric regulator. This bounds the closure: multi-ligand children (from
    adding a regulator to an existing site) fail it and are dropped before
@@ -566,11 +568,8 @@ node:
 
 The seeds are the valid nodes that additionally bind ALL of `required_allo` at
 regulatory sites and ALL of `required_comp` as competitive-inhibitor dead ends.
-Returned deduped (each node is visited once). Explored as a wave-parallel BFS:
-each level's child generation is distributed via `pmap`, then deduped and
-folded back into the next frontier in frontier order — the same order the
-serial FIFO BFS would enqueue in — so the result is byte-identical to a serial
-traversal. Errors when no mechanism binds every required regulator; a seed that
+Each seed appears once, in an order that does not depend on the number of workers.
+Errors when no mechanism binds every required regulator; a seed that
 `_enumerator_keeps` refuses (the guard rejects it, or a conformation keeps a form that only
 bindings it excludes enter) is dropped. The search still expands such a node: only the
 seeds it returns are checked.
@@ -579,10 +578,8 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
                          required_comp::Set{Symbol})
     visited = Set{UInt64}()
     seeds = CandidateMechanism[]
-    # Dedup + collect on the main node. Returns true when `c` is new, so the
-    # caller advances only genuinely-new nodes to the next wave. Called in
-    # frontier order, which equals the serial BFS enqueue order, so `visited`
-    # and `seeds` end byte-identical to the FIFO version.
+    # Whether `c` is new. Records it, and keeps it as a seed when it binds every required
+    # regulator.
     consider!(c) = begin
         h = hash(c)
         h in visited && return false
@@ -635,7 +632,7 @@ end
     _is_seed_node(c::CandidateMechanism, rxn::EnzymeReaction, required_allo::Set{Symbol},
                  required_comp::Set{Symbol}) -> Bool
 
-A child worth expanding: cheap states, one ligand per regulatory site, no
+A child worth expanding: no `:NonequalAI` tag, one ligand per regulatory site, no
 optional regulator bound, and reg-type-respecting.
 """
 function _is_seed_node(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction,

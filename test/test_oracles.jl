@@ -358,12 +358,12 @@ end
 end
 
 @testset "the derived laws of the population sample are exact, positive and balanced" begin
-    # Spec section 14: each sampled law, derived from the concrete mechanism at one
-    # catalytic subunit, equals the exact steady state at two points, holds positive
-    # coefficients in each conformation's Q, vanishes at equilibrium, per conformation
-    # and combined, and has one unit per denominator, which its normalizer shares when it
-    # has one (`_testhelper_check_units`). Both printed forms of each law equal it at a
-    # further point, with no printing artifact.
+    # Each sampled law, derived from the concrete mechanism at one catalytic subunit, equals
+    # the exact steady state at two points, holds positive coefficients in each
+    # conformation's Q, vanishes at equilibrium, per conformation and combined, and has one
+    # unit per denominator, which its normalizer shares when it has one
+    # (`_testhelper_check_units`). Both printed forms of each law equal it at a further
+    # point, with no printing artifact.
     @test count(m -> _testhelper_is_allosteric(m),
                 _testhelper_population_sample) >= 30
     for (i, m) in enumerate(_testhelper_population_sample)
@@ -437,8 +437,8 @@ const _testhelper_sample_regroupings =
 
 @testset "Laws over a regenerated population" begin
     @testset "fitted counts equal the declared dimension" begin
-        # Success criterion 4: a phantom or folded fitted name would raise the count
-        # above the dimension the test counts on its own.
+        # A phantom or folded fitted name would raise the count above the dimension the
+        # test counts on its own.
         miscounted = [i for (i, m) in enumerate(_testhelper_population_one_round)
                       if EnzymeRates.Derivation.fitted_parameter_count(m) !=
                          _testhelper_declared_dimension(m)]
@@ -563,10 +563,10 @@ end
             E + P ⇌ EP      :: EqualAI
         end
     end
-    # R2 (spec section 7): under the guard's built readings, which stop F <--> E, its
-    # inactive limit at zero product depends on how fast that step vanishes. The guard
-    # admits it under a reading in which F <--> E loses its rate into F instead, and both
-    # oracles find the law the limit on every face.
+    # R2: under the guard's built readings, which stop F <--> E, its inactive limit at zero
+    # product depends on how fast that step vanishes. The guard admits it under a reading in
+    # which F <--> E loses its rate into F instead, and both oracles find the law the limit
+    # on every face.
     r2 = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P
@@ -1324,12 +1324,11 @@ let children = [c
 @testset "all but 34 inhibitor children pass the guard; none tags catalysis :OnlyI" begin
     # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
     # guard but 34, which candidate_mechanisms drops, and no allosteric child tags a
-    # catalytic group :OnlyI (spec section 13). Each of the 34 tags :OnlyA a fused
-    # rapid-equilibrium binding into EPQ, EA + B ⇌ EPQ or EB + A ⇌ EPQ,
-    # which the inactive conformation's other steps leave between two groups: at zero A
-    # and B it runs one way into a cut-off form that fills faster than it empties
-    # (`_FILLED`). An aggregate regression pin over the declaration's whole seed set
-    # (CLAUDE.md enumeration rule 1's exception).
+    # catalytic group :OnlyI. Each of the 34 tags :OnlyA a fused rapid-equilibrium binding
+    # into EPQ, EA + B ⇌ EPQ or EB + A ⇌ EPQ, which the inactive conformation's other steps
+    # leave between two groups: at zero A and B it runs one way into a cut-off form that
+    # fills faster than it empties (`_FILLED`). An aggregate regression pin over the
+    # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
     @test length(children) == 5505
     rejected = filter(!_testhelper_is_valid, children)
     @test length(rejected) == 34
@@ -1358,11 +1357,11 @@ end
 end
 
 @testset "laws that share a key are one law under the canonical map" begin
-    # Spec section 14: the sample, the 60 I-binding inhibitor children, and every
-    # tagging child of ten catalytic graphs of the one-round population, whose siblings
-    # often share a law (tag sets that differ only on groups the inactive conformation
-    # never reaches, or only in names). Members of one key evaluate alike with constants
-    # mapped by canonical position, and swapping two of them breaks the map.
+    # The sample, the 60 I-binding inhibitor children, and every tagging child of ten
+    # catalytic graphs of the one-round population, whose siblings often share a law (tag
+    # sets that differ only on groups the inactive conformation never reaches, or only in
+    # names). Members of one key evaluate alike with constants mapped by canonical position,
+    # and swapping two of them breaks the map.
     by_graph = Dict{EnzymeRates.Mechanisms.CatalyticScheme,
                     Vector{EnzymeRates.Mechanism}}()
     for m in _testhelper_population_one_round
@@ -1530,10 +1529,10 @@ end
 end
 
 @testset "rewrites, regroupings and constant renames keep every sampled key" begin
-    # Spec section 14: writing a mechanism backwards, regrouping it without changing
-    # its model, and renaming its fitted constants change no law and no key, and the
-    # canonical order maps one labelling onto the other. A same-model regrouping keeps
-    # every fitted name too ("a same-model regrouping keeps every fitted name").
+    # Writing a mechanism backwards, regrouping it without changing its model, and renaming
+    # its fitted constants change no law and no key, and the canonical order maps one
+    # labelling onto the other. A same-model regrouping keeps every fitted name too ("a
+    # same-model regrouping keeps every fitted name").
     rng = Random.MersenneTwister(612)
     n_regrouped = 0
     for (m, regrouped) in zip(_testhelper_population_sample, _testhelper_sample_regroupings)
@@ -1598,12 +1597,12 @@ function _testhelper_tagging_children(parents, rxn)
 end
 
 @testset "every flagged one-subunit bi-bi variant is its L→0 law's family" begin
-    # Spec section 13: the tagging children of 40 bi-bi init mechanisms spaced
-    # through their content order, 200 of them spaced the same way. Each variant
-    # `_is_phantom` flags reproduces its law at L = 0 under the certificate's rescaling, so
-    # its family is that law's and no flagged variant gains rank; the rank oracle confirms
-    # it on the first four. The counts are aggregate regression pins over the
-    # declaration's seed set (CLAUDE.md enumeration rule 1's exception).
+    # The tagging children of 40 bi-bi init mechanisms spaced through their content order,
+    # 200 of them spaced the same way. Each variant `_is_phantom` flags reproduces its law
+    # at L = 0 under the certificate's rescaling, so its family is that law's and no flagged
+    # variant gains rank; the rank oracle confirms it on the first four. The counts are
+    # aggregate regression pins over the declaration's seed set (CLAUDE.md enumeration rule
+    # 1's exception).
     rxn = _testhelper_phantom_bibi_rxn
     parents = _testhelper_spaced(
         collect(_testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))), 40)

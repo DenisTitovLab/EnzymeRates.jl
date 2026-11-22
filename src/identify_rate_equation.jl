@@ -811,12 +811,11 @@ end
 
 """
 Expand every selected parent into its children (`Enumeration.candidate_mechanisms`, with
-the size limits `max_param_count` and `eq_complexity_filter`) across the workers, then
-merge serially. `pmap` preserves input order, so iterating `zip(to_expand, results)`
-reproduces the serial loop's first-parent-wins dedup, child order, and failure order
-exactly. Returns `(children, parent_of, expand_failures)`: `parent_of` maps each child to
-the `BatchEntry` of the first parent that produced it, and `expand_failures` holds a
-`FitFailure` carrying the parent's mechanism for each parent whose expansion threw.
+the size limits `max_param_count` and `eq_complexity_filter`) across the workers. Returns
+`(children, parent_of, expand_failures)` in the order of `to_expand`, whatever the number
+of workers: each child once, `parent_of` mapping it to the `BatchEntry` of the first parent
+that produced it, and a `FitFailure` carrying the parent's mechanism for each parent whose
+expansion threw.
 """
 function _expand_parents(to_expand::Vector{BatchEntry},
                          reaction::Mechanisms.EnzymeReaction;

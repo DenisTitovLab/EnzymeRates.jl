@@ -1218,7 +1218,7 @@ end
     end
 end
 
-# ── §5a regression: every inactive-state parameter must be defined ──────────
+# ── Regression: every inactive-state parameter must be defined ──────────────
 # Allosteric mechanisms from an LDH `identify_rate_equation` run crashed with
 # `UndefVarError` on undefined I-state parameters: the I-state polynomials
 # referenced names the dep-assignment and destructuring machinery never emitted.
@@ -1524,11 +1524,11 @@ end
 end
 
 @testset "dependent locals are numbered by solve column" begin
-    # The program defines a local for each dependent that is a power product of two or
-    # more symbols before any other local, in the solve's column order, so a body's
-    # numbering never follows a hash (spec section 2, criterion 3); a dependent equal to
-    # one symbol takes no local. The random-order bi-bi has a Haldane dependent and a
-    # Wegscheider one, each a product of several constants.
+    # The program defines a local for each dependent that is a power product of two or more
+    # symbols before any other local, in the solve's column order, so a body's numbering
+    # never follows a hash; a dependent equal to one symbol takes no local. The random-order
+    # bi-bi has a Haldane dependent and a Wegscheider one, each a product of several
+    # constants.
     m = only(s for s in MECHANISM_TEST_SPECS
              if s.name == "Random-order Bi-Bi").mechanism
     s = EnzymeRates.Derivation._solve(m)
@@ -2070,8 +2070,8 @@ end
     # forbidden and collapses
     # (k_I_EB_to_E_B = k_A_EB_to_E_B·k_I_E_B_to_EB/k_A_E_B_to_EB) while
     # its speed stays free. Asserts the mechanism-agnostic invariant: zero net rate
-    # at chemical equilibrium. (Over-parametrized; the enumerator will skip such
-    # degenerate configs in a follow-up PR.)
+    # at chemical equilibrium. (Over-parametrized; the enumerator emits such
+    # degenerate configs.)
     # B binding (step 2) :NonequalAI, rest :EqualAI.
     m_ro = @enzyme_mechanism begin
         substrates: A, B
@@ -4141,7 +4141,7 @@ function _testhelper_check_pasted_forms(m, rng; at_zero = nothing)
     end
 end
 
-# ── The unit rule (spec section 9) ───────────────────────────────────────────
+# ── The unit rule ────────────────────────────────────────────────────────────
 
 @testset "Michaelis–Menten takes its constant term" begin
     # Rule 1: the denominator has a term free of concentrations, the free enzyme's, and
@@ -4335,18 +4335,17 @@ end
 end
 
 @testset "each MWC conformation takes its own rule" begin
-    # Spec section 9: an MWC law normalizes each conformation's polynomials by that
-    # conformation's rule, dividing its Q, D and free-E weight alike, so the MWC
-    # combination does not change. A two-subunit ping-pong whose chemistry differs between
-    # the conformations takes Cleland's normalizer in both, each on its own terms. F3 with
-    # every step :OnlyA, beside a steady-state dead-end inhibitor I that binds free E in
-    # both conformations, takes no normalizer in the active conformation and the constant
-    # term in the inactive one, which keeps free E and EI. With A's binding and the
-    # Theorell–Chance step alone :OnlyA, the inactive conformation would keep free E and
-    # EQ, but the rapid-equilibrium Theorell–Chance step, which then lies between two of
-    # its groups, fills EA faster than EA empties at zero substrates, and the guard
-    # refuses it; under none of its consistent readings does the ε-path oracle find a
-    # limit.
+    # An MWC law normalizes each conformation's polynomials by that conformation's rule,
+    # dividing its Q, D and free-E weight alike, so the MWC combination does not change. A
+    # two-subunit ping-pong whose chemistry differs between the conformations takes
+    # Cleland's normalizer in both, each on its own terms. F3 with every step :OnlyA, beside
+    # a steady-state dead-end inhibitor I that binds free E in both conformations, takes no
+    # normalizer in the active conformation and the constant term in the inactive one, which
+    # keeps free E and EI. With A's binding and the Theorell–Chance step alone :OnlyA, the
+    # inactive conformation would keep free E and EQ, but the rapid-equilibrium
+    # Theorell–Chance step, which then lies between two of its groups, fills EA faster than
+    # EA empties at zero substrates, and the guard refuses it; under none of its consistent
+    # readings does the ε-path oracle find a limit.
     filled = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -4426,7 +4425,7 @@ end
 end
 
 @testset "every spec's law has one unit per denominator and a rate per time" begin
-    # Units on the 42 specs, each at one catalytic subunit (spec section 14).
+    # Units on the 42 specs, each at one catalytic subunit.
     for spec in MECHANISM_TEST_SPECS
         @testset "$(spec.name)" begin
             am = _testhelper_single_subunit(spec.mechanism)

@@ -172,12 +172,11 @@ arcs (`_arcs`), each pointing uphill:
   since a step keeps its kind in both conformations (`_FAST_STEP_PINNED`, the first such
   edge);
 - existence: the arcs close no directed cycle, and none points into free E's component
-  (`_ARC_CYCLE`, the first edge of the cycle, else the first such arc). This is the exact
-  cone test: with every other constant fixed, a direction's equilibrium-ratio exponents
-  are differences of component potentials, the arcs must rise, and every cut-off component
-  must lie above free E's, since it holds no enzyme while forms below free E would hold it
-  all; potentials that do this exist exactly when the arcs close no cycle and none points
-  into free E's component;
+  (`_ARC_CYCLE`, the first edge of the cycle, else the first such arc). With every other
+  constant fixed, a direction's equilibrium-ratio exponents are differences of component
+  potentials, the arcs must rise, and every cut-off component must lie above free E's,
+  since it holds no enzyme while forms below free E would hold it all; potentials that do
+  this exist exactly when the arcs close no cycle and none points into free E's component;
 - uniqueness: free E's component reaches every component along the arcs, so every island
   lies behind an arc on its higher side and the limit is deletion plus pruning (`_ISLAND`,
   the first excluded edge between a component free E's reaches and one it does not).
@@ -315,7 +314,7 @@ function _face_sets(net::_Network, law_nodes::BitVector, face::UInt64)
 end
 
 """Copy `c`'s alive transitions with both ends in `nodes`: `van`, those that vanish with
-their tags, and `held`, those T0+ reads (not vanishing, or fast)."""
+their tags, and `held`, those `_potential_on_sccs` reads (not vanishing, or fast)."""
 function _copy_transitions(net::_Network, alive::BitVector, nodes::BitVector, c::Int)
     van, held = falses(length(net.from)), falses(length(net.from))
     for t in eachindex(net.from)
@@ -378,7 +377,7 @@ end
 """
     _fewest_slow(net, nodes, keep) -> Int
 
-MINSLOW: the fewest slow transitions in a spanning in-tree of the nodes `nodes` over the
+The fewest slow transitions in a spanning in-tree of the nodes `nodes` over the
 transitions `keep` flags (cost 1 slow, 0 fast), any root; -1 when no in-tree spans them. A
 virtual root joined to every node at a cost above any tree's turns the in-tree into
 Chu–Liu/Edmonds's out-arborescence (`_min_arborescence`) on reversed transitions; a cost of
@@ -405,9 +404,9 @@ end
 """
     _potential_on_sccs(net, keep, x) -> Bool
 
-T0+: whether the uptake of metabolite `x` (a `change` row) is a potential on
-every strongly connected part (`_strong_components`) of the transitions `keep` flags, so
-no cycle of them turns the reaction over.
+Whether the uptake of metabolite `x` (a `change` row) is a potential on every strongly
+connected part (`_strong_components`) of the transitions `keep` flags, so no cycle of them
+turns the reaction over.
 """
 function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
     comp = _strong_components(_successors(net, keep), net.present)
@@ -419,8 +418,7 @@ function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
 end
 
 """Whether the transitions `extra` shorten the cheapest spanning in-tree of `nodes` over
-`base` (`_fewest_slow`): R1's failure for one conformation's vanishing transitions, joint
-R1's for both conformations'."""
+`base` (`_fewest_slow`)."""
 function _shortens_in_tree(net::_Network, nodes::BitVector, base::BitVector,
                            extra::BitVector)
     without = _fewest_slow(net, nodes, base)
@@ -492,13 +490,16 @@ first substrate (`first(m.substrates)`). In order:
   names a feed whose reverse is dead when there is one; a basin entered only reversibly
   from the law network is sealed: its weight vanishes, and it leaves the fed nodes;
 - `_BRIDGE`: in some conformation the vanishing transitions shorten the cheapest spanning
-  in-tree of the fed nodes (R1 fails, `_shortens_in_tree`) and the first substrate's uptake
-  is no potential on the strongly connected parts of its alive transitions that are not
-  vanishing or are fast (T0+ fails, `_potential_on_sccs`), led by the first of its
-  vanishing steps on a cheapest tree (`_bridging_edges`); or both conformations pass R1 and
-  their vanishing transitions together shorten it (joint R1, no conformation or step).
-A face whose fed nodes no in-tree spans passes: class 3 decides it. The verdict leaves the
-face index 0 (`_admission_face` sets it).
+  in-tree of the fed nodes (`_shortens_in_tree`) and the first substrate's uptake is no
+  potential on the strongly connected parts of its alive transitions that are not
+  vanishing or are fast (`_potential_on_sccs`), led by the first of its vanishing steps on
+  a cheapest tree (`_bridging_edges`); or no conformation's vanishing transitions shorten
+  it alone but both conformations' together do (no conformation or step).
+The tests name two of these conditions: R1, that a conformation's vanishing transitions do
+not shorten the in-tree (joint R1: both conformations' together do not), and T0+, that the
+first substrate's uptake is a potential on those parts. A face whose fed nodes no in-tree
+spans passes: class 3 decides it. The verdict leaves the face index 0 (`_admission_face`
+sets it).
 """
 function _face_condition(net::_Network, law_nodes::BitVector, face::UInt64, x::Int)
     s = _face_sets(net, law_nodes, face)

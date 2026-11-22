@@ -418,8 +418,7 @@ _testhelper_tag_sets["terbi_d75d2415361c4dae"] =
     end
 end
 # An :OnlyA group mixing B's fused binding into EPQ with its plain binding at EQ,
-# which no untagged step joins to EBQ: its limit exists (spec section 7, "Mixed groups
-# stay allowed").
+# which no untagged step joins to EBQ: its limit exists.
 _testhelper_tag_sets["mixed_group_limit"] =
     @_testhelper_unguarded @enzyme_mechanism begin
     substrates: A, B
@@ -2964,11 +2963,10 @@ const _testhelper_face_rejected = Set(["R2", "BS1", "BS2", "BS3", "BS4", "ADbrid
     rng = Random.MersenneTwister(43)
     NO, PU = EnzymeRates.Derivation._NO_FAULT, EnzymeRates.Derivation._PUMPED
     # Classes 1-3 and admission's interior accept R2, so under the guard's first built
-    # reading the face condition alone rejects it (spec section 7): at P zero, F's exits
-    # vanish (F <--> E, stopped) or take up P (F + P ⇌ EP), and EP feeds it by a
-    # release whose reverse is dead. The search admits R2 under a reading in which
-    # F <--> E loses its rate into F instead, so F drains into free E, and the oracles
-    # agree on every face under it.
+    # reading the face condition alone rejects it: at P zero, F's exits vanish (F <--> E,
+    # stopped) or take up P (F + P ⇌ EP), and EP feeds it by a release whose reverse is
+    # dead. The search admits R2 under a reading in which F <--> E loses its rate into F
+    # instead, so F drains into free E, and the oracles agree on every face under it.
     am = _testhelper_tag_sets["R2"]
     m = am.catalytic
     @test _testhelper_face_faults(am) == fill(NO, 3)

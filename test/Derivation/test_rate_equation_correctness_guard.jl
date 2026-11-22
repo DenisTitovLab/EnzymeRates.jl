@@ -787,7 +787,7 @@ end
             ES <--> FS
         end
     end
-    # R2's active conformation: a second free form, and no trap (spec section 8).
+    # R2's active conformation: a second free form, and no trap.
     r2_active = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: S
         products: P

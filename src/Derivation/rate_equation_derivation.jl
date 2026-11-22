@@ -1398,7 +1398,7 @@ _substrate_vars(m::Mechanisms.Mechanism, vars::_Vars) =
 """
     _term_key(mo, vars, substrates) -> key
 
-The unit rule's order on the concentration monomials of a denominator (spec section 9):
+The unit rule's order on the concentration monomials of a denominator (`_normalizer`):
 total degree first, then the number of distinct concentrations that are not substrates
 (`substrates` holds the substrates' variables), then the exponent vector over the
 concentrations of `vars`, in `vars` order, with an earlier name's larger exponent first,
@@ -1413,11 +1413,12 @@ end
 """
     _normalizer(D, vars, substrates) -> Vector{Pair{_Mono, _Exp}}
 
-The normalizer of the denominator `D` over `vars` (spec section 9, "Normalization: the
-unit rule"), as the pairs `m => λ_m` of `N = Π_m c(m)^λ_m`, `c(m)` being the coefficient
-of the concentration monomial `m` in `D`; no pairs for `N = 1`. Every term of `D` has one
-unit, each concentration counting as a dimension of its own, and every term divided by `N`
-is dimensionless unless the last rule applies. The first rule that applies gives `N`:
+The normalizer of the denominator `D` over `vars` by the unit rule (the derivation
+tutorial's "Normalization" states it for users), as the pairs `m => λ_m` of
+`N = Π_m c(m)^λ_m`, `c(m)` being the coefficient of the concentration monomial `m` in `D`;
+no pairs for `N = 1`. Every term of `D` has one unit, each concentration counting as a
+dimension of its own, and every term divided by `N` is dimensionless unless the last rule
+applies. The first rule that applies gives `N`:
 
 1. The constant term: `D` has a term free of concentrations, and `N` is its coefficient.
 2. Cleland's terms: with `ΠS` the product of the `k` substrates, `D` has the terms

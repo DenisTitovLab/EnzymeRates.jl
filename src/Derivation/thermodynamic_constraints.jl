@@ -220,11 +220,12 @@ end
 """
 The kept member of each kinetic class of `m`, keyed by `(group, slot, inactive)`: the
 edge whose column comes last in elimination order (`cols`, `_ordered_columns(m)`), its
-smallest `_priority_key`, so the solve keeps it whenever it keeps one of the class (E3).
-A `:NonequalAI` or `:OnlyI` group has an inactive class, kept by a member in the inactive
-law when it has one; an `:EqualAI` group's edges share their active class; the copy of an
-edge in the conformation that excludes it (an `:OnlyA` edge's inactive copy, an `:OnlyI`
-edge's active one) is a class of its own, so neither of these appears.
+smallest `_priority_key`, so the solve keeps it whenever it keeps one of the class (the
+tests call this rule E3). A `:NonequalAI` or `:OnlyI` group has an inactive class, kept
+by a member in the inactive law when it has one; an `:EqualAI` group's edges share their
+active class; the copy of an edge in the conformation that excludes it (an `:OnlyA` edge's
+inactive copy, an `:OnlyI` edge's active one) is a class of its own, so neither of these
+appears.
 """
 function _kept_members(m::Mechanisms.Mechanism, cols = _ordered_columns(m))
     cm = m.catalytic

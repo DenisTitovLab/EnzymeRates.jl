@@ -2,14 +2,14 @@
 # ABOUTME: and the rescaling certificate that flags a one-subunit L phantom.
 
 """
-A rate law's canonical form (spec section 10): `order`, its fitted constants in canonical
-order, the constants no term holds last by name (`L`, a fixed variable, is not listed);
-`text`, the canonical text; `key`, the text's SHA-256 in 64 hex digits; `leaves`, the
-labellings the search compared; `capped`, whether the search stopped at `_KEY_LEAF_CAP`,
-in which case `text` is the mechanism's own (`"mechanism|"` and its id) and `order` is the
-variable order. Below the cap, two laws get one key exactly when one is the other with its
-fitted constants renamed, each brought to lowest terms unit by unit; concentrations count
-by metabolite name.
+A rate law's canonical form: `order`, its fitted constants in canonical order, the
+constants no term holds last by name (`L`, a fixed variable, is not listed); `text`, the
+canonical text; `key`, the text's SHA-256 in 64 hex digits; `leaves`, the labellings the
+search compared; `capped`, whether the search stopped at `_KEY_LEAF_CAP`, in which case
+`text` is the mechanism's own (`"mechanism|"` and its id) and `order` is the variable
+order. Below the cap, two laws get one key exactly when one is the other with its fitted
+constants renamed, each brought to lowest terms unit by unit; concentrations count by
+metabolite name.
 """
 struct _Canonical
     order::Vector{Symbol}
@@ -170,17 +170,17 @@ end
 """
     _phantom_weights(A) -> w
 
-The rescaling certificate of the MWC law `A` (spec section 13, "One-subunit L phantoms").
-At one catalytic subunit, with an inactive conformation that turns nothing over
-(`QI = 0`), the law is `v = N/(Y + L·X)` with `N = H·fI·QA·WA`, `Y = fI·DA·WA` and
-`X = fA·DI·WI`. When every term of `X` is a term of `Y` with the same coefficient,
-`Y + L·X = (Y − X) + (1 + L)·X`; weights `w` over the fitted constants other than `L`, and
-a shift `s`, with `e·w = s` on the constant exponents `e` of every term of `N` and of
-`Y − X` and `e·w = s + 1` on those of every term of `X`, then give
-`v(θ, L) = v₀(θ ⊙ (1 + L)^w)` for all positive `θ` and `L`, `v₀ = N/Y` being the law at
-`L = 0`: the two laws have one family. Returns `w` in `A.vars` order (the independents,
-then the regulator constants), or an empty vector when no weights exist, when `A` has
-another shape, or when the arithmetic leaves `Int64`, so that such a variant is fitted.
+The rescaling certificate of the MWC law `A`. At one catalytic subunit, with an inactive
+conformation that turns nothing over (`QI = 0`), the law is `v = N/(Y + L·X)` with
+`N = H·fI·QA·WA`, `Y = fI·DA·WA` and `X = fA·DI·WI`. When every term of `X` is a term of
+`Y` with the same coefficient, `Y + L·X = (Y − X) + (1 + L)·X`; weights `w` over the
+fitted constants other than `L`, and a shift `s`, with `e·w = s` on the constant exponents
+`e` of every term of `N` and of `Y − X` and `e·w = s + 1` on those of every term of `X`,
+then give `v(θ, L) = v₀(θ ⊙ (1 + L)^w)` for all positive `θ` and `L`, `v₀ = N/Y` being the
+law at `L = 0`: the two laws have one family. Returns `w` in `A.vars` order (the
+independents, then the regulator constants), or an empty vector when no weights exist,
+when `A` has another shape, or when the arithmetic leaves `Int64`, so that such a variant
+is fitted.
 """
 function _phantom_weights(A::_AlloLaw)
     none = Rational{Int}[]
@@ -233,10 +233,10 @@ end
 """
     _is_phantom(A) -> Bool
 
-Whether a mechanism whose MWC law is `A` is a one-subunit L phantom (spec section 13): `A`
-has a rescaling certificate (`_phantom_weights`), which requires one catalytic subunit and
-an inactive conformation that turns nothing over, so the mechanism's family is the family
-of its law at `L = 0`. A plain mechanism's law (`_Law`) is never one.
+Whether a mechanism whose MWC law is `A` is a one-subunit L phantom: `A` has a rescaling
+certificate (`_phantom_weights`), which requires one catalytic subunit and an inactive
+conformation that turns nothing over, so the mechanism's family is the family of its law
+at `L = 0`. A plain mechanism's law (`_Law`) is never one.
 """
 _is_phantom(A::_AlloLaw) = !isempty(_phantom_weights(A))
 _is_phantom(::_Law) = false

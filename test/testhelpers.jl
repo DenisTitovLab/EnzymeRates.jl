@@ -1066,12 +1066,11 @@ end
 
 # ── Well-posedness oracles ──────────────────────────────────────────────────
 #
-# The well-posedness guard's oracles (spec section 14): mass-action networks of one
-# catalytic subunit, read from the graph read API and never from the guard's code, whose
-# conformations flip at free E (form 1); the RE-speed oracle on the guard's faces; the
-# ε-path oracle of admission, along integer potentials or the corners of the admissible
-# cone and five orders of the two limits; the exact LP of admission's existence test; and
-# the concerted n-protomer oracle.
+# The well-posedness guard's oracles: mass-action networks of one catalytic subunit, read
+# from the graph read API and never from the guard's code, whose conformations flip at free
+# E (form 1); the RE-speed oracle on the guard's faces; the ε-path oracle of admission,
+# along integer potentials or the corners of the admissible cone and five orders of the two
+# limits; the exact LP of admission's existence test; and the concerted n-protomer oracle.
 
 """Whether the guard accepts `m` (`check_valid_rate_equation(Bool, m)`)."""
 _testhelper_is_valid(m) = EnzymeRates.Derivation.check_valid_rate_equation(Bool, m)
@@ -1089,11 +1088,10 @@ macro _testhelper_unguarded(call)
 end
 
 """
-The faces of `m` that the guard checks (spec section 8), each as
-the set of names it zeroes, in the guard's order: the interior, every product zero, every
-substrate zero, each substrate and then each product alone on a side of two or more; then
-each of these with every modifier zero too. A regulatory-site ligand is zeroed only when
-it also binds the catalytic site.
+The faces of `m` that the guard checks, each as the set of names it zeroes, in the guard's
+order: the interior, every product zero, every substrate zero, each substrate and then each
+product alone on a side of two or more; then each of these with every modifier zero too. A
+regulatory-site ligand is zeroed only when it also binds the catalytic site.
 """
 _testhelper_faces(m::EnzymeRates.Mechanism) = _testhelper_faces(m.catalytic)
 function _testhelper_faces(cm::EnzymeRates.Mechanisms.CatalyticScheme)
@@ -1657,11 +1655,11 @@ end
 """
     _testhelper_respeed(m, point, concs, face; rng, law = :package) -> Symbol
 
-The RE-speed oracle (spec section 14) on the face of `m` where the names `face` vanish:
-the law's network (`_testhelper_network`, one subunit) solved at Λ = 1e10 and 1e20 under
-two speed patterns of 10^±3, its rapid-equilibrium edges at Λ times their pattern's
-factor. An allosteric `m` is judged at one catalytic subunit (`_testhelper_single_subunit`).
-The first verdict that applies:
+The RE-speed oracle on the face of `m` where the names `face` vanish: the law's network
+(`_testhelper_network`, one subunit) solved at Λ = 1e10 and 1e20 under two speed patterns of
+10^±3, its rapid-equilibrium edges at Λ times their pattern's factor. An allosteric `m` is
+judged at one catalytic subunit (`_testhelper_single_subunit`). The first verdict that
+applies:
 - `:nonunique`: the face chain has more than one closed class;
 - `:diverges`: |v| grows more than 1e3-fold from the first Λ to the last (RE turnover);
 - `:unconverged`: the change from the first Λ to the last, scaled by their ratio, exceeds
@@ -1927,12 +1925,12 @@ end
     _testhelper_epath_verdict(m; rng, face = Set{Symbol}(), corners = false,
                               precision = 256, reading = :all_lose_affinity) -> Symbol
 
-The ε-path oracle (spec section 14) on the face of `m` where the names `face` vanish, one
-catalytic subunit: along each direction (the six standard ones, or the corners with
-`corners`) and each order κ ∈ (RE first, 8, 2, ½, ε first) of the two limits, the
-turnover of the ε-network against the deletion law's value there
-(`_testhelper_limit_law`), each excluded edge switched off as `reading` says (a matrix or
-a built name, `_testhelper_reading`). The first verdict that applies:
+The ε-path oracle on the face of `m` where the names `face` vanish, one catalytic subunit:
+along each direction (the six standard ones, or the corners with `corners`) and each order κ
+∈ (RE first, 8, 2, ½, ε first) of the two limits, the turnover of the ε-network against the
+deletion law's value there (`_testhelper_limit_law`), each excluded edge switched off as
+`reading` says (a matrix or a built name, `_testhelper_reading`). The first verdict that
+applies:
 - `:no_path`: an excluding conformation has no path to the limit (`_testhelper_exclusion`);
 - `:nonunique`: an ε-network has more than one closed class on the face;
 - `:diverges`: some path's turnover grows without bound (a fast cycle of the ε-network
