@@ -50,11 +50,11 @@ flowchart TB
   plot -->|"RateData"| data
   plot -->|"<b>★#nbsp;metabolites()</b>"| mech
   enum -->|"check_valid_rate_equation()<br/>fitted_parameter_count()<br/>rate_equation_term_count()"| der
-  enum -->|"has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
+  enum -->|"has_nonzero_weight_cycle()<br/>has_turnover_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
   fit -->|"<b>★#nbsp;compile_rate_equation()</b><br/><b>★#nbsp;parameters()</b><br/>parameter_units()"| der
   fit -->|"RateData"| data
   fit -->|"<b>★#nbsp;metabolites()</b>"| mech
-  der -->|"<b>★#nbsp;metabolites()</b><br/>has_turnover_cycle()<br/>has_unbalanced_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
+  der -->|"<b>★#nbsp;metabolites()</b><br/>has_nonzero_weight_cycle()<br/>has_turnover_cycle()<br/>rapid_equilibrium_segments()<br/>step_text()<br/>steps_in_active_conformation()<br/>steps_in_inactive_conformation()"| mech
   classDef mod fill:#eaf2ee,stroke:#666666,color:#222222;
   class top,dsl,plot,enum,fit,der,data,mech mod;
 ```
@@ -79,7 +79,8 @@ module reads with dots. Its constructors put a mechanism in canonical form and c
 and `show` prints a mechanism as the macro block that builds it. It hides canonical form
 and the representation checks. A mechanism stores its graph and nothing derived from it;
 `Mechanisms` answers the graph analyses that two modules read: the steps each
-conformation runs, rapid-equilibrium segments, and turnover and unbalanced cycles.
+conformation runs, rapid-equilibrium segments, turnover cycles and cycles of nonzero
+weight.
 
 **`Derivation`** turns a mechanism into its rate law. It decides whether the law is
 defined (the guard), solves the thermodynamic constraints, names the parameters, and
@@ -163,7 +164,8 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `rapid_equilibrium_segments` | The rapid-equilibrium segments of a set of steps, and the | Derivation, Enumeration | |
 | | steady-state steps between them | | |
 | `has_turnover_cycle` | Whether a cycle of steps turns the reaction over | Derivation, Enumeration | |
-| `has_unbalanced_cycle` | The union-find of `has_turnover_cycle` | Derivation, Enumeration | |
+| `has_nonzero_weight_cycle` | Whether the steps a mask keeps close a cycle whose weights do | Derivation, Enumeration | |
+| | not sum to zero | | |
 
 **`Derivation`**
 

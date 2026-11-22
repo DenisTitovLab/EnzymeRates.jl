@@ -419,9 +419,9 @@ rapid-equilibrium turnover cycle (`has_turnover_cycle`), a maximal rate both way
 read once per base, so a candidate costs a few passes over arrays. A base holds no
 isomerization, so each chemistry node is a merged complex or a Theorell–Chance step. A set
 of edges holds a turnover cycle iff it closes a cycle of nonzero weight
-(`has_unbalanced_cycle`), which reuses the screen's buffers. Each maximal-rate test runs on
-the candidate's rapid-equilibrium edges and more, and adding edges never removes such a
-cycle, so a turnover cycle of the candidate fails both tests.
+(`has_nonzero_weight_cycle`), which reuses the screen's buffers. Each maximal-rate test
+runs on the candidate's rapid-equilibrium edges and more, and adding edges never removes
+such a cycle, so a turnover cycle of the candidate fails both tests.
 """
 function _seed_candidate_screen(c::CandidateMechanism)
     m = c.mechanism.catalytic
@@ -443,7 +443,7 @@ function _seed_candidate_screen(c::CandidateMechanism)
     exits = [(leaves(x, subs), leaves(x, prods)) for x in complexes]
     n = length(c.forms)
     parent = zeros(Int, n); offset = zeros(Int, n)
-    turnover(on) = Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)
+    turnover(on) = Mechanisms.has_nonzero_weight_cycle(from, to, weight, on, parent, offset)
     meets(a::BitVector, b::BitVector) = any(k -> a[k] && b[k], eachindex(a))
     kept = falses(length(ks))
     function screen(re::BitVector)

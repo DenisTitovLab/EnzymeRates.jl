@@ -295,13 +295,26 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   inside (`.claude/CLAUDE.md`). The lean mechanism took `Mechanisms` from 25 public names
   to 15, `Derivation` from 16 to 9 and `Enumeration` to two, `CandidateMechanism` and
   `candidate_mechanisms`. Six places still fall short. Priority: high.
-  - **`has_unbalanced_cycle` takes six vectors.**
-    `Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)` is a union-find
-    whose two callers, Enumeration's seed screen and Derivation's admission, pass the
-    working arrays it fills. A signature on a catalytic scheme and a mask, as
-    `has_turnover_cycle` has, would fit the seed screen but not admission:
-    `_potential_on_sccs` (`src/Derivation/admission.jl`) passes the transitions of the
-    guard's network, not a scheme's steps.
+  - **`has_nonzero_weight_cycle` takes six vectors.**
+    `Mechanisms.has_nonzero_weight_cycle(from, to, weight, on, parent, offset)` is a
+    union-find whose two callers outside `Mechanisms` pass the working arrays it fills. The
+    enumerator's seed screen (`_seed_candidate_screen`, `src/Enumeration/seeds.jl`) asks
+    the turnover question for many step subsets and reuses its buffers. The guard calls it
+    at one place, on its own network of transitions with a metabolite's uptake as the
+    weight (`_potential_on_sccs`, `src/Derivation/admission.jl`). A signature on a
+    catalytic scheme and a mask, as `has_turnover_cycle` has, would fit the seed screen but
+    not the guard, which passes transitions, not a scheme's steps. The guard also has its
+    own walk over that network that finds a cycle whose offsets disagree (`_fast_segments`
+    with `_tree_cycle`, `src/Derivation/guard.jl`), which its check that every cycle
+    balances each metabolite uses (`_unbalanced_cycle`). Unverified: whether
+    `_potential_on_sccs` could ask its question through that walk. If it can, the seed
+    screen is the only caller outside `Mechanisms`, and with buffers passed to
+    `has_turnover_cycle`, or an allocation accepted there, the routine becomes private: one
+    public name and its six-argument signature fewer. Considered and not recommended:
+    merging the two functions under one name (two call shapes remain); dropping
+    `has_turnover_cycle` (the rule that turnover is uptake of the first substrate would
+    then be written at four call sites); dropping the general routine outright (the guard
+    would need a copy).
   - **Three modules count which way a step runs.**
     The count of substrates taken up and products given off that orients a step is made
     in `Mechanisms` (`_orientation`, the second row of the table of stored directions),

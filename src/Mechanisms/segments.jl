@@ -93,7 +93,7 @@ end
 forms `from[k]` and `to[k]` with weight `weight[k]`: giving every form a potential that
 rises by each step's weight along it then fails somewhere, which a weighted union-find in
 the buffers `parent` and `offset` (one entry per form) detects."""
-function has_unbalanced_cycle(from, to, weight, on, parent, offset)
+function has_nonzero_weight_cycle(from, to, weight, on, parent, offset)
     parent .= eachindex(parent); fill!(offset, 0)
     function root(x)
         p = 0
@@ -119,7 +119,7 @@ end
 
 Whether a cycle of the steps of `m` that `on` keeps turns the reaction over: no potential
 of the forms rises along each step by its uptake of the first substrate, which a weighted
-union-find finds (`has_unbalanced_cycle`). A cycle of a
+union-find finds (`has_nonzero_weight_cycle`). A cycle of a
 mechanism whose steps conserve atoms runs the reaction a whole number of times, so its
 uptake of the first substrate is zero only when it turns nothing over; a hand-written
 cycle that does not is read by that uptake alone. The guard's class 1 rejects a
@@ -131,7 +131,7 @@ function has_turnover_cycle(m::CatalyticScheme, on::BitVector)
     s1 = m.substrates[1]
     uptake(list::Vector{Int}) = count(==(s1), list)
     n = length(m.enzyme_forms)
-    has_unbalanced_cycle([e.from for e in m.steps], [e.to for e in m.steps],
-                         [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],
-                         on, zeros(Int, n), zeros(Int, n))
+    has_nonzero_weight_cycle([e.from for e in m.steps], [e.to for e in m.steps],
+                             [uptake(e.taken_up) - uptake(e.given_off) for e in m.steps],
+                             on, zeros(Int, n), zeros(Int, n))
 end

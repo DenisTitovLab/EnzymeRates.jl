@@ -517,8 +517,8 @@ function _potential_on_sccs(net::_Network, keep::BitVector, x::Int)
     inside = BitVector([keep[t] && comp[net.from[t]] == comp[net.to[t]]
                         for t in eachindex(net.from)])
     n = length(net.present)
-    !Mechanisms.has_unbalanced_cycle(net.from, net.to, view(net.change, x, :), inside,
-                          zeros(Int, n), zeros(Int, n))
+    !Mechanisms.has_nonzero_weight_cycle(net.from, net.to, view(net.change, x, :), inside,
+                                         zeros(Int, n), zeros(Int, n))
 end
 
 """Whether the transitions `extra` shorten the cheapest spanning in-tree of `nodes` over

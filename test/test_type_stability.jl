@@ -82,7 +82,7 @@ include("type_stability_harness.jl")
     @testset "Mechanisms" begin
         @_testhelper_no_dispatch Mech.step_text(plain.catalytic, 1)
         @_testhelper_no_dispatch Mech.has_turnover_cycle(plain.catalytic, ::BitVector)
-        @_testhelper_no_dispatch Mech.has_unbalanced_cycle(
+        @_testhelper_no_dispatch Mech.has_nonzero_weight_cycle(
             ::Vector{Int}, ::Vector{Int}, ::Vector{Int}, ::BitVector, ::Vector{Int},
             ::Vector{Int})
         @_testhelper_no_dispatch Mech.rapid_equilibrium_segments(plain.catalytic,

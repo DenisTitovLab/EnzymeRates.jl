@@ -6,7 +6,7 @@ module Mechanisms
 import Unicode
 
 public Allostery, CatalyticScheme, EnzymeReaction, Mechanism, Reactant, Regulator,
-    RegulatorySite, Step, has_turnover_cycle, has_unbalanced_cycle, metabolites,
+    RegulatorySite, Step, has_nonzero_weight_cycle, has_turnover_cycle, metabolites,
     rapid_equilibrium_segments, step_text, steps_in_active_conformation,
     steps_in_inactive_conformation
 

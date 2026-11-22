@@ -376,7 +376,7 @@ end
         :CatalyticScheme, :Allostery, :RegulatorySite, :Reactant, :Regulator,
         :EnzymeReaction, :metabolites, :step_text, :steps_in_active_conformation,
         :steps_in_inactive_conformation, :rapid_equilibrium_segments, :has_turnover_cycle,
-        :has_unbalanced_cycle])
+        :has_nonzero_weight_cycle])
 end
 
 @testset "documented internal paths resolve" begin

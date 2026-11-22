@@ -1,5 +1,5 @@
 # ABOUTME: Tests of the segments and cycles of a step mask: `rapid_equilibrium_segments`,
-# ABOUTME: `has_turnover_cycle` and `has_unbalanced_cycle`.
+# ABOUTME: `has_turnover_cycle` and `has_nonzero_weight_cycle`.
 
 const ER = EnzymeRates
 
@@ -192,16 +192,16 @@ end
     @test text.(g.steps) == ["E + Q <--> EQ", "EAB <--> EPQ", "EQ + P <--> EPQ"]
 end
 
-@testset "has_unbalanced_cycle on plain arrays" begin
+@testset "has_nonzero_weight_cycle on plain arrays" begin
     M = ER.Mechanisms
     # The triangle 1 → 2 → 3 → 1 balances at weights 1, 1, -2 and not at 1, 1, -1; without
     # its third step it closes no cycle.
     from, to3 = [1, 2, 3], [2, 3, 1]
     buffers() = (zeros(Int, 3), zeros(Int, 3))
-    @test !M.has_unbalanced_cycle(from, to3, [1, 1, -2], trues(3), buffers()...)
-    @test M.has_unbalanced_cycle(from, to3, [1, 1, -1], trues(3), buffers()...)
-    @test !M.has_unbalanced_cycle(from, to3, [1, 1, -1], BitVector([1, 1, 0]),
-                                  buffers()...)
+    @test !M.has_nonzero_weight_cycle(from, to3, [1, 1, -2], trues(3), buffers()...)
+    @test M.has_nonzero_weight_cycle(from, to3, [1, 1, -1], trues(3), buffers()...)
+    @test !M.has_nonzero_weight_cycle(from, to3, [1, 1, -1], BitVector([1, 1, 0]),
+                                      buffers()...)
 end
 
 @testset "a sub-graph reads the forms and segments of the edges a mask keeps" begin
