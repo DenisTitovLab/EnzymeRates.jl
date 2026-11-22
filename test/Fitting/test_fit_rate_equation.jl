@@ -767,7 +767,6 @@ end
 # ── The scales of a fit ───────────────────────────────────────────────────────────────
 
 using EnzymeRates: test_rate_equation
-using Random
 using OptimizationCMAEvolutionStrategy
 
 @testset "Reference turnover scale" begin
@@ -996,11 +995,6 @@ end
 end
 
 # ── The fit's search around the data ──────────────────────────────────────────────────
-
-using Optimization
-using Optimization.SciMLBase: build_solution, ReturnCode, DefaultOptimizationCache
-using OptimizationCMAEvolutionStrategy
-using Random
 
 # An optimizer stub that records each problem's start and box, and returns the start.
 struct _testhelper_RecordingStubOpt

@@ -3,8 +3,6 @@
 
 # ── Parameter names and units ─────────────────────────────────────────────────────────
 
-const ER = EnzymeRates
-
 @testset "_constant_columns: the joint solve's columns and their names" begin
     M = ER.Mechanisms
     D = ER.Derivation
@@ -914,8 +912,6 @@ end
 
 # ── The joint solve ───────────────────────────────────────────────────────────────────
 
-using Random
-
 const _testhelper_JS = EnzymeRates
 
 """
@@ -1533,7 +1529,6 @@ end
 
 module PivotPriorityRegressionTests
 using Test, EnzymeRates
-const ER = EnzymeRates
 
 @testset "pivot priority: non-allo Wegscheider tie enforced (no over-count)" begin
     # A non-allosteric LDH mechanism reached in enumeration. A closed all-RE cycle

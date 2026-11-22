@@ -1837,7 +1837,7 @@ end
     fixture = joinpath(@__DIR__, "..", "fixtures", "bi_bi_init_golden.txt")
     if !isfile(fixture)
         mkpath(dirname(fixture)); write(fixture, join(mech_keys, "\n"))
-        @warn "bootstrapped phase2 golden fixture; commit it" fixture
+        @warn "bootstrapped the bi-bi starting set's golden fixture; commit it" fixture
     end
     golden = readlines(fixture)
     @test mech_keys == golden          # permanent structural regression gate

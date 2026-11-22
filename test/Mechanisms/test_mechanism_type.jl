@@ -2084,8 +2084,6 @@ end
 
 using Statistics: median
 
-const ER = EnzymeRates
-
 """Uni-uni with rapid-equilibrium bindings, written field by field in canonical form:
 metabolites S and P, forms E, EP, ES; the bindings of P and S, then ES → EP."""
 function _testhelper_graph_uniuni()
@@ -3279,8 +3277,6 @@ end
 
 # ── What the stored graph holds, and step text ────────────────────────────────────────
 
-const ER = EnzymeRates
-
 """The names of the metabolites the list `list` of catalytic scheme `c` indexes, in
 order."""
 _testhelper_names(c, list) = c.metabolites[list]
@@ -3493,8 +3489,6 @@ end
 end
 
 # ── Segments and cycles of a step mask ────────────────────────────────────────────────
-
-const ER = EnzymeRates
 
 """Whether a cycle of the steps of graph `m` that `on` keeps takes up some metabolite net:
 for some metabolite, the uptake of the kept steps is no difference of form potentials,

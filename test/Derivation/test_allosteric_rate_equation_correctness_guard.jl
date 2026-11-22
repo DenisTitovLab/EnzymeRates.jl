@@ -4880,8 +4880,6 @@ end
 
 # ── The steps a conformation excludes ─────────────────────────────────────────────────
 
-const ER = EnzymeRates
-
 @testset "excluded steps of a plain and an allosteric mechanism" begin
     D = ER.Derivation
     am = @enzyme_mechanism begin

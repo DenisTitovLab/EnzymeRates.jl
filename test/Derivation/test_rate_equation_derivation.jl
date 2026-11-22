@@ -5,8 +5,6 @@
 
 using OrdinaryDiffEqFIRK
 
-const ER = EnzymeRates
-
 # ── Helper functions ────────────────────────────────────────────────────────
 
 # ── Reference QSSA implementation ───────────────────────────────────────────
@@ -2182,8 +2180,6 @@ end
 
 # ── The Sig ───────────────────────────────────────────────────────────────────────────
 
-const ER = EnzymeRates
-
 """Whether every leaf of the nested tuple `x`, a Sig or a part of one, is a Symbol, an Int
 or a Bool."""
 _testhelper_sig_leaves(x) =
@@ -3023,9 +3019,6 @@ end
 end
 
 # ── MWC laws against mass-action ground truth ─────────────────────────────────────────
-
-using Test, EnzymeRates, LinearAlgebra, Random
-const ER = EnzymeRates
 
 # ── The general solver ──────────────────────────────────────────────────────
 # Build the pseudo-first-order rate matrix from a directed edge list, impose
@@ -4987,8 +4980,6 @@ end
 end
 
 # ── The allosteric golden reference ───────────────────────────────────────────────────
-
-using Test
 
 const _ALLO_GOLDEN_PATH =
     joinpath(@__DIR__, "..", "reference", "allosteric_golden_reference.txt")
