@@ -566,7 +566,7 @@ end
             best_us = min(best_us, t / 2000 * 1e6)
         end
         isfinite(acc) || error("loss! produced a non-finite result")
-        # 500 datapoints; ~5 μs typical local, min-of-batches strips CI noise
+        # 500 datapoints; ~2.8 μs typical local, min-of-batches strips CI noise
         @test best_us < 70
     end
 
@@ -574,9 +574,9 @@ end
     # A real fit is loss! times the solver's evaluations, plus the solver's own work and a
     # fixed cost per restart. Counting the evaluations makes the bound independent of how
     # long the solver searches, and timing both in one process cancels machine speed.
-    # Locally a fit takes 1.1-1.25x its loss! calls on these tables, so a cost per evaluation
-    # fails the bound only at about half of loss! itself. The allocation checks above
-    # catch a smaller cost that allocates.
+    # Locally a fit takes 1.23-1.46x its loss! calls on these tables, so a cost per
+    # evaluation fails the bound only at about a third to two thirds of loss! itself. The
+    # allocation checks above catch a smaller cost that allocates.
     @testset "a fit costs about its loss! calls" begin
         ordered_bi_bi = @enzyme_mechanism begin
             substrates: A, B

@@ -392,8 +392,8 @@ prints as the macro block that builds it (`show`, `src/Mechanisms/mechanism_type
 evaluating it, and identify's CSVs store it with a short id (`mechanism_id`).
 `FittingProblem` holds the mechanism and its compiled law, and `loss!` specializes on the
 law's type on purpose: it then reads `parameters(rate)` and `metabolites(rate)` as
-constants and inlines the law into its loop over the rows. The optimizer never sees that
-type.
+constants and inlines the law into the loop that computes the predictions. The optimizer
+never sees that type.
 `fit_rate_equation` takes its `FittingProblem` `@nospecialize` and hands
 `Optimization.solve` a `FitObjective`, which holds `x -> loss!(x, fp)` behind a
 `FunctionWrapper`, so every mechanism gives the solver one problem type: `solve` and the
@@ -810,15 +810,17 @@ three alternating processes per version):
 | Allosteric, 284 (LDH) | 1 | 33.4 | 17.3 | 0.52 |
 | Plain, 396–858 | 6 | 46–96 | 20–37 | 0.44 |
 
-Warm fits with the fit-cost test's setup (500 rows, 5 restarts, CMA-ES) take 0.60–0.67 of
-the one-loop time on the test's two laws, PK, PFK-1, HK and Segel's ordered bi-bi, 0.55–0.56
-at 96 and 284 terms, 0.48 at 396, 0.39 at 858 and 0.88 on Uni-Uni, with the same evaluations
-and the same fitted constants. With `loss!` that fast, the solver's own cost per evaluation
-weighs more: on the fit-cost test's two laws a warm fit takes 1.37–1.40 times evaluations ×
-`loss!`, against 1.21–1.22 with one loop. Inlining costs compile time: a fresh mechanism's
-first `loss!`, law call and short fit take 4–10% longer at 12–16 terms, 22% at 96 terms and
-77–117% at 396–858 terms. x86 is not measured; with AVX2 the first loop could run four rows
-at a time. Coverage counters, which every CI job runs with, keep that loop scalar.
+Warm fits with the fit-cost test's setup (500 rows, 5 restarts, CMA-ES; medians of 2
+processes × 3 rounds per version) take 0.60–0.67 of the one-loop time on the test's two
+laws, PK, PFK-1, HK and Segel's ordered bi-bi, 0.55–0.56 at 96 and 284 terms, 0.48 at 396,
+0.39 at 858 and 0.88 on Uni-Uni, with the same evaluations and the same fitted constants.
+With `loss!` that fast, the solver's own cost per evaluation weighs more: on the fit-cost
+test's two laws a warm fit takes 1.37–1.40 times evaluations × `loss!`, against 1.21–1.22
+with one loop. Inlining costs compile time: a fresh mechanism's first `loss!`, law call and
+short fit take 4–10% longer at 12–16 terms, 22% at 96 terms and 77–117% at 396–858 terms
+(medians of 2 processes). x86 is not measured; with AVX2 the first loop could run four rows
+at a time. The test jobs of CI and Downgrade run with coverage counters (`julia-runtest`'s
+default), and under them the loop ran one row at a time on the three laws checked locally.
 
 On the cluster a fit costs more than on one core. The PFKP and PGK searches of 2026-11-02
 ran 119,453 and 15,700 fits in 62 and 13.3 minutes, at 25 and 40 core-seconds per fit.
@@ -852,7 +854,8 @@ allosteric law often repeats the loss of a plain one.
 
 None of the figures of the two bullets above or of the next paragraph is today's: the first
 table above gives the one-loop `loss!` a median of 8.5 ns per row on PGK's sampled laws and
-13 ns on PFKP's, and the present `loss!` takes 0.4–0.7 of the one-loop time per row.
+13 ns on PFKP's, and the present `loss!` takes a median 0.62 (0.37–0.98) of the one-loop
+time per row over the gated laws on 500-row tables.
 
 The law's own time cannot show a slow `loss!`, and `@inferred loss!` passes on a slow path,
 since the result is a `Float64` either way. `loss!` reads `parameters(rate)` and
@@ -886,12 +889,11 @@ compiled law, and `_testhelper_loss_time_per_row`, in the derivation test file, 
   of the five batches has its own stack depth and its own copy of the inputs.
 - `loss!` is timed against the compiled law and `log` in one process, so machine speed
   cancels out. The bound holds if any batch meets it. Each batch times `loss!` on a new
-  `FittingProblem` and one stack frame deeper than the last: a law that reads each row from
-  the stack costs 20-30 ns more per row when one of those loads straddles a 4 KB page.
-  `loss!` inlines the law and puts no row there. Where a problem's arrays fall on the heap
-  can still slow `loss!` up to about 2× on aarch64; x86 and 16 KB pages are not measured.
-  `_testhelper_loss_time_per_row` gives the reasons for the factor on the law's time and
-  for the `log` calls.
+  `FittingProblem`, since where a problem's arrays fall on the heap can slow `loss!` up to
+  about 2× on aarch64, and one stack frame deeper than the last, since one scan of stack
+  depths slowed HK 1.50–1.56× at three adjacent depths. x86 and 16 KB pages are not
+  measured. `_testhelper_loss_time_per_row` gives the reasons for the factor on the law's
+  time and for the `log` calls.
 
 `test/Fitting/test_fit_rate_equation.jl` checks `loss!` on each column type a table can
 bring and on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a
