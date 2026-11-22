@@ -225,9 +225,9 @@ first(results.cv_results[:, [:n_params, :loss, :cv_score, :cv_score_se, :mechani
 ```
 
 The search also writes `results.cv_results` and the selected row to `save_dir`, as
-`loocv_results.csv` and `best_equation.csv`, beside a file of the rows each iteration
-fitted, so a cluster run keeps its selection; [The files in `save_dir`](@ref) lists every
-file.
+`loocv_results.csv` and `best_equation.csv`, so a cluster run keeps its selection. Beside
+them it writes one file per iteration, `equation_search_iteration_N.csv`, of the rows that
+iteration fitted; [The files in `save_dir`](@ref) lists every file.
 
 ## Loud failures
 

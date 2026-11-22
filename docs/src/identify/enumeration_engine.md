@@ -129,12 +129,13 @@ on B. The starting set holds, in place of such a seed, its flip children that ar
 degenerate, and the search never fits the seed itself (see
 [Best mechanism selection](@ref)).
 
-The starting set therefore holds mixed parameter counts. A three-group merged variant or
-a Theorell–Chance variant with dead-end forms fits more parameters than its seed, and a
-merged ping-pong variant fewer. A bi-bi reaction has 55 seeds at 5 parameters and 184
-variants: 164 merged ones, 108 at 5 parameters and 56 at 6, and 20 Theorell–Chance ones
-at 5 to 7. When its atoms allow a ping-pong cycle it has 62 seeds and 202 variants; its 7
-ping-pong seeds fit 6 parameters and their 18 variants 5. A uni-uni seed has no variant.
+The starting set therefore holds mixed parameter counts. A bi-bi reaction has 55 seeds
+at 5 parameters and 184 variants. Its 164 merged variants fit 5 parameters when two of
+their kinetic groups are at steady state (108 of them) and 6 when three are (56). Its 20
+Theorell–Chance variants fit 5 to 7: the 4 without dead-end forms fit 5, and the 16 with
+them 5, 6 or 7. When its atoms allow a ping-pong cycle it has 62 seeds and 202 variants;
+its 7 ping-pong seeds fit 6 parameters and their 18 variants 5, one fewer. A uni-uni seed
+has no variant.
 
 ## Starting from the required regulators
 
@@ -334,10 +335,10 @@ law once. The all-`:EqualAI` baseline is never emitted (the conformations would 
 identical and `L` would cancel). The exits drop a child that fails the guard or the
 binding test, as for every move. A parent with no declared regulator gets no allosteric
 child when it has no binding group, and so no K-type, or when the exits drop every K-type.
-In a census of the bi-bi and ping-pong mechanisms the engine builds, the second happens
-only where the guard finds the K-type too large to search. Enumeration runs over the
-reaction's `allowed_oligomeric_states`. The search applies this move only to a plain
-mechanism.
+Among the 4,885 starting mechanisms of a ter-bi reaction, 20 get no allosteric child for
+the second reason: the guard finds their only K-type too large to search (the repository's
+`ROADMAP.md` lists this). Enumeration runs over the reaction's `allowed_oligomeric_states`.
+The search applies this move only to a plain mechanism.
 
 A K-type variant does not always reveal `L`. Over more than one catalytic subunit the
 conformational equilibrium enters the rate with the oligomeric state as its power. Over

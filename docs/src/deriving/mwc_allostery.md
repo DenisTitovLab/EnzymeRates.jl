@@ -160,8 +160,8 @@ An `:OnlyA` state excludes a group's steps from the inactive conformation, and `
 excludes them from the active one. The derivation reads each conformation's law by deleting
 the steps it excludes and the forms that the deletion cuts off from free E. **Admission**
 decides whether that law is the limit of ordinary mass-action kinetics as the excluded steps
-vanish, each at its own rate, and rejects the states with an error that names the step when
-it is not.
+vanish, each at its own rate. When it cannot show that it is, it rejects the states with an
+error that says why and names the steps at fault where it has them.
 
 ### How an excluded step is switched off
 
@@ -190,10 +190,11 @@ island and holds no enzyme. An excluded step is switched off according to where 
 | Inside one island, rapid equilibrium | Error. Its two sides lie at one energy, so thermodynamics fixes its equilibrium constant, and it could be switched off only by turning slow. |
 
 The mechanism fixes the islands but not which lies above which. The package looks for a
-choice of energies, and of the steady-state steps that stop, under which the law is the
-limit, and accepts the mechanism when it finds one; when the excluded steps allow too many
-choices to search, it tries three and rejects the mechanism if none gives the limit. The
-choice does not change the law, which leaves the excluded steps out. The law is the limit
+choice of energies, and of the steady-state steps that stop, under which it can show that
+the law is the limit, and accepts the mechanism when it finds one. When the excluded steps
+allow too many choices to search, it tries only three, and rejects the mechanism when it
+can show the limit under none of them. The choice does not change the law, which leaves the
+excluded steps out. The law is the limit
 under a choice when:
 
 1. **Existence.** The steps that lose a rate, each drawn uphill, close no cycle and never
@@ -317,8 +318,8 @@ A mechanism is well defined when its rate law is the unique fast-equilibrium lim
 mass-action kinetics wherever data sit: at interior concentrations and on every **face**,
 where every product is zero, every substrate, each reactant alone on a side of two or more,
 or any of these with every modifier-only name zero. `@enzyme_mechanism` throws an error
-that names the step and the face, and the mechanism search drops the mechanism. The
-package rejects:
+that states the fault and names the steps at fault and the face where it has them, and the
+mechanism search drops the mechanism. The package rejects:
 
 1. an unbalanced cycle: a cycle of steps that takes up or gives off a metabolite in another
    proportion than the reaction, as when a step leaves out a metabolite;
@@ -331,8 +332,9 @@ package rejects:
    segment whose lowest forms are joined only through other forms, a trap that the face
    feeds and its fast exits cannot drain, a second closed set of forms, or a law with no
    value (0/0) there;
-5. allosteric states under which no choice of energies gives the limit, or that allow too
-   many choices to search when none of the three tried first gives it (admission, above).
+5. allosteric states for which the package finds no choice of energies under which it can
+   show that the law is the limit; when the states allow too many choices to search, it
+   tries only three (admission, above).
 
 The faces leave out the corners that zero one substrate with every product. A law the
 package accepts can be 0/0 there, where a well-defined law is 0, so the compiled rate

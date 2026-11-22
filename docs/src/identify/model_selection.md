@@ -26,12 +26,13 @@ moves — splitting a shared rate constant, flipping a rapid-equilibrium group t
 state, adding a regulator, or making the enzyme allosteric. Every move yields slightly
 more complex children, so the beam meets candidates in order of increasing complexity.
 
-The beam first fits every starting mechanism, each at its own parameter count. A degenerate
-seed, whose rate at zero products ignores a substrate or never saturates (or the same at
-zero substrates), gets no fit and no row: the enumeration replaces it by its flip children
-that are not degenerate (see [The enumeration engine](@ref)), whose rows, like every
-starting mechanism's, name no parent. An error while expanding such a seed stops the search
-at its start. A degenerate mechanism that a move builds is fitted like any other.
+The beam first fits every starting mechanism, each at its own parameter count. A seed is
+degenerate when its rate at zero products ignores a substrate or never saturates, or its
+rate at zero substrates ignores a product or never saturates. Such a seed gets no fit and
+no row: the enumeration replaces it by its flip children that are not degenerate (see
+[The enumeration engine](@ref)). Their rows, like every starting mechanism's, name no
+parent. An error while expanding such a seed stops the search at its start. A degenerate
+mechanism that a move builds is fitted like any other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
 constants share a key, count once at the key's lowest loss, and share one fit, which each

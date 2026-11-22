@@ -42,9 +42,10 @@ end
 metabolites(uni_uni)
 ```
 
-The constructor checks the table, `Keq` and any `reference` before any fitting and raises
+The constructor checks the table, `Keq` and any `reference` before any fitting. It raises
 an `ErrorException` on what the fit cannot use, such as a missing column or a zero `Rate`;
-the `FittingProblem` constructor in the [API Reference](@ref) lists every check.
+[the constructor's docstring](@ref FittingProblem(::Mechanism, ::Any, ::Real)) lists every
+check.
 
 ## Building the `FittingProblem`
 
