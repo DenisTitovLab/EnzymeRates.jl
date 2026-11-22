@@ -46,9 +46,10 @@ The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming 
 constants share a key, count once at the key's lowest loss, and share one fit, which each
 reads under its own names. An L phantom's key is the exception: a member met before the fit
 of its law at `L = 0` is fitted itself, and one met after reads that fit, so the key can
-carry two losses. A sweep expands every member it meets of a selected key; a member the beam
-passed over in an earlier sweep has left the frontier. A key the beam passes over is judged
-again when a later sweep meets another member, and at the same loss it stays out.
+carry two losses and the beam can pass it over at one and admit it at the other. A sweep
+expands every member it meets of a selected key; a member the beam passed over in an
+earlier sweep has left the frontier. A key the beam passes over is judged again when a
+later sweep meets another member, and at the same loss it stays out.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
@@ -165,7 +166,28 @@ Only the top `n_cv_candidates` distinct equations per parameter count enter
 LOOCV (default `n_cv_candidates=5`, at least 1, a kwarg of
 `identify_rate_equation`). Distinctness is by `key`: LOOCV fits each
 key's source once per fold, and every candidate with that key, an L phantom of it
-included, reads those fold losses. A fit whose training loss
-is not finite never enters LOOCV, nor is it expanded.
+included, reads those fold losses. Beside its source an L phantom loses the tie by its
+extra parameter; selected without its source, it reports `L = 0`. A fit whose training
+loss is not finite never enters LOOCV, nor is it expanded.
+
+## The files in `save_dir`
+
+The search writes its progress and results to `save_dir`, by default a new
+`yyyy_mm_dd_results` directory in the working directory. It refuses a directory that
+already holds a `.csv` file or a `progress.log`, so the results of two runs never mix.
+
+- `progress.log`: the progress lines, when `show_progress = true`.
+- `initial_mechanisms.csv`: a row per starting mechanism.
+- `equation_search_iteration_N.csv`: a row per mechanism that the `N`th iteration fitted
+  or failed on. `N` counts only the iterations that wrote rows, so the files have no gaps;
+  it is not a parameter count.
+- `loocv_results.csv`: the `cv_results` table.
+- `best_equation.csv`: the selected row of `cv_results`, its `rate_equation` in the full
+  coefficient form.
+
+The search CSVs have the columns of `cv_results` but `cv_score`, `cv_score_se` and
+`cv_fold_<group>`, and a mechanism that threw has a row with `error` set.
+`loocv_results.csv` and `best_equation.csv` keep the selection, so a cluster run's result
+needs no second cross-validation.
 
 ---

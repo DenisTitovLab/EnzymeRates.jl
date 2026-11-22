@@ -80,8 +80,8 @@ end
 Results from `identify_rate_equation`.
 
 # Fields
-- `best`: the selected mechanism, a `Mechanism` (1-SE rule
-  on the LOOCV scores; see Model selection in `identify_rate_equation`)
+- `best`: the selected mechanism, a `Mechanism`, chosen by the one-standard-error rule on
+  the cross-validation scores ([Best mechanism selection](@ref))
 - `cv_results`: `DataFrame` with LOOCV results for
   top candidates per param count; the same table as `loocv_results.csv`, so its
   `rate_equation` column holds the law without its coefficient values
@@ -103,38 +103,30 @@ end
         n_cv_candidates=5, se_threshold=1.0,
         save_dir=_default_save_dir(), show_progress=true)
 
-Find the best rate equation for the given reaction
-and data using beam search.
+Find the best rate equation for the reaction and data of `prob` and return an
+`IdentifyRateEquationResults`. A beam search fits candidate mechanisms in order of
+parameter count, keeping at each count the rate laws of lowest loss and expanding their
+mechanisms; leave-one-group-out cross-validation then selects one by the
+one-standard-error rule. [Best mechanism selection](@ref) states both rules and the files
+the search writes to `save_dir`.
 
 # Keyword Arguments
-- `min_beam_width::Int = 50`: minimum rate-law keys to expand per
-  param-count tier; a sweep expands every mechanism it meets whose key is
-  selected
-- `loss_rel_threshold::Float64 = 1.3`: relative tolerance
-  for beam selection (see "Beam selection" below)
-- `loss_abs_threshold::Float64 = 0.001`: absolute tolerance
-  for beam selection
-- `loss_parsimony_threshold::Float64 = 0.99`: the loss cutoff
-  admits a key only if its loss is within this factor of
-  the best model of any smaller parameter count — an added
-  parameter must earn its keep. Combined with the other loss
-  thresholds via `min`; `min_beam_width` is a cumulative
-  per-count budget (see "Beam selection" below). `Inf` disables it.
-- `max_param_count::Int = 20`: the search proposes no mechanism with more
-  fitted constants than this (`parameters`), so it stops at this parameter
-  count
-- `eq_complexity_filter::Int = 337`: the search proposes no mechanism whose
-  rate equation is more complex than this —
-  roughly the number of terms in the rate equation's denominator: V×τ, the
-  number of RE-segments times the spanning-tree count of the segment graph,
-  i.e. the products the compiled equation evaluates on every call. An
-  allosteric mechanism counts both conformations, V×τ of the active one plus
-  V×τ of the inactive one. The default 337 is one above a fully steady-state
-  random-order bi-bi (V×τ = 336), so such a mechanism passes and anything more
-  complex is not proposed — equations denser than that are impractical to fit and
-  can blow up derivation/codegen. A one-subunit variant of that bi-bi whose
-  inactive conformation keeps its substrate bindings counts 336 + 16 = 352 and
-  is not proposed. Computed from the mechanism graph alone, before any derivation.
+- `optimizer`: Optimization.jl optimizer (required).
+  Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
+- `min_beam_width::Int = 50`: the fewest rate-law keys the beam expands at each parameter
+  count over the whole search
+- `loss_rel_threshold::Float64 = 1.3`: a key enters the beam when its loss is at most this
+  factor times the best loss at its parameter count, plus `loss_abs_threshold`
+- `loss_abs_threshold::Float64 = 0.001`: the additive term of that cutoff
+- `loss_parsimony_threshold::Float64 = 0.99`: the cutoff also requires a loss at most this
+  factor times the best loss at any smaller parameter count; `Inf` disables it
+- `max_param_count::Int = 20`: the search proposes no mechanism with more fitted constants
+  than this (`parameters`)
+- `eq_complexity_filter::Int = 337`: the most terms a proposed rate law may have, about the
+  terms of its denominator, both conformations counted for an allosteric mechanism
+  (`EnzymeRates.Derivation.rate_equation_term_count`). The default admits a fully
+  steady-state random-order bi-bi (336 terms); denser laws are slow to derive and fit.
+  Counting costs no derivation.
 - `optional_allosteric_regulators::Vector{Symbol} = Symbol[]`: declared
   allosteric regulators the seed may omit. A reaction that declares regulators
   seeds the beam fully regulated by default; naming a regulator here lets the
@@ -143,8 +135,6 @@ and data using beam search.
   seeds.
 - `optional_competitive_inhibitors::Vector{Symbol} = Symbol[]`: declared
   competitive inhibitors the seed may omit, as above.
-- `optimizer`: Optimization.jl optimizer (required).
-  Recommended: `CMAEvolutionStrategyOpt()` from OptimizationCMAEvolutionStrategy.
 - `n_restarts::Int = 20`: multi-start restarts per fit
 - `maxtime::Real = 600.0`: max time per optimizer run in seconds (common solver
   option, forwarded to `Optimization.solve`); each of a fit's `n_restarts` runs
@@ -156,72 +146,22 @@ and data using beam search.
 - `solver_kwargs::NamedTuple = (;)`: solver-specific options forwarded
   verbatim to `Optimization.solve` (e.g. `(; popsize=200)` for a CMA-ES
   solver that supports it); the caller matches its contents to `optimizer`
-- `n_cv_candidates::Int = 5`: LOOCV top N candidates with **distinct rate-law
-  keys** per param count (at least 1)
-- `se_threshold::Float64 = 1.0`: 1-SE multiplier for model selection.
-  A simpler equation is accepted iff its `cv_score` is `≤` the best
-  equation's `cv_score + se_threshold * cv_score_se`. Default 1.0 is
-  the textbook "1-SE rule".
-- `save_dir::String = _default_save_dir()`: output directory for the
-  search CSVs (`initial_mechanisms.csv` + `equation_search_iteration_N.csv`),
-  plus `loocv_results.csv` (the LOOCV table for every cross-validated
-  candidate) and `best_equation.csv` (the selected equation and its
-  fitted parameters). The `rate_equation` column of the search and LOOCV CSVs holds the
-  law in named coefficients without their values (`rate_equation_string`); that text
-  does not run. `best_equation.csv` holds it with them. For the full form of any row, call
-  `rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients =
-  true)`. Each CSV has an `at_bound` column: the names,
-  joined by `;`, of the constants whose best point lies at a bound of the fit's box (see
-  `fit_rate_equation`), from the fit on all rows. A `save_dir` that already holds a `.csv`
-  file or a `progress.log` is refused, so the results of two runs never mix.
+- `n_cv_candidates::Int = 5`: how many distinct rate-law keys at each parameter count, those
+  of lowest loss, enter cross-validation (at least 1)
+- `se_threshold::Float64 = 1.0`: the multiplier of the one-standard-error rule; larger
+  values favor simpler equations
+- `save_dir::String`: the directory the search writes its CSVs to, by default a new
+  `yyyy_mm_dd_results` directory in the working directory
+- `show_progress::Bool = true`: print progress lines and append them to
+  `save_dir/progress.log`
 
-# Beam selection
-
-The beam selects rate-law keys: the mechanisms of one key share one fit
-(an L phantom's key aside, see below), so a key counts once in the ranks
-and the budget, and a sweep expands every mechanism it meets of a selected
-key. A key at parameter count `n` qualifies for the next-level beam if
-either:
-- its loss ≤ `min(loss_rel_threshold * best(n) + loss_abs_threshold,
-  loss_parsimony_threshold * best(<n))`, where `best(n)` is the
-  lowest loss at parameter count `n` and `best(<n)` is the lowest
-  loss over all smaller counts; the second term is dropped at the
-  base count (no smaller level exists yet),
-- OR it falls under the `min_beam_width` budget: a cumulative
-  per-count allowance that expands at least `min_beam_width`
-  keys at each count over the whole search, then stops —
-  spent once, not re-granted each time the count is revisited.
-
-A selected key keeps its verdict: a mechanism found later with a
-key already selected expands. One found later with a key already
-rejected is judged again and, at the same loss, rejected again,
-since the cutoff only tightens and a rejection by rank spends the
-budget. Only an L phantom's key can be rejected and later selected: a
-member met before the fit of its law at `L = 0` is fitted itself and
-one met after reads that fit, so the key can carry two losses, and a
-member rejected at one has left the frontier when the other selects
-the key.
-
-The additive term protects against `best_loss` approaching zero
-(simulated / very-low-loss data) where a purely multiplicative
-threshold would collapse the beam to the single best key.
-
-# Model selection (LOOCV)
-
-Every LOOCV candidate gets a `cv_score` (mean of its per-fold losses)
-and a `cv_score_se` (`std(fold losses)/sqrt(n_folds)`). The best
-equation is the one with the lowest `cv_score`; its cutoff is
-`cv_score + se_threshold * cv_score_se`. The selected equation is the
-lowest-`cv_score` candidate at the smallest `n_params` that has a
-candidate at or below the cutoff, so a simpler equation wins whenever
-it predicts held-out groups as well as the best one to within the
-best one's fold-to-fold standard error.
-
-A candidate's fold losses come from fitting, on each fold, the
-mechanism whose fit it reads. An L phantom (`L_phantom` in the CSVs:
-a one-subunit variant whose `L` the data cannot determine) takes its
-source's fold losses, so beside its source it loses the tie by its
-extra parameter, and selected without it, it reports `L = 0`.
+Errors when
+- `save_dir` already holds a `.csv` file or a `progress.log`, so that the results of two
+  runs never mix;
+- no mechanism binds every required regulator;
+- no mechanism is fitted to a finite loss (when every starting mechanism throws, the error
+  quotes the first failure);
+- a cross-validation fold's loss is not finite.
 """
 function identify_rate_equation(
     prob::IdentifyRateEquationProblem;
@@ -300,10 +240,8 @@ function _write_rows_csv!(save_dir::String, filename::String, rows,
 end
 
 """
-Convert result row NamedTuples to a DataFrame, one column per fitted parameter
-name across `rows` (`missing` where a row lacks it).
-Row order is preserved (no sorting), so row i stays aligned with the i-th entry the rows
-came from (the LOOCV candidates in `_cv_model_selection`).
+The result rows `rows` as a `DataFrame`, in their order, with one column per fitted
+parameter name across them (`missing` where a row lacks it).
 """
 function _rows_to_dataframe(rows)
     isempty(rows) && return DataFrame()
@@ -333,31 +271,13 @@ function _rows_to_dataframe(rows)
 end
 
 """
-Select this sweep's parents among the count-`c` mechanisms with `losses` and rate-law
-keys `law_keys`, and advance the cumulative floor budget. The beam ranks keys, not
-mechanisms: the mechanisms of one key share one fit (`_process_batch`; an L phantom's key
-aside, whose members met before and after its source's fit read two), so a key enters at its
-lowest loss, takes one rank and spends one unit of budget, and duplicates cannot crowd out a
-distinct key. A key not yet in `selected` is selected if either:
-  • its loss ≤ cutoff, where
-    cutoff = min(loss_rel_threshold * best_loss_by_count[c] + loss_abs_threshold,
-                 loss_parsimony_threshold * best(<c))
-    and best(<c) is the best loss over ALL counts strictly below c (not just c-1): an
-    added parameter must beat the best simpler model of any size. The parsimony term
-    only tightens the cutoff, and is dropped while no smaller count has been fit,
-  • OR its rank (1-indexed by ascending loss among this sweep's keys not yet selected) is
-    within the *cumulative* floor budget. `expanded[c]` counts the keys at count `c` the
-    whole search has selected so far; the width floor may add at most
-    `min_beam_width - expanded[c]` more. Once the budget is spent, only the loss cutoff
-    admits at that count.
-A selected key joins `selected` and keeps that verdict for the rest of the search: a
-later member of it is returned without spending budget. A rejected key is judged again by
-the same rule when a later sweep meets it, and at the same loss it is rejected again,
-since the cutoff only tightens and a rejection by rank spends the budget. Returns the
-indices, in input order, of every mechanism whose key is selected.
-
-Every loss is finite: a failed or non-converging fit (`Inf`, `NaN`) should not
-propagate to the next level, so `_ingest!` keeps it out of the frontier.
+The indices, in input order, of the count-`c` mechanisms with `losses` and rate-law keys
+`law_keys` whose key is selected after this sweep. A key not yet in `selected` enters by the
+beam rule ("Running the search" on the Best mechanism selection page) at its lowest loss:
+within the loss cutoff, or ranked, among this sweep's keys not yet selected, within the
+width floor's budget left at `c`, `min_beam_width - expanded[c]`. Adds the keys it selects
+to `selected` and their number to `expanded[c]`. Every loss is finite: `_ingest!` keeps the
+others out of the frontier.
 """
 function _select_count!(
     expanded::Dict{Int,Int}, best_loss_by_count::Dict{Int,Float64}, c::Int,
@@ -506,10 +426,9 @@ function _failure_row(f::FitFailure)
 end
 
 """
-Emit one progress line to flushed stdout AND append it to
-`<save_dir>/progress.log`. Gated by `show_progress`. The explicit flush makes
-lines appear in a redirected cluster job log (otherwise stdout is block-buffered
-when redirected and withholds output until the process exits).
+Print `msg` to stdout and append it to `<save_dir>/progress.log` when `show_progress`
+holds. The flush makes the line appear at once in a redirected cluster job log: redirected
+stdout is block-buffered and would withhold it until the process exits.
 """
 function _progress(save_dir::AbstractString, show_progress::Bool, msg::AbstractString)
     show_progress || return nothing
@@ -559,7 +478,7 @@ function _best_loss_line(best_loss_by_count::Dict{Int,Float64}, improved::Set{In
 end
 
 """
-PASS 1 of `_process_batch` (on the workers) for candidate `c`, from its mechanism
+What pass 1 of `_process_batch` derives from candidate `c` on a worker, from its mechanism
 alone and compiling nothing: its fitted constants (`parameters`, which runs the guard
 first), its law printed in named coefficients without their values
 (`rate_equation_string`), its text and the text's id (`mechanism_id`), and its law's key
@@ -586,38 +505,23 @@ function _pass1_record(c::Enumeration.CandidateMechanism)
 end
 
 """
-Fit one batch of candidates. Returns `(entries, failures, n_seen_skip)`.
+Fit one batch of candidates and return `(entries, failures, n_seen_skip)`.
 
-PASS-1: skip candidates already produced, in an earlier batch or earlier in this one (a
-candidate whose structural `hash` is already in `seen` is dropped before it is derived;
-`seen` gets every structure on first sight regardless of outcome; `n_seen_skip` counts
-them), and run `_pass1_record` on each fresh candidate, in parallel (`pmap`). Then pick one
-fit representative per key not already in `memo`, and pass `log` the pre-fit summary
-(`_prefit_summary`), followed by one line per mechanism whose law reached the leaf cap.
+Pass 1 skips each candidate whose structure (`hash`) `seen` holds, counting it in
+`n_seen_skip`, adds the other structures to `seen` and derives their candidates on the
+workers (`_pass1_record`). Pass 2 fits one mechanism per rate-law key not in `memo`, on the
+workers, and stores the fit in `memo` (`_Fit`). Every mechanism with that key, in this
+batch or a later one, reads that fit under its own names. A fit that throws fails every
+mechanism with its key. An L phantom (`rate_equation_dedup_key` gives it a fit key other
+than its key) reads, with `L = 0`, the fit of its law at `L = 0` from `memo` or from this
+batch; when neither holds that fit, or the fit throws, it is fitted under its own key.
 
-PASS-2: fit ONE representative per key not already in `memo`, in parallel across all
-workers (`pmap`), and store the fit in `memo` at canonical positions (`_Fit`). Every
-mechanism with that key reads it through its own canonical order, so its row carries its
-own parameter names: same law ⟹ same fitted values and same rescaling, so no refit is
-needed. `memo` persists across iterations (threaded from `_beam_search`), so a law fit in
-an earlier iteration is never refit. A representative whose fit throws fails ALL the
-mechanisms with its key (all-or-nothing per law). An L phantom (`rate_equation_dedup_key`
-gives it a fit key other than its key: a rescaling certificate, which needs one catalytic
-subunit and an inactive conformation that turns nothing over) is never a representative. It
-reads the fit of its law at `L = 0`, its active law's key (`fit_key`), from `memo` or from
-this batch's representatives, through its own order and with `L = 0`, and its row sets
-`L_phantom`. A phantom whose law at `L = 0` has
-no fit there, or lacks one of its other fitted constants, is fitted as an ordinary
-candidate; so is one whose source's fit throws, after the representatives. When a phantom
-is demoted after its source's fit threw, `log` gets one more message, its lines joined by a
-newline and two spaces: one per such phantom,
-`"source fit threw for L phantom <id>; it reads its own key's fit"`. A row's
-`fit_inherited` is `false` when its mechanism is its fit's source and `true`
-otherwise, and `fit_source_id` names the source. `parent_of` maps a child to its parent's
-`BatchEntry`, which fills the row's parent columns. `entries::Vector{BatchEntry}` are the
-candidates with a usable fit (each keeping its own row, `retcode` and key);
-`failures::Vector{FitFailure}` are mechanisms that threw at derivation or fit — captured
-WITH the exception text, never silently swallowed.
+`log` receives the pre-fit summary (`_prefit_summary`) with a line per mechanism whose law
+reached the leaf cap, then a line per phantom whose source's fit threw. `parent_of` maps a
+child to its parent's `BatchEntry`, which fills the row's parent columns. `entries` holds a
+`BatchEntry` per candidate with a fit, each with its own row, `retcode` and key;
+`failures` holds a `FitFailure`, with the exception text, per candidate whose derivation or
+fit threw.
 """
 function _process_batch(
     candidates::Vector{Enumeration.CandidateMechanism}, prob::IdentifyRateEquationProblem;
@@ -627,15 +531,12 @@ function _process_batch(
         Dict{Enumeration.CandidateMechanism, BatchEntry}(),
     log = msg -> nothing, kwargs...
 )
-    # Skip structures already produced — expand each once. Added to `seen` on first
-    # sight regardless of outcome (fit / error).
     fresh = Enumeration.CandidateMechanism[]
     for c in candidates
         h = hash(c)
         h in seen || (push!(seen, h); push!(fresh, c))
     end
 
-    # PASS 1 (workers): `_pass1_record` on each fresh candidate.
     records = _pmap_to_vector(_pass1_record, Union{FitFailure, _Pass1Record}, fresh)
 
     # Pick one representative per key not already fit; an L phantom is none.
@@ -661,9 +562,9 @@ function _process_batch(
                   count(r -> r isa _Pass1Record, records) - length(reps), n_seen_skip);
               capped], "\n  "))
 
-    # PASS 2: fit them in PARALLEL (`pmap`) — fitting dominates cost, so it must run
-    # across all workers. Each representative gives its fit at canonical positions, or
-    # the text of the error its fit threw.
+    # Pass 2 runs across the workers, since fitting dominates the cost. Each
+    # representative gives its fit at canonical positions, or the text of the error its
+    # fit threw.
     fit_error = Dict{String,String}()   # key → its representative's fit threw
     function fit!(reps::Vector{_Pass1Record})
         rep_fits = _pmap_to_vector(Union{_Fit, String}, reps) do r
@@ -738,15 +639,13 @@ function _process_batch(
 end
 
 """
-Fold a batch of `BatchEntry`s into the search state: every entry with a finite loss
-joins the `frontier` (the unexpanded work queue — ALL structurally-distinct
-mechanisms, no key dedup); `best_loss_by_count` tracks the per-count running
-min (the beam-cutoff reference); `cv_pool` keeps the top `n_cv_candidates`
-entries with DISTINCT rate-law keys (lowest loss each) per param count. An entry whose
-loss is not finite (`fit_rate_equation` returns `Inf` when no restart is finite or when
-the fit cannot match the reference turnovers) is skipped: it is never expanded, never
-sets a best loss and never enters LOOCV; its row is already in the batch's CSV. Returns
-the set of counts whose best loss strictly dropped (or first appeared) in this batch.
+Fold the batch `entries` into the search state and return the set of counts whose best
+loss dropped or first appeared. Each entry with a finite loss joins the `frontier` at its
+count, every mechanism apart, lowers `best_loss_by_count` there, and is offered to
+`cv_pool` (`_offer_cv!`). An entry whose loss is not finite (`fit_rate_equation` returns
+`Inf` when no restart is finite or the fit cannot match the reference turnovers) is
+skipped: it is never expanded, never sets a best loss and never enters cross-validation;
+its row is already in the batch's CSV.
 """
 function _ingest!(frontier, cv_pool, best_loss_by_count, entries;
                   n_cv_candidates)
@@ -867,17 +766,15 @@ function _beam_search(
     # turnovers in relative mode), shared across iterations so each distinct law is fit
     # exactly once over the whole search. LOOCV refits each key's source on its folds.
     memo = Dict{String,_Fit}()
-    # Structures already produced — each is expanded at most once (termination).
-    # This preserves the selected model: expansion is deterministic, so a
-    # re-produced structure yields identical children (no new reachable
-    # mechanism), and its FIRST production is its best beam-selection chance —
-    # the width-floor budget (`expanded_by_count`) only shrinks, the loss cutoff
-    # (`best_loss_by_count` running min) only tightens, and a selected key stays
-    # selected (`selected_keys`), so a later re-production, which reads the loss its
-    # first production read, cannot be selected where the first was not. An L phantom
-    # first fitted under its own key is the exception: re-produced once its source's law
-    # is fitted, it would read that fit's loss, which a later cutoff may admit. If
-    # `_select_count!` ever gains a non-monotone budget, this invariant breaks.
+    # Structures already produced; each is expanded at most once, which ends the search.
+    # This loses no model. Expansion is deterministic, so a structure produced again has the
+    # same children and reads the same loss. Its first production had its best chance at
+    # the beam: the width floor's budget (`expanded_by_count`) only shrinks, the loss cutoff
+    # (`best_loss_by_count`) only tightens, and a selected key stays selected
+    # (`selected_keys`). An L phantom first fitted under its own key is the exception:
+    # produced again once its source's law is fitted, it reads that fit's loss, which a
+    # later cutoff may admit. A budget that could grow back in `_select_count!` would break
+    # this argument.
     seen = Set{UInt64}()
     # Every mechanism_id the run's CSVs hold, with its mechanism's text
     # (`_write_rows_csv!`).
@@ -935,22 +832,10 @@ function _beam_search(
             loss_parsimony_threshold, min_beam_width)
         isempty(to_expand) && continue
 
-        # Expand each parent and record which parent produced each child
-        # (first parent wins on structural dedup, matching `unique!`), so the
-        # saved CSV can carry the parent's mechanism_id and parameter count for
-        # diagnosing per-move parameter changes. The parent's `mechanism_id` is
-        # already on its `BatchEntry.row`.
         children, parent_of, expand_failures = _expand_parents(to_expand, prob.reaction;
             max_param_count, eq_complexity_filter)
-        # A per-parent expansion error is recorded like a fit failure (CSV row
-        # + the errored bucket), so a bug in an expansion move flags itself in
-        # the search output instead of aborting the whole run. Count only
-        # iterations that produced rows, so the equation_search_iteration_N CSVs
-        # are gap-free: a batch with no rows (every child seen before, or none
-        # within the size limits) still logs its header and pre-fit summary, but
-        # writes no CSV and keeps the counter.
-        # `iteration` is a 1-based sequential counter, NOT a parameter count —
-        # the real fitted count is the `n_params` column of each row.
+        # `iteration` numbers the batches that wrote rows, so the iteration files have no
+        # gaps; it is not a parameter count.
         run_batch!(children, expand_failures,
             "Iteration $(iteration + 1): $(length(to_expand)) parents → " *
             "$(length(children)) children",
@@ -961,16 +846,8 @@ function _beam_search(
     return BatchEntry[e for v in values(cv_pool) for e in v], memo
 end
 
-"""
-    _select_best_row(cv_df; se_threshold=1.0) → Int
-
-1-SE rule on the best equation's fold scores. The best row is the one with
-the lowest `cv_score` (ties resolve to the smallest `n_params`); its cutoff
-is `cv_score + se_threshold * cv_score_se`. Returns the index of the
-lowest-`cv_score` row at the smallest `n_params` that has a row at or below
-the cutoff. The best row always passes its own cutoff, so a row with more
-parameters than the best row is never returned.
-"""
+"""The index of the row of `cv_df` that the one-standard-error rule selects ("The
+cross-validation selection rule" on the Best mechanism selection page)."""
 function _select_best_row(cv_df::DataFrame; se_threshold::Float64 = 1.0)::Int
     by_score = sortperm(collect(zip(cv_df.cv_score, cv_df.n_params)))
     i_min = by_score[1]
@@ -1016,9 +893,6 @@ function _cross_validation_loss(
         optimizer; kwargs...)
     test_loss = test_rate_equation(mechanism, fit.params, map(col -> col[held], data),
                                    Keq; absolute)
-    # A non-finite fold loss means the fit is unusable; aborting model
-    # selection is correct (re-run CV from the saved CSVs after fixing
-    # the fit).
     isfinite(test_loss) || error(
         "LOOCV produced a non-finite test loss for held-out group " *
         "$held_out — the fit is unusable; aborting model selection.")
@@ -1047,10 +921,8 @@ function _cv_model_selection(
         "No mechanisms were successfully " *
         "fitted during beam search")
 
-    # LOOCV candidates: the cv pool, ordered by `n_params`, then `loss`. `_offer_cv!`
-    # keeps the top `n_cv_candidates` entries with DISTINCT rate-law keys (lowest `loss`
-    # each) per `n_params` bucket, so one law never takes two LOOCV slots at a count and
-    # folds are never wasted on, or biased by, its duplicates.
+    # The cv pool by `n_params`, then `loss`. It holds one entry per key (`_offer_cv!`),
+    # so no law takes two cross-validation slots at a count or weighs twice in the folds.
     candidates = pool[sortperm([(e.n_params, e.loss) for e in pool])]
     cv_df = _rows_to_dataframe(NamedTuple[e.row for e in candidates])
 
@@ -1077,8 +949,6 @@ function _cv_model_selection(
     best_row_idx = _select_best_row(cv_df; se_threshold)
     best = candidates[best_row_idx]
 
-    # Flatten per-fold scores into one column per held-out group.
-    # Group order matches the `groups = unique(prob.rate_data.data.group)` iteration above.
     for (i, g) in enumerate(groups)
         cv_df[!, Symbol("cv_fold_$g")] = scores[i, :]
     end
