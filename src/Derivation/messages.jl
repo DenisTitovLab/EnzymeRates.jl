@@ -54,10 +54,10 @@ reaction over: then class 2's fix holds whichever step of the cycle is picked.""
 function _every_step_cures(mech::Mechanisms.Mechanism, net::_Network, cycle::Vector{Int},
                            reading::_Reading)
     m = mech.catalytic
+    groups = _kinetic_groups(m)
     for t in cycle
         re = _re_flags(m)
-        g = m.steps[net.edge[t]].kinetic_group
-        re[findall(s -> s.kinetic_group == g, m.steps)] .= false
+        re[groups[m.steps[net.edge[t]].kinetic_group]] .= false
         isempty(_re_turnover_transitions(_eps_network(mech, re, reading))) || return false
     end
     true

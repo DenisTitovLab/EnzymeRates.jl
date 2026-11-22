@@ -5149,36 +5149,13 @@ end
 # 4. Allosteric expansion moves
 # ═══════════════════════════════════════════════════════════════════════
 
-# The allosteric-only moves read the parent's regulatory sites or allosteric states, which a
-# plain mechanism lacks; the tagging move would drop an allosteric parent's states.
-@testset "a move for one kind of mechanism refuses the other kind" begin
+# The tagging move would drop an allosteric parent's states.
+@testset "the tagging move refuses an allosteric mechanism" begin
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]
         allosteric_regulators: R
     end
-    plain = @enzyme_mechanism begin
-        substrates: S
-        products: P
-        steps: begin
-            E + S ⇌ ES
-            ES <--> EP
-            E + P ⇌ EP
-        end
-    end
-    c = _testhelper_candidate(plain)
-    @test_throws(ArgumentError(
-        "_expand_add_allosteric_regulator: the mechanism is plain; the move adds a " *
-        "regulator to an allosteric one"),
-        EnzymeRates.Enumeration._expand_add_allosteric_regulator(c, rxn))
-    @test_throws(ArgumentError(
-        "_expand_change_allo_state: the mechanism is plain; the move relaxes the " *
-        "allosteric states of an allosteric one"),
-        EnzymeRates.Enumeration._expand_change_allo_state(c))
-    @test_throws(ArgumentError(
-        "_expand_merge_regulatory_sites: the mechanism is plain; the move merges the " *
-        "regulatory sites of an allosteric one"),
-        EnzymeRates.Enumeration._expand_merge_regulatory_sites(c))
     allosteric = @enzyme_mechanism begin
         substrates: S
         products: P

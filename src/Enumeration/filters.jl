@@ -100,7 +100,7 @@ function _kept_forms_keep_a_binding(am::Mechanisms.Mechanism)
         # step with one metabolite is stored as its uptake, so it enters its `to` form.
         entered, made = falses(n), falses(n)
         for (k, e) in enumerate(steps)
-            length(e.taken_up) == 1 && isempty(e.given_off) || continue
+            _is_binding(e) || continue
             entered[e.to] = true
             am.allosteric.allosteric_states[e.kinetic_group] === excluded_state ||
                 (made[e.to] = true)

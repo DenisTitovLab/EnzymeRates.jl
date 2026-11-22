@@ -486,7 +486,7 @@ those they subtract), for deterministic output.
 """
 function _context_bipartitions(c::CandidateMechanism, g::Int)
     m = c.mechanism.catalytic
-    ks = [k for k in eachindex(m.steps) if m.steps[k].kinetic_group == g]
+    ks = _kinetic_groups(m)[g]
     # The group's own bound ligand, as (name, copy), when its first edge is a binding.
     k1 = first(ks)
     own = _is_binding(m.steps[k1]) ?
@@ -907,9 +907,6 @@ The regulators declared in `rxn` decide which regulators are eligible.
 function _expand_add_allosteric_regulator(c::CandidateMechanism,
                                           rxn::Mechanisms.EnzymeReaction)
     am = c.mechanism
-    _is_allosteric(am) || throw(ArgumentError(
-        "_expand_add_allosteric_regulator: the mechanism is plain; the move adds a " *
-        "regulator to an allosteric one"))
     taken = _bound_allo_regs(am)
     sites = am.allosteric.regulatory_sites
     results = CandidateMechanism[]
@@ -989,9 +986,6 @@ where a copy that was new there can become its twin with a consistent gauge, and
 the copy's constant then shows in neither state.
 """
 function _expand_change_allo_state(c::CandidateMechanism)
-    _is_allosteric(c.mechanism) || throw(ArgumentError(
-        "_expand_change_allo_state: the mechanism is plain; the move relaxes the " *
-        "allosteric states of an allosteric one"))
     a = c.mechanism.allosteric
     states = a.allosteric_states
     chem = _chemistry_groups(c)
@@ -1076,9 +1070,6 @@ ligands by name, so two merge routes reaching the same ligand partition produce
 `candidate_mechanisms` drops every child that fails `_respects_reg_type`.
 """
 function _expand_merge_regulatory_sites(c::CandidateMechanism)
-    _is_allosteric(c.mechanism) || throw(ArgumentError(
-        "_expand_merge_regulatory_sites: the mechanism is plain; the move merges the " *
-        "regulatory sites of an allosteric one"))
     a = c.mechanism.allosteric
     sites = a.regulatory_sites
     n = length(sites)

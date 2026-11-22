@@ -385,8 +385,7 @@ labelled after the others, where Y + L is the binding of a substrate (an index o
 """
 function _eliminate_form(steps::Vector{Mechanisms.Step}, x::Int, substrates::Vector{Int})
     at_x = findall(s -> x in (s.from, s.to), steps)
-    length(at_x) == 2 && all(j -> steps[j].to == x && isempty(steps[j].given_off) &&
-                                  length(steps[j].taken_up) == 1, at_x) ||
+    length(at_x) == 2 && all(j -> steps[j].to == x && _is_binding(steps[j]), at_x) ||
         return nothing
     binds_substrate(j) = only(steps[j].taken_up) in substrates
     entry, release = steps[sort(at_x; by = j -> !binds_substrate(j))]
@@ -484,11 +483,11 @@ end
 complex, forms `cx` of `base`, has two edges, both steady state and each alone in its
 group."""
 function _lumping_twin(base::Mechanisms.CatalyticScheme, cx::Vector{Int}, re::BitVector)
+    groups = _kinetic_groups(base)
     all(cx) do f
         at = findall(e -> f == e.from || f == e.to, base.steps)
         length(at) == 2 &&
-            all(k -> !re[k] && count(e -> e.kinetic_group == base.steps[k].kinetic_group,
-                                     base.steps) == 1, at)
+            all(k -> !re[k] && length(groups[base.steps[k].kinetic_group]) == 1, at)
     end
 end
 
@@ -733,9 +732,9 @@ degeneracy condition reads. Every flip child must conserve atoms
 `_enumerator_keeps` accepts.
 """
 function _base_tier(mechs::Vector{CandidateMechanism}, rxn::Mechanisms.EnzymeReaction)
-    base = CandidateMechanism[c for c in mechs if !_degenerate(c)]
-    for c in mechs
-        _degenerate(c) || continue
+    degenerate = _degenerate.(mechs)
+    base = mechs[.!degenerate]
+    for c in mechs[degenerate]
         for child in _expand_re_to_ss(c)
             _assert_atom_conserving(child, rxn)
             _degenerate(child) || push!(base, child)
