@@ -275,12 +275,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The package aims at deep modules: few public names, simple arguments, the complexity
   inside (`.claude/CLAUDE.md`). The lean mechanism took `Mechanisms` from 25 public names
   to 15, `Derivation` from 16 to 9 and `Enumeration` to two, `CandidateMechanism` and
-  `candidate_mechanisms`. Seven places still fall short. Priority: high.
+  `candidate_mechanisms`. Six places still fall short. Priority: high.
   - **`has_unbalanced_cycle` takes six vectors.**
     `Mechanisms.has_unbalanced_cycle(from, to, weight, on, parent, offset)` is a union-find
     whose two callers, Enumeration's seed screen and Derivation's admission, pass the
     working arrays it fills. A signature on a catalytic scheme and a mask, as
-    `has_turnover_cycle` has, would hide them.
+    `has_turnover_cycle` has, would fit the seed screen but not admission:
+    `_potential_on_sccs` (`src/Derivation/admission.jl`) passes the transitions of the
+    guard's network, not a scheme's steps.
   - **Three modules count which way a step runs.**
     The count of substrates taken up and products given off that orients a step is made
     in `Mechanisms` (`_orientation`, the second row of the table of stored directions),
@@ -296,8 +298,14 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     `Enumeration._rapid_equilibrium_flags` and the default argument of
     `rapid_equilibrium_segments`. An isomerization: `_is_iso` in `Mechanisms` and in
     `Enumeration`; a binding's shape is written four times in `Derivation` and as
-    `Enumeration._is_binding`. Each copy is a line or two; one owner of each would cost a
-    public name.
+    `Enumeration._is_binding`. The steps a conformation excludes, those of its groups'
+    excluded allosteric state: `Mechanisms._steps_in_conformation`
+    (`src/Mechanisms/accessors.jl`) and `Derivation._excluded_steps`
+    (`src/Derivation/conformations.jl`). A mechanism's id, the first 16 hex digits of the
+    SHA-256 of its text: identify's `_mechanism_id` and the capped key of `_canonical`
+    (`src/Derivation/key.jl`); keying a capped law by the whole text instead would change
+    every capped key once. Each copy is a line or two; one owner of each would cost a public
+    name.
   - **`rate_equation_panels` takes a `Keq` it only passes on.**
     `Plotting.rate_equation_panels` hands `Keq` to `Data.RateData` and reads it nowhere
     else, and the method of `plot_rate_equation_on_data` for a rate function passes a
@@ -305,8 +313,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   - **`identify_rate_equation` has at least 18 keyword arguments,** such as
     `eq_complexity_filter = 337`. Each becomes an internal constant unless users have a
     real reason to change it, as they do for optimizer settings.
-  - **`DSL.parse_mechanism` is public and no other module in `src/` uses it.** Make it
-    private if nothing needs it.
   - **The guard's internals carry names and arguments nothing needs.**
     `_ARC_CYCLE` and `_ISLAND` are never reported, so `_interior_verdict` could return one
     "inconsistent" outcome from a Boolean acyclicity test, and `_Fault`'s docstring could
