@@ -10,25 +10,20 @@ using SHA: sha256
 """
     IdentifyRateEquationProblem{D}
 
-Holds the reaction, experimental data, and equilibrium
-constant for rate equation identification.
+The reaction, rate table and equilibrium constant that `identify_rate_equation` finds a
+mechanism for.
 
 # Fields
-- `reaction`: the `EnzymeReaction` instance
-- `rate_data`: the validated table (`NamedTuple` of column vectors with `:group`, `:Rate`
-  and metabolite columns), `Keq` (fixed equilibrium constant), `absolute` and
-  `reference`, as a `RateData`. `absolute = false` (the default) treats the data as
-  relative and scales every fit to the reference turnovers, or, without any, so the
-  largest rate per unit enzyme it predicts over the data rows is 1; `true` treats it as
-  absolute per-enzyme turnover (see `FittingProblem`).
-  `reference` holds the anchors `concentrations => turnover` that set every relative
-  fit's scale (see `FittingProblem`), keyed by the reaction's metabolites, with any
-  metabolite left out at zero; empty in absolute mode and when a relative table gives none
+- `reaction`: the `EnzymeReaction`
+- `rate_data`: the checked table with `Keq`, `absolute` and `reference`, as a `RateData`
 
 Construct it with `IdentifyRateEquationProblem(reaction, table, Keq; absolute = false,
-reference)`; `reference` is optional in relative mode and refused in absolute mode.
-Each fit reads the anchors' concentrations of the metabolites its mechanism binds, so a
-mechanism that leaves out an optional regulator ignores that regulator's concentration.
+reference = nothing)`. The table, the keywords and their errors are those of
+`FittingProblem`, with one column per metabolite of `reaction`, anchors that name the
+reaction's metabolites, and at least two `group` values, for cross-validation. Each fit
+reads an anchor's concentrations of the metabolites its mechanism binds, so a mechanism
+that leaves out an optional regulator ignores that regulator's concentration.
+[Normalized vs absolute rate](@ref) explains the two modes.
 """
 struct IdentifyRateEquationProblem{D<:NamedTuple}
     reaction::Mechanisms.EnzymeReaction

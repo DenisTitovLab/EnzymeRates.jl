@@ -4,22 +4,12 @@
 """
     FittingProblem{R, D}
 
-Holds pre-processed experimental data and mechanism info for fitting
-rate constants.
-
-# Fields
-- `mechanism`: the mechanism, a `Mechanism`
-- `rate`: its compiled rate law (`compile_rate_equation`), which the loss evaluates
-- `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
-  `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
-  loss, fit scaled to the reference turnovers or, without any, so the largest predicted
-  rate per unit enzyme over the data rows is 1); `true` selects absolute per-enzyme
-  turnover mode (uncentered loss, no scale).
-  `reference` holds the anchors `concentrations => turnover` that set a relative fit's
-  scale; empty in absolute mode and when a relative table gives none
-- `group_point_indexes`: row indices grouped by unique `group` values
-- `log_abs_rates`: pre-computed `log.(abs.(Rate))`
-- `log_ratios_buffer`: pre-allocated working buffer for loss computation
+A mechanism, its compiled rate law and a checked rate table, ready for
+`fit_rate_equation`. Build it with `FittingProblem(mechanism, table, Keq; absolute,
+reference)`, whose docstring describes the table and the keywords. Callers read
+`fp.mechanism`, `fp.rate` (the compiled law, `compile_rate_equation`) and `fp.rate_data`
+(the table with `Keq`, `absolute` and `reference`, a `RateData`); the other fields are the
+loss's working storage.
 """
 struct FittingProblem{R, D<:NamedTuple}
     mechanism::Mechanisms.Mechanism
@@ -37,37 +27,31 @@ Construct a `FittingProblem` from an enzyme mechanism, tabular data and the reac
 equilibrium constant `Keq`, which the fit holds fixed. It compiles the mechanism's rate law
 once, for every fit of the problem.
 
-The table must have at least one row and columns: `group`, `Rate`, and one column per
-metabolite matching `metabolites(mechanism)`, so no metabolite may be
-named `group` or `Rate`. Uses `Tables.columntable` for conversion.
+The table, any Tables.jl table, must have at least one row and the columns `group`,
+`Rate`, and one per metabolite of `metabolites(mechanism)`, so no metabolite may be named
+`group` or `Rate`.
 
-With `absolute = false` (the default) the data are relative: the loss centers each
-group's log-ratios, which removes each group's scale, so the data fix the rate constants
-only up to one common factor. `reference`, optional in this mode, sets that factor: a
-vector of anchors `concentrations => turnover`, each a `NamedTuple` of concentrations in
-the data's units, where a metabolite left out is zero, and a turnover per unit enzyme
-measured there (a kcat, or a specific activity in turnover units).
-`fit_rate_equation` scales the fitted rate constants so the mechanism reproduces the
-reference turnovers. Without a `reference` it scales them so the largest absolute rate
-per unit enzyme predicted over the data rows is 1: the rate constants are then in
-units of the fastest measured condition, not kcats. With `absolute = true` the data
-are absolute per-enzyme turnover: the loss is uncentered, the fit is returned unscaled,
-and passing `reference` is an error.
+With `absolute = false`, the default, the rates are relative: the fit ignores a factor on
+each group's rates, and `reference`, optional, sets the scale of the returned rate
+constants. It is a vector of anchors `concentrations => turnover`: a `NamedTuple` of
+concentrations in the data's units, in which a metabolite left out is zero, and the
+turnover per unit enzyme measured there. With `absolute = true` the rates are per-enzyme
+turnover. [Normalized vs absolute rate](@ref) explains the two modes.
 
-Rate values must be finite and nonzero (the loss takes their log; a zero rate gives
-`-Inf`), every concentration must be a finite number ≥ 0 (zero is valid), and `Keq`
-must be positive and finite. A reference anchor must name metabolites of the mechanism
-at finite concentrations ≥ 0, with a finite, nonzero turnover.
+Errors unless
+- every rate is finite and nonzero (the loss takes its log);
+- every concentration is a finite number ≥ 0 (zero is valid);
+- `Keq` is positive and finite;
+- each reference anchor names metabolites of the mechanism at finite concentrations ≥ 0,
+  with a finite, nonzero turnover;
+- `reference` is `nothing` in absolute mode.
 
 ```julia
 fp = FittingProblem(m, data, 2.0; reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
 
-We strongly recommend concentrations in M, because `Keq` values usually assume a 1 M
-standard state. Other units work as long as all metabolites, `Keq` and any `reference`
-concentrations use the same one. K and k then carry that unit: a K in mM, a second-order
-k per mM per time. See "Units and the search box" in the Getting Started page for how the
-fit searches around the concentrations in your data.
+Give the concentrations, `Keq` and any `reference` concentrations in one unit, M
+recommended; see [Units and the search box](@ref).
 """
 function FittingProblem(mechanism::Mechanisms.Mechanism, table, Keq::Real;
                         absolute::Bool=false, reference=nothing)
@@ -87,19 +71,16 @@ end
 """
     loss!(x::AbstractVector, fp::FittingProblem)
 
-Compute the log-ratio loss. Zero-allocation on the hot path.
+The loss of `fp` at the constants `exp.(x)`, in the order of `parameters(fp.rate)`,
+computed without allocating: the mean over the data rows of the squared log-ratio of
+predicted to measured rate. In relative mode each group's log-ratios are centered before
+squaring; in absolute mode they are squared as they are.
 
-Parameters in `x` are in log-space (i.e., actual rate constants =
-`exp.(x)`). In relative mode (`fp.rate_data.absolute == false`) each group's
-log-ratios are centered (mean-subtracted) before squaring, making the
-loss invariant to a scale per group, such as each group's enzyme concentration (relative
-data). In absolute mode (`fp.rate_data.absolute`) the log-ratios are squared without
-centering, so the absolute magnitude is scored (absolute per-enzyme turnover data).
-
-Sign mismatches (predicted vs measured rate sign) incur a flat penalty
-of 100.0 per point, counted in the per-point loop and added after. In the
-centered mode this prevents all-mismatch groups from contributing zero
-loss (a uniform sentinel would cancel under mean-subtraction).
+A row whose prediction is zero, NaN or of the other sign than its rate takes the log-ratio
+10 and adds a flat penalty of 100. Without the penalty, a group of such rows would score
+zero in relative mode, where centering cancels the uniform 10. In absolute mode the 10
+already scores 100, so the penalty doubles it and steers the fit harder away from a wrong
+sign.
 """
 function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
@@ -110,7 +91,6 @@ function loss!(x::AbstractVector, fp::FittingProblem)
     K = length(MetNames)
     n_data = length(fp.log_abs_rates)
 
-    # Build params NamedTuple from log-space x
     params = NamedTuple{ParamNames}(ntuple(i -> exp(x[i]), Val(N)))
     Keq = fp.rate_data.Keq
 
@@ -131,9 +111,7 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         end
     end
 
-    # Pass 2: loss. Relative (fp.rate_data.absolute false) → per-group mean-centered,
-    # removing each group's arbitrary scale. Absolute → uncentered: the y-axis is absolute
-    # per-enzyme turnover, so the absolute magnitude is meaningful.
+    # Pass 2: the sum of squares.
     total_loss = 0.0
     if fp.rate_data.absolute
         @inbounds for i in 1:n_data
@@ -154,11 +132,6 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         end
     end
 
-    # Flat penalty for sign mismatches. In centered mode an all-mismatch group
-    # would otherwise contribute zero loss (the uniform 10.0 sentinel cancels
-    # under mean-subtraction); the post-hoc penalty keeps it positive. In
-    # uncentered mode the sentinel already contributes 100.0 per point, so this
-    # adds a second 100.0 (stronger steering away from sign flips, intentional).
     return (total_loss + 100.0 * n_mismatch) / n_data
 end
 
@@ -219,16 +192,13 @@ present in both a named common option and `solver_kwargs` takes the
 `OptimizationProblem`. They hold absolute log values, and by default lie 15 log units
 either side of each centre, so the box follows the data.
 
-In relative mode (`fp.rate_data.absolute == false`) the returned steady-state rate
-constants are multiplied by one factor so the mechanism reproduces the reference turnovers
-`fp.rate_data.reference` (see `FittingProblem`): the geometric mean of measured over
-predicted turnover. Without a reference the factor is 1 over the largest absolute rate
-per unit enzyme the fit predicts at the data's concentrations. A fit whose predicted
-turnover at a reference anchor is zero, non-finite or of the other sign, or whose largest
-predicted rate is zero or non-finite, has no such factor: it returns its parameters
-unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not throw.
-In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
-`retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
+In relative mode the fit multiplies the returned rate constants by one factor, which makes
+the mechanism reproduce the `reference` turnovers or, without a reference, puts the
+largest predicted rate at 1 ([Normalized vs absolute rate](@ref)). A fit for which no such
+factor exists returns its parameters unscaled, with `loss = Inf` and
+`retcode = :ReferenceFailed`, and does not throw. In absolute mode, and when no restart
+reaches a finite loss (`loss = Inf`, `retcode = :NoFiniteLoss`), it returns the rate
+constants as fitted.
 
 Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
 - `params`: the fitted constants, by the names of `parameters(fp.rate)`, as a NamedTuple
@@ -260,9 +230,6 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     pnames = Derivation.parameters(fp.rate)::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
-    # Common solver options: maxtime/maxiters always forwarded; the optional
-    # ones only when set, so each solver keeps its own default otherwise.
-    # solver_kwargs is forwarded verbatim and wins on key conflicts.
     common = (; maxtime, maxiters)
     abstol   === nothing || (common = (; common..., abstol))
     reltol   === nothing || (common = (; common..., reltol))
@@ -271,11 +238,10 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
 
     best_x = zeros(np)
     best_loss = Inf
-    # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
-    # `_ingest!` drops it from the beam search). Deliberately NOT a
-    # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
-    # so `:NoFiniteLoss` stays distinct from a genuine `:Default` solver return
-    # (which only fires when a restart achieves a finite objective).
+    # `:NoFiniteLoss` marks a fit whose every restart has an infinite objective; its loss
+    # stays `Inf`, so `_ingest!` drops it from the beam search. It is no SciMLBase
+    # ReturnCode name, so it stays apart from a solver's `:Default`, which a restart with a
+    # finite objective can return.
     best_retcode = :NoFiniteLoss
 
     centre = _log_centres(fp)

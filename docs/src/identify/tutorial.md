@@ -111,9 +111,8 @@ value becomes one cross-validation fold, so at least two groups are required.
 - At least two distinct `group` values are required for cross-validation.
 - In relative mode, the default, `reference` is optional: anchors
   `concentrations => turnover` in the reaction's metabolites, which set the scale of
-  every fit's rate constants (see [Normalized vs absolute rate](@ref)). Without it the
-  largest rate per unit enzyme a mechanism predicts over the data rows is scaled to 1.
-  Each anchor's concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
+  every fit's rate constants (see [Normalized vs absolute rate](@ref)). Each anchor's
+  concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
 
 The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
 rejects a metabolite named `L`, the conformational constant of the allosteric

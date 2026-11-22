@@ -82,12 +82,9 @@ known — measured directly, or computed from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il). The constructor compiles the
 mechanism's rate equation once, so the fitting hot path pays no compilation overhead.
 
-`reference` sets the scale of the fitted rate constants in relative mode, the default: the
-fit returns constants that reproduce each anchor's turnover. Without one, the constants are
-in units of the fastest measured condition, not kcats. These synthetic rates are
-per-enzyme turnover, so the first data row serves as the anchor and the fit recovers the
-constants on their true scale. With rates in arbitrary units, anchor a measured kcat
-instead, or a row of your data to keep its units.
+`reference` sets the scale of the fitted rate constants in relative mode, the default.
+These synthetic rates are per-enzyme turnover, so the first data row serves as the anchor
+and the fit recovers the constants on their true scale.
 
 ## Running the fit
 

@@ -142,8 +142,7 @@ amount of enzyme, a `Rate` column with measured rates, and one column per
 metabolite or regulator name (here `S` and `P`). `Keq`, the third argument, is required
 and always user-supplied. The fit removes each group's arbitrary scale, and `reference`, a
 turnover at stated concentrations (here the first data row), sets the scale of the
-returned rate constants (omit it and the largest rate per unit enzyme predicted over the
-data rows is scaled to 1); see [Normalized vs absolute rate](@ref).
+returned rate constants; see [Normalized vs absolute rate](@ref).
 
 ### Units and the search box
 

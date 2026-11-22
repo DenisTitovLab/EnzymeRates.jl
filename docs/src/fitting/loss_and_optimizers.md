@@ -16,24 +16,15 @@ loss = (1/N) Σᵢ (log(|predicted rateᵢ|) − log(|measured rateᵢ|))²
 
 ### Centered vs uncentered
 
-The loss formula switches on `fp.rate_data.absolute` (see
-[Normalized vs absolute rate](@ref)):
-
-- **Relative mode** (`absolute = false`, the default): each group's log-ratios
-  are **mean-subtracted before squaring**. This makes the loss invariant to
-  multiplying all rates in a group by the same factor.
-- **Absolute mode** (`absolute = true`): the log-ratios are
-  **squared without centering**. The absolute magnitude is scored, so the
-  data must be in consistent per-enzyme turnover units.
+In relative mode, the default, the loss centers each group's log-ratios before squaring,
+so a factor on all of a group's rates leaves it unchanged; in absolute mode it squares them
+as they are. [Normalized vs absolute rate](@ref) explains the two modes.
 
 ### Sign-mismatch penalty
 
-When the predicted rate sign disagrees with the measured sign, or when the
-prediction is zero, the log-ratio is replaced by a sentinel value of `10.0`
-in the working buffer. After the main loop, a flat `100.0` penalty per
-mismatched point is added to the total. In centered mode this prevents an
-all-mismatch group from contributing zero loss (the uniform sentinel would
-cancel under mean-subtraction); the post-hoc penalty keeps it positive.
+A point whose predicted rate is zero or has the other sign than the measured rate takes the
+log-ratio `10` and adds a flat penalty of `100` to the sum. Without the penalty, a group of
+such points would score zero in relative mode, where centering cancels the uniform `10`.
 
 !!! note "Sign penalty with all reactants present"
     This penalty is harmless for most enzyme kinetic data. An assay usually

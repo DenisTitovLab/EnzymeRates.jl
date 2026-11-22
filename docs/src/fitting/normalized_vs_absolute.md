@@ -95,12 +95,9 @@ turnover basis.
 
 ## Scoring a fit on other data
 
-`EnzymeRates.test_rate_equation(m, params, table, Keq; absolute = false)` returns the loss
-`fit_rate_equation` minimizes, for the constants `params` on `table` with the equilibrium
-constant `Keq`: the score of a fit on data it did not see, as cross-validation does for
-each held-out group. `params` must hold every name of `parameters(m)`, as a fit's `params`
-does; other names are ignored. In relative mode the loss centers each group, so it does
-not depend on the scale of `params`.
+[`EnzymeRates.test_rate_equation`](@ref) scores a fit's constants on data the fit did not
+see, as cross-validation does for each held-out group. In relative mode the score does not
+depend on the scale of the constants.
 
 ```@example testfit
 using EnzymeRates
