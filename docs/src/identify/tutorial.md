@@ -36,20 +36,19 @@ end
 
 # A concrete MWC mechanism to generate the data. A binds only the active
 # conformation (:OnlyA), which makes it an allosteric activator.
-generator = @allosteric_mechanism begin
+generator = @enzyme_mechanism begin
     substrates: S
     products:   P
-    catalytic_multiplicity: 2
-    allosteric_regulators: A
+    oligomeric_state: 2
     steps: begin
-        E + S ⇌ E(S)         :: EqualAI
-        E(S) <--> E(P)       :: OnlyA
-        E(P) ⇌ E + P         :: EqualAI
+        E + S ⇌ ES     :: EqualAI
+        ES <--> EP     :: OnlyA
+        EP ⇌ E + P     :: EqualAI
     end
     regulatory_site(2): A::OnlyA
 end
 
-println("fitted params: ", parameters(generator, FittedParameters()))
+println("fitted params: ", parameters(generator))
 println("metabolites:   ", metabolites(generator))
 ```
 
@@ -57,8 +56,8 @@ The mechanism has five independent parameters: the binding constants
 `K_ES_to_E_S` and `K_EP_to_E_P` (shared by both conformations, `:EqualAI`),
 the active-state catalytic constant `k_A_ES_to_EP` (`:OnlyA`), the activator
 binding constant `K_A_Areg`, and the conformational equilibrium `L = [T]/[R]`.
-`Keq` is user-supplied and `E_total` is absorbed into the rate scale.
-[Mechanisms with allosteric regulators](@ref) covers the allosteric-state tags
+`Keq` is user-supplied, and the rate is per unit enzyme.
+[Mechanisms with allosteric regulators](@ref) covers the allosteric states
 and the partition-function structure.
 
 Each substrate and product declares its **atom inventory** in the bracket:
@@ -77,7 +76,8 @@ rate of exactly zero has no logarithm, and the loss works in log space.
 ```@example identify_fast
 Keq = 10.0
 true_params = (K_ES_to_E_S = 1.0, K_EP_to_E_P = 1.0, k_A_ES_to_EP = 5.0,
-               K_A_Areg = 1.0, L = 100.0, Keq = Keq, E_total = 1.0)
+               K_A_Areg = 1.0, L = 100.0)
+rate = compile_rate_equation(generator)
 
 concs = [(S = s, P = p, A = a)
          for s in (0.3, 1.0, 3.0, 10.0) for p in (0.1, 0.5)
@@ -85,7 +85,7 @@ concs = [(S = s, P = p, A = a)
 groups = [i ≤ length(concs) ÷ 2 ? "G1" : "G2" for i in eachindex(concs)]
 
 data = (group = groups,
-        Rate  = [rate_equation(generator, c, true_params) for c in concs],
+        Rate  = [rate(c, true_params, Keq) for c in concs],
         S = [c.S for c in concs],
         P = [c.P for c in concs],
         A = [c.A for c in concs])
@@ -111,16 +111,15 @@ value becomes one cross-validation fold, so at least two groups are required.
 - At least two distinct `group` values are required for cross-validation.
 - In relative mode, the default, `reference` is optional: anchors
   `concentrations => turnover` in the reaction's metabolites, which set the scale of
-  every fit's rate constants (see [Normalized vs absolute rate](@ref)). Without it the
-  largest rate a mechanism predicts over the data rows, at `E_total = 1`, is scaled to 1.
-  Each anchor's concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
+  every fit's rate constants (see [Normalized vs absolute rate](@ref)). Each anchor's
+  concentrations must be finite and ≥ 0 and its turnover finite and nonzero.
 
 The reaction checks the names before a problem exists: [`@enzyme_reaction`](@ref)
 rejects a metabolite named `L`, the conformational constant of the allosteric
-mechanisms the search fits, the other names a rate equation keeps (`E_total`, `Keq`,
-`N`, `params`, `concs`, `v`) and any name holding `_`.
+mechanisms the search fits, the other names a rate equation keeps (`Keq`, `N`, `params`,
+`concs`, `v`), the free enzyme's name `E` and any name holding `_`.
 
-`Keq` is a required keyword argument, always user-supplied, positive and finite; the
+`Keq`, the third argument, is required, always user-supplied, positive and finite; the
 package never estimates it from data. Most enzyme reactions have a known `Keq` —
 measure it directly, or compute it from a resource such as
 [eQuilibrator](https://equilibrator.weizmann.ac.il).
@@ -133,7 +132,7 @@ Random.seed!(123)   # reproducible multi-start fits
 
 # The rates are per-enzyme turnover, so the first row anchors the scale.
 reference = [(S = data.S[1], P = data.P[1], A = data.A[1]) => data.Rate[1]]
-prob = IdentifyRateEquationProblem(rxn, data; Keq = Keq, reference)
+prob = IdentifyRateEquationProblem(rxn, data, Keq; reference)
 
 results = identify_rate_equation(prob;
     optimizer       = CMAEvolutionStrategyOpt(),
@@ -157,22 +156,19 @@ never fits the non-allosteric mechanisms beneath. This is the default: every
 declared regulator is required, which is what lets the search reach the
 generating MWC mechanism so quickly here.
 
-The progress lines above trace the search, which is a *beam search*: it walks
-parameter counts in ascending order, and at each count it fits the candidates,
-keeps the most promising (the beam — here `min_beam_width = 10`), and expands
-the survivors into the next count. Which keys enter the beam is set by
-`min_beam_width` and the `loss_rel_threshold` / `loss_abs_threshold` /
-`loss_parsimony_threshold` cutoff — see [Best mechanism selection](@ref).
-Two filters bound the search: `max_param_count` (here `5`, the generating
-mechanism's size, to keep the example quick) caps it by fitted-parameter count,
-and `eq_complexity_filter` caps it by rate-equation complexity — roughly the
-number of terms in the equation's denominator, both conformations together for an
-allosteric mechanism, its default passing a fully
-steady-state random-order bi-bi. Each drops a candidate before fitting it. [Best mechanism selection](@ref) also covers the cross-validation
-rule that picks the winner. The
-production search widens the beam to 50 and the cap to 20, and distributes the
-fits across workers (see
-[Running in parallel](@ref)).
+The progress lines above trace the search, which is a *beam search*: it walks parameter
+counts in ascending order, and at each count it fits the candidates, keeps the most
+promising (the beam — here `min_beam_width = 10`), and expands the survivors into the next
+count. Which keys enter the beam is set by `min_beam_width` and the `loss_rel_threshold` /
+`loss_abs_threshold` / `loss_parsimony_threshold` cutoff — see
+[Best mechanism selection](@ref). Two filters bound the search: `max_param_count` (here `5`,
+the generating mechanism's size, to keep the example quick) caps it by fitted-parameter
+count, and `eq_complexity_filter` caps it by rate-equation complexity — roughly the number
+of terms in the equation's denominator, both conformations together for an allosteric
+mechanism, its default passing a fully steady-state random-order bi-bi. Each drops a
+candidate before fitting it. [Best mechanism selection](@ref) also covers the
+cross-validation rule that picks the winner. The production search widens the beam to 50 and
+the cap to 20, and distributes the fits across workers (see [Running in parallel](@ref)).
 
 Two controls tune the regulator seeding. To let the search decide whether `A`
 matters, and fit the non-regulated mechanisms too, mark it optional:
@@ -205,15 +201,15 @@ refine it.
 results.best
 ```
 
-`results.best` is an `AbstractEnzymeMechanism`, displayed as the macro block that builds
-it. Pass it to [`rate_equation_string`](@ref) to see the symbolic rate equation:
+`results.best` is a `Mechanism`, displayed as the macro block that builds it. Pass it to
+[`rate_equation_string`](@ref) to see the symbolic rate equation:
 
 ```@example identify_fast
 print(rate_equation_string(results.best))
 ```
 
 On noiseless data the search recovers the generating MWC mechanism. Its law ends
-`v = E_total * (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)`: each
+`v = (Q_A * D_A * W_A) * (S - P / Keq) / (D_A^2 * W_A + L * D_I^2)`: each
 conformation's denominator is squared because the enzyme is a dimer, the activator's site
 `W_A = (1 + A / K_A_Areg)^2` weighs the active conformation alone, and there is no `Q_I`,
 since the inactive conformation does not catalyze. The Haldane relation, printed as a
@@ -228,18 +224,10 @@ page, which lists its columns. Its first five rows, in five of its columns:
 first(results.cv_results[:, [:n_params, :loss, :cv_score, :cv_score_se, :mechanism_id]], 5)
 ```
 
-`results.cv_results` and the selected `results.best` are also written to
-`save_dir`, as `loocv_results.csv` (this whole table) and `best_equation.csv`
-(the winning row: equation string plus fitted parameters). They sit alongside
-the per-iteration `equation_search_iteration_N.csv` files, so a cluster run's
-model-selection outcome is saved without re-running cross-validation. Every row
-names its mechanism by its text (`mechanism`) and a short id (`mechanism_id`),
-and a child names its parent's id (`parent_id`). Each row also carries its law's key
-(`key`), which mechanisms whose laws agree up to renaming the fitted constants share: the
-search fits one mechanism per key, and the others read that fit under their own names
-(`fit_inherited`, `fit_source_id`). Read the CSVs with the ids as text,
-`CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String,
-:fit_source_id => String))`; [Best mechanism selection](@ref) lists every column.
+The search also writes `results.cv_results` and the selected row to `save_dir`, as
+`loocv_results.csv` and `best_equation.csv`, so a cluster run keeps its selection. Beside
+them it writes one file per iteration that fitted or failed on a mechanism,
+`equation_search_iteration_N.csv`; [The files in `save_dir`](@ref) lists every file.
 
 ## Loud failures
 

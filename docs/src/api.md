@@ -16,28 +16,30 @@ Order = [:function, :macro, :type]
 ## Functions
 
 ```@docs
+compile_rate_equation(::Mechanism)
+dependent_parameter_values(::Mechanism, ::NamedTuple, ::Real)
 fit_rate_equation(::FittingProblem, ::Any)
 identify_rate_equation(::IdentifyRateEquationProblem)
-metabolites(::M) where M<:Mechanisms.AbstractEnzymeMechanism
-parameters(::Any)
-plot_rate_equation_on_data(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism, Function}, ::NamedTuple, ::Any)
-dependent_parameter_values(::Union{Mechanisms.AbstractEnzymeMechanism, AllostericMechanism, Mechanism}, ::NamedTuple)
-rate_equation(::M_type, ::NamedTuple, ::NamedTuple) where M_type<:Mechanisms.AbstractEnzymeMechanism
-rate_equation_string(::Union{AllostericMechanism, Mechanism})
+metabolites(::Mechanism)
+parameters(::Mechanism)
+plot_rate_equation_on_data(::Mechanism, ::NamedTuple, ::Any, ::Real)
+rate_equation_string(::Mechanism)
 ```
 
 ## Internal but usable
 
 `test_rate_equation` is not exported; call it as `EnzymeRates.test_rate_equation`.
+`RateEquationTooLargeError`, the error a rate law over the term cap throws, is not exported
+either; catch it as `EnzymeRates.Derivation.RateEquationTooLargeError`.
 
 ```@docs
-EnzymeRates.test_rate_equation(::Any, ::NamedTuple, ::Any)
+EnzymeRates.test_rate_equation(::Mechanism, ::NamedTuple, ::Any, ::Real)
+EnzymeRates.Derivation.RateEquationTooLargeError
 ```
 
 ## Macros
 
 ```@docs
-@allosteric_mechanism
 @enzyme_mechanism
 @enzyme_reaction
 ```
@@ -45,17 +47,10 @@ EnzymeRates.test_rate_equation(::Any, ::NamedTuple, ::Any)
 ## Types
 
 ```@docs
-AllParameters
-AllostericEnzymeMechanism
-AllostericEnzymeMechanism(::AllostericMechanism)
-EnzymeMechanism
-EnzymeMechanism(::Mechanism)
 EnzymeReaction
-FittedParameters
 FittingProblem
-FittingProblem(::Mechanisms.AbstractEnzymeMechanism, ::Any)
-FittingProblem(::Union{AllostericMechanism, Mechanism}, ::Any)
+FittingProblem(::Mechanism, ::Any, ::Real)
 IdentifyRateEquationProblem
 IdentifyRateEquationResults
-IndependentParameters
+Mechanism
 ```

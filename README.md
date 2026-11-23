@@ -33,18 +33,23 @@ m = @enzyme_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
-        E(P) ⇌ E + P
+        E + S ⇌ ES
+        ES <--> EP
+        EP ⇌ E + P
     end
 end
 
 parameters(m)                              # parameter names to supply
 print(rate_equation_string(m))             # the symbolic rate equation
 print(rate_equation_string(m; coefficients = true))  # the law in named coefficients
-rate_equation(m, (S=1e-4, P=1e-5),        # evaluate numerically
-    (K_EP_to_E_P=1e-5, K_ES_to_E_S=1e-4, k_ES_to_EP=100.0, Keq=2.0, E_total=1.0))
+rate = compile_rate_equation(m)            # compile once, then evaluate numerically:
+rate((S = 1e-4, P = 1e-5),                 # concentrations,
+     (K_EP_to_E_P = 1e-5, K_ES_to_E_S = 1e-4, k_ES_to_EP = 100.0),  # parameters,
+     2.0)                                  # and Keq
 ```
+
+`E` is the free enzyme and `ES`, `EP` name the enzyme forms. The rate equation gives the
+rate per unit enzyme; multiply by the enzyme concentration for an absolute rate.
 
 Or identify the best mechanism directly from measured rates. Provide a data
 file with a `group` column, a `Rate` column, and one column per metabolite:
@@ -64,7 +69,7 @@ end
 # kcat, or, as here, a row of the data.
 reference = [(S = data.S[1], P = data.P[1]) => data.Rate[1]]
 
-prob    = IdentifyRateEquationProblem(rxn, data; Keq = 2.0, reference)
+prob    = IdentifyRateEquationProblem(rxn, data, 2.0; reference)   # 2.0 is Keq
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
 
 results.best                               # the identified mechanism

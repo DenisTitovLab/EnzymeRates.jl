@@ -16,24 +16,15 @@ loss = (1/N) Σᵢ (log(|predicted rateᵢ|) − log(|measured rateᵢ|))²
 
 ### Centered vs uncentered
 
-The loss formula switches on `fp.rate_data.absolute` (see
-[Normalized vs absolute rate](@ref)):
-
-- **Relative mode** (`absolute = false`, the default): each group's log-ratios
-  are **mean-subtracted before squaring**. This makes the loss invariant to
-  multiplying all rates in a group by the same factor.
-- **Absolute mode** (`absolute = true`): the log-ratios are
-  **squared without centering**. The absolute magnitude is scored, so the
-  data must be in consistent per-enzyme turnover units.
+In relative mode, the default, the loss centers each group's log-ratios before squaring,
+so a factor on all of a group's rates leaves it unchanged. In absolute mode it squares them
+as they are. [Normalized vs absolute rate](@ref) explains the two modes.
 
 ### Sign-mismatch penalty
 
-When the predicted rate sign disagrees with the measured sign, or when the
-prediction is zero, the log-ratio is replaced by a sentinel value of `10.0`
-in the working buffer. After the main loop, a flat `100.0` penalty per
-mismatched point is added to the total. In centered mode this prevents an
-all-mismatch group from contributing zero loss (the uniform sentinel would
-cancel under mean-subtraction); the post-hoc penalty keeps it positive.
+A point whose predicted rate is zero or has the other sign than the measured rate takes the
+log-ratio `10` and adds a flat penalty of `100` to the sum. Without the penalty, a group of
+such points would score zero in relative mode, where centering cancels the uniform `10`.
 
 !!! note "Sign penalty with all reactants present"
     This penalty is harmless for most enzyme kinetic data. An assay usually
@@ -101,8 +92,8 @@ searches, with `CMAEvolutionStrategyOpt()` and 20 restarts, took:
 | Time per evaluation | 3.3 µs (2.8–18) | 6.3 µs (5.1–8.9) |
 | Fit with 20 restarts | 0.4 s (0.2–5.6) | 1.1 s (0.5–7.0) |
 
-These are single fits on one core of an aarch64 machine on Julia 1.13.3, so expect other times
-on other hardware. A fit takes longer with more data points, more parameters and a longer rate
-equation. The first fit in a Julia session also compiles the solver, about 3 s, and each new
-mechanism compiles in 0.1–0.2 s, which those fit times include. A restart here took at most
-about 0.35 s, so the default `maxtime` rarely limits a fit.
+These are single fits on one core of an aarch64 machine on Julia 1.13.3, so expect other
+times on other hardware. A fit takes longer with more data points, more parameters and a
+longer rate equation. The first fit in a Julia session also compiles the solver, about 3 s,
+and each new mechanism compiles in 0.1–0.2 s, which those fit times include. A restart here
+took at most about 0.35 s, so the default `maxtime` rarely limits a fit.

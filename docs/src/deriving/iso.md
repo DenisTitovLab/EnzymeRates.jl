@@ -10,12 +10,11 @@ feature.
 
 ## An iso uni-uni example
 
-A second enzyme conformation is written with a different **conformation label** —
-`Eprime` in place of `E`. Bound forms carry their conformation (`Eprime(P)`),
-and the free enzyme moves between conformations through an isomerization step
-such as `Eprime <--> E`. Here `S` binds `E`, catalysis turns `E(S)` into
-`Eprime(P)`, `P` leaves `Eprime`, and the free enzyme isomerizes from `Eprime`
-back to `E`:
+A second enzyme conformation is a second free form, written by its name: `Eprime`
+beside `E`. Its bound forms take names of their own (`EprimeP`), and the free enzyme
+moves between conformations through an isomerization step such as `Eprime <--> E`. Here
+`S` binds `E`, catalysis turns `ES` into `EprimeP`, `P` leaves `Eprime`, and the free
+enzyme isomerizes from `Eprime` back to `E`:
 
 ```@example iso
 using EnzymeRates
@@ -23,9 +22,9 @@ m = @enzyme_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> Eprime(P)
-        Eprime(P) ⇌ Eprime + P
+        E + S ⇌ ES
+        ES <--> EprimeP
+        EprimeP ⇌ Eprime + P
         Eprime <--> E
     end
 end
@@ -37,6 +36,6 @@ term in the denominator, the term of `D` above that holds both `S` and `P`.
 An ordinary single-conformation Michaelis–Menten enzyme does not
 have an `S·P` term. Saturating an iso enzyme with substrate and product
 together can therefore slow turnover in a way a regular Michaelis–Menten
-enzyme cannot. Each conformation appears in the parameter names: `K_ES_to_E_S`
+enzyme cannot. The forms' names make the parameter names: `K_ES_to_E_S`
 is `S` binding to `E`, `K_EprimeP_to_Eprime_P` is `P` binding to `Eprime`, and
 `k_E_to_Eprime` / `k_Eprime_to_E` are the isomerization rate constants.

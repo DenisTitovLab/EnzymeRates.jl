@@ -18,19 +18,28 @@ julia> m = @enzyme_mechanism begin
            substrates: S
            products:   P
            steps: begin
-               E + S ⇌ E(S)
-               E(S) <--> E(P)
-               E(P) ⇌ E + P
+               E + S ⇌ ES
+               ES <--> EP
+               EP ⇌ E + P
            end
-       end;
-
-julia> m isa EnzymeMechanism
-true
+       end
+@enzyme_mechanism begin
+    substrates: S
+    products: P
+    steps: begin
+        E + P ⇌ EP
+        E + S ⇌ ES
+        ES <--> EP
+    end
+end
 ```
 
-The two binding steps are rapid equilibrium; the central isomerization
-`E(S) <--> E(P)` is steady state.
-That single SS step is the rate-limiting catalytic step.
+`E` is the free enzyme; `ES` and `EP` are the enzyme forms with `S` and `P` bound, named
+as you write them. The two binding steps are rapid equilibrium; the central
+isomerization `ES <--> EP` is steady state. That single SS step is the rate-limiting
+catalytic step. The mechanism prints as the block that builds it, in canonical order,
+each step in the direction the package stores it: the release `EP ⇌ E + P` as the binding
+it reverses.
 
 ## Deriving the rate equation
 
@@ -40,17 +49,17 @@ Call `print` to display it without escaped newlines:
 
 ```jldoctest textbook
 julia> print(rate_equation_string(m))
-(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP) = params
 (; S, P) = concs
 # Haldane constraints:
 k_EP_to_ES = K_EP_to_E_P * k_ES_to_EP / (K_ES_to_E_S * Keq)
-v = E_total * (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
+v = (k_ES_to_EP / K_ES_to_E_S) * (S - P / Keq) / (1 + S / K_ES_to_E_S + P / K_EP_to_E_P)
 ```
 
-The string reads, in order:
+The string runs as Julia code once `params`, `concs` and the equilibrium constant `Keq` are
+bound, and reads, in order:
 
-1. a `params` destructuring line: the independent fitted constants, then `Keq` and
-   `E_total`;
+1. a `params` destructuring line: the independent fitted constants;
 2. a `concs` destructuring line: the concentrations;
 3. the reference lines under `# Haldane constraints:` (after `# Wegscheider constraints:`
    when a cycle of bindings ties constants together): each dependent constant in `Keq` and
@@ -58,8 +67,9 @@ The string reads, in order:
    ones;
 4. when the normalizer has a factor that is not a single term, or an integer to a
    fractional power, the line `N = …` ([Normalization](@ref));
-5. the law, `v = E_total * (Q) * (H) / (D)`. `H = S - P / Keq` vanishes at equilibrium,
-   and `Q` and `D` have positive terms.
+5. the law, `v = (Q) * (H) / (D)`, the net rate per unit enzyme: multiply by the enzyme
+   concentration for an absolute rate. `H = S - P / Keq` vanishes at equilibrium, and `Q`
+   and `D` have positive terms.
 
 ## Normalization
 
@@ -82,11 +92,11 @@ denominator by a normalizer with `D`'s unit, chosen by the first rule that appli
    degree first, then fewest metabolites other than substrates, then metabolite order) and
    weigh the first affinely independent ones so that the product of their coefficients,
    each to its weight, has `D`'s unit. Fractional weights print as roots.
-4. **No normalizer.** When no such weights exist, no product of the coefficients has
-   `D`'s unit: some weighting of the concentrations gives every term of `D` the same
-   nonzero degree. In `E + A <--> E(A)`, `E(A) + B ⇌ E(Q) + P`, `E(Q) <--> E + Q`, for
-   example, the rapid-equilibrium Theorell–Chance step makes every term carry exactly one
-   of `B` and `P`. The law then prints as derived, and its terms keep their units.
+4. **No normalizer.** When no such weights exist, no product of the coefficients has `D`'s
+   unit: some weighting of the concentrations gives every term of `D` the same nonzero
+   degree. In `E + A <--> EA`, `EA + B ⇌ EQ + P`, `EQ <--> E + Q`, for example, the
+   rapid-equilibrium Theorell–Chance step makes every term carry exactly one of `B` and `P`.
+   The law then prints as derived, and its terms keep their units.
 
 A factor of the normalizer that is not a single term, or an integer to a fractional power,
 prints once, as the line `N = …`, and the terms it divides read `/ N`.
@@ -101,13 +111,13 @@ law.
 
 ```jldoctest textbook
 julia> print(rate_equation_string(m; coefficients = true))
-(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP, Keq, E_total) = params
+(; K_EP_to_E_P, K_ES_to_E_S, k_ES_to_EP) = params
 (; S, P) = concs
 # The coefficients are functions of the fitted constants, not parameters:
 n_0 = k_ES_to_EP / K_ES_to_E_S
 d_S = 1 / K_ES_to_E_S
 d_P = 1 / K_EP_to_E_P
-v = E_total * n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
+v = n_0 * (S - P / Keq) / (1 + d_S * S + d_P * P)
 ```
 
 A coefficient is named by the concentrations it multiplies: `d_A_B` for `A * B` and
@@ -124,8 +134,11 @@ fitted constants.
 | `k_EP_to_ES` | Rate of the reverse conversion, `EP` to `ES`. | 1/s |
 | `k_E_S_to_ES` | Rate constant for binding of `S` to `E`. | 1/(s·M) |
 | `k_ES_to_E_S` | Rate of dissociation of `S` from the `E`–`S` complex. | 1/s |
-| `Keq` | Equilibrium constant of the overall reaction; always user-supplied. | unitless |
-| `E_total` | Active-site (protomer) concentration. For a monomer this equals the total enzyme concentration; for an allosteric enzyme with `N` catalytic subunits it is `N` × the oligomer concentration, so allosteric `kcat` is reported per active site. | M |
+| `Keq` | Equilibrium constant of the overall reaction; always user-supplied, an argument of its own and never fitted. | unitless |
+
+The rate itself is per active site (protomer): for an allosteric enzyme with `N` catalytic
+subunits, multiply by `N` × the oligomer concentration for an absolute rate, so an
+allosteric `kcat` is reported per active site.
 
 ## Inspecting parameters and metabolites
 
@@ -139,28 +152,27 @@ m = @enzyme_mechanism begin
     substrates: S
     products:   P
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
-        E(P) ⇌ E + P
+        E + S ⇌ ES
+        ES <--> EP
+        EP ⇌ E + P
     end
 end
 (parameters(m), metabolites(m))
 ```
 
-`parameters(m)` returns the symbols the fitter expects: the three independent
-constants plus `Keq` and `E_total`.
+`parameters(m)` returns the names the fitter estimates: the three independent constants.
+`Keq` is not among them; the rate equation takes it as an argument of its own.
 `metabolites(m)` returns the concentration symbols the rate equation reads
 at runtime.
 
 ## Every constant of the rate law
 
-`dependent_parameter_values(m, params)` (see [`dependent_parameter_values`](@ref)) returns
-the dependent constants for a set of independent values, each computed from its Haldane or
-Wegscheider relation:
+`dependent_parameter_values(m, params, Keq)` (see [`dependent_parameter_values`](@ref))
+returns the dependent constants for a set of independent values and the equilibrium
+constant, each computed from its Haldane or Wegscheider relation:
 
 ```@example textbook_ex
-dependent_parameter_values(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0,
-                               Keq = 4.0))
+dependent_parameter_values(m, (K_EP_to_E_P = 1.0, K_ES_to_E_S = 2.0, k_ES_to_EP = 3.0), 4.0)
 ```
 
 Here the Haldane relation fixes the reverse catalytic rate `k_EP_to_ES` from `Keq`, the

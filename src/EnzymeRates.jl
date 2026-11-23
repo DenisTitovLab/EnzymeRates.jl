@@ -1,20 +1,19 @@
 # ABOUTME: Top-level module; defines the exported names and include order.
-# ABOUTME: Exports the 20 names promised to users and wires together src/ source files.
+# ABOUTME: Exports the 15 names promised to users and wires together src/ source files.
 """Finds the best mechanism for a reaction from measured rates."""
 module EnzymeRates
 
 # Types
-export EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism
-export IndependentParameters, FittedParameters, AllParameters
+export EnzymeReaction, Mechanism
 export FittingProblem
 export IdentifyRateEquationProblem, IdentifyRateEquationResults
 
 # DSL
-export @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
+export @enzyme_reaction, @enzyme_mechanism
 
 # Core API
-export rate_equation, rate_equation_string, parameters, dependent_parameter_values,
-    metabolites
+export compile_rate_equation, rate_equation_string, parameters,
+    dependent_parameter_values, metabolites
 
 # Fitting & model selection
 export fit_rate_equation, identify_rate_equation
@@ -29,13 +28,12 @@ using Distributed
 include("Data/Data.jl")
 using .Data: Data
 include("Mechanisms/Mechanisms.jl")
-using .Mechanisms: Mechanisms, EnzymeReaction, EnzymeMechanism, AllostericEnzymeMechanism,
-    metabolites, Mechanism, AllostericMechanism, compile_mechanism
+using .Mechanisms: Mechanisms, EnzymeReaction, Mechanism, metabolites
 include("Derivation/Derivation.jl")
-using .Derivation: Derivation, rate_equation, rate_equation_string, parameters,
-    dependent_parameter_values, IndependentParameters, FittedParameters, AllParameters
+using .Derivation: Derivation, compile_rate_equation, rate_equation_string, parameters,
+    dependent_parameter_values
 include("DSL/DSL.jl")
-using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism, @allosteric_mechanism
+using .DSL: DSL, @enzyme_reaction, @enzyme_mechanism
 include("Fitting/Fitting.jl")
 using .Fitting: Fitting, FittingProblem, fit_rate_equation, test_rate_equation
 include("Enumeration/Enumeration.jl")

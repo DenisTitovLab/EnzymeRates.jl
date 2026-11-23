@@ -30,32 +30,51 @@ the part for a module before changing its internals.
 | Module | What it does | Public names (★ exported) | May call |
 |:--|:--|:--|:--|
 | EnzymeRates (top level) | Finds the best mechanism for a reaction from measured rates. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` | all |
-| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, ★ `@allosteric_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
+| DSL | Turns macro-written reactions and mechanisms into checked objects. | ★ `@enzyme_reaction`, ★ `@enzyme_mechanism`, `parse_mechanism` | Mechanisms, Derivation |
 | Plotting | Draws a rate equation over measured rates. | ★ `plot_rate_equation_on_data` | Mechanisms, Derivation, Data |
-| Enumeration | Generates candidate mechanisms for a reaction. | `expand_mechanisms`, `starting_mechanisms` | Mechanisms, Derivation |
+| Enumeration | Generates candidate mechanisms for a reaction. | `CandidateMechanism`, `candidate_mechanisms` | Mechanisms, Derivation |
 | Fitting | Fits a rate law to measured rates. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` | Mechanisms, Derivation, Data |
-| Derivation | Derives a mechanism's rate equation and compiles it. | ★ `rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, ★ `IndependentParameters`, ★ `FittedParameters`, ★ `AllParameters`, `AllostericParameter`, `RegulatorParameter`, `StepParameter`, `check_valid_rate_equation`, `fitted_parameter_count`, `name`, `parameter_info`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
+| Derivation | Derives a mechanism's rate equation and compiles it. | ★ `compile_rate_equation`, ★ `rate_equation_string`, ★ `parameters`, ★ `dependent_parameter_values`, `RateEquationTooLargeError`, `check_valid_rate_equation`, `fitted_parameter_count`, `parameter_units`, `rate_equation_dedup_key`, `rate_equation_term_count` | Mechanisms |
 | Data | Checks and holds a table of measured rates. | `RateData` | none |
-| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `EnzymeMechanism`, ★ `AllostericEnzymeMechanism`, `AbstractEnzymeMechanism`, `AllostericMechanism`, `EnzymeForm`, `Mechanism`, `Metabolite`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `catalytic`, `check_conformation_label`, `check_decodable_names`, `compile_mechanism`, `excludes`, `form_text`, `has_turnover_cycle`, `has_unbalanced_cycle`, `present_species`, `rapid_equilibrium_segments`, `segment_walk`, `step_text` | none |
+| Mechanisms | Stores reactions and mechanisms as plain data. | ★ `metabolites`, ★ `EnzymeReaction`, ★ `Mechanism`, `Allostery`, `CatalyticScheme`, `Reactant`, `Regulator`, `RegulatorySite`, `Step`, `has_nonzero_weight_cycle`, `has_turnover_cycle`, `rapid_equilibrium_segments`, `step_text`, `steps_running_in_allosteric_conformations` | none |
 <!-- end of module table -->
 
 - A module lives in `src/<Module>/`, declares its interface in the `public` statement of
   `src/<Module>/<Module>.jl`, and has its tests in `test/<Module>/`.
+- A source file `<file>.jl` has its tests in `test_<file>.jl` in the mirrored folder
+  (`src/<Module>/` → `test/<Module>/`, `src/` → `test/`, `ext/` → `test/ext/`): a testset
+  goes in the file of the function it is about. A check of a package-wide rule is
+  `test/test_<rule>.jl`.
+- Each source file holds one piece of functionality whole, so that a reader finds what
+  belongs together in one place. Add to a file before adding a file. Only a module's
+  header includes files.
+- Name a source file for what it gives the rest of the package: the exported or public
+  function, type or macro it defines (`fit_rate_equation.jl`, `mechanism_type.jl`,
+  `enzyme_mechanism_macro.jl`). When no such name says what the file does, name it for
+  the calculation it carries out (`rate_equation_derivation.jl`,
+  `rate_equation_correctness_guard.jl`). Never `utils.jl`, `helpers.jl` or `types.jl`.
+- Keep calls between the files of a module few and one-way: a file does not use a file
+  that uses it, directly or through other files. A helper lives in the file of its
+  callers; one that two files need lives in the file that owns the idea. The file table
+  on the Developer page counts the names each file takes from the others.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
 - Only the exports (★) are promised to users. Users and tests can also reach
-  `compile_mechanism`, `test_rate_equation`, `Mechanism`, `AllostericMechanism` and
-  `Enumeration.init_mechanisms(rxn)` as `EnzymeRates.<name>`, without a promise. Code in
-  `src/` still follows the bullet above.
-- The stored fields of a `Mechanism` are part of the `Mechanisms` interface, read with
-  dots (`m.steps[k].from`): `substrates`, `products`, `nodes`, `steps`, and the derived
-  `modifiers`, `groups`, `step_kinds`, `toward_products` and `step_sides`. An
-  `AllostericMechanism` holds its `Mechanism` in `m.catalytic`, beside its own fields.
-- Enumeration works on the concrete `Mechanism` and `AllostericMechanism` from end to
-  end; `compile_mechanism(m)` lifts one to its `EnzymeMechanism{Sig}` type when the
-  generated rate equation is needed.
-- Data tables mark measurements that share one E_total with a `group` column. Keq is
-  always given by the user and never estimated from data.
+  `EnzymeRates.test_rate_equation`, `EnzymeRates.Enumeration.candidate_mechanisms` and
+  `EnzymeRates.Derivation.RateEquationTooLargeError` (the error of a law over the term
+  cap), without a promise. Code in `src/` still follows the bullet above.
+- The fields of a `Mechanism` are part of the `Mechanisms` interface, read with dots
+  (`m.catalytic.steps[k].from`): its `catalytic` scheme holds `metabolites`,
+  `enzyme_forms`, `substrates` and `products` (indices into `metabolites`) and `steps`,
+  and its `allosteric` part holds `allosteric_states`, `oligomeric_state` and
+  `regulatory_sites`. A mechanism stores nothing derived from them. A form's name is
+  opaque: only `E`, the free enzyme, means something to the package.
+- Enumeration works on candidates (`CandidateMechanism`): a `Mechanism` and the
+  enumerator's private record of each form; a caller reads only `c.mechanism`.
+  `compile_rate_equation(m)` compiles a mechanism's rate equation when its value is needed.
+- A data table's `group` column marks the measurements made with one amount of enzyme;
+  a rate law gives the rate per unit enzyme. `Keq` is always given by the user, never
+  estimated from data, and is the last positional argument wherever a function takes it.
 
 ## Design rules
 
@@ -141,8 +160,8 @@ thing at a time, and leave the touched code simpler than the smallest patch woul
 - Dispatch on types rather than branching with `isa` or tags; walking an `Expr` is the
   exception. Add a trait only where a second implementation exists.
 - Write type-stable code and keep struct fields concretely typed. Use type parameters for
-  that, not to specialize per mechanism: `EnzymeMechanism{Sig}` and
-  `AllostericEnzymeMechanism{Sig}` exist because `rate_equation` is generated, and
+  that, not to specialize per mechanism: the compiled rate law that `compile_rate_equation`
+  returns carries its mechanism in its type (`Sig`) because its call is generated, and
   specializing further costs compile time.
 - On Julia 1.13 a closure over a `@nospecialize` argument is untyped; use `Base.Fix2`
   in its place.
@@ -162,7 +181,7 @@ vague one:
 - `has_turnover_cycle(m)`, not `check(m)`
 - `dependent_parameter_values(m, ...)`, not `compute_values(m, ...)`
 - `rate_equation_dedup_key(m)`, not `key(m)`
-- `_to_concrete_mechanism(m)`, not `_concrete(m)`
+- `_kept_forms_keep_a_binding(m)`, not `_check_forms(m)`
 
 Follow Julia conventions: `lowercase` functions, `CamelCase` types, `!` on a function that
 mutates its arguments, a leading `_` on an internal name. A name that is hard to choose
@@ -180,8 +199,8 @@ A docstring gives a caller what they need: arguments, result, units and errors. 
 not describe the implementation. A helper private to its file needs none when its name
 and arguments make its job obvious.
 
-Every code file starts with two comment lines, each beginning `ABOUTME: `, saying what the
-file does.
+Every code file starts with exactly two comment lines, each beginning `ABOUTME: `, saying
+what the file holds.
 
 ## Guards
 
@@ -191,25 +210,43 @@ an approved interface change.
 - **Module boundaries.** `test/test_boundaries.jl` parses `src/` and fails on a
   cross-module name that is not public, a module naming one its layer forbids, an
   underscore name that is public or used across modules, and an `export` in a submodule.
-  It also fails when the table above or the interface tables and diagram in
-  `docs/src/developer.md` disagree with `src/`. After changing a `public` statement, an
-  export, a module docstring or a cross-module call, update the developer page in the same
-  commit and run `julia test/update_module_map.jl`.
+  It also fails when the table above or the interface tables, diagram and file table in
+  `docs/src/developer.md` disagree with `src/`, when a test file is named for no source
+  file, and when a source file has no test file. It enforces the file rules above: it
+  fails on a source file named `utils.jl` or the like, or named for a function, type or
+  macro it does not define; on an `include` outside a header; on a loop of files in a
+  module, each taking names from the next (the uses `ROADMAP.md` lists aside); and on a
+  code file without its two `ABOUTME` lines. After changing a `public` statement, an
+  export, a module docstring, a cross-module call, a call between the files of a module
+  or a file's `ABOUTME` lines, update the developer page in the same commit and run
+  `julia test/update_module_map.jl`.
 - **Type stability.** `test/test_type_stability.jl` requires that JET find no run-time
   dispatch under any exported or public function, internal callees included. The suite
   runs it on Julia 1.13 only (`julia +1.13`). A new public function needs a row there,
   with a named exemption set for any dispatch it keeps.
-- **`rate_equation` speed.** `rate_equation` is allocation-free and takes under
+- **Rate-law speed.** The compiled rate law, `rate = compile_rate_equation(m)` called as
+  `rate(concs, params, Keq)`, is allocation-free and takes under
   `50 ns + 0.5 ns × denominator terms` per call on every gated law: each mechanism in
-  `MECHANISM_TEST_SPECS` and the larger laws that test file lists. `Fitting.loss!` is
-  allocation-free, and its time per data row is at most 1.25 × `rate_equation` per call
-  plus 8 `log` calls, met by any of 20 batches. `test/Derivation/test_rate_eq_derivation.jl`
-  enforces both. A fit evaluates the law millions of times, so stop and discuss with the
-  maintainer before a change that would make it allocate or slow down. CI timings vary by
-  runner: rerun a job that misses the bound rather than loosening it.
+  `MECHANISM_TEST_SPECS` and the larger laws that test file lists. Its time is the best of
+  five batches, each at its own stack depth with its own copy of the inputs.
+  `Fitting.loss!` is allocation-free, and its time per data row is at most 1.25 × the
+  compiled law's time per call plus 8 `log` calls, met by any of 20 batches, each run at
+  its own stack depth. `test/Derivation/test_rate_equation_derivation.jl` enforces both,
+  with the times read in one child process started without coverage counters or
+  `--check-bounds` (`_testhelper_speed_readings`, `test/testhelpers.jl`) and the
+  allocations counted in the test process. `test/Fitting/test_fit_rate_equation.jl`
+  requires that `loss!` keep its prediction loop vectorized with the law inlined: in its
+  optimized IR on three laws, and in its time per row, at most 0.7 of the law's time per
+  call on the 858-term law. A fit evaluates the law millions of times, so stop and discuss
+  with the maintainer before a change that would make it allocate or slow down. CI timings
+  vary by runner: rerun a job that misses the bound rather than loosening it.
 - **Compile time.** `test/test_compile_budget.jl` bounds the first-call compile time of
-  `rate_equation` and how many method instances each mechanism's fit compiles. Code
+  a compiled rate law and how many method instances each mechanism's fit compiles. Code
   specialized per mechanism trips it.
+- **Enumeration memory.** `test/Enumeration/test_starting_mechanisms.jl` bounds the bytes
+  each bi-bi starting candidate holds, 3.5% above today's, and the bytes the bi-bi starting
+  set, one expansion and the ter-ter `init_mechanisms` call allocate. A field derived from
+  the steps stored on a mechanism or candidate, or more work per candidate, trips it.
 
 Propose a new guard when the maintainer corrects something a deterministic check could
 have caught, when existing code breaks a rule in this file, or when you are about to add a
@@ -232,12 +269,13 @@ proxy such as length would enforce the wrong thing.
 
 ### Derivation tests
 
-Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
+Tests of a compiled rate law (`compile_rate_equation`) live in `test/Derivation/` and
+follow two rules:
 
-1. **Write the full mechanism down**, step by step with `@enzyme_mechanism` or
-   `@allosteric_mechanism`, in the testset or in a `MECHANISM_TEST_SPECS` entry. A fixture
-   from the enumerator or a helper cannot be checked against its rate equation by reading.
-   The exception is an aggregate check over a whole population, which says so in a comment.
+1. **Write the full mechanism down**, step by step with `@enzyme_mechanism`, in the
+   testset or in a `MECHANISM_TEST_SPECS` entry. A fixture from the enumerator or a
+   helper cannot be checked against its rate equation by reading. The exception is an
+   aggregate check over a whole population, which says so in a comment.
 2. **Compare with a separately derived rate equation** at random parameters and
    concentrations: one derived by hand or from a textbook (`analytical_rate_fn`), or from
    the mass-action steady state (`_testhelper_reference_qssa`). The package's own printed
@@ -246,24 +284,28 @@ Tests of `rate_equation` live in `test/Derivation/` and follow two rules:
 
 ### Enumeration-engine tests
 
-Tests of `init_mechanisms`, `seed_mechanisms`, `expand_mechanisms` and the expansion moves
-live in `test/Enumeration/test_mechanism_enumeration.jl` and follow three rules:
+Tests of `candidate_mechanisms`, `init_mechanisms`, `seed_mechanisms` and the expansion
+moves live in `test/Enumeration/` (`test_starting_mechanisms.jl`, `test_expansion_moves.jl`,
+`test_candidate_mechanism_type.jl`) and follow three rules:
 
-1. **Write the mechanism in the testset**, inline with `@enzyme_mechanism` or
-   `@allosteric_mechanism`, even when that repeats one used elsewhere. The exception is an
-   aggregate regression pin over a whole seed set, which says so in a comment.
+1. **Write the mechanism in the testset**, inline with `@enzyme_mechanism`, even when that
+   repeats one used elsewhere, and hand it to the enumerator as `_testhelper_candidate(m)`.
+   The exception is an aggregate regression pin over a whole seed set, which says so in a
+   comment.
 2. **Assert the exact children**: `length(children) == n` and
-   `Set(children) == Set(expected)`, with every expected child written out. Property
-   assertions are welcome in addition, never instead.
-3. **Write chemistry the enumerator's way.** Unmerged chemistry is an isomerization to the
-   product-bound form followed by releases (`E(A) <--> E(P; residual = A - P)`, then
-   `E(P; residual = A - P) ⇌ E(; residual = A - P) + P`). A merged complex is the
-   product-bound form: the last substrate binds into it in one step
-   (`E(A) + B <--> E(P, Q)`) and the products leave by plain releases. A Theorell–Chance
-   step takes up the substrate and gives off the product in one step
-   (`E(A) + B <--> E(Q) + P`). Never write a merged complex on the substrate side
-   (`E(A, B) <--> E(Q) + P`): the enumerator never emits it, so it is a different mechanism
-   from the one the move produces.
+   `Set(children) == Set(expected)`, the children read as mechanisms (`c.mechanism`,
+   `_testhelper_move`, `_testhelper_children`), with every expected child written out.
+   Property assertions are welcome in addition, never instead.
+3. **Write chemistry the enumerator's way.** Name each form as the enumerator does (`EAB`,
+   `ESSmod`, `EB_res_plusA_minusP`): `_testhelper_candidate` reads the form's contents from
+   its name. Unmerged chemistry is an isomerization to the product-bound form followed by
+   releases (`EA <--> EP_res_plusA_minusP`, then
+   `EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P`). A merged complex is the product-bound
+   form: the last substrate binds into it in one step (`EA + B <--> EPQ`) and the products
+   leave by plain releases. A Theorell–Chance step takes up the substrate and gives off the
+   product in one step (`EA + B <--> EQ + P`). Never write a merged complex on the
+   substrate side (`EAB <--> EQ + P`): the enumerator never emits it, so it is a different
+   mechanism from the one the move produces.
 
 ## Commands and workflow
 
@@ -274,17 +316,18 @@ timeout 1200 julia --project -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hi
 ```
 
 ```bash
-# Focused run of one test file (warm: skips the full suite's precompile and JIT; ~1.5 min for
-# the enumeration file). TestEnv activates the test environment in place. A module's tests
-# live in test/<Module>/; a file directly in test/ is named test/<file>.jl instead.
-julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/mechanism_definitions_for_test_enzyme_derivation.jl"); include("test/<Module>/<file>.jl")'
+# Focused run of one test file (warm: skips the full suite's precompile and JIT; the
+# longest file takes about 75 s). TestEnv activates the test environment in place. A
+# module's tests live in test/<Module>/; a file directly in test/ is named
+# test/<file>.jl instead.
+julia --project -e 'using TestEnv; TestEnv.activate(); using Test, EnzymeRates, LinearAlgebra, Random; include("test/testhelpers.jl"); include("test/<Module>/<file>.jl")'
 ```
 
 - Use the focused run while iterating and before each commit, and the full suite once
   before pushing.
-- The focused run skips Aqua and JET, and includes only the shared fixtures file and the
-  file you name. Keep helpers that several test files use in
-  `test/mechanism_definitions_for_test_enzyme_derivation.jl`.
+- The focused run skips Aqua and JET, and includes only the shared helpers file and the
+  file you name. Keep helpers and fixtures that several test files use in
+  `test/testhelpers.jl`.
 - Run one Julia process at a time: the machine has 7.7 GB and no swap, and the full suite
   needs about 4 GB free.
 - Run the full suite in the background under `timeout 1200`, wait for its exit notice and

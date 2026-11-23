@@ -18,37 +18,31 @@ an over-simple model whose better CV score is within noise.
 
 ## Running the search
 
-[The enumeration engine](@ref) generates every candidate the beam fits.
-`init_mechanisms` builds the starting mechanisms (or `seed_mechanisms` starts
-from fully-regulated ones when a reaction's regulators are required), and
-`expand_mechanisms` grows each survivor through single moves — splitting a shared
-rate constant, flipping a rapid-equilibrium group to steady state, adding a
-regulator, or making the enzyme allosteric. Every move yields slightly more
-complex children, so the beam meets candidates in order of increasing complexity.
+[The enumeration engine](@ref) generates every candidate the beam fits, through
+`EnzymeRates.Enumeration.candidate_mechanisms`. Called with the reaction, it returns the
+starting mechanisms (fully regulated ones when a reaction's regulators are required);
+called with the reaction and a survivor, it returns the survivor's children by single
+moves — splitting a shared rate constant, flipping a rapid-equilibrium group to steady
+state, adding a regulator, or making the enzyme allosteric. Every move yields slightly
+more complex children, so the beam meets candidates in order of increasing complexity.
 
-The beam first fits every starting mechanism, each at its own parameter count.
-A degenerate starting mechanism is expanded instead of fitted: its rate at zero
-products ignores some substrate or never saturates, or the same holds for
-products, so it is not worth a fit, but it is the only parent of mechanisms that
-are not degenerate. Every seed with two chemistry isomerizations, such as a
-ping-pong seed, is one: a seed holds one steady-state step, so its other
-isomerization sits at rapid equilibrium with the steps on both its sides. The
-beam replaces such a mechanism at once by its children that are not degenerate
-and fits them beside the other starting mechanisms
-(`Enumeration.starting_mechanisms`). Only a flip of a rapid-equilibrium group to steady
-state can cure it, by turning that isomerization steady state or every step on one of its
-sides; the other moves keep which steps are at rapid equilibrium, so their children
-stay degenerate and are not fitted. The children's rows, like the starting mechanisms'
-rows, name no parent, and the degenerate mechanism gets a row of its own only when its
-expansion fails. A degenerate mechanism that a move builds is fitted like any other.
+The beam first fits every starting mechanism, each at its own parameter count. A seed is
+degenerate when its rate at zero products ignores a substrate or never saturates, or its
+rate at zero substrates ignores a product or never saturates. Such a seed gets no fit and
+no row: the enumeration replaces it by its flip children that are not degenerate (see
+[The enumeration engine](@ref)). Their rows, like every starting mechanism's, name no
+parent. An error while expanding such a seed stops the search at its start. A degenerate
+mechanism that a move builds is fitted like any other.
 
 The beam ranks laws, not mechanisms. Mechanisms whose laws agree up to renaming the fitted
 constants share a key, count once at the key's lowest loss, and share one fit, which each
-reads under its own names. An L phantom's key is the exception: a member met before the fit
-of its law at `L = 0` is fitted itself, and one met after reads that fit, so the key can
-carry two losses. A sweep expands every member it meets of a selected key; a member the beam
-passed over in an earlier sweep has left the frontier. A key the beam passes over is judged
-again when a later sweep meets another member, and at the same loss it stays out.
+reads under its own names. An L phantom (`L_phantom` in the output) is the exception: it
+reads the fit of its law at `L = 0` when that law was fitted earlier in the search or in
+its own iteration, and is fitted itself otherwise. The rows of its key can then show two
+losses, and the beam can pass the key over at one and take it at the other. A sweep
+expands every member it meets of a selected key; a member the beam passed over in an
+earlier sweep has left the frontier. A key the beam passes over is judged again when a
+later sweep meets another member, and at the same loss it stays out.
 
 The search walks parameter counts in ascending order. At each count it fits
 every candidate, keeps a *beam* of the most promising, and expands only those
@@ -134,7 +128,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 
 `IdentifyRateEquationResults` exposes exactly two fields:
 
-- `best::AbstractEnzymeMechanism` — the selected mechanism.
+- `best::Mechanism` — the selected mechanism.
 - `cv_results::DataFrame` — LOOCV results for every candidate that entered
   cross-validation.
 
@@ -145,7 +139,7 @@ The default `se_threshold=1.0` is the textbook rule; it is a tunable kwarg of
 | `n_params` | Actual fitted-parameter count. |
 | `parent_n_params` | Fitted-parameter count of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `loss` | Training loss (ranks which equations enter LOOCV). |
-| `mechanism` | The mechanism as the `@enzyme_mechanism` or `@allosteric_mechanism` block that builds it, the text `show` prints. `EnzymeRates.DSL.parse_mechanism(text)` reads it back without evaluating it. |
+| `mechanism` | The mechanism as the `@enzyme_mechanism` block that builds it, the text `show` prints. `EnzymeRates.DSL.parse_mechanism(text)` reads it back without evaluating it. |
 | `mechanism_id` | The first 16 hex digits of the SHA-256 of `mechanism`, the same in every process and Julia version. Read the ids as text, `CSV.read(file, DataFrame; types = Dict(:mechanism_id => String, :parent_id => String, :fit_source_id => String))`: CSV.jl reads an id that looks like a number (decimal digits, or digits around one `e` or `f`) as a number. |
 | `parent_id` | `mechanism_id` of the parent the mechanism was expanded from; `missing` for a starting mechanism. |
 | `rate_equation` | The printed law in named coefficients without their definitions (`rate_equation_string(m; coefficients = true, coefficient_values = false)`). This text names the coefficients without defining them and does not run. `best_equation.csv` holds the full form. To print the full form from a row, call `rate_equation_string(EnzymeRates.DSL.parse_mechanism(row.mechanism); coefficients = true)`. |
@@ -165,7 +159,29 @@ Only the top `n_cv_candidates` distinct equations per parameter count enter
 LOOCV (default `n_cv_candidates=5`, at least 1, a kwarg of
 `identify_rate_equation`). Distinctness is by `key`: LOOCV fits each
 key's source once per fold, and every candidate with that key, an L phantom of it
-included, reads those fold losses. A fit whose training loss
-is not finite never enters LOOCV, nor is it expanded.
+included, reads those fold losses. An L phantom thus has the scores of the mechanism whose
+fit it reads (`fit_source_id`) and one parameter more, so the rule prefers that mechanism
+when both enter LOOCV. A selected L phantom reports `L = 0`. A fit whose training loss is
+not finite never enters LOOCV, nor is it expanded.
+
+## The files in `save_dir`
+
+The search writes its progress and results to `save_dir`, by default a new
+`yyyy_mm_dd_results` directory in the working directory. It refuses a directory that
+already holds a `.csv` file or a `progress.log`, so the results of two runs never mix.
+
+- `progress.log`: the progress lines, when `show_progress = true`.
+- `initial_mechanisms.csv`: a row per starting mechanism.
+- `equation_search_iteration_N.csv`: a row per mechanism that the `N`th iteration fitted
+  or failed on. `N` counts only the iterations that wrote rows, so the files have no gaps;
+  it is not a parameter count.
+- `loocv_results.csv`: the `cv_results` table.
+- `best_equation.csv`: the selected row of `cv_results`, its `rate_equation` in the full
+  coefficient form.
+
+The search CSVs have the columns of `cv_results` except `cv_score`, `cv_score_se` and
+`cv_fold_<group>`. A mechanism that threw has a row with `error` set.
+`loocv_results.csv` and `best_equation.csv` keep the selection, so a cluster run's result
+needs no second cross-validation.
 
 ---

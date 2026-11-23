@@ -29,10 +29,10 @@ competitive = @enzyme_mechanism begin
     products:   P
     modifiers: I
     steps: begin
-        E + S ⇌ E(S)
-        E(S) <--> E(P)
-        E(P) ⇌ E + P
-        E + I ⇌ E(I)
+        E + S ⇌ ES
+        ES <--> EP
+        EP ⇌ E + P
+        E + I ⇌ EI
     end
 end
 print(rate_equation_string(competitive))
@@ -53,10 +53,10 @@ essential = @enzyme_mechanism begin
     products:   P
     modifiers: R
     steps: begin
-        E + R ⇌ E(R)
-        E(R) + S ⇌ E(S, R)
-        E(S, R) <--> E(P, R)
-        E(R) + P ⇌ E(P, R)
+        E + R ⇌ ER
+        ER + S ⇌ ERS
+        ERS <--> EPR
+        ER + P ⇌ EPR
     end
 end
 print(rate_equation_string(essential))

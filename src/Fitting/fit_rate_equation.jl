@@ -2,26 +2,18 @@
 # ABOUTME: scale: FittingProblem, the loss, multi-start fits and test_rate_equation.
 
 """
-    FittingProblem{M, D}
+    FittingProblem{R, D}
 
-Holds pre-processed experimental data and mechanism info for fitting
-rate constants.
-
-# Fields
-- `mechanism`: an `AbstractEnzymeMechanism` instance
-- `rate_data`: the validated table, `Keq` (fixed equilibrium constant), `absolute` and
-  `reference`, as a `RateData`. `absolute = false` selects relative mode (per-group-centered
-  loss, fit scaled to the reference turnovers or, without any, so the largest predicted
-  rate over the data rows at `E_total = 1` is 1); `true` selects absolute per-enzyme
-  turnover mode (uncentered loss, no scale).
-  `reference` holds the anchors `concentrations => turnover` that set a relative fit's
-  scale; empty in absolute mode and when a relative table gives none
-- `group_point_indexes`: row indices grouped by unique `group` values
-- `log_abs_rates`: pre-computed `log.(abs.(Rate))`
-- `log_ratios_buffer`: pre-allocated working buffer for loss computation
+A mechanism, its compiled rate law and a checked rate table, ready for
+`fit_rate_equation`. Build it with `FittingProblem(mechanism, table, Keq; absolute,
+reference)`, whose docstring describes the table and the keywords. Callers read
+`fp.mechanism`, `fp.rate` (the compiled law, `compile_rate_equation`) and `fp.rate_data`
+(the table with `Keq`, `absolute` and `reference`, a `RateData`); the other fields are the
+loss's working storage.
 """
-struct FittingProblem{M<:Mechanisms.AbstractEnzymeMechanism, D<:NamedTuple}
-    mechanism::M
+struct FittingProblem{R, D<:NamedTuple}
+    mechanism::Mechanisms.Mechanism
+    rate::R
     rate_data::Data.RateData{D}
     group_point_indexes::Vector{Vector{Int}}
     log_abs_rates::Vector{Float64}
@@ -29,115 +21,109 @@ struct FittingProblem{M<:Mechanisms.AbstractEnzymeMechanism, D<:NamedTuple}
 end
 
 """
-    FittingProblem(mechanism::AbstractEnzymeMechanism, table;
-        Keq::Real, absolute::Bool = false, reference = nothing)
+    FittingProblem(mechanism, table, Keq::Real; absolute::Bool = false, reference = nothing)
 
-Construct a `FittingProblem` from an enzyme mechanism and tabular data.
+Construct a `FittingProblem` from an enzyme mechanism, tabular data and the reaction's
+equilibrium constant `Keq`, which the fit holds fixed. It compiles the mechanism's rate law
+once, for every fit of the problem.
 
-The table must have at least one row and columns: `group`, `Rate`, and one column per
-metabolite matching `metabolites(mechanism)`, so no metabolite may be
-named `group` or `Rate`. Uses `Tables.columntable` for conversion.
+The table, any Tables.jl table, must have at least one row and the columns `group`,
+`Rate`, and one per metabolite of `metabolites(mechanism)`, so no metabolite may be named
+`group` or `Rate`.
 
-With `absolute = false` (the default) the data are relative: the loss centers each
-group's log-ratios, which removes each group's scale, so the data fix the rate constants
-only up to one common factor. `reference`, optional in this mode, sets that factor: a
-vector of anchors `concentrations => turnover`, each a `NamedTuple` of concentrations in
-the data's units, where a metabolite left out is zero, and a turnover per unit `E_total`
-measured there (a kcat, or a specific activity in turnover units).
-`fit_rate_equation` scales the fitted rate constants so the mechanism reproduces the
-reference turnovers. Without a `reference` it scales them so the largest absolute rate
-predicted over the data rows, at `E_total = 1`, is 1: the rate constants are then in
-units of the fastest measured condition, not kcats. With `absolute = true` the data
-are absolute per-enzyme turnover: the loss is uncentered, the fit is returned unscaled,
-and passing `reference` is an error.
+With `absolute = false`, the default, the rates are relative: the fit ignores a factor on
+each group's rates, and `reference`, optional, sets the scale of the returned rate
+constants. It is a vector of anchors `concentrations => turnover`: a `NamedTuple` of
+concentrations in the data's units, in which a metabolite left out is zero, and the
+turnover per unit enzyme measured there. With `absolute = true` the rates are per-enzyme
+turnover. [Normalized vs absolute rate](@ref) explains the two modes.
 
-Rate values must be finite and nonzero (the loss takes their log; a zero rate gives
-`-Inf`), every concentration must be a finite number ≥ 0 (zero is valid), and `Keq`
-must be positive and finite. A reference anchor must name metabolites of the mechanism
-at finite concentrations ≥ 0, with a finite, nonzero turnover.
+Errors unless
+- every rate is finite and nonzero (the loss takes its log);
+- every concentration is a finite number ≥ 0 (zero is valid);
+- `Keq` is positive and finite;
+- each reference anchor names metabolites of the mechanism at finite concentrations ≥ 0,
+  with a finite, nonzero turnover;
+- `reference` is `nothing` in absolute mode.
 
 ```julia
-fp = FittingProblem(m, data; Keq = 2.0, reference = [(A = 10.0, B = 5.0) => 42.0])
+fp = FittingProblem(m, data, 2.0; reference = [(A = 10.0, B = 5.0) => 42.0])
 ```
 
-We strongly recommend concentrations in M, because `Keq` values usually assume a 1 M
-standard state. Other units work as long as all metabolites, `Keq` and any `reference`
-concentrations use the same one. K and k then carry that unit: a K in mM, a second-order
-k per mM per time. See "Units and the search box" in the Getting Started page for how the
-fit searches around the concentrations in your data.
+Give the concentrations, `Keq` and any `reference` concentrations in one unit, M
+recommended; see [Units and the search box](@ref) in Getting Started.
 """
-function FittingProblem(@nospecialize(mechanism::Mechanisms.AbstractEnzymeMechanism),
-        table; Keq::Real, absolute::Bool=false, reference=nothing)
-    mets = Mechanisms.metabolites(mechanism)
-    rate_data = Data.RateData(table, mets; Keq, absolute, reference, owner = "mechanism")
+function FittingProblem(mechanism::Mechanisms.Mechanism, table, Keq::Real;
+                        absolute::Bool=false, reference=nothing)
+    rate = Derivation.compile_rate_equation(mechanism)
+    rate_data = Data.RateData(table, Mechanisms.metabolites(mechanism), Keq; absolute,
+                              reference, owner = "mechanism")
     data = rate_data.data
     group_map = Dict{eltype(data.group), Vector{Int}}()
     for (i, g) in enumerate(data.group)
         push!(get!(() -> Int[], group_map, g), i)
     end
-    FittingProblem{typeof(mechanism), typeof(data)}(
-        mechanism, rate_data, collect(values(group_map)),
+    FittingProblem{typeof(rate), typeof(data)}(
+        mechanism, rate, rate_data, collect(values(group_map)),
         log.(abs.(data.Rate)), Vector{Float64}(undef, length(data.Rate)))
 end
 
 """
-Accept the concrete working-representation mechanism: compile to the
-singleton once at construction so `loss!`'s hot path operates on the
-@generated `EnzymeMechanism` / `AllostericEnzymeMechanism` (0-alloc).
-"""
-FittingProblem(mechanism::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism},
-               table; kwargs...) =
-    FittingProblem(Mechanisms.compile_mechanism(mechanism), table; kwargs...)
-
-"""
     loss!(x::AbstractVector, fp::FittingProblem)
 
-Compute the log-ratio loss. Zero-allocation on the hot path.
+The loss of `fp` at the constants `exp.(x)`, in the order of `parameters(fp.rate)`,
+computed without allocating: the mean over the data rows of the squared log-ratio of
+predicted to measured rate. In relative mode each group's log-ratios are centered before
+squaring; in absolute mode they are squared as they are.
 
-Parameters in `x` are in log-space (i.e., actual rate constants =
-`exp.(x)`). In relative mode (`fp.rate_data.absolute == false`) each group's
-log-ratios are centered (mean-subtracted) before squaring, making the
-loss invariant to per-group E_total scaling (relative data). In absolute
-mode (`fp.rate_data.absolute`) the log-ratios are squared without centering, so the
-absolute magnitude is scored (absolute per-enzyme turnover data).
-
-Sign mismatches (predicted vs measured rate sign) incur a flat penalty
-of 100.0 per point, counted in the per-point loop and added after. In the
-centered mode this prevents all-mismatch groups from contributing zero
-loss (a uniform sentinel would cancel under mean-subtraction).
+A row whose prediction is zero, NaN or of the other sign than its rate takes the log-ratio
+10 and adds a flat penalty of 100. Without the penalty, a group of such rows would score
+zero in relative mode, where centering cancels the uniform 10. In absolute mode the 10
+already scores 100, so the penalty doubles it and steers the fit harder away from a wrong
+sign.
 """
 function loss!(x::AbstractVector, fp::FittingProblem)
     buf = fp.log_ratios_buffer
-    ParamNames = Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
-    MetNames = Mechanisms.metabolites(fp.mechanism)
+    rate = fp.rate
+    ParamNames = Derivation.parameters(rate)
+    MetNames = Mechanisms.metabolites(rate)
     N = length(ParamNames)
     K = length(MetNames)
     n_data = length(fp.log_abs_rates)
 
-    # Build params NamedTuple from log-space x
-    fitted = NamedTuple{ParamNames}(ntuple(i -> exp(x[i]), Val(N)))
-    params = merge(fitted, (Keq = fp.rate_data.Keq, E_total = 1.0))
+    params = NamedTuple{ParamNames}(ntuple(i -> exp(x[i]), Val(N)))
+    Keq = fp.rate_data.Keq
+    data = fp.rate_data.data
 
-    # Pass 1: fill log_ratios_buffer and count sign mismatches. A zero or NaN
-    # prediction counts as one: its sign never equals a nonzero rate's ±1.
+    # Pass 1a: each row's prediction into log_ratios_buffer. The loop holds no branch and,
+    # with the law inlined, no call, so it runs over several rows at once in vector
+    # registers, and no row's concentrations go through the stack to a called law. The
+    # inner `@inbounds` is needed: the outer one does not reach into the closure, and a
+    # bounds check on each column read keeps the loop from vectorizing.
+    cols = ntuple(j -> getproperty(data, MetNames[j]), Val(K))
+    @inbounds @simd for i in 1:n_data
+        concs = NamedTuple{MetNames}(ntuple(j -> @inbounds(cols[j][i]), Val(K)))
+        buf[i] = @inline rate(concs, params, Keq)
+    end
+
+    # Pass 1b: each prediction becomes its log-ratio, or 10 when its sign is wrong, and the
+    # wrong signs are counted. A zero or NaN prediction is wrong: its sign never equals a
+    # nonzero rate's ±1. The `log`, a call, would keep pass 1a from vectorizing. The branch
+    # skips it on a penalized row and costs less than taking it on every row.
+    rates = data.Rate
+    log_abs_rates = fp.log_abs_rates
     n_mismatch = 0
     @inbounds for i in 1:n_data
-        concs = NamedTuple{MetNames}(ntuple(
-            j -> getproperty(fp.rate_data.data, MetNames[j])[i], Val(K),
-        ))
-        pred = Derivation.rate_equation(fp.mechanism, concs, params)
-        meas_sign = sign(fp.rate_data.data.Rate[i])
-        if sign(pred) != meas_sign
+        pred = buf[i]
+        if sign(pred) != sign(rates[i])
             buf[i] = 10.0
             n_mismatch += 1
         else
-            buf[i] = log(abs(pred)) - fp.log_abs_rates[i]
+            buf[i] = log(abs(pred)) - log_abs_rates[i]
         end
     end
 
-    # Pass 2: loss. Relative (fp.rate_data.absolute false) → per-group mean-centered,
-    # removing each group's arbitrary scale. Absolute → uncentered: the y-axis is absolute
-    # per-enzyme turnover, so the absolute magnitude is meaningful.
+    # Pass 2: the sum of squares.
     total_loss = 0.0
     if fp.rate_data.absolute
         @inbounds for i in 1:n_data
@@ -158,11 +144,6 @@ function loss!(x::AbstractVector, fp::FittingProblem)
         end
     end
 
-    # Flat penalty for sign mismatches. In centered mode an all-mismatch group
-    # would otherwise contribute zero loss (the uniform 10.0 sentinel cancels
-    # under mean-subtraction); the post-hoc penalty keeps it positive. In
-    # uncentered mode the sentinel already contributes 100.0 per point, so this
-    # adds a second 100.0 (stronger steering away from sign flips, intentional).
     return (total_loss + 100.0 * n_mismatch) / n_data
 end
 
@@ -178,7 +159,6 @@ struct FitObjective
     x_buf::Vector{Float64}
 end
 
-"""The optimizer's objective: `obj.loss` at a copy of `x` (see `FitObjective`)."""
 _fit_loss(x, obj::FitObjective) = obj.loss(copyto!(obj.x_buf, x))
 
 """
@@ -224,19 +204,16 @@ present in both a named common option and `solver_kwargs` takes the
 `OptimizationProblem`. They hold absolute log values, and by default lie 15 log units
 either side of each centre, so the box follows the data.
 
-In relative mode (`fp.rate_data.absolute == false`) the returned steady-state rate
-constants are multiplied by one factor so the mechanism reproduces the reference turnovers
-`fp.rate_data.reference` (see `FittingProblem`): the geometric mean of measured over
-predicted turnover. Without a reference the factor is 1 over the largest absolute rate
-the fit predicts at the data's concentrations, at `E_total = 1`. A fit whose predicted
-turnover at a reference anchor is zero, non-finite or of the other sign, or whose largest
-predicted rate is zero or non-finite, has no such factor: it returns its parameters
-unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not throw.
-In absolute mode, or when no restart reaches a finite loss (`loss = Inf`,
-`retcode = :NoFiniteLoss`), the rate constants are returned as fitted.
+In relative mode the fit multiplies the returned rate constants by one factor
+([Normalized vs absolute rate](@ref)). With `reference` anchors the factor is the geometric
+mean of measured over predicted turnover at them; without, it is 1 over the largest
+absolute rate predicted over the data rows. A fit for which no such factor exists returns
+its parameters unscaled, with `loss = Inf` and `retcode = :ReferenceFailed`, and does not
+throw. In absolute mode, and when no restart reaches a finite loss (`loss = Inf`,
+`retcode = :NoFiniteLoss`), it returns the rate constants as fitted.
 
 Returns a NamedTuple `(params, loss, retcode, at_bound)` where:
-- `params`: the fitted rate constants, then the problem's `Keq`, as a NamedTuple
+- `params`: the fitted constants, by the names of `parameters(fp.rate)`, as a NamedTuple
 - `loss`: the best loss value achieved
 - `retcode`: the `Symbol` form of the best restart's `sol.retcode`. Only
   `:Success` indicates the optimizer converged on its own criteria; any other
@@ -259,16 +236,12 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
     ub=_log_centres(fp) .+ 15.0,
     solver_kwargs=(;),
 )
-    # `fp` is @nospecialize, so `parameters(fp.mechanism, FittedParameters())` infers as
-    # `Any`; asserting a tuple of Symbols lets `np` infer as an `Int` and the NamedTuple
-    # built from the names as a `NamedTuple`.
-    pnames = Derivation.parameters(fp.mechanism,
-                                   Derivation.FittedParameters())::Tuple{Vararg{Symbol}}
+    # `fp` is @nospecialize, so `parameters(fp.rate)` infers as `Any`; asserting a tuple of
+    # Symbols lets `np` infer as an `Int` and the NamedTuple built from the names as a
+    # `NamedTuple`.
+    pnames = Derivation.parameters(fp.rate)::Tuple{Vararg{Symbol}}
     np = length(pnames)
 
-    # Common solver options: maxtime/maxiters always forwarded; the optional
-    # ones only when set, so each solver keeps its own default otherwise.
-    # solver_kwargs is forwarded verbatim and wins on key conflicts.
     common = (; maxtime, maxiters)
     abstol   === nothing || (common = (; common..., abstol))
     reltol   === nothing || (common = (; common..., reltol))
@@ -277,11 +250,10 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
 
     best_x = zeros(np)
     best_loss = Inf
-    # Sentinel for "no restart produced a finite objective" (loss stays Inf, so
-    # `_ingest!` drops it from the beam search). Deliberately NOT a
-    # real SciMLBase ReturnCode name — `Symbol(ReturnCode.Default) === :Default`,
-    # so `:NoFiniteLoss` stays distinct from a genuine `:Default` solver return
-    # (which only fires when a restart achieves a finite objective).
+    # `:NoFiniteLoss` marks a fit with no finite objective in any restart (a NaN counts as
+    # not finite); its loss stays `Inf`, so `_ingest!` drops it from the beam search. It is
+    # no SciMLBase ReturnCode name, so it stays apart from a solver's `:Default`, which a
+    # restart with a finite objective can return.
     best_retcode = :NoFiniteLoss
 
     centre = _log_centres(fp)
@@ -296,8 +268,7 @@ function fit_rate_equation(@nospecialize(fp::FittingProblem), optimizer;
         end
     end
 
-    result_params = merge(NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np))),
-                          (Keq = fp.rate_data.Keq,))
+    result_params = NamedTuple{pnames}(ntuple(i -> exp(best_x[i]), Val(np)))
     at_bound = isfinite(best_loss) ?
         Tuple(pnames[i] for i in 1:np
               if min(best_x[i] - lb[i], ub[i] - best_x[i]) <= AT_BOUND_TOLERANCE) : ()
@@ -336,97 +307,67 @@ _geometric_mean(v) = exp(mean(log, v))
 _rate_scale(@nospecialize(fp::FittingProblem)) = exp(mean(fp.log_abs_rates))
 
 """
-    _log_centre(p, m, s, r) -> Float64
-
-The log value of parameter `p` of the concrete mechanism `m` at which it matches the
-concentration scales `s` (`_concentration_scales`) and the rate scale `r` (`_rate_scale`).
-A rate constant turns the scales of what it takes up into `r`. A binding's K, a dissociation
-constant, is the scale of what binds, and any other rapid-equilibrium K is the scales given
-off over those taken up. A regulator's K is the scale of its ligand, and `L` centres on 1.
-"""
-function _log_centre(p::Derivation.StepParameter, m, s::Dict{Symbol, Float64}, r::Real)
-    cm = Mechanisms.catalytic(m)
-    e = cm.steps[p.step]
-    e.rapid_equilibrium ||
-        return log(r) - _sum_log(s, p.slot == 1 ? e.taken_up : e.given_off)
-    cm.step_kinds[p.step] in (:binding, :fused_binding) ? _sum_log(s, e.taken_up) :
-        _sum_log(s, e.given_off) - _sum_log(s, e.taken_up)
-end
-_log_centre(p::Derivation.RegulatorParameter, m, s::Dict{Symbol, Float64}, r::Real) =
-    log(s[p.ligand])
-_log_centre(::Derivation.AllostericParameter, m, s::Dict{Symbol, Float64}, r::Real) = 0.0
-
-_sum_log(s, mets) = sum(log(s[x.name]) for x in mets; init = 0.0)
-
-"""
     _log_centres(fp) -> Vector{Float64}
 
-The centre of `fit_rate_equation`'s search: `_log_centre` of each parameter of
-`Derivation.parameter_info`, in the order of `parameters(fp.mechanism, FittedParameters())`.
+The centre of `fit_rate_equation`'s search, in the order of `parameters(fp.mechanism)`:
+the log of each constant's value at the table's scales, the rate scale (`_rate_scale`)
+and each metabolite's concentration scale (`_concentration_scales`) raised to the
+constant's powers of them (`Derivation.parameter_units`).
 """
 function _log_centres(@nospecialize(fp::FittingProblem))
-    m = _concrete(fp.mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
+    m = fp.mechanism
+    units = Derivation.parameter_units(m)
     s = _concentration_scales(fp)
-    r = _rate_scale(fp)
-    Float64[_log_centre(p, m, s, r) for p in Derivation.parameter_info(m)]
+    log_s = Float64[log(s[x]) for x in Mechanisms.metabolites(m)]
+    log(_rate_scale(fp)) .* units.rate .+ units.concentrations * log_s
 end
 
 """
-    _scale_rate_constants(mechanism, params, factor) -> NamedTuple
+    _scale_rate_constants(m, params, factor) -> NamedTuple
 
-`params` with every fitted rate constant on a steady-state step of `mechanism` (a concrete
-or a compiled one) multiplied by `factor`, every other entry unchanged. A common factor on
-those constants multiplies every rate by the same factor and leaves the binding constants,
-`Keq`, `E_total`, `L` and the regulatory constants alone.
+`params` with every fitted rate constant of mechanism `m`, each constant whose units hold
+the rate (`Derivation.parameter_units`), multiplied by `factor`, every other entry
+unchanged. A common factor on those constants multiplies every rate by the same factor and
+leaves the binding constants, `L` and the regulatory constants alone.
 """
-function _scale_rate_constants(@nospecialize(mechanism), params::NamedTuple, factor::Real)
-    m = _concrete(mechanism)::Union{Mechanisms.Mechanism, Mechanisms.AllostericMechanism}
-    steady_state = _steady_state_constant_names(m)
-    NamedTuple{keys(params)}(map((k, v) -> k in steady_state ? v * factor : v,
+function _scale_rate_constants(m::Mechanisms.Mechanism, params::NamedTuple, factor::Real)
+    names = Derivation.parameters(m)
+    rate = Derivation.parameter_units(m).rate
+    rate_constants = Set{Symbol}()
+    for i in eachindex(rate)
+        rate[i] == 1 && push!(rate_constants, names[i])
+    end
+    NamedTuple{keys(params)}(map((k, v) -> k in rate_constants ? v * factor : v,
                                  keys(params), values(params)))
 end
-
-_steady_state_constant_names(m) =
-    Set(Derivation.name(p, m) for p in Derivation.parameter_info(m)
-        if _on_steady_state_step(p, m))
-
-_on_steady_state_step(p::Derivation.StepParameter, m) =
-    !Mechanisms.catalytic(m).steps[p.step].rapid_equilibrium
-_on_steady_state_step(p, m) = false
-
-_concrete(m::Mechanisms.EnzymeMechanism) = Mechanisms.Mechanism(m)
-_concrete(m::Mechanisms.AllostericEnzymeMechanism) = Mechanisms.AllostericMechanism(m)
-_concrete(m) = m
 
 """
     _reference_scale(fp, params)
 
-The factor on the rate constants `params` (which hold `Keq`) of `fp.mechanism` that sets
-a relative fit's scale, or `nothing` if no factor does. With reference anchors it is the
-geometric mean of measured over predicted turnover per unit `E_total`, where a metabolite
-an anchor leaves out is zero, and no factor reproduces an anchor whose predicted turnover
-is zero, non-finite or of the other sign than the measured one. Without anchors it is
-1 over the largest absolute rate predicted at the data's concentrations, which must be
-positive and finite.
+The factor on the rate constants `params` of `fp.mechanism` that sets a relative fit's
+scale, or `nothing` if no factor does. With reference anchors it is the geometric mean of
+measured over predicted turnover per unit enzyme, where a metabolite an anchor leaves out
+is zero, and no factor reproduces an anchor whose predicted turnover is zero, non-finite
+or of the other sign than the measured one. Without anchors it is 1 over the largest
+absolute rate predicted at the data's concentrations, which must be positive and finite.
 """
 function _reference_scale(@nospecialize(fp::FittingProblem),
                           @nospecialize(params::NamedTuple))
-    mets = Mechanisms.metabolites(fp.mechanism)
-    turnover_params = merge(params, (E_total = 1.0,))
+    rate = fp.rate
+    mets = Mechanisms.metabolites(rate)
+    Keq = fp.rate_data.Keq
     reference = fp.rate_data.reference
     if isempty(reference)
-        peak = maximum(
-            abs(Derivation.rate_equation(fp.mechanism,
-                NamedTuple{mets}(Tuple(Float64(fp.rate_data.data[k][i]) for k in mets)),
-                turnover_params))
-            for i in eachindex(fp.rate_data.data.Rate))
+        data = fp.rate_data.data
+        peak = maximum(abs(rate(NamedTuple{mets}(Tuple(Float64(data[k][i]) for k in mets)),
+                                params, Keq))
+                       for i in eachindex(data.Rate))
         return isfinite(peak) && peak > 0 ? 1 / peak : nothing
     end
     log_ratios = Float64[]
     for (concs, measured) in reference
-        predicted = Derivation.rate_equation(fp.mechanism,
-            NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
-            turnover_params)
+        predicted = rate(NamedTuple{mets}(Tuple(Float64(get(concs, k, 0.0)) for k in mets)),
+                         params, Keq)
         isfinite(predicted) && predicted != 0 && sign(predicted) == sign(measured) ||
             return nothing
         push!(log_ratios, log(measured / predicted))
@@ -435,25 +376,24 @@ function _reference_scale(@nospecialize(fp::FittingProblem),
 end
 
 """
-    test_rate_equation(m, params::NamedTuple, table; absolute = false) -> Float64
+    test_rate_equation(m, params::NamedTuple, table, Keq::Real; absolute = false) -> Float64
 
-The fitting loss of mechanism `m` at the constants `params` on `table`: the loss
-`fit_rate_equation` minimizes, for scoring a fit on data it did not see. `params` must
-hold every name of `parameters(m, FittedParameters())` and `Keq`, as a fit's `params`
+The fitting loss of mechanism `m` at the constants `params` on `table`, with the
+equilibrium constant `Keq`: the loss `fit_rate_equation` minimizes, for scoring a fit on
+data it did not see. `params` must hold every name of `parameters(m)`, as a fit's `params`
 does; other names are ignored. `table` has the columns `FittingProblem` needs. With
 `absolute = false` (the default) the loss centers each group's log-ratios, so it does not
 depend on the scale of `params`; with `absolute = true` it scores the absolute turnover.
 
 ```julia
-fit = fit_rate_equation(FittingProblem(m, train; Keq = 2.0), optimizer)
-EnzymeRates.test_rate_equation(m, fit.params, test)
+fit = fit_rate_equation(FittingProblem(m, train, 2.0), optimizer)
+EnzymeRates.test_rate_equation(m, fit.params, test, 2.0)
 ```
 """
-function test_rate_equation(@nospecialize(m), @nospecialize(params::NamedTuple), table;
-                            absolute::Bool = false)
-    haskey(params, :Keq) || error("params is missing Keq")
-    fp = FittingProblem(m, table; Keq = params.Keq, absolute)
-    names = Derivation.parameters(fp.mechanism, Derivation.FittedParameters())
+function test_rate_equation(m::Mechanisms.Mechanism, @nospecialize(params::NamedTuple),
+                            table, Keq::Real; absolute::Bool = false)
+    fp = FittingProblem(m, table, Keq; absolute)
+    names = Derivation.parameters(fp.rate)
     for name in names
         haskey(params, name) || error("params is missing $name")
     end

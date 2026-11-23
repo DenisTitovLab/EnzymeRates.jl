@@ -1,5 +1,5 @@
-# ABOUTME: Checks the module boundaries of src/ by parsing it (public names, layers,
-# ABOUTME: underscore names, exports), the generated module map and table, exported docs.
+# ABOUTME: Checks src/ by parsing it: public names, layers, underscore names, exports, file
+# ABOUTME: names, one-way calls between files, ABOUTME lines, test file names and the docs.
 
 import REPL  # defines Base.Docs.doc(::Binding), read by the docstring testset
 
@@ -232,8 +232,305 @@ end
     end
 end
 
+@testset "file scanner" begin
+    problem_type = """
+        # ABOUTME: Problem and _size, the data a
+        # ABOUTME: fit reads.
+        abstract type AbstractProblem end
+        struct Problem <: AbstractProblem
+            data::Vector{Float64}
+        end
+        @enum _Kind _PLAIN _ALLOSTERIC
+        \"\"\"The size of `p`.\"\"\"
+        _size(p::Problem) = length(p.data)
+        """
+    file_tree = (
+        "EnzymeRates.jl" => """
+            \"\"\"Does it all.\"\"\"
+            module EnzymeRates
+            export fit, identify
+            include("Fitting/Fitting.jl")
+            include("identify.jl")
+            end
+            """,
+        "identify.jl" => """
+            # ABOUTME: identify, the best
+            # ABOUTME: law.
+            identify(x) = Fitting.fit(x)
+            """,
+        "Fitting/Fitting.jl" => """
+            \"\"\"Fits a law.\"\"\"
+            module Fitting
+            public fit, Problem
+            include("problem_type.jl")
+            include("loss.jl")
+            include("fit.jl")
+            include("report.jl")
+            end
+            """,
+        "Fitting/problem_type.jl" => problem_type,
+        "Fitting/loss.jl" => """
+            # ABOUTME: The loss.
+            # ABOUTME: Scaled.
+            const _SCALE = 2.0
+            macro _twice(x)
+                :(2 * \$(esc(x)))
+            end
+            @inline _loss(p::Problem; kind::_Kind = _PLAIN) = _SCALE * _size(p) + p.fit
+            """,
+        "Fitting/fit.jl" => """
+            # ABOUTME: fit, which minimizes
+            # ABOUTME: the loss.
+            \"\"\"Fits `p`, scaled by `_SCALE`.\"\"\"
+            function fit(p::AbstractProblem)
+                # _size(p) is not called here.
+                @_twice _loss(p; _size = 1)
+            end
+            """,
+        "Fitting/report.jl" => """
+            # ABOUTME: The report of
+            # ABOUTME: a fit.
+            fit(p, n::AbstractProblem = p) = fit(p)
+            report(p) = (_size = :_size, text = "_loss", code = :(f(\$_SCALE)),
+                         value = "\$(_loss(p))")
+            """,
+    )
+    @testset "file_scans: what each file defines and takes from its siblings" begin
+        _testhelper_with_tree(file_tree...) do root
+            scans = _testhelper_file_scans(root)
+            # A keyword or named-tuple field, a field after a dot, a quoted symbol, a
+            # string, a comment and a docstring refer to nothing; a quote's and a string's
+            # interpolations do, and so does the type of an argument with a default. A
+            # function both files define is taken by neither.
+            @test [(f.mod, f.path, f.takes) for f in scans] == [
+                (:EnzymeRates, "identify.jl", []),
+                (:Fitting, "Fitting/problem_type.jl", []),
+                (:Fitting, "Fitting/loss.jl",
+                 ["Fitting/problem_type.jl" => [:Problem, :_Kind, :_PLAIN, :_size]]),
+                (:Fitting, "Fitting/fit.jl",
+                 ["Fitting/problem_type.jl" => [:AbstractProblem],
+                  "Fitting/loss.jl" => [Symbol("@_twice"), :_loss]]),
+                (:Fitting, "Fitting/report.jl",
+                 ["Fitting/problem_type.jl" => [:AbstractProblem],
+                  "Fitting/loss.jl" => [:_SCALE, :_loss]])]
+            @test [f.defines for f in scans] == [Set([:identify]),
+                Set([:AbstractProblem, :Problem, :_Kind, :_PLAIN, :_ALLOSTERIC, :_size]),
+                Set([:_SCALE, Symbol("@_twice"), :_loss]), Set([:fit]),
+                Set([:fit, :report])]
+            @test !any(f -> f.includes, scans)
+        end
+    end
+
+    named_tree = (
+        "EnzymeRates.jl" => "module EnzymeRates\nexport fit, identify\nend",
+        "identify.jl" => "identify(x) = 1",
+        "Fitting/Fitting.jl" => "module Fitting\npublic fit, FitResult, @fitted\nend",
+        "Fitting/fit_result_type.jl" => "struct FitResult{T}\n    x::T\nend",
+        "Fitting/fitted_macro.jl" => "macro fitted(x)\n    x\nend",
+        "Fitting/fit.jl" => "\"\"\"Fits.\"\"\"\nfit(x) = 1",
+        "Fitting/loss.jl" => "_loss(x) = 1",
+    )
+    @testset "a clean tree passes the file rules" begin
+        _testhelper_with_tree(named_tree...) do root
+            @test _testhelper_file_name_and_include_problems(root) == String[]
+        end
+        _testhelper_with_tree(file_tree...) do root
+            @test _testhelper_file_name_and_include_problems(root) == String[]
+            @test _testhelper_file_loop_problems(root, Set{Tuple{String, String}}()) ==
+                  String[]
+        end
+    end
+    @testset "the name and include rules find each fault and name the file" begin
+        _testhelper_with_tree(named_tree...,
+            "identify.jl" => "_identify(x) = 1",
+            "Fitting/fit.jl" => "_fit(x) = 1",
+            # The struct moved to another file; an outer constructor stayed.
+            "Fitting/fit_result_type.jl" => "FitResult(x::Int) = FitResult{Int}(x)",
+            "Fitting/fitted_macro.jl" => "macro fit_it(x)\n    x\nend",
+            "Fitting/loss.jl" =>
+                "include(\"more.jl\")\n_loss(x) = 1\nstruct FitResult{T}\n    x::T\nend",
+            "Fitting/outcome_type.jl" => "struct FitOutcome end",
+            "Fitting/utils.jl" => "_u(x) = 1") do root
+            @test _testhelper_file_name_and_include_problems(root) == [
+                "identify.jl is named for `identify`, a public name of EnzymeRates, but " *
+                "does not define it",
+                "Fitting/fit.jl is named for `fit`, a public name of Fitting, but does " *
+                "not define it",
+                "Fitting/fit_result_type.jl ends in `_type` but defines no type whose " *
+                "name is `fit_result` in snake case",
+                "Fitting/fitted_macro.jl ends in `_macro` but defines no macro `@fitted`",
+                "Fitting/loss.jl calls `include`; only a module's header includes files",
+                "Fitting/outcome_type.jl ends in `_type` but defines no type whose name " *
+                "is `outcome` in snake case",
+                "Fitting/utils.jl has a name that says nothing of what it holds"]
+        end
+    end
+    @testset "the loop rule finds loops of two and three files and stale exemptions" begin
+        none = Set{Tuple{String, String}}()
+        loop = "a loop of files, each taking names from the next: "
+        remove = "; remove the use from the exemption set in test/test_boundaries.jl"
+        # Two files. Setting aside either use ends the loop; setting aside both, the one
+        # that sorts first is not needed.
+        _testhelper_with_tree(file_tree...,
+            "Fitting/problem_type.jl" => problem_type * "_check(p) = _loss(p)\n") do root
+            @test _testhelper_file_loop_problems(root, none) == [loop *
+                "Fitting/problem_type.jl takes `_loss` from Fitting/loss.jl; " *
+                "Fitting/loss.jl takes `Problem`, `_Kind`, `_PLAIN`, `_size` from " *
+                "Fitting/problem_type.jl"]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/problem_type.jl", "Fitting/loss.jl")])) == String[]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/loss.jl", "Fitting/problem_type.jl")])) == String[]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/problem_type.jl", "Fitting/loss.jl"),
+                     ("Fitting/loss.jl", "Fitting/problem_type.jl")])) ==
+                  ["Fitting/loss.jl taking names from Fitting/problem_type.jl is not " *
+                   "needed to break a loop" * remove]
+        end
+        # One line for each group of files that reach one another: two groups here.
+        _testhelper_with_tree("EnzymeRates.jl" => "module EnzymeRates\nend",
+            "Fitting/Fitting.jl" => "module Fitting\npublic fit\nend",
+            "Fitting/a.jl" => "_a(x) = _b(x)", "Fitting/b.jl" => "_b(x) = _a(x)",
+            "Fitting/c.jl" => "_c(x) = _d(x)", "Fitting/d.jl" => "_d(x) = _c(x)") do root
+            @test _testhelper_file_loop_problems(root, none) == [
+                loop * "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes " *
+                "`_a` from Fitting/a.jl",
+                loop * "Fitting/c.jl takes `_d` from Fitting/d.jl; Fitting/d.jl takes " *
+                "`_c` from Fitting/c.jl"]
+        end
+        # Three files: a takes from b, b from c, and c from a closes the loop.
+        chain = ("EnzymeRates.jl" => "module EnzymeRates\nend",
+            "Fitting/Fitting.jl" => "module Fitting\npublic fit\nend",
+            "Fitting/a.jl" => "fit(x) = _b(x)", "Fitting/b.jl" => "_b(x) = _c(x)",
+            "Fitting/c.jl" => "_c(x) = x")
+        closing = ("Fitting/c.jl", "Fitting/a.jl")
+        _testhelper_with_tree(chain..., "Fitting/c.jl" => "_c(x) = fit(x)") do root
+            @test _testhelper_file_loop_problems(root, none) == [loop *
+                "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes `_c` from " *
+                "Fitting/c.jl; Fitting/c.jl takes `fit` from Fitting/a.jl"]
+            @test _testhelper_file_loop_problems(root, Set([closing])) == String[]
+            # Either use alone breaks the loop, so with both the first is not needed.
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/a.jl", "Fitting/b.jl"), closing])) ==
+                  ["Fitting/a.jl taking names from Fitting/b.jl is not needed to break a " *
+                   "loop" * remove]
+        end
+        # Two loops through b, as in Derivation: one group, so one line, and each loop
+        # needs a use of its own set aside.
+        _testhelper_with_tree(chain..., "Fitting/b.jl" => "_b(x) = _c(x) + fit(x)",
+            "Fitting/c.jl" => "_c(x) = _b(x)") do root
+            @test _testhelper_file_loop_problems(root, none) == [loop *
+                "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes `fit` " *
+                "from Fitting/a.jl"]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/b.jl", "Fitting/a.jl")])) == [loop *
+                "Fitting/b.jl takes `_c` from Fitting/c.jl; Fitting/c.jl takes `_b` from " *
+                "Fitting/b.jl"]
+            both = Set([("Fitting/b.jl", "Fitting/a.jl"), ("Fitting/c.jl", "Fitting/b.jl")])
+            @test _testhelper_file_loop_problems(root, both) == String[]
+        end
+        # g and al take names from each other, and g reaches al through x too. Both of
+        # g and al's uses set aside: g's is not needed, since al's alone breaks every loop.
+        # g's alone leaves the loop through x.
+        _testhelper_with_tree(chain[1:2]..., "Fitting/al.jl" => "_al(y) = _g(y)",
+            "Fitting/g.jl" => "_g(y) = _al(y) + _x(y)",
+            "Fitting/x.jl" => "_x(y) = _al(y)") do root
+            g_al = ("Fitting/g.jl", "Fitting/al.jl")
+            al_g = ("Fitting/al.jl", "Fitting/g.jl")
+            @test _testhelper_file_loop_problems(root, Set([g_al, al_g])) ==
+                  ["Fitting/g.jl taking names from Fitting/al.jl is not needed to break " *
+                   "a loop" * remove]
+            @test _testhelper_file_loop_problems(root, Set([g_al])) == [loop *
+                "Fitting/al.jl takes `_g` from Fitting/g.jl; Fitting/g.jl takes `_x` " *
+                "from Fitting/x.jl; Fitting/x.jl takes `_al` from Fitting/al.jl"]
+        end
+        # An exempt use that is gone, and one that closes no loop.
+        _testhelper_with_tree(chain...) do root
+            @test _testhelper_file_loop_problems(root, Set([closing])) ==
+                  ["Fitting/c.jl no longer takes names from Fitting/a.jl" * remove]
+        end
+        _testhelper_with_tree(chain..., "Fitting/b.jl" => "_b(x) = x",
+            "Fitting/c.jl" => "_c(x) = fit(x)") do root
+            @test _testhelper_file_loop_problems(root, Set([closing])) ==
+                  ["Fitting/c.jl taking names from Fitting/a.jl is not needed to break a " *
+                   "loop" * remove]
+        end
+    end
+    @testset "the ABOUTME rule finds a code file without its two lines" begin
+        _testhelper_with_tree(
+            "src/A.jl" => "# ABOUTME: One.\n# ABOUTME: Two.\nmodule A end",
+            "src/A/b.jl" => "# ABOUTME: One.\nb() = 1",
+            "ext/AExt.jl" => "# ABOUTME: One.\r\n# ABOUTME: Two.\r\n",
+            "test/t.jl" => "t() = 1",
+            "test/three.jl" => "# ABOUTME: One.\n# ABOUTME: Two.\n# ABOUTME: Three.\n",
+            "docs/make.jl" => "# ABOUTME: One.\n# ABOUTME: Two.\n",
+            "docs/src/index.md" => "text",
+            # The built site and the local results are not the package's code.
+            "docs/build/x.jl" => "x() = 1",
+            "docs/hpc_results/r.jl" => "r() = 1",
+            "scripts/s.jl" => "s() = 1") do root
+            @test _testhelper_aboutme_problems(root) == [
+                "src/A/b.jl does not start with exactly two `# ABOUTME: ` lines",
+                "test/t.jl does not start with exactly two `# ABOUTME: ` lines",
+                "test/three.jl does not start with exactly two `# ABOUTME: ` lines"]
+            @test _testhelper_aboutme(joinpath(root, "ext", "AExt.jl")) == "One. Two."
+            @test _testhelper_aboutme(joinpath(root, "src", "A", "b.jl")) === nothing
+        end
+    end
+    @testset "file table" begin
+        expected = join([
+            "| Module | File | What it holds | Public names it defines | " *
+            "Takes names from |",
+            "|:--|:--|:--|:--|:--|",
+            "| top level | `identify.jl` | identify, the best law. | ★ `identify` " *
+            "|  |",
+            "| Fitting | `problem_type.jl` | Problem and \\_size, the data a fit " *
+            "reads. | `Problem` |  |",
+            "| Fitting | `loss.jl` | The loss. Scaled. |  | `problem_type` (4) |",
+            "| Fitting | `fit.jl` | fit, which minimizes the loss. | ★ `fit` | " *
+            "`problem_type` (1), `loss` (2) |",
+            "| Fitting | `report.jl` | The report of a fit. | ★ `fit` | " *
+            "`problem_type` (1), `loss` (2) |", ""], "\n")
+        _testhelper_with_tree(file_tree...) do root
+            block = _testhelper_FILE_TABLE_BLOCK
+            @test _testhelper_file_table(root) == expected
+            doc = "text\n\n$(block.opening)$(expected)$(block.closing)\nmore\n"
+            @test _testhelper_generated_block_problems(doc, block, root) == String[]
+            stale = replace(doc, "(4)" => "(3)")
+            @test _testhelper_generated_block_problems(stale, block, root) == [
+                "the file table in docs/src/developer.md differs from the one generated " *
+                "from src/; rewrite it with `julia test/update_module_map.jl`"]
+            @test _testhelper_replace_generated_block(stale, block, expected) == doc
+        end
+    end
+end
+
 @testset "module boundaries" begin
     _testhelper_check_boundaries(_testhelper_SRC)
+end
+
+@testset "every code file starts with exactly two ABOUTME lines" begin
+    @test _testhelper_aboutme_problems(joinpath(@__DIR__, "..")) == String[]
+end
+
+@testset "source files are named for what they give; only headers include files" begin
+    @test _testhelper_file_name_and_include_problems(_testhelper_SRC) == String[]
+end
+
+# The uses that close a loop of files today, each as `(file, sibling)`: `file` takes names
+# from `sibling`. Each is the use that would go for its files to be one-way; ROADMAP.md
+# lists each as a known issue, with the names and the change that would remove it. Remove
+# a use here when it goes.
+const _testhelper_LOOP_CLOSING_USES = Set([
+    ("Derivation/rate_equation_correctness_guard.jl",
+     "Derivation/allosteric_rate_equation_correctness_guard.jl"),
+    ("Derivation/thermodynamic_constraints.jl",
+     "Derivation/rate_equation_correctness_guard.jl"),
+])
+
+@testset "no file takes names from itself through other files of its module" begin
+    @test _testhelper_file_loop_problems(_testhelper_SRC, _testhelper_LOOP_CLOSING_USES) ==
+          String[]
 end
 
 @testset "every public name is defined" begin
@@ -357,37 +654,33 @@ end
     end
 end
 
-@testset "the generated module map and table match src/" begin
+@testset "the generated module map and tables match src/" begin
     root = joinpath(@__DIR__, "..")
     doc = read(joinpath(root, "docs", "src", "developer.md"), String)
     @test _testhelper_module_map_problems(doc, _testhelper_SRC) == String[]
     @test _testhelper_generated_block_problems(
         doc, _testhelper_MAP_BLOCK, _testhelper_SRC) == String[]
     @test _testhelper_generated_block_problems(
+        doc, _testhelper_FILE_TABLE_BLOCK, _testhelper_SRC) == String[]
+    @test _testhelper_generated_block_problems(
         read(joinpath(root, ".claude", "CLAUDE.md"), String), _testhelper_TABLE_BLOCK,
         _testhelper_SRC) == String[]
 end
 
 @testset "Mechanisms API is the data model" begin
-    # The types of a mechanism and a reaction, the functions that compute on them (the
-    # MWC tag rule `excludes` and the rapid-equilibrium segments and turnover cycles of a
-    # step mask among them), and the two name checks the DSL runs while it
-    # reads a block, so that their errors name the macro: a conformation label's shape and
-    # the decodability of the declared names.
-    @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Metabolite, :EnzymeForm,
-        :Step, :Mechanism, :RegulatorySite, :AllostericMechanism, :Reactant, :Regulator,
-        :EnzymeReaction, :EnzymeMechanism, :AllostericEnzymeMechanism,
-        :AbstractEnzymeMechanism, :metabolites, :catalytic, :excludes,
-        :compile_mechanism, :form_text, :step_text, :check_conformation_label,
-        :check_decodable_names, :rapid_equilibrium_segments, :has_turnover_cycle,
-        :has_unbalanced_cycle, :present_species, :segment_walk])
+    # The types of a mechanism and a reaction, and the functions that compute on them:
+    # each conformation's steps, a step's text, and the rapid-equilibrium segments and
+    # turnover cycles of a step mask.
+    @test _testhelper_api(_testhelper_SRC, :Mechanisms) == Set([:Step, :Mechanism,
+        :CatalyticScheme, :Allostery, :RegulatorySite, :Reactant, :Regulator,
+        :EnzymeReaction, :metabolites, :step_text,
+        :steps_running_in_allosteric_conformations, :rapid_equilibrium_segments,
+        :has_turnover_cycle, :has_nonzero_weight_cycle])
 end
 
 @testset "documented internal paths resolve" begin
-    @test isdefined(EnzymeRates, :Mechanism)
-    @test isdefined(EnzymeRates, :AllostericMechanism)
-    @test isdefined(EnzymeRates, :compile_mechanism)
-    @test isdefined(EnzymeRates.Enumeration, :init_mechanisms)
+    @test isdefined(EnzymeRates, :test_rate_equation)
+    @test isdefined(EnzymeRates.Enumeration, :candidate_mechanisms)
 end
 
 # REPL help (`?name`) finds each exported name's docstring through its top-level binding.
@@ -397,4 +690,71 @@ end
         text = string(Base.Docs.doc(Base.Docs.Binding(EnzymeRates, n)))
         @test !occursin("No documentation found", text)
     end
+end
+
+"""Where the files under `test/` of the tree at `root` break the test-file naming rule, one
+line each:
+- a folder of `test/` that mirrors no source folder and holds no data (`fixtures`,
+  `reference`);
+- in a module's test folder or `test/ext/`, a file not named `test_<file>.jl`, or a file
+  in a folder below;
+- a test file `test_<file>.jl` with no source file `<file>.jl` in the mirrored folder. A
+  test file directly in `test/` may instead be named for a package-wide rule it checks,
+  such as `test_boundaries.jl`;
+- a source file, module headers aside, with no test file."""
+function _testhelper_test_name_problems(root)
+    package_wide_rules = ("boundaries", "type_stability", "compile_budget", "aqua_jet",
+                          "oracles")
+    data_folders = ("fixtures", "reference")
+    entries(dir) = isdir(joinpath(root, dir)) ? readdir(joinpath(root, dir)) : String[]
+    jl_files(dir) = filter(endswith(".jl"), entries(dir))
+    folders(dir) = filter(name -> isdir(joinpath(root, dir, name)), entries(dir))
+    modules = folders("src")
+    problems = String[]
+    for folder in folders("test")
+        if !(folder in modules || folder == "ext" || folder in data_folders)
+            push!(problems, "test/$folder mirrors no source folder")
+        end
+    end
+    mirrored = [("src", "test"), ("ext", "test/ext")]
+    append!(mirrored, [("src/$m", "test/$m") for m in modules])
+    for (source_folder, test_folder) in mirrored
+        header = basename(source_folder) * ".jl"
+        sources = filter(f -> f != header && f != "EnzymeRates.jl", jl_files(source_folder))
+        test_files = jl_files(test_folder)
+        if test_folder != "test"
+            for file in filter(!startswith("test_"), test_files)
+                push!(problems, "$test_folder/$file is not named test_<file>.jl")
+            end
+            for below in folders(test_folder)
+                for (dir, _, files) in walkdir(joinpath(root, test_folder, below))
+                    for file in filter(endswith(".jl"), files)
+                        path = relpath(joinpath(dir, file), root)
+                        push!(problems, "$path is in a folder below $test_folder")
+                    end
+                end
+            end
+        end
+        for file in filter(startswith("test_"), test_files)
+            source = chopprefix(file, "test_")
+            checks_a_rule = test_folder == "test" &&
+                            chopsuffix(source, ".jl") in package_wide_rules
+            if !(source in sources || checks_a_rule)
+                push!(problems, "$test_folder/$file names no $source_folder/$source")
+            end
+        end
+        for source in sources
+            if !("test_$source" in test_files)
+                push!(problems, "$source_folder/$source has no $test_folder/test_$source")
+            end
+        end
+    end
+    problems
+end
+
+# A test file is test_<x>.jl for the source file <x>.jl whose functions its testsets are
+# about, in the mirrored folder; a test file directly in test/ may instead check a
+# package-wide rule.
+@testset "every test file is named for the source file it tests" begin
+    @test _testhelper_test_name_problems(joinpath(@__DIR__, "..")) == String[]
 end

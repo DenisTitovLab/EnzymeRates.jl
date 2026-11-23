@@ -8,12 +8,10 @@ The enzyme returns to its original form only at the end of the full cycle.
 
 ## A ping-pong bi-bi example
 
-A covalently modified enzyme form is written by giving the enzyme a `residual = …`
-keyword — an arithmetic expression over the declared metabolites that lists the
-atoms it has **gained** (with `+`) and is **committed to release** (with `-`).
-Here substrate `A` binds, product `P` leaves a modified enzyme
-`E(; residual = A - P)` carrying `A`'s atoms, substrate `B` binds the modified
-form, and product `Q` leaves to regenerate free `E`:
+A covalently modified enzyme form is an enzyme form like any other, written by its
+name. Here substrate `A` binds, product `P` leaves a modified enzyme
+`E_res_plusA_minusP` carrying the atoms `A` gave and `P` did not take, substrate `B`
+binds the modified form, and product `Q` leaves to regenerate free `E`:
 
 ```@example pingpong
 using EnzymeRates
@@ -21,10 +19,10 @@ m = @enzyme_mechanism begin
     substrates: A, B
     products:   P, Q
     steps: begin
-        E + A <--> E(A)
-        E(A) <--> E(; residual = A - P) + P
-        E(; residual = A - P) + B <--> E(B; residual = A - P)
-        E(B; residual = A - P) <--> E + Q
+        E + A <--> EA
+        EA <--> E_res_plusA_minusP + P
+        E_res_plusA_minusP + B <--> EB_res_plusA_minusP
+        EB_res_plusA_minusP <--> E + Q
     end
 end
 print(rate_equation_string(m))
@@ -42,9 +40,7 @@ the coefficients of `B` and `A` divided by the coefficient of `A * B`. The subst
 then read `A/K_a`, `B/K_b` and `A·B/(K_a·K_b)`, `K_a` and `K_b` the Michaelis constants. The
 normalizer's part that is not a single term prints once as `N = …`, and every denominator
 term is dimensionless. A denominator that lacks one of these terms takes the next rule that
-applies ([Normalization](@ref)): a virtual constant term on the first affinely independent
-terms of a fixed order, which changes how `N` reads but never the law's value, or, when no
-weights give the denominator's unit, no normalizer: the law then prints as derived.
+applies ([Normalization](@ref)), which changes how the law reads but never its value.
 
 The coefficient form names each coefficient by the concentrations it multiplies:
 
@@ -52,5 +48,9 @@ The coefficient form names each coefficient by the concentrations it multiplies:
 print(rate_equation_string(m; coefficients = true))
 ```
 
-The residual-bearing forms take descriptive names such as `E_res_plusA_minusP` (the
-modified free enzyme) and `EB_res_plusA_minusP` (with `B` additionally bound).
+The modified forms carry the names the mechanism search gives them:
+`E_res_plusA_minusP` (the modified free enzyme, its residual the atoms it has **gained**
+from `A` less those it is **committed to release** in `P`) and `EB_res_plusA_minusP`
+(with `B` additionally bound). Other names give the same law with its constants named
+after them, though a renamed form can change which of two tied constants is fitted and
+which is dependent ([Thermodynamic constraints](@ref)).

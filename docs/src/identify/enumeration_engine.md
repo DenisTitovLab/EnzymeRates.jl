@@ -7,32 +7,58 @@ each turn one mechanism into a slightly more complex one, so the search visits
 candidates in order of increasing complexity. A rate equation the engine cannot
 construct is never fit, and so can never be selected.
 
-At a high level the engine has two halves. `EnzymeRates.Enumeration.init_mechanisms`
-builds the starting set: the simplest catalytic mechanisms for a reaction — each binding
-order, with optional dead-end substrate and product inhibition — and their merged
-and Theorell–Chance variants. `EnzymeRates.Enumeration.expand_mechanisms` then grows the
-set through a fixed set of single moves, each taking a mechanism and returning
+At a high level the engine has two halves. The starting set holds the simplest
+catalytic mechanisms for a reaction — each binding order, with optional dead-end
+substrate and product inhibition — and their merged and Theorell–Chance variants. A
+fixed set of single moves then grows the set, each taking a mechanism and returning
 slightly more complex children: splitting a shared rate constant, flipping a
 rapid-equilibrium group to steady state, adding a regulator, making the enzyme
 allosteric, and so on. After every step the candidates are deduplicated, since
-different move sequences can sometimes reach the same mechanism. Both functions
-are internal, but understanding them explains exactly which equations the search
-can reach.
+different move sequences can sometimes reach the same mechanism. Understanding the two
+halves explains exactly which equations the search can reach.
 
-## `EnzymeRates.Enumeration.init_mechanisms`
+`EnzymeRates.Enumeration.candidate_mechanisms` lists what the search would propose. It is
+not exported. Called with a reaction, it returns the starting set; called with the
+reaction and one of its candidates, it returns that candidate's children by every move.
+Each candidate holds its mechanism in the field `mechanism`:
 
-`EnzymeRates.Enumeration.init_mechanisms(reaction)` returns the starting mechanisms of the
-search: first the seeds, then their merged and Theorell–Chance variants. For each
-catalytic topology it enumerates all substrate/product dead-end subsets, assigns
-one steady-state catalytic step, and collapses binding steps that share the same
+```@example engine
+using EnzymeRates
+rxn = @enzyme_reaction begin
+    substrates: A[C], B[N]
+    products:   P[C], Q[N]
+end
+start = EnzymeRates.Enumeration.candidate_mechanisms(rxn)
+length(start)
+```
+
+```@example engine
+start[1].mechanism
+```
+
+```@example engine
+children = EnzymeRates.Enumeration.candidate_mechanisms(rxn, start[1])
+length(children)
+```
+
+Both calls take the size limits of [`identify_rate_equation`](@ref),
+`max_param_count` and `eq_complexity_filter`, and the first also its two lists of
+optional regulators; by default nothing is dropped for size and every declared regulator
+is required. Every candidate returned has a well-defined rate law and is within the
+limits, so it is one the search may fit.
+
+## The starting set
+
+The starting set is first the seeds, then their merged and Theorell–Chance variants. For
+each catalytic topology the engine enumerates all substrate/product dead-end subsets,
+assigns one steady-state catalytic step, and collapses binding steps that share the same
 `(metabolite, RE/SS)` class into a single kinetic group; each result is a seed.
 When a reaction's atom inventory allows a covalent fragment to persist between
-half-reactions, it also builds ping-pong mechanisms: the modified enzyme stays
-on conformation `:E` carrying a residual rather than a separate conformation
-label, and a step that would return the enzyme to free `:E` with an empty
-residual mid-cycle is rejected, since it would split the reaction into two
-disconnected half-cycles. See [Ping-pong mechanisms](@ref) for detail on these
-mechanisms.
+half-reactions, it also builds ping-pong mechanisms: the modified enzyme carries a
+residual, named in its form's name (`E_res_plusA_minusP`), and a step that would return
+the enzyme to free `E` with an empty residual mid-cycle is rejected, since it would
+split the reaction into two disconnected half-cycles. See [Ping-pong mechanisms](@ref)
+for detail on these mechanisms.
 
 A seed writes chemistry as an isomerization: the enzyme isomerizes to a
 product-bound form, and each release is its own step. A binding step may change
@@ -50,12 +76,13 @@ steps around it:
    (`_merge_isomerization`): the isomerization and its group go, and every other
    step at its substrate-side form moves to its product-side form, the *merged
    complex*. The last substrate then binds straight into the merged complex
-   (`E(A) + B ⇌ E(P, Q)`, a fused binding), and the products leave by plain
+   (`EA + B ⇌ EPQ`, a fused binding), and the products leave by plain
    releases. A sequential seed merges one isomerization, a ping-pong seed two.
 2. **Theorell–Chance bases.** A merged complex with exactly two steps, the binding
-   into it and one release, is eliminated (`_eliminate_form`): the two steps
-   become one Theorell–Chance step (`E(A) + B ⇌ E(Q) + P`) in a group of its
-   own. Each such complex gives one base.
+   into it and one release, whose other ends are two different forms, is eliminated
+   (`_eliminate_form`). Its two steps become one Theorell–Chance step
+   (`EA + B ⇌ EQ + P`) in a group of its own. Each such complex gives one base. The
+   uni-uni merged complex `EP` gives none: its binding and its release both lead to `E`.
 3. **Search.** Every step of a base is at rapid equilibrium, which makes its rate
    infinite. Each smallest set of the base's groups whose flip to steady state
    gives a valid, flux-carrying, non-degenerate mechanism is a variant. As in the
@@ -72,7 +99,9 @@ on the candidate built as a mechanism, once it passes the others:
 
 - **Valid.** No cycle of rapid-equilibrium steps runs the net reaction
   (`has_turnover_cycle`), and the guard accepts the candidate
-  (`check_valid_rate_equation`).
+  (`check_valid_rate_equation`). Wherever the engine applies the guard, it also applies the
+  *binding test*, which drops an allosteric candidate in which a conformation keeps a form
+  that only bindings it excludes enter, though the guard may accept it.
 - **Flux-carrying.** Every steady-state group carries net flux.
 - **Non-degenerate.** A degenerate mechanism's rate at zero products ignores some
   substrate or grows without bound as the substrates grow, or the same holds for
@@ -96,56 +125,55 @@ itself. A seed holds one steady-state step, so one isomerization is at rapid
 equilibrium, and so are the bindings and releases on both its sides: the forms it
 joins release a substrate and a product by rapid-equilibrium steps. In a bi-bi
 ping-pong seed they release B and Q, so at zero products its rate does not depend
-on B. The beam expands such a seed without fitting it (see
+on B. The starting set holds, in place of such a seed, its flip children that are not
+degenerate, and the search never fits the seed itself (see
 [Best mechanism selection](@ref)).
 
-The starting set therefore holds mixed parameter counts. A bi-bi reaction has 55
-seeds at 5 parameters and 184 variants: 164 merged ones, 108 at 5 parameters and
-56 at 6, and 20 Theorell–Chance ones at 5 to 7. When its atoms allow a ping-pong
-cycle it has 62 seeds and 202 variants; its 7 ping-pong seeds fit 6 parameters
-and their 18 variants 5. A uni-uni seed has no variant.
+The starting set therefore holds mixed parameter counts. A bi-bi reaction has 55 seeds
+at 5 parameters and 184 variants. Its 164 merged variants fit 5 parameters when two of
+their kinetic groups are at steady state (108 of them) and 6 when three are (56). Its 20
+Theorell–Chance variants fit 5 to 7: the 4 without dead-end forms fit 5, and the 16 with
+them 5, 6 or 7. When its atoms allow a ping-pong cycle it has 62 seeds and 202 variants;
+its 7 ping-pong seeds fit 6 parameters and their 18 variants 5, one fewer. A uni-uni seed
+has no variant.
 
-## `EnzymeRates.Enumeration.seed_mechanisms`
+## Starting from the required regulators
 
-For a reaction that declares regulators, `init_mechanisms` starts far below the
+For a reaction that declares regulators, the seeds start far below the
 useful region: every seed binds zero regulators, so the search must climb through
 every partially-regulated mechanism before it reaches one that binds them all. When
 the effectors are already known — phosphofructokinase and its five regulators, say —
 that lower shelf is pure waste.
 
-`EnzymeRates.Enumeration.seed_mechanisms(reaction, required_allosteric, required_competitive)`
-starts the search where it belongs. It grows every mechanism of
-`init_mechanisms`, variants included, through the regulator-binding moves alone —
-go allosteric, add an allosteric regulator, add a competitive inhibitor — under
-three constraints that keep the set small: each
-required regulator binds at its own single-ligand site, every allosteric state stays
-cheap (`:OnlyA`/`:OnlyI`, never `:NonequalAI`), and no partially-regulated mechanism
-survives. The result is every fully-regulated mechanism those moves build, and
-nothing that binds fewer regulators; like the starting set, it holds mixed
-parameter counts. The beam then refines these seeds with the detail moves —
-steady-state flips, splits, and `:NonequalAI` relaxations — as usual.
+So the starting set begins where the search belongs: the engine grows every seed and
+variant through the regulator-binding moves alone — go allosteric, add an allosteric
+regulator, add a competitive inhibitor — under three constraints that keep the set small:
+each required regulator binds at its own single-ligand site, every allosteric state stays
+cheap (never `:NonequalAI`), and no partially-regulated mechanism survives. The result is
+every fully-regulated mechanism those moves build, and nothing that binds fewer
+regulators; like the seeds and variants, it holds mixed parameter counts. The beam then
+refines these seeds with the detail moves — steady-state flips, splits, and `:NonequalAI`
+relaxations — as usual.
 
 By default every declared regulator is required. `identify_rate_equation`'s
 `optional_allosteric_regulators` and `optional_competitive_inhibitors` keywords move
 named regulators back to optional, so the beam adds them as refinements rather than
 forcing them into every seed; listing every regulator as optional recovers the
-`init_mechanisms` starting set. When no mechanism binds every required regulator —
-a uni-uni reaction whose substrate is also declared a competitive inhibitor, say —
-`seed_mechanisms` stops with an error that names the regulators and these two
-keywords. Declaring a regulator's type in the reaction —
+unregulated starting set of seeds and variants. When no mechanism binds every required
+regulator — a uni-uni reaction whose substrate is also declared a competitive
+inhibitor, say — `candidate_mechanisms` stops with an error that names the regulators
+and these two keywords. Declaring a regulator's type in the reaction —
 `::Activator` or `::Inhibitor` — pins it to one allosteric state and shrinks the set
 further. The [Identify tutorial](@ref) works a concrete example.
 
 ## The seven expansion moves
 
-`EnzymeRates.Enumeration.expand_mechanisms(mechs, rxn)` applies all seven moves to every
-input mechanism and returns the resulting child mechanisms pooled into one list. Each
-move is applied in every applicable way, so one input mechanism yields many
-children — every set of rapid-equilibrium groups that can flip to steady state,
-every way a group can be split by binding context, every way an inhibitor can
-bind, and so on.
-Every child is checked to conserve atoms, and a child the well-posedness guard rejects
-(see [What the package rejects](@ref)) is dropped.
+`candidate_mechanisms(reaction, parent)` applies all seven moves to `parent` and returns the
+resulting children in one list. Each move is applied in every applicable way, so one parent
+yields many children — every set of rapid-equilibrium groups that can flip to steady state,
+every way a group can be split by binding context, every way an inhibitor can bind, and so
+on. Every child is checked to conserve atoms, and a child that the well-posedness guard
+rejects (see [What the package rejects](@ref)) or that fails the binding test is dropped.
 
 The seven moves:
 
@@ -156,35 +184,30 @@ step in a group converts together, keeping one pair of rate constants per group.
 The move emits one child per smallest set of groups whose joint flip divides a
 rapid-equilibrium segment in two. On a seed every group cuts on its own, so each
 RE group the move offers gives one child. Once splits have separated a metabolite's
-binding steps, a single group may be bridged by an RE route through the others;
-the move then flips the bridging groups together, because a steady-state step
-whose two ends stay in one equilibrated segment never reaches the rate equation.
+binding steps, or a catalytic step from its inhibitor-bound mirror, a single group may be
+bridged by an RE route through the others; the move then flips the bridging groups
+together, because a steady-state step whose two ends stay in one equilibrated segment
+never reaches the rate equation.
 
-Competitive-inhibitor binding never flips: it stays at rapid equilibrium by modeling
-choice. A steady-state group must carry net flux. A group none of whose steps would
-carry flux with every step at steady state is never offered for flipping, and a set of
-flips that leaves one of its groups without flux in the child, because an equilibrated
-route around it carries the turnover, counts as failed and is extended like a set that
-divides no segment. Such a group's two constants enter the equation only as their ratio,
-which its equilibrium form already has.
+Competitive-inhibitor binding never flips, and a steady-state group must carry net flux
+(both are [Modeling choices](@ref)). A group none of whose steps would carry flux with
+every step at steady state is never offered for flipping. A set of flips that leaves one
+of its groups without flux in the child, because an equilibrated route around it carries
+the turnover, counts as failed and is extended like a set that divides no segment.
 
-A `Mechanism` never flips a flank of a steady-state chain. A *qualifying chain*
-is an isomerization alone in its group between two forms that each have exactly
-one other step, a binding into that form alone in its group; those two bindings
-are the chain's *flanks*. When the isomerization is steady state, the rest of the
-mechanism sees the chain only through its flux and the enzyme it holds, which the
-chain with both flanks at rapid equilibrium already covers, so flipping a flank
-adds one or two parameters and no rate law (`_chain_flank_groups`; see
-[Apparent constants on a steady-state chain](@ref)). The uni-uni seed is such a
-chain and has no flip child. An `AllostericMechanism` keeps flipping flanks: over
-more than one catalytic subunit a flank's flip can show through the two
-conformations.
+A plain mechanism never flips a flank of a steady-state chain (`_chain_flank_groups`). A
+*steady-state chain* is a steady-state isomerization between two forms that each have one
+other step, a binding into that form, with each of the three steps alone in its group. The
+two bindings are the chain's *flanks*. By
+[Apparent constants on a steady-state chain](@ref), flipping a flank adds one or two
+parameters and no rate law. The uni-uni seed is such a chain and has no flip child. An
+allosteric mechanism keeps flipping flanks: over more than one catalytic subunit a
+flank's flip can show through the two conformations.
 
-An allosteric parent with more than one catalytic subunit also drops every child
-whose catalytic scheme would carry a concentration to a power of its own — the
-random-order steady-state pattern in which a metabolite binds on two steps that
-one King–Altman tree can hold, or an equilibrated segment already carries the
-metabolite once. See
+An allosteric parent with more than one catalytic subunit also drops every child whose
+catalytic scheme would carry a concentration to a power of its own — the random-order
+steady-state pattern in which a metabolite binds on two steps that one King–Altman tree
+can hold, or an equilibrated segment already carries the metabolite once. See
 **Conformational mechanisms carry hyperbolic catalytic schemes** under
 [Modeling choices](@ref).
 
@@ -215,7 +238,7 @@ separated from the catalytic binding whose constants it shared, is emitted at
 rapid equilibrium: its two rates would enter the equation only as their ratio, and
 the equilibrium form is the same family with one constant fewer. The count test
 runs on that form, so a constant the thermodynamic ties pull back is still
-rejected. A set whose child the well-posedness guard rejects counts as failed too,
+rejected. A set whose child fails the guard or the binding test counts as failed too,
 so the move extends it rather than emitting it. No split child holds a redundant
 copy (see move 3). The move judges each child whole: splitting one group can
 complete a copy's dwell gauge, and splitting a group that forms the productive
@@ -243,8 +266,8 @@ subject to three rules:
   inherits its counterpart's kinetic group and adds no parameter. Productive
   steps decide competition: an inhibitor that competes with a substrate or
   product binds at forms where that metabolite is free on a productive step — a
-  binding's source form, and for a Theorell–Chance step `E(A) + B ⇌ E(Q) + P`
-  the form `E(A)` for `B` and `E(Q)` for `P` — and never at a form that holds it
+  binding's source form, and for a Theorell–Chance step `EA + B ⇌ EQ + P`
+  the form `EA` for `B` and `EQ` for `P` — and never at a form that holds it
   productively, while a form that carries only its copy is a site. A form that
   already carries a competing ligand never receives the inhibitor,
   so the binding step of a competing substrate is never mirrored and the
@@ -253,25 +276,22 @@ subject to three rules:
   does not compete with.
 - **No redundant copy.** A dead-end complex duplicates a productive complex, one
   that carries no competitive inhibitor, when a rapid-equilibrium route joins the
-  two and binds exactly the copied ligand along it, so their weights are
-  proportional; a complex of the same composition formed by a steady-state binding
-  is not a duplicate. A substrate or product declared as its own competitive
-  inhibitor then binds in a second orientation of a complex the mechanism already
-  has. A copy is
-  not emitted when every complex it forms duplicates a productive complex and a
-  dwell gauge absorbs its constant into the existing binding's, so that the data
-  cannot separate the two; a copy whose complexes all
-  duplicate productive complexes but whose gauge fails, as when a shared kinetic
-  group pins the existing binding, is emitted, since its constant may be
-  identifiable. A complex that matches only an inhibitor-bound complex counts as
-  new: the sites that pin each inhibitor may keep both constants apart. In an
-  allosteric mechanism the test is made in every conformation the copy binds, with
-  a kinetic group shared by both conformations rescaled alike in each, and every
-  conformation holds its free enzyme: a copy that duplicates a complex in the
-  active conformation but is the only such complex in the inactive one keeps a
-  visible constant and is emitted. On a uni-uni seed with one conformation every
-  placement is redundant, and `seed_mechanisms` reports the unsatisfiable
-  requirement.
+  two and binds exactly the copied ligand along it, so that their weights are
+  proportional. A complex of the same composition formed by a steady-state binding
+  is no duplicate. A substrate or product declared as its own competitive inhibitor
+  then binds in a second orientation of a complex the mechanism already has. The
+  move drops a copy when every complex it forms duplicates a productive complex and
+  a dwell gauge absorbs its constant into the existing binding's, so that the data
+  cannot separate the two. It keeps a copy whose gauge fails, as when a shared
+  kinetic group pins the existing binding, since its constant may be identifiable.
+  A complex that matches only an inhibitor-bound complex counts as new: the sites
+  that pin each inhibitor may keep both constants apart. In an allosteric mechanism
+  the test runs in every conformation the copy binds, with a kinetic group shared by
+  both conformations rescaled alike in each, and every conformation holds its free
+  enzyme. A copy that duplicates a complex in the active conformation but is the
+  only such complex in the inactive one keeps a visible constant, and the move keeps
+  it. On a uni-uni seed with one conformation every placement is redundant, and
+  `candidate_mechanisms` reports the unsatisfiable requirement.
 
 The inhibitor's own binding steps form one fresh kinetic group (one new
 dissociation constant `K_R`).
@@ -280,67 +300,65 @@ dissociation constant `K_R`).
 
 ### 4. Promote a non-allosteric to allosteric mechanism
 
-Converts a `Mechanism` to `AllostericMechanism` variants, each built on a **base** tag set
-(`_tagging_bases`). A chemistry group holds an isomerization, a fused binding or a
-Theorell–Chance step (`_chemistry_groups`); every other group is a binding group. The first
-candidate base tags every chemistry group `:OnlyA` and every binding group `:EqualAI`: an
-inactive conformation that binds ligands but runs no chemistry. When the well-posedness
-guard accepts it (admission included; see [Mechanisms with allosteric regulators](@ref)),
-it is the only base. Otherwise the bases are the smallest sets of chemistry groups, tagged
-`:OnlyA` with every other group `:EqualAI`, that stop every catalytic cycle of the inactive
-conformation and pass the guard; a set the guard rejects leaves its supersets in the
-search. A ping-pong mechanism is the common case: tagging both half-reactions strands the
-covalent forms between them, whose weight then depends on how fast each half stops, so it
-usually gets one base per half-reaction, the other half running in both conformations, as
-phosphorylation stops PDH's E1 and leaves E2 and E3 running. A half whose chemistry groups
-fail the guard gives no base, and a half spread over several chemistry groups can give
-several. Stopping both halves needs the conformations to flip at the covalent form too,
-with a constant of its own, which waits for iso mechanisms.
+Converts a plain mechanism to allosteric variants, each built on a **base**, an
+allosteric state for every kinetic group (`_tagging_bases`). A chemistry group holds an
+isomerization, a fused binding or a Theorell–Chance step (`_chemistry_groups`); every other
+group is a binding group. The first candidate base makes every chemistry group `:OnlyA`
+and every binding group `:EqualAI`: an inactive conformation that binds ligands but runs
+no chemistry. When it passes the well-posedness guard (admission included; see
+[Mechanisms with allosteric regulators](@ref)) and the binding test, it is the only base.
+Otherwise the bases are the smallest sets of chemistry groups, made `:OnlyA` with every
+other group `:EqualAI`, that stop every catalytic cycle of the inactive conformation and
+pass both tests; a set that fails leaves its supersets in the search. On a ping-pong
+mechanism the first candidate cuts the covalent forms off in the inactive conformation,
+which then runs neither half-reaction (see [How an excluded step is switched off](@ref)).
+When it fails, a half-reaction's chemistry groups can be a base alone, the other half
+running in both conformations, as phosphorylation stops PDH's E1 and leaves E2 and E3
+running; a half whose chemistry groups fail gives no base, and a half spread over several
+chemistry groups can give several.
 
-On its bases the engine emits, per multiplicity:
+On its bases the engine emits, per oligomeric state:
 
-- **K-types:** every nonempty set of binding groups tagged `:OnlyA` on top of a base, and,
-  when the guard rejects the every-chemistry set, on top of that set too, since a tagged
+- **K-types:** every nonempty set of binding groups made `:OnlyA` on top of a base, and,
+  when the every-chemistry set is no base, on top of that set too, since an `:OnlyA`
   binding can restore the limit (as in a bi-bi whose group mixes a plain binding with a
-  fused one); each is emitted bare, and the exits drop those the guard rejects;
+  fused one); each is emitted bare, and the exits drop those that fail the guard or the
+  binding test;
 - **V-types:** each base paired with a declared allosteric regulator at a new site, one
-  variant per `(regulator, tag)` with `tag ∈ {:OnlyA, :OnlyI}`. On the every-chemistry
-  base the regulator reveals `L`; on a one-half base `L` already shows without one, yet
-  every base is emitted only with a regulator (the repository's `ROADMAP.md` lists this).
+  variant per `(regulator, state)` with `state ∈ {:OnlyA, :OnlyI}`. Over one subunit the
+  regulator reveals `L` on the every-chemistry base; above one subunit, and on a one-half
+  base, `L` can show without one, yet every base is emitted only with a regulator (the
+  repository's `ROADMAP.md` lists this).
 
-Tag sets whose laws agree up to renaming the constants share one key, so identify fits the
-law once.
-The all-`:EqualAI` baseline is never emitted (the conformations would be identical and `L`
-would cancel). The guard at the exits drops a child it rejects, as for every move. A
-ping-pong parent with no declared regulator can end with no child, when every K-type
-strands a form or a basin.
-Enumeration runs over `allowed_catalytic_multiplicities`. No-op on an already allosteric
-input.
+Variants whose laws agree up to renaming the constants share one key, so identify fits the
+law once. The all-`:EqualAI` baseline is never emitted (the conformations would be
+identical and `L` would cancel). The exits drop a child that fails the guard or the
+binding test, as for every move. A parent with no declared regulator gets no allosteric
+child when it has no binding group, and so no K-type, or when the exits drop every K-type.
+Among the 4,885 starting mechanisms of one ter-bi reaction, 20 get no allosteric child for
+the second reason: the guard finds their only K-type too large to search (the repository's
+`ROADMAP.md` lists this). Enumeration runs over the reaction's `allowed_oligomeric_states`.
+The search applies this move only to a plain mechanism.
 
-A K-type variant does not always reveal `L`. Over more than one catalytic
-subunit the conformational equilibrium enters the rate with the multiplicity's
-power. Over one subunit the inactive conformation is a dead-end branch of the
-free enzyme, and `L` is a phantom in some K-type variants and not in others. In
-every K-type variant of the rapid-equilibrium ordered bi-bi seed a rescaling of
-the active state's constants absorbs it, whatever that conformation binds. In
-the merged ordered bi-bi whose B group mixes a fused and a plain binding it is a
-phantom only in the variants whose inactive conformation binds nothing: no
-rescaling absorbs an A or Q binding kept there. Binding nothing is not enough:
-in a random-order merged bi-bi, whose A group takes A up at E and at E(B) under
-one rate constant, `L` shows in every K-type variant. The engine emits the variants where
-`L` is a phantom all the same, since their children can carry laws the parent's children
-lack. A one-subunit variant whose inactive conformation turns nothing over is an L phantom,
-whatever that conformation binds, when an exact rescaling of its other constants absorbs its
-`L`. When its active conformation's law holds every fitted constant but `L` and a mechanism
-with that law was fitted earlier in the search or is fitted in the phantom's own iteration,
-identify does not fit the phantom but reads that fit with `L = 0` and flags the row
-(`L_phantom` in the CSVs). Every other variant is fitted like any other candidate,
-including a phantom whose law has no such fit and one whose source's fit throws.
+A K-type variant does not always reveal `L`. Over more than one catalytic subunit the
+conformational equilibrium enters the rate with the oligomeric state as its power. Over
+one subunit the inactive conformation is a dead-end branch of the free enzyme, and `L` is
+a *phantom*, absorbed by an exact rescaling of the other constants, in some K-type
+variants and not in others. In every K-type variant of the rapid-equilibrium ordered
+bi-bi seed a rescaling of the active state's constants absorbs it, whatever the inactive
+conformation binds. In the merged ordered bi-bi whose B group mixes a fused and a plain
+binding it is a phantom only in the variants whose inactive conformation binds nothing: no
+rescaling absorbs an A or Q binding kept there. Binding nothing is not enough: in a
+random-order merged bi-bi, whose A group takes A up at E and at EB under one rate
+constant, `L` shows in every K-type variant. The engine emits the variants where `L` is a
+phantom all the same, since their children can carry laws the parent's children lack.
+When the search has fitted another mechanism with the law such a variant has at `L = 0`,
+identify reads that fit instead of fitting the variant; the `L_phantom` column in
+[Best mechanism selection](@ref) gives the exact rule.
 
 A parent whose catalytic scheme already carries concentration powers, such as a
-random-order scheme with steady-state binding or a substrate that traps a
-steady-state intermediate in an abortive complex, is promoted at catalytic
-multiplicity 1 only; see
+random-order scheme with steady-state binding or a substrate that traps a steady-state
+intermediate in an abortive complex, is promoted at oligomeric state 1 only; see
 **Conformational mechanisms carry hyperbolic catalytic schemes** under
 [Modeling choices](@ref).
 
@@ -356,21 +374,21 @@ constant. `:OnlyA` zeroes out the I-state and adds no parameter of its own.
 ### 5. Add an allosteric ligand
 
 Adds one of the reaction's allosteric regulators as a ligand at a new or an existing
-regulatory site, with
-an allosteric-state tag drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
-`:EqualAI` only at a mixed existing site). No-op on a non-allosteric input.
+regulatory site, with an allosteric state drawn from `{:OnlyA, :OnlyI, :NonequalAI}` (plus
+`:EqualAI` only at a mixed existing site). The search applies this move only to an
+allosteric mechanism.
 
 **Parameter delta:**
-- `:OnlyA` or `:OnlyI` tag: **+1** (one binding constant `K_A` or `K_I`).
-- `:NonequalAI` tag: **+2** (independent `K_A` and `K_I`).
+- `:OnlyA` or `:OnlyI`: **+1** (one binding constant `K_A` or `K_I`).
+- `:NonequalAI`: **+2** (independent `K_A` and `K_I`).
 
 ### 6. Relax an `:EqualAI` group to independent A/I states
 
-Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric-state tag to
-`:NonequalAI`, giving the active-state and inactive-state versions of the
-group independent parameters. No-op on a non-allosteric input.
-The chemistry groups relax together, and only while no binding group is `:OnlyA`. A
-child the well-posedness guard rejects is dropped where `expand_mechanisms` returns it.
+Changes one `:EqualAI` or `:OnlyA`/`:OnlyI` allosteric state to `:NonequalAI`, giving the
+active-state and inactive-state versions of the group independent parameters. The search
+applies this move only to an allosteric mechanism. The chemistry groups relax together, and
+only while no binding group is `:OnlyA`. `candidate_mechanisms` drops a child that fails
+the well-posedness guard or the binding test.
 
 **Parameter delta:**
 - RE binding group: **+1** (one shared K splits into `K_A` and `K_I`).
@@ -379,14 +397,14 @@ child the well-posedness guard rejects is dropped where `expand_mechanisms` retu
 
 ### 7. Merge two regulatory sites
 
-Combines two regulatory sites into one shared site, so their ligands compete for it
-rather than binding independently. For each merged pair the move also enumerates the
-antagonist forms: one ligand may switch to `:EqualAI` — binding both conformations
-equally, with no allosteric effect of its own — so that it acts purely by displacing
-the other ligand from the shared site. An activator that displaces an inhibitor still
-reads as activation, and an inhibitor that displaces an activator still reads as
-inhibition, so the observable effect is preserved. No-op on a non-allosteric input or a
-single-site mechanism.
+Combines two regulatory sites into one shared site, so their ligands compete for it rather
+than binding independently. For each merged pair the move also enumerates the antagonist
+forms: one ligand may switch to `:EqualAI` — binding both conformations equally, with no
+allosteric effect of its own — so that it acts purely by displacing the other ligand from
+the shared site. An activator that displaces an inhibitor still reads as activation, and an
+inhibitor that displaces an activator still reads as inhibition, so the observable effect is
+preserved. The search applies this move only to an allosteric mechanism, and a mechanism
+with one regulatory site gets no child from it.
 
 **Parameter delta:** **+0**. Each ligand keeps its one binding constant; only the
 binding topology changes. The merged mechanism is a distinct rate equation, which the
@@ -420,47 +438,45 @@ each put a metabolite concentration to a power in the rate equation, and
 sigmoidal data cannot tell the two sources apart. The moves therefore never
 combine them: promotion to allosteric gives a parent whose catalytic scheme
 already carries a power no variant above one catalytic subunit, and above one
-subunit the tagging and change-tag moves, like the flip move, drop a child that
+subunit the tagging and relaxing moves, like the flip move, drop a child that
 would introduce one. With one catalytic subunit the conformational equilibrium
 only reweights each enzyme form and adds no power of its own, so such a
 mechanism may carry any catalytic scheme. The test is structural
-(`_hyperbolic_catalysis`): the equation's degree in a metabolite is read from
-the rapid-equilibrium segment graph without deriving it. On an allosteric
-mechanism it reads each conformation's law (`active_steps`, `inactive_steps`),
-since a conformation that runs part of the catalytic graph can carry a power
-the whole graph lacks: once the inactive conformation stops one half-reaction
-of a ping-pong, its abortive complexes can put A² into its law. Every binding of a
-substrate or product at its catalytic site counts, abortive complexes included,
-so an ordered scheme whose substrate traps a steady-state intermediate, as
-pyruvate does with E·NAD⁺ in lactate dehydrogenase, stays out of allosteric
-mechanisms. Binding of a declared competitive inhibitor does not count, because
-an inhibitor binds a site of its own; declaring a substrate as a dead-end
-inhibitor is how substrate inhibition enters an allosteric mechanism, provided the
-copy is not redundant (move 3).
-Hand-written mechanisms are not subject to the rule: an `@allosteric_mechanism`
-with random-order steady-state binding still derives and fits.
+(`_hyperbolic_catalysis`): it reads the equation's degree in a metabolite from the
+rapid-equilibrium segment graph without deriving it. On an allosteric mechanism it reads
+each conformation's law (`steps_running_in_allosteric_conformations`), since a
+conformation that runs part of the catalytic graph can carry a power the whole graph
+lacks: once the inactive conformation stops one half-reaction of a ping-pong, its abortive
+complexes can put A² into its law. Every binding of a substrate or product at its
+catalytic site counts, abortive complexes included, so an ordered scheme whose substrate
+traps a steady-state intermediate, as pyruvate does with E·NAD⁺ in lactate dehydrogenase,
+stays out of allosteric mechanisms. Binding of a declared competitive inhibitor does not
+count, because an inhibitor binds a site of its own; declaring a substrate as a dead-end
+inhibitor is how substrate inhibition enters an allosteric mechanism, provided the copy is
+not redundant (move 3). Hand-written mechanisms are not subject to the rule: an allosteric
+`@enzyme_mechanism` with random-order steady-state binding still derives and fits.
 
 **Every step but a plain binding is chemistry.** A binding takes up exactly one
 metabolite and gives off none. It is plain when its product form is its source
 form with that metabolite added, the conformation free to change, and fused
-otherwise. The moves tell catalysis from binding by `step_kinds`, a plain binding
-being `:binding` and every other step chemistry: isomerizations, fused bindings and
-Theorell–Chance steps. Kinetic groups go by stoichiometry instead: a group's
-steps take up and give off the same metabolites, so a fused and a plain binding
-of one metabolite may share its constant, as the B group of a merged seed with a
-dead-end complex does (`E(A) + B ⇌ E(P, Q)` and `E(Q) + B ⇌ E(B, Q)`). A step
-that only gives off one metabolite is stored as the binding it reverses, so a
-hand-written release that carries chemistry (`E(A, B) <--> E(Q) + P`) is a fused
-binding of `P` into `E(A, B)`: a merged complex on the substrate side, which the
-enumerator never builds. `expand_mechanisms` accepts such a parent, but its
-children are not the ones a merged seed would give.
+otherwise. The engine keeps its own record of what each form it builds holds, and the
+moves tell catalysis from binding by those records: every step but a plain binding is
+chemistry, whether an isomerization, a fused binding or a Theorell–Chance step. Kinetic
+groups go by stoichiometry instead: a group's steps take up and give off the same
+metabolites, so a fused and a plain binding of one metabolite may share its constant,
+as the B group of a merged seed with a dead-end complex does (`EA + B ⇌ EPQ` and
+`EQ + B ⇌ EBQ`). A step that only gives off one metabolite is stored as the binding it
+reverses, so a hand-written release that carries chemistry (`EAB <--> EQ + P`) is a
+fused binding of `P` into `EAB`: a merged complex on the substrate side, which the
+enumerator never builds. The moves expand only the candidates the engine built, so such
+a mechanism takes no part in the search.
 
 **Merging happens in the starting set only.** No move merges a complex or
 eliminates a form, and no move rewrites a child into another mechanism of its
 family. Merged and Theorell–Chance mechanisms descend from the starting
-variants. The flip rule judges each flip when it is made, so a chain that a later
-split makes qualifying keeps its steady-state flank; such a mechanism stays as a
-tolerated phantom.
+variants. The flip rule judges each flip when it is made: when a later split makes a
+steady-state chain, a flank flipped before stays steady state, and the mechanism stays
+as a tolerated phantom.
 
 **Competitive-inhibitor binding stays at equilibrium.** An inhibitor bound to
 two forms that a catalytic step connects carries flux through its mirror step,
@@ -470,10 +486,9 @@ competes with at least one substrate and one product, and the binding step of
 a competing ligand is never mirrored onto the inhibitor-bound branch, so that
 branch never completes the net reaction. Ping-pong is the one enumerated family
 whose catalytic cycle has more than one chemistry step; there an inhibitor that
-competes with the first
-half-reaction's ligands can still let the modified enzyme run the second half
-with the inhibitor bound, which is the two-site picture, and the inhibitor
-must leave before the next cycle.
+competes with the first half-reaction's ligands can still let the modified enzyme run
+the second half with the inhibitor bound, which is the two-site picture, and the
+inhibitor must leave before the next cycle.
 
 **Splits follow binding context.** A group is divided only by whether another
 ligand is already bound, by conformation, or by covalent residual. Arbitrary
@@ -485,6 +500,6 @@ unreachable.
 whose rate function can be shown to equal the parent's: a split the constraint
 solver ties back, a flip that leaves the segment count unchanged, a flip that
 leaves a steady-state group without flux, a flip of a steady-state chain's flank,
-a redundant dead-end copy. A few children whose law
-is the parent's up to renaming the constants survive; they share the parent's key, so
-identify fits their law once, and they never win selection.
+a redundant dead-end copy. A few children whose law is the parent's up to renaming the
+constants survive; they share the parent's key, so identify fits their law once, and
+they never win selection.

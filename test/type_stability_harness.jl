@@ -145,15 +145,15 @@ macro _testhelper_dispatches_in(sets_and_call...)
 end
 
 @testset "the type-stability harness" begin
-    plain_concrete = EnzymeRates.Mechanism(@enzyme_mechanism begin
+    plain_concrete = @enzyme_mechanism begin
         substrates: S
         products:   P
         steps: begin
-            E + S ⇌ E(S)
-            E(S) <--> E(P)
-            E(P) ⇌ E + P
+            E + S ⇌ ES
+            ES <--> EP
+            EP ⇌ E + P
         end
-    end)
+    end
     check = EnzymeRates.Derivation.check_valid_rate_equation
 
     @testset "it finds a boxed variable and a call on a Ref{Any}" begin
@@ -194,7 +194,8 @@ end
         guard = filter(s -> s.function_name == :_guard_message,
                        _testhelper_dispatch_sites(check, (typeof(plain_concrete),)))
         @test !isempty(guard)
-        @test all(s -> endswith(string(s.file), "messages.jl"), guard)
+        @test all(s -> endswith(string(s.file), "rate_equation_correctness_guard.jl"),
+                  guard)
     end
 
     @testset "a row's sets must allow every site, and each set must be used" begin

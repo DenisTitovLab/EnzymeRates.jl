@@ -1,5 +1,5 @@
-# ABOUTME: Parses src/ for the module boundary tests (cross-module uses, public names,
-# ABOUTME: exports) and generates the module map and the module table from them.
+# ABOUTME: Parses src/ for the boundary tests (cross-module uses, public names, exports,
+# ABOUTME: the names each file defines and takes) and generates the map and the tables.
 
 # The submodules, each a folder src/<Module>/ with src/<Module>/<Module>.jl.
 const _testhelper_MODULES = (:Data, :Mechanisms, :Derivation, :Enumeration, :Fitting,
@@ -174,11 +174,12 @@ const _testhelper_MAP_BOXES = (:EnzymeRates => "top", :DSL => "dsl", :Plotting =
     :Enumeration => "enum", :Fitting => "fit", :Derivation => "der", :Data => "data",
     :Mechanisms => "mech")
 
-"""The names of the `struct` and `abstract type` definitions under `root`."""
-function _testhelper_type_names(root)
+"""The names of the `struct` and `abstract type` definitions in `path`, a file or a folder
+of files."""
+function _testhelper_type_names(path)
     types = Set{Symbol}()
     typename(ex) = ex isa Symbol ? ex : typename(ex.args[1])
-    for file in _testhelper_source_files(root)
+    for file in (isfile(path) ? [path] : _testhelper_source_files(path))
         _testhelper_walk(Meta.parseall(read(file, String))) do ex, _
             ex.head === :struct && push!(types, typename(ex.args[2]))
             ex.head === :abstract && push!(types, typename(ex.args[1]))
@@ -192,8 +193,9 @@ the docstring's sentence is a line break in the diagram's box."""
 function _testhelper_box_sentence(file, mod::Symbol)
     docstring = nothing
     _testhelper_walk(Meta.parseall(read(file, String))) do ex, _
+        ex.head === :macrocall || return
         target = ex.args[end]
-        if ex.head === :macrocall && target isa Expr && target.head === :module &&
+        if target isa Expr && target.head === :module &&
            target.args[2] === mod && ex.args[end - 1] isa String
             docstring = ex.args[end - 1]
         end
@@ -264,6 +266,11 @@ function _testhelper_module_map(root)
     _testhelper_MAP_HEADER * join(lines, "\n") * "\n"
 end
 
+"""`names` as a table cell writes them: in the diagram's order, each in backticks, an
+exported one after a ★."""
+_testhelper_table_names(names, types, exports) = join([(n in exports ? "★ " : "") * "`$n`"
+    for n in _testhelper_map_order(names, types, exports)], ", ")
+
 """The module table of the tree at `root`, as Markdown: a row for the top level and each
 module that has a folder, with the first sentence of its docstring, its public names (the
 top level's are the exports no module owns) and the modules its layer lets it call."""
@@ -272,8 +279,7 @@ function _testhelper_module_table(root)
         for m in keys(_testhelper_module_sources(root)))
     exports = _testhelper_exports(joinpath(root, "EnzymeRates.jl"))
     types = _testhelper_type_names(root)
-    shown(names) = join([(n in exports ? "★ " : "") * "`$n`"
-        for n in _testhelper_map_order(names, types, exports)], ", ")
+    shown(names) = _testhelper_table_names(names, types, exports)
     callable(layer) = isempty(layer) ? "none" : join(layer, ", ")
     rows = ["| Module | What it does | Public names (★ exported) | May call |",
         "|:--|:--|:--|:--|"]
@@ -289,8 +295,281 @@ function _testhelper_module_table(root)
     join(rows, "\n") * "\n"
 end
 
-# The two blocks generated from src/: the lines that open and close each, the function that
-# generates its text from a source tree, and how a problem line describes it.
+"""The names that the top-level statement `ex` defines, pushed to `names`: a function's,
+in long or short form; a macro's, as `Symbol("@name")`; a `const`'s; a type's; and an
+`@enum`'s type and values; under a docstring or a macro such as `@inline` too. A method of
+a qualified name (`Base.show`) or of a callable object defines no name. Not seen: a
+definition inside a top-level `let`, `if`, `@static if` or loop (`for … @eval`), and the
+names of `const A, B = …`."""
+function _testhelper_defined_names!(names, ex)
+    ex isa Expr || return names
+    bare(x) = x isa Expr && x.head in (:where, :(::), :curly, :<:) ? bare(x.args[1]) : x
+    add!(x) = x isa Symbol && push!(names, x)
+    if ex.head === :macrocall && ex.args[1] === Symbol("@enum")
+        for a in ex.args[3:end], x in (a isa Expr && a.head === :block ? a.args : [a])
+            add!(bare(x))
+        end
+    elseif ex.head === :macrocall
+        _testhelper_defined_names!(names, ex.args[end])
+    elseif ex.head in (:function, :(=))
+        sig = bare(ex.args[1])
+        if sig isa Expr && sig.head === :call
+            f = sig.args[1]
+            add!(f isa Expr && f.head === :curly ? f.args[1] : f)
+        elseif ex.head === :function
+            add!(sig)  # `function f end`
+        end
+    elseif ex.head === :macro
+        add!(Symbol("@", ex.args[1].args[1]))
+    elseif ex.head === :const
+        add!(bare(ex.args[1].args[1]))
+    elseif ex.head === :struct
+        add!(bare(ex.args[2]))
+    elseif ex.head in (:abstract, :primitive)
+        add!(bare(ex.args[1]))
+    elseif ex.head in (:block, :toplevel)
+        foreach(a -> _testhelper_defined_names!(names, a), ex.args)
+    end
+    names
+end
+
+"""The names the code of `ex` refers to, pushed to `found`. A quoted symbol refers to
+nothing, though the code a quote interpolates does; nor do a field after a dot, a keyword
+or named-tuple field name (`f(; a = 1)`, `(a = 1,)`) and the names of a `using`, `import`,
+`export` or `public` statement. Strings, comments and docstrings hold no names, but a
+string's interpolations do. A local variable or argument named like a sibling's definition
+counts as a use of it, so rename the local. Code inside a quote, such as a macro's output
+or a `@generated` body, is not seen."""
+function _testhelper_referenced_names!(found, ex, quoted::Bool = false)
+    if ex isa Symbol
+        quoted || push!(found, ex)
+    elseif ex isa Expr
+        if ex.head === :$
+            _testhelper_referenced_names!(found, ex.args[1])
+        elseif quoted || ex.head === :quote
+            foreach(a -> _testhelper_referenced_names!(found, a, true), ex.args)
+        elseif ex.head === :kw
+            # `k::T = d`, a keyword or an argument with a default, uses `T` and `d`.
+            ex.args[1] isa Expr && ex.args[1].head === :(::) &&
+                _testhelper_referenced_names!(found, ex.args[1].args[end])
+            _testhelper_referenced_names!(found, ex.args[2])
+        elseif ex.head === :tuple
+            for a in ex.args
+                field = a isa Expr && a.head === :(=) && a.args[1] isa Symbol
+                _testhelper_referenced_names!(found, field ? a.args[2] : a)
+            end
+        elseif !(ex.head in (:using, :import, :export, :public))
+            foreach(a -> _testhelper_referenced_names!(found, a), ex.args)
+        end
+    end
+    found
+end
+
+"""Each source file of the tree at `root` but the module headers: the top level's, then
+each module's, modules in the order of the module map and a module's files in the order
+its header includes them (any it does not include last, by name). Each is
+`(; mod, path, defines, takes, includes)`: its module (`:EnzymeRates` for the top level),
+its path relative to `root`, the names it defines at top level, the names it takes from
+each sibling file as `sibling path => names`, siblings in file order, and whether it calls
+`include` (a call written `Base.include` is not seen). A file takes a name from a sibling
+when the sibling defines it, the file does not, and the file's code refers to it
+(`_testhelper_defined_names!`, `_testhelper_referenced_names!`)."""
+function _testhelper_file_scans(root)
+    scans = []
+    for (mod, _) in _testhelper_MAP_BOXES
+        top = mod === :EnzymeRates
+        dir = top ? root : joinpath(root, string(mod))
+        isdir(dir) || continue
+        header = joinpath(dir, "$mod.jl")
+        order = String[]
+        _testhelper_walk(Meta.parseall(read(header, String))) do ex, _
+            ex.head === :call && ex.args[1] === :include && ex.args[end] isa String &&
+                push!(order, joinpath(dir, ex.args[end]))
+        end
+        files = top ? filter(endswith(".jl"), readdir(root; join = true)) :
+                _testhelper_source_files(dir)
+        sort!(filter!(!=(header), files);
+            by = f -> (something(findfirst(==(f), order), length(order) + 1), f))
+        parsed = [Meta.parseall(read(f, String)) for f in files]
+        defines = [_testhelper_defined_names!(Set{Symbol}(), ex) for ex in parsed]
+        for (i, file) in enumerate(files)
+            uses = setdiff(_testhelper_referenced_names!(Set{Symbol}(), parsed[i]),
+                defines[i])
+            takes = [_testhelper_relpath(root, files[j]) =>
+                         sort!(collect(intersect(uses, defines[j])))
+                     for j in eachindex(files) if j != i]
+            push!(scans, (; mod, path = _testhelper_relpath(root, file),
+                defines = defines[i], takes = filter!(t -> !isempty(t.second), takes),
+                includes = :include in uses))
+        end
+    end
+    scans
+end
+
+# File names that say nothing of what a file gives the package.
+const _testhelper_VAGUE_STEMS = ("utils", "util", "helpers", "helper", "common", "misc",
+    "types", "core", "internal", "internals", "functions")
+
+"""Where the source files of the tree at `root`, module headers aside, break the naming
+and include rules, one line each: a file that calls `include`, which only a module's
+header does; a file whose name says nothing of what it holds (`_testhelper_VAGUE_STEMS`);
+a file named for a public name of its module (an export, at the top level) that it does
+not define; a file `<x>_type.jl` that defines no type whose name is `<x>` in snake case;
+and a file `<x>_macro.jl` that defines no macro `@<x>`. Any other name names the
+calculation the file carries out and is not checked."""
+function _testhelper_file_name_and_include_problems(root)
+    apis = Dict(m => _testhelper_api(root, m)
+        for m in keys(_testhelper_module_sources(root)))
+    apis[:EnzymeRates] = Set(_testhelper_exports(joinpath(root, "EnzymeRates.jl")))
+    snake(name) = lowercase(replace(string(name), r"(?<=[a-z0-9])(?=[A-Z])" => "_"))
+    problems = String[]
+    for f in _testhelper_file_scans(root)
+        stem = chopsuffix(basename(f.path), ".jl")
+        type_name, macro_name = chopsuffix(stem, "_type"), chopsuffix(stem, "_macro")
+        f.includes && push!(problems,
+            "$(f.path) calls `include`; only a module's header includes files")
+        stem in _testhelper_VAGUE_STEMS &&
+            push!(problems, "$(f.path) has a name that says nothing of what it holds")
+        Symbol(stem) in apis[f.mod] && !(Symbol(stem) in f.defines) &&
+            push!(problems, "$(f.path) is named for `$stem`, a public name of $(f.mod), " *
+                            "but does not define it")
+        type_name == stem || any(n -> snake(n) == type_name,
+                                 _testhelper_type_names(joinpath(root, f.path))) ||
+            push!(problems, "$(f.path) ends in `_type` but defines no type whose name " *
+                            "is `$type_name` in snake case")
+        macro_name == stem || Symbol("@", macro_name) in f.defines ||
+            push!(problems, "$(f.path) ends in `_macro` but defines no macro " *
+                            "`@$macro_name`")
+    end
+    problems
+end
+
+"""The shortest route from file `from` to file `to` along `uses`, which maps each file to
+the files it takes names from: the files in order, `from` first and `to` last, at least one
+use long, so a loop when `from == to`; `nothing` when there is none."""
+function _testhelper_shortest_route(uses, from, to)
+    parent = Dict{String, String}()
+    queue = [from]
+    while !isempty(queue)
+        file = popfirst!(queue)
+        for next in uses[file]
+            haskey(parent, next) && continue
+            parent[next] = file
+            if next == to
+                route = [to]
+                while length(route) == 1 || route[1] != from
+                    pushfirst!(route, parent[route[1]])
+                end
+                return route
+            end
+            push!(queue, next)
+        end
+    end
+    nothing
+end
+
+"""One line for each group of files of a module in the tree at `root` that reach one
+another once the uses `exempt` holds are set aside: the shortest loop through the group's
+first file in file order, each file taking names from the next and the last from the
+first, naming the files in order and the names each takes. And one line for each use
+`exempt` holds that is not needed to break a loop: one that is gone, or one whose sibling
+does not reach its file once the uses `exempt` holds are set aside. The uses are checked
+in sorted order, and a use found not needed is put back before the next is checked, so of
+uses that break the same loops the last in sorted order is kept and the rest are flagged.
+A use is `(file, sibling)`, two paths relative to `root`: `file` takes names from
+`sibling`."""
+function _testhelper_file_loop_problems(root, exempt)
+    scans = _testhelper_file_scans(root)
+    takes = Dict((f.path, from) => names for f in scans for (from, names) in f.takes)
+    uses = Dict(f.path => first.(f.takes) for f in scans)
+    kept = Dict(file => filter(s -> !((file, s) in exempt), siblings)
+        for (file, siblings) in uses)
+    reaches(graph, a, b) = _testhelper_shortest_route(graph, a, b) !== nothing
+    shown(names) = join(("`$n`" for n in names), ", ")
+    problems, looped = String[], Set{String}()
+    for file in (f.path for f in scans)
+        file in looped && continue
+        loop = _testhelper_shortest_route(kept, file, file)
+        loop === nothing && continue
+        group = (g for g in keys(kept) if reaches(kept, file, g) && reaches(kept, g, file))
+        union!(looped, group)
+        push!(problems, "a loop of files, each taking names from the next: " *
+            join(["$a takes $(shown(takes[(a, b)])) from $b"
+                  for (a, b) in zip(loop, loop[2:end])], "; "))
+    end
+    for (file, sibling) in sort!(collect(exempt))
+        used = sibling in get(uses, file, String[])
+        used && reaches(kept, sibling, file) && continue
+        fault = used ? "taking names from $sibling is not needed to break a loop" :
+                "no longer takes names from $sibling"
+        push!(problems, "$file $fault; remove the use from the exemption set in " *
+                        "test/test_boundaries.jl")
+        used && push!(kept[file], sibling)
+    end
+    problems
+end
+
+"""The two `# ABOUTME: ` lines that `file` starts with, joined without the prefix, or
+`nothing` unless it starts with exactly two such lines."""
+function _testhelper_aboutme(file)
+    prefix = "# ABOUTME: "
+    lines = first(readlines(file), 3)
+    count(startswith(prefix), lines) == 2 && all(startswith(prefix), lines[1:2]) ||
+        return nothing
+    join(chopprefix.(lines[1:2], prefix), " ")
+end
+
+"""One line for each `.jl` file under `src/`, `ext/`, `test/` and `docs/` of the
+repository at `root` that does not start with exactly two `# ABOUTME: ` lines. The built
+site `docs/build` and the local results `docs/hpc_results`, which git ignores, are
+skipped."""
+function _testhelper_aboutme_problems(root)
+    skipped = (joinpath(root, "docs", "build"), joinpath(root, "docs", "hpc_results"))
+    dirs = filter(isdir, [joinpath(root, d) for d in ("src", "ext", "test", "docs")])
+    problems = String[]
+    while !isempty(dirs)
+        for path in readdir(pop!(dirs); join = true)
+            if isdir(path)
+                path in skipped || push!(dirs, path)
+            elseif endswith(path, ".jl") && _testhelper_aboutme(path) === nothing
+                push!(problems, "$(_testhelper_relpath(root, path)) does not start " *
+                                "with exactly two `# ABOUTME: ` lines")
+            end
+        end
+    end
+    sort!(problems)
+end
+
+"""The table of the source files of the tree at `root`, as Markdown: a row for each file
+in the order of `_testhelper_file_scans`, with its module, its name, its two ABOUTME lines
+joined, the public names of its module that it defines (★ exported) and each sibling file
+it takes names from, with the number of names."""
+function _testhelper_file_table(root)
+    apis = Dict(m => _testhelper_api(root, m)
+        for m in keys(_testhelper_module_sources(root)))
+    exports = _testhelper_exports(joinpath(root, "EnzymeRates.jl"))
+    apis[:EnzymeRates] = Set(exports)
+    types = _testhelper_type_names(root)
+    stem(path) = chopsuffix(basename(path), ".jl")
+    rows = ["| Module | File | What it holds | Public names it defines | " *
+            "Takes names from |", "|:--|:--|:--|:--|:--|"]
+    for f in _testhelper_file_scans(root)
+        # Documenter's Markdown reads an underscore inside a word as emphasis.
+        about = replace(something(_testhelper_aboutme(joinpath(root, f.path)), ""),
+            "_" => "\\_")
+        takes = join(["`$(stem(from))` ($(length(names)))" for (from, names) in f.takes],
+            ", ")
+        cells = [f.mod === :EnzymeRates ? "top level" : string(f.mod),
+            "`$(basename(f.path))`", about,
+            _testhelper_table_names(intersect(apis[f.mod], f.defines), types, exports),
+            takes]
+        push!(rows, "| " * join(cells, " | ") * " |")
+    end
+    join(rows, "\n") * "\n"
+end
+
+# The three blocks generated from src/: the lines that open and close each, the function
+# that generates its text from a source tree, and how a problem line describes it.
 const _testhelper_MAP_BLOCK = (; opening = "```mermaid\n", closing = "```\n",
     generate = _testhelper_module_map,
     described = "the Mermaid module map in docs/src/developer.md")
@@ -298,6 +577,13 @@ const _testhelper_TABLE_BLOCK = (;
     opening = "<!-- module table, generated from src/ by test/update_module_map.jl -->\n",
     closing = "<!-- end of module table -->\n", generate = _testhelper_module_table,
     described = "the module table in .claude/CLAUDE.md")
+# Documenter shows an HTML comment as text unless a raw block holds it.
+const _testhelper_FILE_TABLE_BLOCK = (;
+    opening = "```@raw html\n<!-- file table, generated from src/ by " *
+              "test/update_module_map.jl -->\n```\n\n",
+    closing = "\n```@raw html\n<!-- end of file table -->\n```\n",
+    generate = _testhelper_file_table,
+    described = "the file table in docs/src/developer.md")
 
 """The range of `doc` between `block`'s opening and closing lines, or `nothing` when `doc`
 lacks the block."""
