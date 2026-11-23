@@ -492,11 +492,25 @@ end
 
 What a mechanism adds to its catalytic scheme as an MWC enzyme, whose subunits switch
 together between an active and an inactive conformation: `allosteric_states[g]`, the
-allosteric state of kinetic group `g` (`:OnlyA`, `:OnlyI`, `:EqualAI` or `:NonequalAI`);
-the `oligomeric_state`, the number of subunits that switch together; and the
-`regulatory_sites`. A plain mechanism has no allosteric state, oligomeric state 1 and no
-regulatory site: `Allostery(Symbol[], 1, RegulatorySite[])`. [`Mechanism`](@ref) checks
-it against its catalytic scheme.
+allosteric state of kinetic group `g`; the `oligomeric_state`, the number of subunits that
+switch together; and the `regulatory_sites`. A plain mechanism has no allosteric state,
+oligomeric state 1 and no regulatory site: `Allostery(Symbol[], 1, RegulatorySite[])`.
+[`Mechanism`](@ref) checks it against its catalytic scheme.
+
+A kinetic group's allosteric state says which conformations run its steps, and with which
+constants:
+- `:EqualAI`: both, with the same constants;
+- `:NonequalAI`: both, each with its own constants;
+- `:OnlyA`: the active one alone; the inactive conformation excludes the steps;
+- `:OnlyI`: the inactive one alone; the active conformation excludes them.
+
+An exclusion reaches beyond its group. The conformations interconvert at free E alone, so
+a form that the steps a conformation does not exclude no longer join to free E holds no
+enzyme of that conformation, and a step between two such forms does not run in it,
+whatever its state. With `E + S ⇌ ES` and `EP ⇌ E + P` both `:OnlyA`, the inactive
+conformation has neither `ES` nor `EP`, and `ES <--> EP` does not run in it even as
+`:EqualAI`.
+`steps_running_in_allosteric_conformations` gives the steps each conformation runs.
 """
 struct Allostery
     allosteric_states::Vector{Symbol}
@@ -517,7 +531,8 @@ allosteric (MWC) otherwise. `@enzyme_mechanism` builds one from its text, and `s
 prints that text.
 
 `allosteric.allosteric_states[l]` is the allosteric state of the steps of `catalytic`
-whose kinetic group label is `l`. The constructor stores the mechanism in canonical form,
+whose kinetic group label is `l`; `Mechanisms.Allostery` says what a state means for the
+steps each conformation runs. The constructor stores the mechanism in canonical form,
 so two writings of one mechanism are `==` and hash alike: the kinetic groups numbered by
 their first step, the states moved with them, and the regulatory sites sorted. A plain
 mechanism and an allosteric one with the same catalytic scheme differ. It throws an
@@ -708,11 +723,9 @@ end
 
 The steps of mechanism `m` that run in its active and in its inactive conformation, each a
 `BitVector` with one flag per step of its catalytic scheme. A step runs in a conformation
-unless its kinetic group's allosteric state excludes it there (`:OnlyI` in the active
-conformation, `:OnlyA` in the inactive one) or it is cut off. The conformations
-interconvert at free E alone, so a form that the conformation's running steps do not join
-to free E holds no enzyme of that conformation; a step between two such forms does not
-run, whatever its state. Every step of a plain mechanism runs in both.
+unless its kinetic group's allosteric state excludes it there or the conformation's
+exclusions cut it off from free E ([`Allostery`](@ref) has the rule). Every step of a
+plain mechanism runs in both.
 """
 steps_running_in_allosteric_conformations(m::Mechanism) =
     (; active = _steps_in_conformation(m, :OnlyI),

@@ -65,6 +65,15 @@ Any catalytic group may be `:OnlyI`, such as an inhibitor's binding that only th
 conformation has, or one of two reaction paths, as long as the active conformation still
 turns substrate into product.
 
+An `:OnlyA` or `:OnlyI` state on a catalytic group reaches beyond that group. The
+conformations interconvert at free E alone, so the conformation that lacks the group also
+lacks every form its remaining steps no longer join to free E, and the steps between such
+forms, whatever their own state. If `E + S ⇌ ES` and `EP ⇌ E + P` are both `:OnlyA`, the
+inactive conformation has neither `ES` nor `EP`, and `ES <--> EP` does not run in it even
+when it is `:EqualAI`. One exclusion on a cycle cuts nothing off: the rest of the cycle
+still joins every form to free E.
+[Allosteric states as limits, and admission](@ref) says when such a law is accepted.
+
 The mechanism also declares its **oligomeric state** and the **multiplicity** of each
 regulatory site. `oligomeric_state` is the number of identical catalytic subunits, which
 change conformation together; it becomes the exponent on each conformation's catalytic

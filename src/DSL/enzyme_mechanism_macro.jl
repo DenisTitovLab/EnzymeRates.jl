@@ -84,7 +84,10 @@ conformations: `EqualAI` shares one constant, `NonequalAI` takes one for each (`
 and `K_I_…`), `OnlyA` acts in the active conformation only and `OnlyI` in the inactive
 one only. A catalytic statement or a ligand takes any of the four, as long as the active
 conformation still turns substrate into product. The conformations interconvert only at
-free E.
+free E, so a conformation that lacks a statement also lacks every form its other statements
+no longer join to free E, and the steps between such forms, whatever their state: with
+`E + S ⇌ ES :: OnlyA` and `EP ⇌ E + P :: OnlyA`, the inactive conformation has neither
+`ES` nor `EP`, and `ES <--> EP` does not run in it.
 
 When the macro's code runs, it rejects a mechanism whose rate law is not defined where data
 sit, with an error that states the fault and names the steps at fault where it has them,
