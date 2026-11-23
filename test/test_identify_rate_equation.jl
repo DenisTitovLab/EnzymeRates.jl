@@ -1,6 +1,5 @@
-# ABOUTME: Tests for identify_rate_equation pipeline.
-# ABOUTME: Covers construction, helpers, and full pipeline
-# ABOUTME: with mechanism recovery including allosteric path.
+# ABOUTME: Tests for identify_rate_equation: the problem's construction, the helpers and
+# ABOUTME: the whole search, with the recovery of a mechanism, allosteric ones included.
 
 using DataFrames
 using CSV

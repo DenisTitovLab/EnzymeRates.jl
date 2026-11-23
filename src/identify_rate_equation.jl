@@ -1,6 +1,5 @@
-# ABOUTME: Beam-search pipeline to identify the best rate equation.
-# ABOUTME: Enumerates mechanisms, fits one representative per rate-law key
-# ABOUTME: (`rate_equation_dedup_key`), and selects among the fits by cross-validation.
+# ABOUTME: identify_rate_equation, its problem and its results: the beam search over the
+# ABOUTME: candidates, one fit per rate-law key, selection by cross-validation, the CSVs.
 
 using DataFrames
 using CSV

@@ -1,6 +1,5 @@
-# ABOUTME: Three Haldane-valid :OnlyA-catalysis LDH mechanisms guarding sound
-# ABOUTME: derivation of the dependent-parameter partition (EqualAI-shared release
-# ABOUTME: rate, NonequalAI K_I, SS binding rate k_I — the shapes that once UndefVar'd).
+# ABOUTME: Three LDH mechanisms with :OnlyA catalysis whose dependent constants once raised
+# ABOUTME: UndefVarError: an EqualAI release rate, a NonequalAI K_I, a steady-state k_I.
 
 const ALLOSTERIC_UNDEFVAR_REPRODUCERS = [
     m for m in (
