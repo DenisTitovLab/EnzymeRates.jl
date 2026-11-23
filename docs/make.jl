@@ -1,3 +1,5 @@
+# ABOUTME: Builds the documentation site with Documenter, running its doctests, and
+# ABOUTME: deploys it to GitHub Pages from CI.
 using Documenter
 using DocumenterCitations
 using DocumenterMermaid
