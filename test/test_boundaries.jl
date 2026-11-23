@@ -332,15 +332,15 @@ end
     )
     @testset "a clean tree passes the file rules" begin
         _testhelper_with_tree(named_tree...) do root
-            @test _testhelper_file_name_problems(root) == String[]
+            @test _testhelper_file_name_and_include_problems(root) == String[]
         end
         _testhelper_with_tree(file_tree...) do root
-            @test _testhelper_file_name_problems(root) == String[]
+            @test _testhelper_file_name_and_include_problems(root) == String[]
             @test _testhelper_one_way_problems(root, Set{Tuple{String, String}}()) ==
                   String[]
         end
     end
-    @testset "the name rules find each fault and name the file" begin
+    @testset "the name and include rules find each fault and name the file" begin
         _testhelper_with_tree(named_tree...,
             "identify.jl" => "_identify(x) = 1",
             "Fitting/fit.jl" => "_fit(x) = 1",
@@ -351,7 +351,7 @@ end
                 "include(\"more.jl\")\n_loss(x) = 1\nstruct FitResult{T}\n    x::T\nend",
             "Fitting/outcome_type.jl" => "struct FitOutcome end",
             "Fitting/utils.jl" => "_u(x) = 1") do root
-            @test _testhelper_file_name_problems(root) == [
+            @test _testhelper_file_name_and_include_problems(root) == [
                 "identify.jl is named for `identify`, a public name of EnzymeRates, but " *
                 "does not define it",
                 "Fitting/fit.jl is named for `fit`, a public name of Fitting, but does " *
@@ -439,8 +439,8 @@ end
     @test _testhelper_aboutme_problems(joinpath(@__DIR__, "..")) == String[]
 end
 
-@testset "every source file is named for what it gives the package" begin
-    @test _testhelper_file_name_problems(_testhelper_SRC) == String[]
+@testset "source files are named for what they give; only headers include files" begin
+    @test _testhelper_file_name_and_include_problems(_testhelper_SRC) == String[]
 end
 
 # The pairs of files of a module that take names from each other today, each pair in

@@ -1,5 +1,5 @@
 # ABOUTME: CandidateMechanism, a mechanism with the enumerator's record of each form, the
-# ABOUTME: structural tests a candidate must pass, and the helpers moves and seeds share.
+# ABOUTME: structural tests of a candidate, and the helpers the moves and the seeds share.
 
 # ─── The candidate and its form records ─────────────────────────────────
 

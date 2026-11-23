@@ -298,7 +298,9 @@ end
 """The names that the top-level statement `ex` defines, pushed to `names`: a function's,
 in long or short form; a macro's, as `Symbol("@name")`; a `const`'s; a type's; and an
 `@enum`'s type and values; under a docstring or a macro such as `@inline` too. A method of
-a qualified name (`Base.show`) or of a callable object defines no name."""
+a qualified name (`Base.show`) or of a callable object defines no name. Not seen: a
+definition inside a top-level `let`, `if`, `@static if` or loop (`for … @eval`), and the
+names of `const A, B = …`."""
 function _testhelper_defined_names!(names, ex)
     ex isa Expr || return names
     bare(x) = x isa Expr && x.head in (:where, :(::), :curly, :<:) ? bare(x.args[1]) : x
@@ -310,10 +312,7 @@ function _testhelper_defined_names!(names, ex)
     elseif ex.head === :macrocall
         _testhelper_defined_names!(names, ex.args[end])
     elseif ex.head in (:function, :(=))
-        sig = ex.args[1]
-        while sig isa Expr && sig.head in (:where, :(::))
-            sig = sig.args[1]
-        end
+        sig = bare(ex.args[1])
         if sig isa Expr && sig.head === :call
             f = sig.args[1]
             add!(f isa Expr && f.head === :curly ? f.args[1] : f)
@@ -338,7 +337,9 @@ end
 nothing, though the code a quote interpolates does; nor do a field after a dot, a keyword
 or named-tuple field name (`f(; a = 1)`, `(a = 1,)`) and the names of a `using`, `import`,
 `export` or `public` statement. Strings, comments and docstrings hold no names, but a
-string's interpolations do."""
+string's interpolations do. A local variable or argument named like a sibling's definition
+counts as a use of it, so rename the local. Code inside a quote, such as a macro's output
+or a `@generated` body, is not seen."""
 function _testhelper_referenced_names!(found, ex, quoted::Bool = false)
     if ex isa Symbol
         quoted || push!(found, ex)
@@ -370,9 +371,9 @@ its header includes them (any it does not include last, by name). Each is
 `(; mod, path, defines, takes, includes)`: its module (`:EnzymeRates` for the top level),
 its path relative to `root`, the names it defines at top level, the names it takes from
 each sibling file as `sibling path => names`, siblings in file order, and whether it calls
-`include`. A file takes a name from a sibling when the sibling defines it, the file does
-not, and the file's code refers to it (`_testhelper_defined_names!`,
-`_testhelper_referenced_names!`)."""
+`include` (a call written `Base.include` is not seen). A file takes a name from a sibling
+when the sibling defines it, the file does not, and the file's code refers to it
+(`_testhelper_defined_names!`, `_testhelper_referenced_names!`)."""
 function _testhelper_file_scans(root)
     scans = []
     for (mod, _) in _testhelper_MAP_BOXES
@@ -410,13 +411,13 @@ const _testhelper_VAGUE_STEMS = ("utils", "util", "helpers", "helper", "common",
     "types", "core", "internal", "internals", "functions")
 
 """Where the source files of the tree at `root`, module headers aside, break the naming
-rules, one line each: a file that calls `include`, which only a module's header does; a
-file whose name says nothing of what it holds (`_testhelper_VAGUE_STEMS`); a file named
-for a public name of its module (an export, at the top level) that it does not define; a
-file `<x>_type.jl` that defines no type whose name is `<x>` in snake case; and a file
-`<x>_macro.jl` that defines no macro `@<x>`. Any other name names the calculation the file
-carries out and is not checked."""
-function _testhelper_file_name_problems(root)
+and include rules, one line each: a file that calls `include`, which only a module's
+header does; a file whose name says nothing of what it holds (`_testhelper_VAGUE_STEMS`);
+a file named for a public name of its module (an export, at the top level) that it does
+not define; a file `<x>_type.jl` that defines no type whose name is `<x>` in snake case;
+and a file `<x>_macro.jl` that defines no macro `@<x>`. Any other name names the
+calculation the file carries out and is not checked."""
+function _testhelper_file_name_and_include_problems(root)
     apis = Dict(m => _testhelper_api(root, m)
         for m in keys(_testhelper_module_sources(root)))
     apis[:EnzymeRates] = Set(_testhelper_exports(joinpath(root, "EnzymeRates.jl")))
@@ -482,17 +483,17 @@ site `docs/build` and the local results `docs/hpc_results`, which git ignores, a
 skipped."""
 function _testhelper_aboutme_problems(root)
     skipped = (joinpath(root, "docs", "build"), joinpath(root, "docs", "hpc_results"))
+    dirs = filter(isdir, [joinpath(root, d) for d in ("src", "ext", "test", "docs")])
     problems = String[]
-    check(dir) = for path in readdir(dir; join = true)
-        if isdir(path)
-            path in skipped || check(path)
-        elseif endswith(path, ".jl") && _testhelper_aboutme(path) === nothing
-            push!(problems, "$(_testhelper_relpath(root, path)) does not start with " *
-                            "exactly two `# ABOUTME: ` lines")
+    while !isempty(dirs)
+        for path in readdir(pop!(dirs); join = true)
+            if isdir(path)
+                path in skipped || push!(dirs, path)
+            elseif endswith(path, ".jl") && _testhelper_aboutme(path) === nothing
+                push!(problems, "$(_testhelper_relpath(root, path)) does not start " *
+                                "with exactly two `# ABOUTME: ` lines")
+            end
         end
-    end
-    for folder in ("src", "ext", "test", "docs")
-        isdir(joinpath(root, folder)) && check(joinpath(root, folder))
     end
     sort!(problems)
 end

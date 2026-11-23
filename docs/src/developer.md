@@ -245,7 +245,7 @@ from" says that the file uses six names that `expansion_moves.jl` defines. Two p
 | DSL | `enzyme_reaction_macro.jl` | @enzyme\_reaction, which builds an EnzymeReaction, and the reader of its block: reactants with their atom brackets, regulators, oligomeric states, shared sites. | ★ `@enzyme_reaction` |  |
 | DSL | `enzyme_mechanism_macro.jl` | @enzyme\_mechanism and parse\_mechanism, which build a mechanism from its text and check it with the guard, and the reader of a mechanism block as written. | ★ `@enzyme_mechanism`, `parse_mechanism` |  |
 | Plotting | `plot_rate_equation_on_data.jl` | plot\_rate\_equation\_on\_data and the plain description of each measurement group's panel it prepares; ext/EnzymeRatesMakieExt.jl draws the panels with Makie. | ★ `plot_rate_equation_on_data` |  |
-| Enumeration | `candidate_mechanism_type.jl` | CandidateMechanism, a mechanism with the enumerator's record of each form, the structural tests a candidate must pass, and the helpers moves and seeds share. | `CandidateMechanism` |  |
+| Enumeration | `candidate_mechanism_type.jl` | CandidateMechanism, a mechanism with the enumerator's record of each form, the structural tests of a candidate, and the helpers the moves and the seeds share. | `CandidateMechanism` |  |
 | Enumeration | `expansion_moves.jl` | A candidate's children, candidate\_mechanisms(reaction, parent), and the moves that make them: RE→SS flips, group splits, regulators, states, site merges. | `candidate_mechanisms` | `candidate_mechanism_type` (26) |
 | Enumeration | `starting_mechanisms.jl` | The starting mechanisms of a reaction, candidate\_mechanisms(reaction): catalytic topologies, dead-end decorations, merged and Theorell–Chance variants, seeds. | `candidate_mechanisms` | `candidate_mechanism_type` (21), `expansion_moves` (6) |
 | Fitting | `fit_rate_equation.jl` | Fitting rate equations to experimental data and scaling them to a reference scale: FittingProblem, the loss, multi-start fits and test\_rate\_equation. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` |  |
@@ -380,7 +380,7 @@ package, and fails on:
 4. an `export` in a module, which would let `using ..Mod` bring in bare names.
 
 To use another module's function, it must be public there, under a name without an
-underscore. The test also parses this page and fails when a table under
+underscore. The test also parses this page and fails when an interface table under
 "Modules" disagrees with `src/`, naming the module and the names to add or remove.
 
 The test also checks the test files' names. A test file is `test_<file>.jl` for the one
@@ -399,13 +399,13 @@ says nothing of what it holds (`utils.jl`, `helpers.jl`, `types.jl` and the like
 file is named for a public name of its module, or an export at the top level, that it does
 not define; when a file `<x>_type.jl` defines no type whose name is `<x>` in snake case, or
 a file `<x>_macro.jl` no macro `@<x>`; when two files of a module take names from each
-other, unless the test lists the pair as a known exception; and when the table of files
-differs from the one generated from `src/`. A file takes a name from another file of its
-module when that file defines the name at top level, the file does not, and the file's
-code uses it; a name in a string, comment, docstring or quote, a field after a dot, and a
-keyword or named-tuple field name are no use. Last, the test fails on a `.jl` file under
-`src/`, `ext/`, `test/` or `docs/` that does not start with exactly two `# ABOUTME: `
-lines.
+other, unless the test lists the pair as a known exception, and when a listed pair no
+longer does; and when the table of files differs from the one generated from `src/`. A
+file takes a name from another file of its module when that file defines the name at top
+level, the file does not, and the file's code uses it; a name in a string, comment,
+docstring or quote, a field after a dot, and a keyword or named-tuple field name are no
+use. Last, the test fails on a `.jl` file under `src/`, `ext/`, `test/` or `docs/` that
+does not start with exactly two `# ABOUTME: ` lines.
 
 ## Derivation architecture
 
