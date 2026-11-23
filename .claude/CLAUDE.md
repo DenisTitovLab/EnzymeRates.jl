@@ -54,9 +54,9 @@ the part for a module before changing its internals.
   the calculation it carries out (`rate_equation_derivation.jl`,
   `rate_equation_correctness_guard.jl`). Never `utils.jl`, `helpers.jl` or `types.jl`.
 - Keep calls between the files of a module few and one-way: a file does not use a file
-  that uses it. A helper lives in the file of its callers; one that two files need lives
-  in the file that owns the idea. The file table on the Developer page counts the names
-  each file takes from the others.
+  that uses it, directly or through other files. A helper lives in the file of its
+  callers; one that two files need lives in the file that owns the idea. The file table
+  on the Developer page counts the names each file takes from the others.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
 - Only the exports (★) are promised to users. Users and tests can also reach
@@ -214,11 +214,11 @@ an approved interface change.
   `docs/src/developer.md` disagree with `src/`, when a test file is named for no source
   file, and when a source file has no test file. It enforces the file rules above: it
   fails on a source file named `utils.jl` or the like, or named for a function, type or
-  macro it does not define; on an `include` outside a header; on two files of a module
-  that use each other (the pairs `ROADMAP.md` lists aside); and on a code file without
-  its two `ABOUTME` lines. After changing a `public` statement, an export, a module
-  docstring, a cross-module call, a call between the files of a module or a file's
-  `ABOUTME` lines, update the developer page in the same commit and run
+  macro it does not define; on an `include` outside a header; on a loop of files in a
+  module, each taking names from the next (the uses `ROADMAP.md` lists aside); and on a
+  code file without its two `ABOUTME` lines. After changing a `public` statement, an
+  export, a module docstring, a cross-module call, a call between the files of a module
+  or a file's `ABOUTME` lines, update the developer page in the same commit and run
   `julia test/update_module_map.jl`.
 - **Type stability.** `test/test_type_stability.jl` requires that JET find no run-time
   dispatch under any exported or public function, internal callees included. The suite
