@@ -276,7 +276,7 @@ end
             macro _twice(x)
                 :(2 * \$(esc(x)))
             end
-            @inline _loss(p::Problem; kind = _PLAIN) = _SCALE * _size(p) + p.fit
+            @inline _loss(p::Problem; kind::_Kind = _PLAIN) = _SCALE * _size(p) + p.fit
             """,
         "Fitting/fit.jl" => """
             # ABOUTME: fit, which minimizes
@@ -290,7 +290,7 @@ end
         "Fitting/report.jl" => """
             # ABOUTME: The report of
             # ABOUTME: a fit.
-            fit(p, n) = fit(p)
+            fit(p, n::AbstractProblem = p) = fit(p)
             report(p) = (_size = :_size, text = "_loss", code = :(f(\$_SCALE)),
                          value = "\$(_loss(p))")
             """,
@@ -300,16 +300,19 @@ end
             scans = _testhelper_file_scans(root)
             # A keyword or named-tuple field, a field after a dot, a quoted symbol, a
             # string, a comment and a docstring refer to nothing; a quote's and a string's
-            # interpolations do. A function both files define is taken by neither.
+            # interpolations do, and so does the type of an argument with a default. A
+            # function both files define is taken by neither.
             @test [(f.mod, f.path, f.takes) for f in scans] == [
                 (:EnzymeRates, "identify.jl", []),
                 (:Fitting, "Fitting/problem_type.jl", []),
                 (:Fitting, "Fitting/loss.jl",
-                 ["Fitting/problem_type.jl" => [:Problem, :_PLAIN, :_size]]),
+                 ["Fitting/problem_type.jl" => [:Problem, :_Kind, :_PLAIN, :_size]]),
                 (:Fitting, "Fitting/fit.jl",
                  ["Fitting/problem_type.jl" => [:AbstractProblem],
                   "Fitting/loss.jl" => [Symbol("@_twice"), :_loss]]),
-                (:Fitting, "Fitting/report.jl", ["Fitting/loss.jl" => [:_SCALE, :_loss]])]
+                (:Fitting, "Fitting/report.jl",
+                 ["Fitting/problem_type.jl" => [:AbstractProblem],
+                  "Fitting/loss.jl" => [:_SCALE, :_loss]])]
             @test [f.defines for f in scans] == [Set([:identify]),
                 Set([:AbstractProblem, :Problem, :_Kind, :_PLAIN, :_ALLOSTERIC, :_size]),
                 Set([:_SCALE, Symbol("@_twice"), :_loss]), Set([:fit]),
@@ -341,8 +344,11 @@ end
         _testhelper_with_tree(named_tree...,
             "identify.jl" => "_identify(x) = 1",
             "Fitting/fit.jl" => "_fit(x) = 1",
+            # The struct moved to another file; an outer constructor stayed.
+            "Fitting/fit_result_type.jl" => "FitResult(x::Int) = FitResult{Int}(x)",
             "Fitting/fitted_macro.jl" => "macro fit_it(x)\n    x\nend",
-            "Fitting/loss.jl" => "include(\"more.jl\")\n_loss(x) = 1",
+            "Fitting/loss.jl" =>
+                "include(\"more.jl\")\n_loss(x) = 1\nstruct FitResult{T}\n    x::T\nend",
             "Fitting/outcome_type.jl" => "struct FitOutcome end",
             "Fitting/utils.jl" => "_u(x) = 1") do root
             @test _testhelper_file_name_problems(root) == [
@@ -350,6 +356,8 @@ end
                 "does not define it",
                 "Fitting/fit.jl is named for `fit`, a public name of Fitting, but does " *
                 "not define it",
+                "Fitting/fit_result_type.jl ends in `_type` but defines no type whose " *
+                "name is `fit_result` in snake case",
                 "Fitting/fitted_macro.jl ends in `_macro` but defines no macro `@fitted`",
                 "Fitting/loss.jl calls `include`; only a module's header includes files",
                 "Fitting/outcome_type.jl ends in `_type` but defines no type whose name " *
@@ -363,8 +371,8 @@ end
             "Fitting/problem_type.jl" => problem_type * "_check(p) = _loss(p)\n") do root
             @test _testhelper_one_way_problems(root, Set{Tuple{String, String}}()) == [
                 "Fitting/loss.jl and Fitting/problem_type.jl take names from each " *
-                "other: loss.jl takes `Problem`, `_PLAIN`, `_size`; problem_type.jl " *
-                "takes `_loss`"]
+                "other: loss.jl takes `Problem`, `_Kind`, `_PLAIN`, `_size`; " *
+                "problem_type.jl takes `_loss`"]
             @test _testhelper_one_way_problems(root, Set([pair])) == String[]
         end
         _testhelper_with_tree(file_tree...) do root
@@ -402,19 +410,19 @@ end
             "|:--|:--|:--|:--|:--|",
             "| top level | `identify.jl` | identify, the best law. | ★ `identify` " *
             "|  |",
-            "| Fitting | `problem_type.jl` | Problem and \\_size, the data a fit reads. | " *
-            "`Problem` |  |",
-            "| Fitting | `loss.jl` | The loss. Scaled. |  | `problem_type` (3) |",
+            "| Fitting | `problem_type.jl` | Problem and \\_size, the data a fit " *
+            "reads. | `Problem` |  |",
+            "| Fitting | `loss.jl` | The loss. Scaled. |  | `problem_type` (4) |",
             "| Fitting | `fit.jl` | fit, which minimizes the loss. | ★ `fit` | " *
             "`problem_type` (1), `loss` (2) |",
-            "| Fitting | `report.jl` | The report of a fit. | ★ `fit` | `loss` (2) |", ""],
-            "\n")
+            "| Fitting | `report.jl` | The report of a fit. | ★ `fit` | " *
+            "`problem_type` (1), `loss` (2) |", ""], "\n")
         _testhelper_with_tree(file_tree...) do root
             block = _testhelper_FILE_TABLE_BLOCK
             @test _testhelper_file_table(root) == expected
             doc = "text\n\n$(block.opening)$(expected)$(block.closing)\nmore\n"
             @test _testhelper_generated_block_problems(doc, block, root) == String[]
-            stale = replace(doc, "(3)" => "(2)")
+            stale = replace(doc, "(4)" => "(3)")
             @test _testhelper_generated_block_problems(stale, block, root) == [
                 "the file table in docs/src/developer.md differs from the one generated " *
                 "from src/; rewrite it with `julia test/update_module_map.jl`"]

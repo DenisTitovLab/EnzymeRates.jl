@@ -174,11 +174,12 @@ const _testhelper_MAP_BOXES = (:EnzymeRates => "top", :DSL => "dsl", :Plotting =
     :Enumeration => "enum", :Fitting => "fit", :Derivation => "der", :Data => "data",
     :Mechanisms => "mech")
 
-"""The names of the `struct` and `abstract type` definitions under `root`."""
-function _testhelper_type_names(root)
+"""The names of the `struct` and `abstract type` definitions in `path`, a file or a folder
+of files."""
+function _testhelper_type_names(path)
     types = Set{Symbol}()
     typename(ex) = ex isa Symbol ? ex : typename(ex.args[1])
-    for file in _testhelper_source_files(root)
+    for file in (isfile(path) ? [path] : _testhelper_source_files(path))
         _testhelper_walk(Meta.parseall(read(file, String))) do ex, _
             ex.head === :struct && push!(types, typename(ex.args[2]))
             ex.head === :abstract && push!(types, typename(ex.args[1]))
@@ -347,6 +348,9 @@ function _testhelper_referenced_names!(found, ex, quoted::Bool = false)
         elseif quoted || ex.head === :quote
             foreach(a -> _testhelper_referenced_names!(found, a, true), ex.args)
         elseif ex.head === :kw
+            # `k::T = d`, a keyword or an argument with a default, uses `T` and `d`.
+            ex.args[1] isa Expr && ex.args[1].head === :(::) &&
+                _testhelper_referenced_names!(found, ex.args[1].args[end])
             _testhelper_referenced_names!(found, ex.args[2])
         elseif ex.head === :tuple
             for a in ex.args
@@ -416,7 +420,6 @@ function _testhelper_file_name_problems(root)
     apis = Dict(m => _testhelper_api(root, m)
         for m in keys(_testhelper_module_sources(root)))
     apis[:EnzymeRates] = Set(_testhelper_exports(joinpath(root, "EnzymeRates.jl")))
-    types = _testhelper_type_names(root)
     snake(name) = lowercase(replace(string(name), r"(?<=[a-z0-9])(?=[A-Z])" => "_"))
     problems = String[]
     for f in _testhelper_file_scans(root)
@@ -429,7 +432,8 @@ function _testhelper_file_name_problems(root)
         Symbol(stem) in apis[f.mod] && !(Symbol(stem) in f.defines) &&
             push!(problems, "$(f.path) is named for `$stem`, a public name of $(f.mod), " *
                             "but does not define it")
-        type_name == stem || any(n -> n in types && snake(n) == type_name, f.defines) ||
+        type_name == stem || any(n -> snake(n) == type_name,
+                                 _testhelper_type_names(joinpath(root, f.path))) ||
             push!(problems, "$(f.path) ends in `_type` but defines no type whose name " *
                             "is `$type_name` in snake case")
         macro_name == stem || Symbol("@", macro_name) in f.defines ||
