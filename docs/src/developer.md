@@ -227,13 +227,14 @@ Three rules govern the source files of a module:
    `rate_equation_correctness_guard.jl`). A name then leads to its file, which `utils.jl`,
    `helpers.jl` or `types.jl` never do.
 3. Calls between the files of a module are few and one-way: a file does not use a file
-   that uses it. A reader then understands a file from the files it uses, and a change
-   to a file can break only the files that use it.
+   that uses it, directly or through other files. A reader then understands a file from
+   the files it uses, and a change to a file can break only the files that use it.
 
 The table below is generated from `src/`; "What it holds" is each file's two `ABOUTME`
 lines. In the row of `starting_mechanisms.jl`, `expansion_moves` (6) under "Takes names
 from" says that the file uses six names that `expansion_moves.jl` defines. Two pairs of
-`Derivation` files use each other; `ROADMAP.md` lists them under "Known issues".
+`Derivation` files use each other, which joins three files in loops; `ROADMAP.md` lists
+both pairs under "Known issues", with the use in each that would have to go.
 
 ```@raw html
 <!-- file table, generated from src/ by test/update_module_map.jl -->
@@ -398,14 +399,15 @@ The test also checks the source files, module headers aside, against the rules u
 says nothing of what it holds (`utils.jl`, `helpers.jl`, `types.jl` and the like); when a
 file is named for a public name of its module, or an export at the top level, that it does
 not define; when a file `<x>_type.jl` defines no type whose name is `<x>` in snake case, or
-a file `<x>_macro.jl` no macro `@<x>`; when two files of a module take names from each
-other, unless the test lists the pair as a known exception, and when a listed pair no
-longer does; and when the table of files differs from the one generated from `src/`. A
-file takes a name from another file of its module when that file defines the name at top
-level, the file does not, and the file's code uses it; a name in a string, comment,
-docstring or quote, a field after a dot, and a keyword or named-tuple field name are no
-use. Last, the test fails on a `.jl` file under `src/`, `ext/`, `test/` or `docs/` that
-does not start with exactly two `# ABOUTME: ` lines.
+a file `<x>_macro.jl` no macro `@<x>`; when a file of a module takes names from a file that
+uses it, directly or through other files, once the uses the test lists as known exceptions
+are set aside, naming the loop's files in order and the names each takes from the next;
+when a listed use no longer closes a loop; and when the table of files differs from the
+one generated from `src/`. A file takes a name from another file of its module when that
+file defines the name at top level, the file does not, and the file's code uses it; a name
+in a string, comment, docstring or quote, a field after a dot, and a keyword or
+named-tuple field name are no use. Last, the test fails on a `.jl` file under `src/`,
+`ext/`, `test/` or `docs/` that does not start with exactly two `# ABOUTME: ` lines.
 
 ## Derivation architecture
 

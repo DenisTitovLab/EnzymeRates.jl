@@ -321,18 +321,23 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   `_aggregated_chain`), the faces (`_faces`, `_face_phrase`), `_guard` and
   `_steady_state_passes`. The guard takes eight back: `_SlowUptakeReading`,
   `_built_reading`, `_consistent_columns`, `_admission_interior`, `_admission_face`,
-  `_active_turnover_verdict`, `_admission_message` and `_conformation_suffix`. Merging the
-  two files (2,551 lines) or cutting them along a line the calls cross one way would end
-  the cycle; `test/test_boundaries.jl` exempts the pair until then.
+  `_active_turnover_verdict`, `_admission_message` and `_conformation_suffix`. Those eight
+  are the use that would go: the allosteric guard builds on the guard's verdicts and
+  networks, while the guard reaches admission only from its reading search
+  (`_guard_with_reading`, `_verdict_under`, `_faces_verdict`) and its messages
+  (`_guard_message`, `_face_message`). Merging the two files (2,551 lines), or cutting them
+  so that the guard's entry, its reading search and the messages of both files, which
+  rerun the guard to check an offered fix, sit above admission, would end the loop.
+  `test/test_boundaries.jl` sets the guard's use of the allosteric guard aside until then.
 - **The guard and the thermodynamic solve take names from each other.**
   `rate_equation_correctness_guard.jl` takes `_shared_constant_names` from
   `thermodynamic_constraints.jl`, to reject two constants with one name, and
   `thermodynamic_constraints.jl` takes `check_valid_rate_equation` from the guard:
   `parameters`, `parameter_units` and `dependent_parameter_values` call it to refuse a law
-  that is not defined. Moving those three functions to a file that uses both would end the
-  cycle; moving `_shared_constant_names` alone would not, since it reads
-  `_constant_columns` and `_regulator_names`, which the solve uses too.
-  `test/test_boundaries.jl` exempts the pair until then.
+  that is not defined. That use is the one that would go: moving those three functions to a
+  file that uses both would end the loop; moving `_shared_constant_names` alone would not,
+  since it reads `_constant_columns` and `_regulator_names`, which the solve uses too.
+  `test/test_boundaries.jl` sets the solve's use of the guard aside until then.
 
 ## Planned
 

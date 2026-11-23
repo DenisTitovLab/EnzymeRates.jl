@@ -336,7 +336,7 @@ end
         end
         _testhelper_with_tree(file_tree...) do root
             @test _testhelper_file_name_and_include_problems(root) == String[]
-            @test _testhelper_one_way_problems(root, Set{Tuple{String, String}}()) ==
+            @test _testhelper_file_loop_problems(root, Set{Tuple{String, String}}()) ==
                   String[]
         end
     end
@@ -365,21 +365,54 @@ end
                 "Fitting/utils.jl has a name that says nothing of what it holds"]
         end
     end
-    @testset "the one-way rule finds a mutual pair and a stale exemption" begin
-        pair = ("Fitting/loss.jl", "Fitting/problem_type.jl")
+    @testset "the loop rule finds loops of two and three files and stale exemptions" begin
+        none = Set{Tuple{String, String}}()
+        loop = "a loop of files, each taking names from the next: "
+        stale = " no longer closes a loop; remove the use from the exemption set in " *
+                "test/test_boundaries.jl"
+        # Two files. Setting aside either use ends the loop.
         _testhelper_with_tree(file_tree...,
             "Fitting/problem_type.jl" => problem_type * "_check(p) = _loss(p)\n") do root
-            @test _testhelper_one_way_problems(root, Set{Tuple{String, String}}()) == [
-                "Fitting/loss.jl and Fitting/problem_type.jl take names from each " *
-                "other: loss.jl takes `Problem`, `_Kind`, `_PLAIN`, `_size`; " *
-                "problem_type.jl takes `_loss`"]
-            @test _testhelper_one_way_problems(root, Set([pair])) == String[]
+            @test _testhelper_file_loop_problems(root, none) == [loop *
+                "Fitting/problem_type.jl takes `_loss` from Fitting/loss.jl; " *
+                "Fitting/loss.jl takes `Problem`, `_Kind`, `_PLAIN`, `_size` from " *
+                "Fitting/problem_type.jl"]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/problem_type.jl", "Fitting/loss.jl")])) == String[]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/loss.jl", "Fitting/problem_type.jl")])) == String[]
         end
-        _testhelper_with_tree(file_tree...) do root
-            @test _testhelper_one_way_problems(root, Set([pair])) == [
-                "Fitting/loss.jl and Fitting/problem_type.jl no longer take names from " *
-                "each other; remove the pair from the exemption set in " *
-                "test/test_boundaries.jl"]
+        # Three files: a takes from b, b from c, and c from a closes the loop.
+        chain = ("EnzymeRates.jl" => "module EnzymeRates\nend",
+            "Fitting/Fitting.jl" => "module Fitting\npublic fit\nend",
+            "Fitting/a.jl" => "fit(x) = _b(x)", "Fitting/b.jl" => "_b(x) = _c(x)",
+            "Fitting/c.jl" => "_c(x) = x")
+        closing = ("Fitting/c.jl", "Fitting/a.jl")
+        _testhelper_with_tree(chain..., "Fitting/c.jl" => "_c(x) = fit(x)") do root
+            @test _testhelper_file_loop_problems(root, none) == [loop *
+                "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes `_c` from " *
+                "Fitting/c.jl; Fitting/c.jl takes `fit` from Fitting/a.jl"]
+            @test _testhelper_file_loop_problems(root, Set([closing])) == String[]
+        end
+        # Two loops through b, as in Derivation: each needs a use of its own set aside.
+        _testhelper_with_tree(chain..., "Fitting/b.jl" => "_b(x) = _c(x) + fit(x)",
+            "Fitting/c.jl" => "_c(x) = _b(x)") do root
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/b.jl", "Fitting/a.jl")])) == [loop *
+                "Fitting/b.jl takes `_c` from Fitting/c.jl; Fitting/c.jl takes `_b` from " *
+                "Fitting/b.jl"]
+            both = Set([("Fitting/b.jl", "Fitting/a.jl"), ("Fitting/c.jl", "Fitting/b.jl")])
+            @test _testhelper_file_loop_problems(root, both) == String[]
+        end
+        # An exempt use that is gone, and one that no longer closes a loop.
+        _testhelper_with_tree(chain...) do root
+            @test _testhelper_file_loop_problems(root, Set([closing])) ==
+                  ["Fitting/c.jl taking names from Fitting/a.jl" * stale]
+        end
+        _testhelper_with_tree(chain..., "Fitting/b.jl" => "_b(x) = x",
+            "Fitting/c.jl" => "_c(x) = fit(x)") do root
+            @test _testhelper_file_loop_problems(root, Set([closing])) ==
+                  ["Fitting/c.jl taking names from Fitting/a.jl" * stale]
         end
     end
     @testset "the ABOUTME rule finds a code file without its two lines" begin
@@ -443,19 +476,20 @@ end
     @test _testhelper_file_name_and_include_problems(_testhelper_SRC) == String[]
 end
 
-# The pairs of files of a module that take names from each other today, each pair in
-# alphabetical order. ROADMAP.md lists each as a known issue, with the names that cross
-# and what would make the calls one-way; remove a pair here when they are.
-const _testhelper_FILES_USING_EACH_OTHER = Set([
-    ("Derivation/allosteric_rate_equation_correctness_guard.jl",
-     "Derivation/rate_equation_correctness_guard.jl"),
+# The uses that close a loop of files today, each as `(file, sibling)`: `file` takes names
+# from `sibling`. Each is the use that would go for its files to be one-way; ROADMAP.md
+# lists each as a known issue, with the names and the change that would remove it. Remove
+# a use here when it goes.
+const _testhelper_LOOP_CLOSING_USES = Set([
     ("Derivation/rate_equation_correctness_guard.jl",
-     "Derivation/thermodynamic_constraints.jl"),
+     "Derivation/allosteric_rate_equation_correctness_guard.jl"),
+    ("Derivation/thermodynamic_constraints.jl",
+     "Derivation/rate_equation_correctness_guard.jl"),
 ])
 
-@testset "the files of a module take names from each other one way" begin
-    @test _testhelper_one_way_problems(_testhelper_SRC,
-        _testhelper_FILES_USING_EACH_OTHER) == String[]
+@testset "no file takes names from itself through other files of its module" begin
+    @test _testhelper_file_loop_problems(_testhelper_SRC, _testhelper_LOOP_CLOSING_USES) ==
+          String[]
 end
 
 @testset "every public name is defined" begin

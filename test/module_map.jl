@@ -444,25 +444,59 @@ function _testhelper_file_name_and_include_problems(root)
     problems
 end
 
-"""One line for each pair of files of a module in the tree at `root` that take names from
-each other, naming the names each takes, unless `exempt` holds the pair; and one line for
-each pair `exempt` holds whose files no longer do. A pair is the two files' paths relative
-to `root`, in alphabetical order."""
-function _testhelper_one_way_problems(root, exempt)
-    takes = Dict((f.path, from) => names
-        for f in _testhelper_file_scans(root) for (from, names) in f.takes)
-    shown(names) = join(("`$n`" for n in names), ", ")
-    problems = String[]
-    for (a, b) in sort!(collect(keys(takes)))
-        a < b && haskey(takes, (b, a)) && !((a, b) in exempt) || continue
-        push!(problems, "$a and $b take names from each other: $(basename(a)) takes " *
-                        "$(shown(takes[(a, b)])); $(basename(b)) takes " *
-                        "$(shown(takes[(b, a)]))")
+"""The shortest route from file `from` to file `to` along `uses`, which maps each file to
+the files it takes names from: the files in order, `from` first and `to` last, at least one
+use long, so a loop when `from == to`; `nothing` when there is none."""
+function _testhelper_shortest_route(uses, from, to)
+    parent = Dict{String, String}()
+    queue = [from]
+    while !isempty(queue)
+        file = popfirst!(queue)
+        for next in uses[file]
+            haskey(parent, next) && continue
+            parent[next] = file
+            if next == to
+                route = [to]
+                while length(route) == 1 || route[1] != from
+                    pushfirst!(route, parent[route[1]])
+                end
+                return route
+            end
+            push!(queue, next)
+        end
     end
-    for (a, b) in sort!(collect(exempt))
-        haskey(takes, (a, b)) && haskey(takes, (b, a)) ||
-            push!(problems, "$a and $b no longer take names from each other; remove " *
-                            "the pair from the exemption set in test/test_boundaries.jl")
+    nothing
+end
+
+"""One line for each loop of files within a module of the tree at `root`, each file taking
+names from the next and the last from the first, once the uses that `exempt` holds are set
+aside: for each group of files that reach one another, the shortest loop through its first
+file, naming the files in order and the names each takes from the next. And one line for
+each use that `exempt` holds and that no longer closes a loop. A use is
+`(file, sibling)`, two paths relative to `root`: `file` takes names from `sibling`."""
+function _testhelper_file_loop_problems(root, exempt)
+    scans = _testhelper_file_scans(root)
+    takes = Dict((f.path, from) => names for f in scans for (from, names) in f.takes)
+    uses = Dict(f.path => first.(f.takes) for f in scans)
+    kept = Dict(file => filter(s -> !((file, s) in exempt), siblings)
+        for (file, siblings) in uses)
+    reaches(graph, a, b) = _testhelper_shortest_route(graph, a, b) !== nothing
+    shown(names) = join(("`$n`" for n in names), ", ")
+    problems, looped = String[], Set{String}()
+    for file in (f.path for f in scans)
+        loop = file in looped ? nothing : _testhelper_shortest_route(kept, file, file)
+        loop === nothing && continue
+        group = (g for g in keys(kept) if reaches(kept, file, g) && reaches(kept, g, file))
+        union!(looped, group)
+        push!(problems, "a loop of files, each taking names from the next: " *
+            join(["$a takes $(shown(takes[(a, b)])) from $b"
+                  for (a, b) in zip(loop, loop[2:end])], "; "))
+    end
+    for (file, sibling) in sort!(collect(exempt))
+        sibling in get(uses, file, String[]) && reaches(uses, sibling, file) ||
+            push!(problems, "$file taking names from $sibling no longer closes a loop; " *
+                            "remove the use from the exemption set in " *
+                            "test/test_boundaries.jl")
     end
     problems
 end
