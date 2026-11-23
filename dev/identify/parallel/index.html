@@ -17,37 +17,15 @@ end
 # A measured turnover at stated concentrations sets the scale of the rate constants;
 # here the first data row.
 reference = [(A = data.A[1], B = data.B[1], P = data.P[1], Q = data.Q[1]) =&gt; data.Rate[1]]
-prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0, reference)
+prob = IdentifyRateEquationProblem(rxn, data, 5.0; reference)
 
 results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
 
 # Clean up the workers when the run finishes
 for p in workers()
     rmprocs(p)
-end</code></pre><p>The <code>@everywhere using</code> line is required: each worker compiles and fits mechanisms on its own, so it needs both <code>EnzymeRates</code> and the optimizer package. The data file is read once on the main process and converted to a plain <code>NamedTuple</code>; <code>pmap</code> ships that problem to the workers with each batch of fits, so the workers need no data-loading packages. The main process collects the results and writes the CSV outputs to <code>save_dir</code>; the workers write nothing.</p><h2 id="Running-on-a-compute-cluster-with-many-machines"><a class="docs-heading-anchor" href="#Running-on-a-compute-cluster-with-many-machines">Running on a compute cluster with many machines</a><a id="Running-on-a-compute-cluster-with-many-machines-1"></a><a class="docs-heading-anchor-permalink" href="#Running-on-a-compute-cluster-with-many-machines" title="Permalink"></a></h2><p>On a cluster, swap the <code>addprocs</code> line for a cluster manager that starts workers across the allocated nodes — the rest of the script is identical. For Slurm, <code>SlurmClusterManager.jl</code> reads the allocation and starts one worker per task. Save the script as <code>identify.jl</code>:</p><pre><code class="language-julia hljs">using Distributed, SlurmClusterManager, CSV
-addprocs(SlurmManager())                     # one worker per Slurm task
-
-@everywhere using EnzymeRates, OptimizationCMAEvolutionStrategy
-
-table = CSV.File(&quot;rate_data.csv&quot;)
-data = (group = table.group, Rate = table.Rate,
-        A = table.A, B = table.B, P = table.P, Q = table.Q)
-
-rxn = @enzyme_reaction begin
-    substrates: A[C], B[C]
-    products:   P[C], Q[C]
-end
-# A measured turnover at stated concentrations sets the scale of the rate constants;
-# here the first data row.
-reference = [(A = data.A[1], B = data.B[1], P = data.P[1], Q = data.Q[1]) =&gt; data.Rate[1]]
-prob = IdentifyRateEquationProblem(rxn, data; Keq = 5.0, reference)
-
-results = identify_rate_equation(prob; optimizer = CMAEvolutionStrategyOpt())
-
-# Clean up the workers when the run finishes
-for p in workers()
-    rmprocs(p)
-end</code></pre><p>Submit the script with <code>sbatch</code>: the batch script requests the allocation and launches Julia, and <code>SlurmManager()</code> then starts one worker per allocated task. This template uses <a href="https://github.com/JuliaLang/juliaup"><code>juliaup</code></a> to select the Julia version:</p><pre><code class="language-bash hljs">#!/bin/bash
+end</code></pre><p>The <code>@everywhere using</code> line is required: each worker compiles and fits mechanisms on its own, so it needs both <code>EnzymeRates</code> and the optimizer package. The data file is read once on the main process and converted to a plain <code>NamedTuple</code>; <code>pmap</code> ships that problem to the workers with each batch of fits, so the workers need no data-loading packages. The main process collects the results and writes the CSV outputs to <code>save_dir</code>; the workers write nothing.</p><h2 id="Running-on-a-compute-cluster-with-many-machines"><a class="docs-heading-anchor" href="#Running-on-a-compute-cluster-with-many-machines">Running on a compute cluster with many machines</a><a id="Running-on-a-compute-cluster-with-many-machines-1"></a><a class="docs-heading-anchor-permalink" href="#Running-on-a-compute-cluster-with-many-machines" title="Permalink"></a></h2><p>On a cluster, swap the <code>addprocs</code> line for a cluster manager that starts workers across the allocated nodes. For Slurm, <code>SlurmClusterManager.jl</code> reads the allocation and starts one worker per task, so the first two lines of the script above become:</p><pre><code class="language-julia hljs">using Distributed, SlurmClusterManager, CSV
+addprocs(SlurmManager())                     # one worker per Slurm task</code></pre><p>The rest of the script is unchanged. Save it as <code>identify.jl</code>.</p><p>Submit the script with <code>sbatch</code>: the batch script requests the allocation and launches Julia, and <code>SlurmManager()</code> then starts one worker per allocated task. This template uses <a href="https://github.com/JuliaLang/juliaup"><code>juliaup</code></a> to select the Julia version:</p><pre><code class="language-bash hljs">#!/bin/bash
 # Job name:
 #SBATCH --job-name=YOUR_JOB_NAME
 #
@@ -75,4 +53,4 @@ mermaid.initialize({
     startOnLoad: true,
     theme: "neutral"
 });
-</script></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../model_selection/">« Best mechanism selection</a><a class="docs-footer-nextpage" href="../enumeration_engine/">The enumeration engine »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Wednesday 18 November 2026 21:46">Wednesday 18 November 2026</span>. Using Julia version 1.13.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+</script></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../model_selection/">« Best mechanism selection</a><a class="docs-footer-nextpage" href="../enumeration_engine/">The enumeration engine »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.20.0 on <span class="colophon-date" title="Monday 23 November 2026 21:40">Monday 23 November 2026</span>. Using Julia version 1.13.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
