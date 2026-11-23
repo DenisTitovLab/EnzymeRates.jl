@@ -368,9 +368,9 @@ end
     @testset "the loop rule finds loops of two and three files and stale exemptions" begin
         none = Set{Tuple{String, String}}()
         loop = "a loop of files, each taking names from the next: "
-        stale = " no longer closes a loop; remove the use from the exemption set in " *
-                "test/test_boundaries.jl"
-        # Two files. Setting aside either use ends the loop.
+        remove = "; remove the use from the exemption set in test/test_boundaries.jl"
+        # Two files. Setting aside either use ends the loop; setting aside both, the one
+        # that sorts first is not needed.
         _testhelper_with_tree(file_tree...,
             "Fitting/problem_type.jl" => problem_type * "_check(p) = _loss(p)\n") do root
             @test _testhelper_file_loop_problems(root, none) == [loop *
@@ -381,6 +381,22 @@ end
                 Set([("Fitting/problem_type.jl", "Fitting/loss.jl")])) == String[]
             @test _testhelper_file_loop_problems(root,
                 Set([("Fitting/loss.jl", "Fitting/problem_type.jl")])) == String[]
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/problem_type.jl", "Fitting/loss.jl"),
+                     ("Fitting/loss.jl", "Fitting/problem_type.jl")])) ==
+                  ["Fitting/loss.jl taking names from Fitting/problem_type.jl is not " *
+                   "needed to break a loop" * remove]
+        end
+        # One line for each group of files that reach one another: two groups here.
+        _testhelper_with_tree("EnzymeRates.jl" => "module EnzymeRates\nend",
+            "Fitting/Fitting.jl" => "module Fitting\npublic fit\nend",
+            "Fitting/a.jl" => "_a(x) = _b(x)", "Fitting/b.jl" => "_b(x) = _a(x)",
+            "Fitting/c.jl" => "_c(x) = _d(x)", "Fitting/d.jl" => "_d(x) = _c(x)") do root
+            @test _testhelper_file_loop_problems(root, none) == [
+                loop * "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes " *
+                "`_a` from Fitting/a.jl",
+                loop * "Fitting/c.jl takes `_d` from Fitting/d.jl; Fitting/d.jl takes " *
+                "`_c` from Fitting/c.jl"]
         end
         # Three files: a takes from b, b from c, and c from a closes the loop.
         chain = ("EnzymeRates.jl" => "module EnzymeRates\nend",
@@ -393,10 +409,19 @@ end
                 "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes `_c` from " *
                 "Fitting/c.jl; Fitting/c.jl takes `fit` from Fitting/a.jl"]
             @test _testhelper_file_loop_problems(root, Set([closing])) == String[]
+            # Either use alone breaks the loop, so with both the first is not needed.
+            @test _testhelper_file_loop_problems(root,
+                Set([("Fitting/a.jl", "Fitting/b.jl"), closing])) ==
+                  ["Fitting/a.jl taking names from Fitting/b.jl is not needed to break a " *
+                   "loop" * remove]
         end
-        # Two loops through b, as in Derivation: each needs a use of its own set aside.
+        # Two loops through b, as in Derivation: one group, so one line, and each loop
+        # needs a use of its own set aside.
         _testhelper_with_tree(chain..., "Fitting/b.jl" => "_b(x) = _c(x) + fit(x)",
             "Fitting/c.jl" => "_c(x) = _b(x)") do root
+            @test _testhelper_file_loop_problems(root, none) == [loop *
+                "Fitting/a.jl takes `_b` from Fitting/b.jl; Fitting/b.jl takes `fit` " *
+                "from Fitting/a.jl"]
             @test _testhelper_file_loop_problems(root,
                 Set([("Fitting/b.jl", "Fitting/a.jl")])) == [loop *
                 "Fitting/b.jl takes `_c` from Fitting/c.jl; Fitting/c.jl takes `_b` from " *
@@ -404,15 +429,31 @@ end
             both = Set([("Fitting/b.jl", "Fitting/a.jl"), ("Fitting/c.jl", "Fitting/b.jl")])
             @test _testhelper_file_loop_problems(root, both) == String[]
         end
-        # An exempt use that is gone, and one that no longer closes a loop.
+        # g and al take names from each other, and g reaches al through x too. Both of
+        # g and al's uses set aside: g's is not needed, since al's alone breaks every loop.
+        # g's alone leaves the loop through x.
+        _testhelper_with_tree(chain[1:2]..., "Fitting/al.jl" => "_al(y) = _g(y)",
+            "Fitting/g.jl" => "_g(y) = _al(y) + _x(y)",
+            "Fitting/x.jl" => "_x(y) = _al(y)") do root
+            g_al = ("Fitting/g.jl", "Fitting/al.jl")
+            al_g = ("Fitting/al.jl", "Fitting/g.jl")
+            @test _testhelper_file_loop_problems(root, Set([g_al, al_g])) ==
+                  ["Fitting/g.jl taking names from Fitting/al.jl is not needed to break " *
+                   "a loop" * remove]
+            @test _testhelper_file_loop_problems(root, Set([g_al])) == [loop *
+                "Fitting/al.jl takes `_g` from Fitting/g.jl; Fitting/g.jl takes `_x` " *
+                "from Fitting/x.jl; Fitting/x.jl takes `_al` from Fitting/al.jl"]
+        end
+        # An exempt use that is gone, and one that closes no loop.
         _testhelper_with_tree(chain...) do root
             @test _testhelper_file_loop_problems(root, Set([closing])) ==
-                  ["Fitting/c.jl taking names from Fitting/a.jl" * stale]
+                  ["Fitting/c.jl no longer takes names from Fitting/a.jl" * remove]
         end
         _testhelper_with_tree(chain..., "Fitting/b.jl" => "_b(x) = x",
             "Fitting/c.jl" => "_c(x) = fit(x)") do root
             @test _testhelper_file_loop_problems(root, Set([closing])) ==
-                  ["Fitting/c.jl taking names from Fitting/a.jl" * stale]
+                  ["Fitting/c.jl taking names from Fitting/a.jl is not needed to break a " *
+                   "loop" * remove]
         end
     end
     @testset "the ABOUTME rule finds a code file without its two lines" begin

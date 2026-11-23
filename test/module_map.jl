@@ -468,12 +468,15 @@ function _testhelper_shortest_route(uses, from, to)
     nothing
 end
 
-"""One line for each loop of files within a module of the tree at `root`, each file taking
-names from the next and the last from the first, once the uses that `exempt` holds are set
-aside: for each group of files that reach one another, the shortest loop through its first
-file, naming the files in order and the names each takes from the next. And one line for
-each use that `exempt` holds and that no longer closes a loop. A use is
-`(file, sibling)`, two paths relative to `root`: `file` takes names from `sibling`."""
+"""One line for each group of files of a module in the tree at `root` that reach one
+another once the uses `exempt` holds are set aside: the shortest loop through the group's
+first file in file order, each file taking names from the next and the last from the
+first, naming the files in order and the names each takes. And one line for each use
+`exempt` holds that is not needed to break a loop: one that is gone, or one whose sibling
+does not reach its file once the uses `exempt` holds are set aside. The uses are checked
+in sorted order, each one not needed counting again for those after it, so of two uses
+that break the same loops the first is flagged. A use is `(file, sibling)`, two paths
+relative to `root`: `file` takes names from `sibling`."""
 function _testhelper_file_loop_problems(root, exempt)
     scans = _testhelper_file_scans(root)
     takes = Dict((f.path, from) => names for f in scans for (from, names) in f.takes)
@@ -484,7 +487,8 @@ function _testhelper_file_loop_problems(root, exempt)
     shown(names) = join(("`$n`" for n in names), ", ")
     problems, looped = String[], Set{String}()
     for file in (f.path for f in scans)
-        loop = file in looped ? nothing : _testhelper_shortest_route(kept, file, file)
+        file in looped && continue
+        loop = _testhelper_shortest_route(kept, file, file)
         loop === nothing && continue
         group = (g for g in keys(kept) if reaches(kept, file, g) && reaches(kept, g, file))
         union!(looped, group)
@@ -493,10 +497,13 @@ function _testhelper_file_loop_problems(root, exempt)
                   for (a, b) in zip(loop, loop[2:end])], "; "))
     end
     for (file, sibling) in sort!(collect(exempt))
-        sibling in get(uses, file, String[]) && reaches(uses, sibling, file) ||
-            push!(problems, "$file taking names from $sibling no longer closes a loop; " *
-                            "remove the use from the exemption set in " *
-                            "test/test_boundaries.jl")
+        used = sibling in get(uses, file, String[])
+        used && reaches(kept, sibling, file) && continue
+        fault = used ? "taking names from $sibling is not needed to break a loop" :
+                "no longer takes names from $sibling"
+        push!(problems, "$file $fault; remove the use from the exemption set in " *
+                        "test/test_boundaries.jl")
+        used && push!(kept[file], sibling)
     end
     problems
 end
