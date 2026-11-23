@@ -309,6 +309,30 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   The block of `docs/src/fitting/tutorial.md` that builds `fp` ends with the assignment,
   so the page prints the problem with Julia's default `show`, which includes
   `log_ratios_buffer`, allocated `undef`, at whatever values its memory held.
+- **The two guard files take names from each other.**
+  `allosteric_rate_equation_correctness_guard.jl` takes 31 names from
+  `rate_equation_correctness_guard.jl`: the verdict, its faults and the limit verdict
+  (`_Verdict`, `_WELL_POSED`, `_NO_FAULT`, `_ARC_CYCLE`, `_BRIDGE`, `_EPS_NONUNIQUE`,
+  `_FAST_STEP_PINNED`, `_FILLED`, `_ISLAND`, `_NO_ACTIVE_TURNOVER`, `_PUMPED`,
+  `_TOO_MANY_READINGS`, `_LIMIT_UNTESTED`), the search caps
+  (`_MAX_CHOICES_PER_CONFORMATION`, `_MAX_READING_PAIRS`), the networks and their graph
+  walks (`_Network`, `_eps_network`, `_law_network`, `_node`, `_form_of`, `_copy_of`,
+  `_out_transitions`, `_successors`, `_reached`, `_strong_components`, `_closed_classes`,
+  `_aggregated_chain`), the faces (`_faces`, `_face_phrase`), `_guard` and
+  `_steady_state_passes`. The guard takes eight back: `_SlowUptakeReading`,
+  `_built_reading`, `_consistent_columns`, `_admission_interior`, `_admission_face`,
+  `_active_turnover_verdict`, `_admission_message` and `_conformation_suffix`. Merging the
+  two files (2,551 lines) or cutting them along a line the calls cross one way would end
+  the cycle; `test/test_boundaries.jl` exempts the pair until then.
+- **The guard and the thermodynamic solve take names from each other.**
+  `rate_equation_correctness_guard.jl` takes `_shared_constant_names` from
+  `thermodynamic_constraints.jl`, to reject two constants with one name, and
+  `thermodynamic_constraints.jl` takes `check_valid_rate_equation` from the guard:
+  `parameters`, `parameter_units` and `dependent_parameter_values` call it to refuse a law
+  that is not defined. Moving those three functions to a file that uses both would end the
+  cycle; moving `_shared_constant_names` alone would not, since it reads
+  `_constant_columns` and `_regulator_names`, which the solve uses too.
+  `test/test_boundaries.jl` exempts the pair until then.
 
 ## Planned
 

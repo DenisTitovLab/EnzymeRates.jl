@@ -1,5 +1,5 @@
-# ABOUTME: Checks the module boundaries of src/ by parsing it (public names, layers,
-# ABOUTME: underscore names, exports), the module map and table, docs and test file names.
+# ABOUTME: Checks src/ by parsing it: public names, layers, underscore names, exports, file
+# ABOUTME: names, one-way calls between files, ABOUTME lines, test file names and the docs.
 
 import REPL  # defines Base.Docs.doc(::Binding), read by the docstring testset
 
@@ -232,8 +232,222 @@ end
     end
 end
 
+@testset "file scanner" begin
+    problem_type = """
+        # ABOUTME: Problem and _size, the data a
+        # ABOUTME: fit reads.
+        abstract type AbstractProblem end
+        struct Problem <: AbstractProblem
+            data::Vector{Float64}
+        end
+        @enum _Kind _PLAIN _ALLOSTERIC
+        \"\"\"The size of `p`.\"\"\"
+        _size(p::Problem) = length(p.data)
+        """
+    file_tree = (
+        "EnzymeRates.jl" => """
+            \"\"\"Does it all.\"\"\"
+            module EnzymeRates
+            export fit, identify
+            include("Fitting/Fitting.jl")
+            include("identify.jl")
+            end
+            """,
+        "identify.jl" => """
+            # ABOUTME: identify, the best
+            # ABOUTME: law.
+            identify(x) = Fitting.fit(x)
+            """,
+        "Fitting/Fitting.jl" => """
+            \"\"\"Fits a law.\"\"\"
+            module Fitting
+            public fit, Problem
+            include("problem_type.jl")
+            include("loss.jl")
+            include("fit.jl")
+            include("report.jl")
+            end
+            """,
+        "Fitting/problem_type.jl" => problem_type,
+        "Fitting/loss.jl" => """
+            # ABOUTME: The loss.
+            # ABOUTME: Scaled.
+            const _SCALE = 2.0
+            macro _twice(x)
+                :(2 * \$(esc(x)))
+            end
+            @inline _loss(p::Problem; kind = _PLAIN) = _SCALE * _size(p) + p.fit
+            """,
+        "Fitting/fit.jl" => """
+            # ABOUTME: fit, which minimizes
+            # ABOUTME: the loss.
+            \"\"\"Fits `p`, scaled by `_SCALE`.\"\"\"
+            function fit(p::AbstractProblem)
+                # _size(p) is not called here.
+                @_twice _loss(p; _size = 1)
+            end
+            """,
+        "Fitting/report.jl" => """
+            # ABOUTME: The report of
+            # ABOUTME: a fit.
+            fit(p, n) = fit(p)
+            report(p) = (_size = :_size, text = "_loss", code = :(f(\$_SCALE)),
+                         value = "\$(_loss(p))")
+            """,
+    )
+    @testset "file_scans: what each file defines and takes from its siblings" begin
+        _testhelper_with_tree(file_tree...) do root
+            scans = _testhelper_file_scans(root)
+            # A keyword or named-tuple field, a field after a dot, a quoted symbol, a
+            # string, a comment and a docstring refer to nothing; a quote's and a string's
+            # interpolations do. A function both files define is taken by neither.
+            @test [(f.mod, f.path, f.takes) for f in scans] == [
+                (:EnzymeRates, "identify.jl", []),
+                (:Fitting, "Fitting/problem_type.jl", []),
+                (:Fitting, "Fitting/loss.jl",
+                 ["Fitting/problem_type.jl" => [:Problem, :_PLAIN, :_size]]),
+                (:Fitting, "Fitting/fit.jl",
+                 ["Fitting/problem_type.jl" => [:AbstractProblem],
+                  "Fitting/loss.jl" => [Symbol("@_twice"), :_loss]]),
+                (:Fitting, "Fitting/report.jl", ["Fitting/loss.jl" => [:_SCALE, :_loss]])]
+            @test [f.defines for f in scans] == [Set([:identify]),
+                Set([:AbstractProblem, :Problem, :_Kind, :_PLAIN, :_ALLOSTERIC, :_size]),
+                Set([:_SCALE, Symbol("@_twice"), :_loss]), Set([:fit]),
+                Set([:fit, :report])]
+            @test !any(f -> f.includes, scans)
+        end
+    end
+
+    named_tree = (
+        "EnzymeRates.jl" => "module EnzymeRates\nexport fit, identify\nend",
+        "identify.jl" => "identify(x) = 1",
+        "Fitting/Fitting.jl" => "module Fitting\npublic fit, FitResult, @fitted\nend",
+        "Fitting/fit_result_type.jl" => "struct FitResult{T}\n    x::T\nend",
+        "Fitting/fitted_macro.jl" => "macro fitted(x)\n    x\nend",
+        "Fitting/fit.jl" => "\"\"\"Fits.\"\"\"\nfit(x) = 1",
+        "Fitting/loss.jl" => "_loss(x) = 1",
+    )
+    @testset "a clean tree passes the file rules" begin
+        _testhelper_with_tree(named_tree...) do root
+            @test _testhelper_file_name_problems(root) == String[]
+        end
+        _testhelper_with_tree(file_tree...) do root
+            @test _testhelper_file_name_problems(root) == String[]
+            @test _testhelper_one_way_problems(root, Set{Tuple{String, String}}()) ==
+                  String[]
+        end
+    end
+    @testset "the name rules find each fault and name the file" begin
+        _testhelper_with_tree(named_tree...,
+            "identify.jl" => "_identify(x) = 1",
+            "Fitting/fit.jl" => "_fit(x) = 1",
+            "Fitting/fitted_macro.jl" => "macro fit_it(x)\n    x\nend",
+            "Fitting/loss.jl" => "include(\"more.jl\")\n_loss(x) = 1",
+            "Fitting/outcome_type.jl" => "struct FitOutcome end",
+            "Fitting/utils.jl" => "_u(x) = 1") do root
+            @test _testhelper_file_name_problems(root) == [
+                "identify.jl is named for `identify`, a public name of EnzymeRates, but " *
+                "does not define it",
+                "Fitting/fit.jl is named for `fit`, a public name of Fitting, but does " *
+                "not define it",
+                "Fitting/fitted_macro.jl ends in `_macro` but defines no macro `@fitted`",
+                "Fitting/loss.jl calls `include`; only a module's header includes files",
+                "Fitting/outcome_type.jl ends in `_type` but defines no type whose name " *
+                "is `outcome` in snake case",
+                "Fitting/utils.jl has a name that says nothing of what it holds"]
+        end
+    end
+    @testset "the one-way rule finds a mutual pair and a stale exemption" begin
+        pair = ("Fitting/loss.jl", "Fitting/problem_type.jl")
+        _testhelper_with_tree(file_tree...,
+            "Fitting/problem_type.jl" => problem_type * "_check(p) = _loss(p)\n") do root
+            @test _testhelper_one_way_problems(root, Set{Tuple{String, String}}()) == [
+                "Fitting/loss.jl and Fitting/problem_type.jl take names from each " *
+                "other: loss.jl takes `Problem`, `_PLAIN`, `_size`; problem_type.jl " *
+                "takes `_loss`"]
+            @test _testhelper_one_way_problems(root, Set([pair])) == String[]
+        end
+        _testhelper_with_tree(file_tree...) do root
+            @test _testhelper_one_way_problems(root, Set([pair])) == [
+                "Fitting/loss.jl and Fitting/problem_type.jl no longer take names from " *
+                "each other; remove the pair from the exemption set in " *
+                "test/test_boundaries.jl"]
+        end
+    end
+    @testset "the ABOUTME rule finds a code file without its two lines" begin
+        _testhelper_with_tree(
+            "src/A.jl" => "# ABOUTME: One.\n# ABOUTME: Two.\nmodule A end",
+            "src/A/b.jl" => "# ABOUTME: One.\nb() = 1",
+            "ext/AExt.jl" => "# ABOUTME: One.\r\n# ABOUTME: Two.\r\n",
+            "test/t.jl" => "t() = 1",
+            "test/three.jl" => "# ABOUTME: One.\n# ABOUTME: Two.\n# ABOUTME: Three.\n",
+            "docs/make.jl" => "# ABOUTME: One.\n# ABOUTME: Two.\n",
+            "docs/src/index.md" => "text",
+            # The built site and the local results are not the package's code.
+            "docs/build/x.jl" => "x() = 1",
+            "docs/hpc_results/r.jl" => "r() = 1",
+            "scripts/s.jl" => "s() = 1") do root
+            @test _testhelper_aboutme_problems(root) == [
+                "src/A/b.jl does not start with exactly two `# ABOUTME: ` lines",
+                "test/t.jl does not start with exactly two `# ABOUTME: ` lines",
+                "test/three.jl does not start with exactly two `# ABOUTME: ` lines"]
+            @test _testhelper_aboutme(joinpath(root, "ext", "AExt.jl")) == "One. Two."
+            @test _testhelper_aboutme(joinpath(root, "src", "A", "b.jl")) === nothing
+        end
+    end
+    @testset "file table" begin
+        expected = join([
+            "| Module | File | What it holds | Public names it defines | " *
+            "Takes names from |",
+            "|:--|:--|:--|:--|:--|",
+            "| top level | `identify.jl` | identify, the best law. | ★ `identify` " *
+            "|  |",
+            "| Fitting | `problem_type.jl` | Problem and \\_size, the data a fit reads. | " *
+            "`Problem` |  |",
+            "| Fitting | `loss.jl` | The loss. Scaled. |  | `problem_type` (3) |",
+            "| Fitting | `fit.jl` | fit, which minimizes the loss. | ★ `fit` | " *
+            "`problem_type` (1), `loss` (2) |",
+            "| Fitting | `report.jl` | The report of a fit. | ★ `fit` | `loss` (2) |", ""],
+            "\n")
+        _testhelper_with_tree(file_tree...) do root
+            block = _testhelper_FILE_TABLE_BLOCK
+            @test _testhelper_file_table(root) == expected
+            doc = "text\n\n$(block.opening)$(expected)$(block.closing)\nmore\n"
+            @test _testhelper_generated_block_problems(doc, block, root) == String[]
+            stale = replace(doc, "(3)" => "(2)")
+            @test _testhelper_generated_block_problems(stale, block, root) == [
+                "the file table in docs/src/developer.md differs from the one generated " *
+                "from src/; rewrite it with `julia test/update_module_map.jl`"]
+            @test _testhelper_replace_generated_block(stale, block, expected) == doc
+        end
+    end
+end
+
 @testset "module boundaries" begin
     _testhelper_check_boundaries(_testhelper_SRC)
+end
+
+@testset "every code file starts with exactly two ABOUTME lines" begin
+    @test _testhelper_aboutme_problems(joinpath(@__DIR__, "..")) == String[]
+end
+
+@testset "every source file is named for what it gives the package" begin
+    @test _testhelper_file_name_problems(_testhelper_SRC) == String[]
+end
+
+# The pairs of files of a module that take names from each other today, each pair in
+# alphabetical order. ROADMAP.md lists each as a known issue, with the names that cross
+# and what would make the calls one-way; remove a pair here when they are.
+const _testhelper_FILES_USING_EACH_OTHER = Set([
+    ("Derivation/allosteric_rate_equation_correctness_guard.jl",
+     "Derivation/rate_equation_correctness_guard.jl"),
+    ("Derivation/rate_equation_correctness_guard.jl",
+     "Derivation/thermodynamic_constraints.jl"),
+])
+
+@testset "the files of a module take names from each other one way" begin
+    @test _testhelper_one_way_problems(_testhelper_SRC,
+        _testhelper_FILES_USING_EACH_OTHER) == String[]
 end
 
 @testset "every public name is defined" begin
@@ -357,12 +571,14 @@ end
     end
 end
 
-@testset "the generated module map and table match src/" begin
+@testset "the generated module map and tables match src/" begin
     root = joinpath(@__DIR__, "..")
     doc = read(joinpath(root, "docs", "src", "developer.md"), String)
     @test _testhelper_module_map_problems(doc, _testhelper_SRC) == String[]
     @test _testhelper_generated_block_problems(
         doc, _testhelper_MAP_BLOCK, _testhelper_SRC) == String[]
+    @test _testhelper_generated_block_problems(
+        doc, _testhelper_FILE_TABLE_BLOCK, _testhelper_SRC) == String[]
     @test _testhelper_generated_block_problems(
         read(joinpath(root, ".claude", "CLAUDE.md"), String), _testhelper_TABLE_BLOCK,
         _testhelper_SRC) == String[]

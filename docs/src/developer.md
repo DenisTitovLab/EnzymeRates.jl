@@ -14,8 +14,8 @@ source file `<file>.jl`. The diagram below shows every exported name and every n
 module takes from another, and the tables list every module's public names;
 `test/test_boundaries.jl` fails when they disagree with `src/`. The diagram is generated:
 each box's sentence is the first sentence of its module's docstring, and
-`julia test/update_module_map.jl` rewrites it, together with the table of modules in
-`.claude/CLAUDE.md`, which the same test checks.
+`julia test/update_module_map.jl` rewrites it, together with the table of files below and
+the table of modules in `.claude/CLAUDE.md`, which the same test checks.
 
 ### The module map
 
@@ -214,6 +214,54 @@ exports. "Used by" names the modules that call each name, and ✓ marks a name t
 | `IdentifyRateEquationResults` | The selected mechanism and the CV table | | ✓ |
 | `identify_rate_equation` | Searches mechanisms, selects one by CV | | ✓ |
 
+### Files
+
+Three rules govern the source files of a module:
+
+1. A file holds one piece of functionality whole, so that a reader finds what belongs
+   together in one place.
+2. A file is named for what it gives the rest of the package: the exported or public
+   function, type or macro it defines (`fit_rate_equation.jl`, `mechanism_type.jl`,
+   `enzyme_mechanism_macro.jl`), or, when no such name says what the file does, the
+   calculation it carries out (`rate_equation_derivation.jl`,
+   `rate_equation_correctness_guard.jl`). A name then leads to its file, which `utils.jl`,
+   `helpers.jl` or `types.jl` never do.
+3. Calls between the files of a module are few and one-way: a file does not use a file
+   that uses it. A reader then understands a file from the files it uses, and a change
+   to a file can break only the files that use it.
+
+The table below is generated from `src/`; "What it holds" is each file's two `ABOUTME`
+lines. In the row of `starting_mechanisms.jl`, `expansion_moves` (6) under "Takes names
+from" says that the file uses six names that `expansion_moves.jl` defines. Two pairs of
+`Derivation` files use each other; `ROADMAP.md` lists them under "Known issues".
+
+```@raw html
+<!-- file table, generated from src/ by test/update_module_map.jl -->
+```
+
+| Module | File | What it holds | Public names it defines | Takes names from |
+|:--|:--|:--|:--|:--|
+| top level | `identify_rate_equation.jl` | identify\_rate\_equation, its problem and its results: the beam search over the candidates, one fit per rate-law key, selection by cross-validation, the CSVs. | ★ `identify_rate_equation`, ★ `IdentifyRateEquationProblem`, ★ `IdentifyRateEquationResults` |  |
+| DSL | `enzyme_reaction_macro.jl` | @enzyme\_reaction, which builds an EnzymeReaction, and the reader of its block: reactants with their atom brackets, regulators, oligomeric states, shared sites. | ★ `@enzyme_reaction` |  |
+| DSL | `enzyme_mechanism_macro.jl` | @enzyme\_mechanism and parse\_mechanism, which build a mechanism from its text and check it with the guard, and the reader of a mechanism block as written. | ★ `@enzyme_mechanism`, `parse_mechanism` |  |
+| Plotting | `plot_rate_equation_on_data.jl` | plot\_rate\_equation\_on\_data and the plain description of each measurement group's panel it prepares; ext/EnzymeRatesMakieExt.jl draws the panels with Makie. | ★ `plot_rate_equation_on_data` |  |
+| Enumeration | `candidate_mechanism_type.jl` | CandidateMechanism, a mechanism with the enumerator's record of each form, the structural tests a candidate must pass, and the helpers moves and seeds share. | `CandidateMechanism` |  |
+| Enumeration | `expansion_moves.jl` | A candidate's children, candidate\_mechanisms(reaction, parent), and the moves that make them: RE→SS flips, group splits, regulators, states, site merges. | `candidate_mechanisms` | `candidate_mechanism_type` (26) |
+| Enumeration | `starting_mechanisms.jl` | The starting mechanisms of a reaction, candidate\_mechanisms(reaction): catalytic topologies, dead-end decorations, merged and Theorell–Chance variants, seeds. | `candidate_mechanisms` | `candidate_mechanism_type` (21), `expansion_moves` (6) |
+| Fitting | `fit_rate_equation.jl` | Fitting rate equations to experimental data and scaling them to a reference scale: FittingProblem, the loss, multi-start fits and test\_rate\_equation. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` |  |
+| Derivation | `thermodynamic_constraints.jl` | A mechanism's constants under the joint thermodynamic solve: their types and names, the solve, parameters, their units and the dependent constants' values. | ★ `parameters`, ★ `dependent_parameter_values`, `fitted_parameter_count`, `parameter_units` | `rate_equation_correctness_guard` (1) |
+| Derivation | `rate_equation_derivation.jl` | A mechanism's rate law: sparse polynomials, the law on edge masks and the MWC law, its code (compile\_rate\_equation), its text and the unit rule it prints by. | ★ `compile_rate_equation`, ★ `rate_equation_string`, ★ `parameters`, `RateEquationTooLargeError`, `rate_equation_term_count` | `thermodynamic_constraints` (5), `rate_equation_correctness_guard` (3) |
+| Derivation | `rate_equation_dedup_key.jl` | The canonical key of a rate law, by colour refinement and individualization, and the rescaling certificate that flags a one-subunit L phantom. | `rate_equation_dedup_key` | `thermodynamic_constraints` (1), `rate_equation_derivation` (7), `rate_equation_correctness_guard` (1) |
+| Derivation | `rate_equation_correctness_guard.jl` | The guard against a wrong rate law, check\_valid\_rate\_equation: its verdicts, networks and faces, classes 1 to 3 with the limit test, and its error messages. | `check_valid_rate_equation` | `thermodynamic_constraints` (1), `allosteric_rate_equation_correctness_guard` (8) |
+| Derivation | `allosteric_rate_equation_correctness_guard.jl` | Admission, the guard's check that an allosteric law is the limit as the excluded steps are switched off: the readings, its interior and face conditions, messages. |  | `rate_equation_correctness_guard` (31) |
+| Data | `rate_data_type.jl` | RateData: a rate table validated against a metabolite list, with its Keq and the reference anchors that set a relative fit's scale. | `RateData` |  |
+| Mechanisms | `enzyme_reaction_type.jl` | EnzymeReaction, a reaction as a value: its reactants with their atoms, its regulators, the checks of metabolite names, and its text as the macro block. | ★ `EnzymeReaction`, `Reactant`, `Regulator` |  |
+| Mechanisms | `mechanism_type.jl` | Mechanism, a reaction graph in canonical form and its allostery, with their checks, identity and text, and what the graph gives: steps, segments, cycles. | ★ `metabolites`, ★ `Mechanism`, `Allostery`, `CatalyticScheme`, `RegulatorySite`, `Step`, `has_nonzero_weight_cycle`, `has_turnover_cycle`, `rapid_equilibrium_segments`, `step_text`, `steps_running_in_allosteric_conformations` | `enzyme_reaction_type` (5) |
+
+```@raw html
+<!-- end of file table -->
+```
+
 ### The mechanism data model
 
 Stored data is read with dots; derived data is a function. A catalytic scheme is a list
@@ -344,6 +392,20 @@ The test fails on a test file that names no source file; on a file in a module's
 folder or `test/ext/` that is not named `test_<file>.jl` or sits in a folder below it; on a
 folder of `test/` that mirrors no source folder (`ext`, `fixtures` and `reference` aside);
 and on a source file other than a module's header that has no test file.
+
+The test also checks the source files, module headers aside, against the rules under
+"Files". It fails when a file calls `include`, which only a header does; when a file's name
+says nothing of what it holds (`utils.jl`, `helpers.jl`, `types.jl` and the like); when a
+file is named for a public name of its module, or an export at the top level, that it does
+not define; when a file `<x>_type.jl` defines no type whose name is `<x>` in snake case, or
+a file `<x>_macro.jl` no macro `@<x>`; when two files of a module take names from each
+other, unless the test lists the pair as a known exception; and when the table of files
+differs from the one generated from `src/`. A file takes a name from another file of its
+module when that file defines the name at top level, the file does not, and the file's
+code uses it; a name in a string, comment, docstring or quote, a field after a dot, and a
+keyword or named-tuple field name are no use. Last, the test fails on a `.jl` file under
+`src/`, `ext/`, `test/` or `docs/` that does not start with exactly two `# ABOUTME: `
+lines.
 
 ## Derivation architecture
 
