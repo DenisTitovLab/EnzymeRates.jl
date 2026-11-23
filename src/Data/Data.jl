@@ -7,6 +7,6 @@ using Tables: Tables
 
 public RateData
 
-include("rate_data.jl")
+include("rate_data_type.jl")
 
 end

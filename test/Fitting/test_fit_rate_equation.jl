@@ -856,7 +856,7 @@ end
     end
 
     # ── Validation errors ──────────────────────────────────────────────────────
-    # The table and reference checks are tested in test/Data/test_rate_data.jl.
+    # The table and reference checks are tested in test/Data/test_rate_data_type.jl.
     @testset "Validation errors reach the caller" begin
         data_zero = (group = ["G1"], Rate = [0.0], S = [1.0], P = [0.1])
         @test_throws(ErrorException("Zero rate at row 1: log(0) is undefined"),
