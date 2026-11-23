@@ -45,6 +45,18 @@ the part for a module before changing its internals.
   (`src/<Module>/` → `test/<Module>/`, `src/` → `test/`, `ext/` → `test/ext/`): a testset
   goes in the file of the function it is about. A check of a package-wide rule is
   `test/test_<rule>.jl`.
+- Each source file holds one piece of functionality whole, so that a reader finds what
+  belongs together in one place. Add to a file before adding a file. Only a module's
+  header includes files.
+- Name a source file for what it gives the rest of the package: the exported or public
+  function, type or macro it defines (`fit_rate_equation.jl`, `mechanism_type.jl`,
+  `enzyme_mechanism_macro.jl`). When no such name says what the file does, name it for
+  the calculation it carries out (`rate_equation_derivation.jl`,
+  `rate_equation_correctness_guard.jl`). Never `utils.jl`, `helpers.jl` or `types.jl`.
+- Keep calls between the files of a module few and one-way: a file does not use a file
+  that uses it. A helper lives in the file of its callers; one that two files need lives
+  in the file that owns the idea. The file table on the Developer page counts the names
+  each file takes from the others.
 - Call another module's function qualified (`Derivation.fitted_parameter_count(m)`), and
   only if it is public there. Inside a module, call its own names bare.
 - Only the exports (★) are promised to users. Users and tests can also reach
@@ -187,8 +199,8 @@ A docstring gives a caller what they need: arguments, result, units and errors. 
 not describe the implementation. A helper private to its file needs none when its name
 and arguments make its job obvious.
 
-Every code file starts with two comment lines, each beginning `ABOUTME: `, saying what the
-file does.
+Every code file starts with exactly two comment lines, each beginning `ABOUTME: `, saying
+what the file holds.
 
 ## Guards
 
@@ -198,11 +210,16 @@ an approved interface change.
 - **Module boundaries.** `test/test_boundaries.jl` parses `src/` and fails on a
   cross-module name that is not public, a module naming one its layer forbids, an
   underscore name that is public or used across modules, and an `export` in a submodule.
-  It also fails when the table above or the interface tables and diagram in
+  It also fails when the table above or the interface tables, diagram and file table in
   `docs/src/developer.md` disagree with `src/`, when a test file is named for no source
-  file, and when a source file has no test file. After changing a `public` statement, an
-  export, a module docstring or a cross-module call, update the developer page in the same
-  commit and run `julia test/update_module_map.jl`.
+  file, and when a source file has no test file. It enforces the file rules above: it
+  fails on a source file named `utils.jl` or the like, or named for a function, type or
+  macro it does not define; on an `include` outside a header; on two files of a module
+  that use each other (the pairs `ROADMAP.md` lists aside); and on a code file without
+  its two `ABOUTME` lines. After changing a `public` statement, an export, a module
+  docstring, a cross-module call, a call between the files of a module or a file's
+  `ABOUTME` lines, update the developer page in the same commit and run
+  `julia test/update_module_map.jl`.
 - **Type stability.** `test/test_type_stability.jl` requires that JET find no run-time
   dispatch under any exported or public function, internal callees included. The suite
   runs it on Julia 1.13 only (`julia +1.13`). A new public function needs a row there,
