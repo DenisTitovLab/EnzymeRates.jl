@@ -474,9 +474,10 @@ first file in file order, each file taking names from the next and the last from
 first, naming the files in order and the names each takes. And one line for each use
 `exempt` holds that is not needed to break a loop: one that is gone, or one whose sibling
 does not reach its file once the uses `exempt` holds are set aside. The uses are checked
-in sorted order, each one not needed counting again for those after it, so of two uses
-that break the same loops the first is flagged. A use is `(file, sibling)`, two paths
-relative to `root`: `file` takes names from `sibling`."""
+in sorted order, and a use found not needed is put back before the next is checked, so of
+uses that break the same loops the last in sorted order is kept and the rest are flagged.
+A use is `(file, sibling)`, two paths relative to `root`: `file` takes names from
+`sibling`."""
 function _testhelper_file_loop_problems(root, exempt)
     scans = _testhelper_file_scans(root)
     takes = Dict((f.path, from) => names for f in scans for (from, names) in f.takes)

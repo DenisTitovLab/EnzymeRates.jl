@@ -401,15 +401,15 @@ file is named for a public name of its module, or an export at the top level, th
 not define; when a file `<x>_type.jl` defines no type whose name is `<x>` in snake case, or
 a file `<x>_macro.jl` no macro `@<x>`; when a file of a module takes names from a file that
 uses it, directly or through other files, once the uses the test lists as known exceptions
-are set aside, naming the loop's files in order and the names each takes from the next;
-when a listed use is not needed to break a loop, because it is gone or because the other
-listed uses already break every loop through it (of two such uses, the test flags the
-first in sorted order); and when the table of files differs from the one generated from
-`src/`. A file takes a name from another file of its module when that file defines the
-name at top level, the file does not, and the file's code uses it; a name in a string,
-comment, docstring or quote, a field after a dot, and a keyword or named-tuple field name
-are no use. Last, the test fails on a `.jl` file under `src/`, `ext/`, `test/` or `docs/`
-that does not start with exactly two `# ABOUTME: ` lines.
+are set aside, naming the loop's files in order and the names each takes from the next; when
+a listed use is not needed to break a loop, because it is gone or because the other listed
+uses already break every loop through it (of uses that break the same loops, the test keeps
+the last in sorted order and flags the rest); and when the table of files differs from the
+one generated from `src/`. A file takes a name from another file of its module when that
+file defines the name at top level, the file does not, and the file's code uses it; a name
+in a string, comment, docstring or quote, a field after a dot, and a keyword or named-tuple
+field name are no use. Last, the test fails on a `.jl` file under `src/`, `ext/`, `test/` or
+`docs/` that does not start with exactly two `# ABOUTME: ` lines.
 
 ## Derivation architecture
 
