@@ -818,9 +818,10 @@ With `loss!` that fast, the solver's own cost per evaluation weighs more: on the
 test's two laws a warm fit takes 1.37–1.40 times evaluations × `loss!`, against 1.21–1.22
 with one loop. Inlining costs compile time: a fresh mechanism's first `loss!`, law call and
 short fit take 4–10% longer at 12–16 terms, 22% at 96 terms and 77–117% at 396–858 terms
-(medians of 2 processes). x86 is not measured; with AVX2 the first loop could run four rows
-at a time. The test jobs of CI and Downgrade run with coverage counters (`julia-runtest`'s
-default), and under them the loop ran one row at a time on the three laws checked locally.
+(medians of 2 processes). Fits on x86 are not measured; the guard below has read `loss!`
+against the law there. The test jobs of CI and Downgrade run with coverage counters
+(`julia-runtest`'s default), and under them the loop ran one row at a time on the three
+laws checked locally.
 They also run with `--check-bounds=yes`, `julia-runtest`'s default too, under which no
 `@inbounds` holds; on Julia 1.13 the loop stays scalar with only its inner `@inbounds`
 removed.
@@ -947,6 +948,10 @@ second loop, and the spike that designed it passed `@simd ivdep` and the loop wi
 present code's ratio read at most 0.412 in the spike's 36 processes, 0.59 of the bound, and
 0.397–0.414 in ten child processes.
 
+On CI's runners, read in one run, the loop vectorized on all three laws in every job, and
+the ratio was 0.16 on Ubuntu and 0.19 on Windows (x86-64), 0.24 on Ubuntu with Julia 1.11
+and 0.42 on macOS (aarch64).
+
 What it cannot see:
 
 - the speed of any other law's `loss!`: only the 858-term law is timed, and the three laws
@@ -957,10 +962,7 @@ What it cannot see:
   them would move the ratio from about 0.41 to 0.45 (inferred);
 - the heap-placement effect, which the best of 20 batches ignores on purpose;
 - a later loop that divides and vectorizes, such as an inlined vectorized `log`, which
-  would pass the IR check as the prediction loop does (inferred);
-- x86, never measured. If LLVM's x86 cost model declined to vectorize the loop, the ratio
-  would sit near the scalar 0.77 and fail the bound; CI's `@info` lines give the first x86
-  readings.
+  would pass the IR check as the prediction loop does (inferred).
 
 `test/Fitting/test_fit_rate_equation.jl` checks `loss!` on each column type a table can
 bring and on a cross-validation fold. `RateData` stores `Rate` and each metabolite as a

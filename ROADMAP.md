@@ -262,6 +262,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   present `loss!` it fails at none of 96. A fit there takes 1.23-1.46 times evaluations ×
   `loss!` (medians 1.36 and 1.32 on the two laws) against the bound of 1.5 times plus 3 ms
   per restart: the solver's 1.0-1.4 µs per evaluation weighs more beside a faster `loss!`.
+  In one CI run, under coverage counters, the two fits took 0.67-0.81 of what the test
+  allows in seven readings of eight and 0.96 in the eighth: the ordered bi-bi on an Ubuntu
+  runner where `loss!` took 10 µs per call and the fit 1.53 times evaluations × `loss!`.
+  A faster runner would fail the test with nothing wrong.
 - **A pumped-basin message can say "nothing runs back" of a feed that runs back.**
   The guard's `_PUMPED` verdict names a feed into a stranded basin. It prefers a feed whose
   reverse is dead; when every feed has a live reverse and enters from outside the basin and
@@ -436,10 +440,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   counters, and the gate reads its times in a child process without them (Developer page,
   What a fit costs). In ten such processes on aarch64 no law took more than 0.22 of its
   bound and `loss!` no more than 0.30 of what it is allowed, so both bounds pass a slowdown
-  of three times or more. Read the gate's `@info` lines from CI's x86 (Ubuntu, Windows) and
-  macOS runners over a few runs, then propose bounds that leave room for the slowest runner,
-  for the maintainer's approval. The same lines give the first x86 readings of the `loss!`
-  guard ("loss! guard: …"), whose bound of 0.7 was set on aarch64 alone. Priority: medium.
+  of three times or more. One CI run has been read. The worst law took 0.24 of its bound
+  on Ubuntu, 0.35 on Windows, 0.43 on Ubuntu with Julia 1.11 and 0.50 on macOS; `loss!`
+  took at most 0.12, 0.17, 0.16 and 0.29 of what it is allowed. macOS decides how tight
+  either bound can go: there a 22-term law read 30 ns and three laws of 6 to 9 terms 12 to
+  15 ns, against a median of 4 ns for laws of 16 terms or fewer, so half the law's bound
+  would have left one law at 0.99 of it; and on 20 of the 48 laws the batch the gate
+  reports for `loss!` was a slow one, with an allowance three to four times the usual.
+  Read the gate's `@info` lines from a few more runs, then propose bounds that leave room
+  for the slowest runner, or a statistic for `loss!` that such batches do not move
+  (`_testhelper_loss_over_law` takes the best batch of each), for the maintainer's
+  approval. The `loss!` guard read 0.16, 0.19, 0.24 and 0.42 against its bound of 0.7.
+  Priority: medium.
 - **Check the energy-level rule on ter-ter mechanisms beyond the gate's sample.**
   The gate (see the Known issue "The guard's face checks under a searched reading rest on
   numerical evidence") drew 2,000 of the ter-ter `:OnlyA` taggings of `init_mechanisms`. The
