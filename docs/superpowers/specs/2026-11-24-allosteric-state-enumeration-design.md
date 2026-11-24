@@ -30,8 +30,8 @@ A census ran on the 278 starting mechanisms of the bi-bi reaction
 what `candidate_mechanisms(rxn)` returns with no regulator declared: the seeds of
 `init_mechanisms` with the 7 degenerate ping-pong seeds replaced by their 21 flip children.
 The census gave every group every state, at one catalytic subunit with no regulatory site,
-and asked the enumerator's exit test (`_enumerator_keeps`) about each version. Scripts and outputs are on the maintainer's
-machine in `claude-scratchpad/allosteric-state-census/`.
+and asked the enumerator's exit test (`_enumerator_keeps`) about each version. Scripts and
+outputs are on the maintainer's machine in `claude-scratchpad/allosteric-state-census/`.
 
 **Today's moves reach a quarter of the kept versions.** On the 39 ping-pong parents the
 exit test keeps 9,054 of 16,512 versions. The tagging, relaxing and regulator moves reach
