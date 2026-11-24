@@ -26,9 +26,11 @@ constants.
 ## What the census established
 
 A census ran on the 278 starting mechanisms of the bi-bi reaction
-`A[CX] + B[N] → P[C] + Q[NX]`: 39 ping-pong and 239 sequential. It gave every group every
-state, at one catalytic subunit with no regulatory site, and asked the enumerator's exit
-test (`_enumerator_keeps`) about each version. Scripts and outputs are on the maintainer's
+`A[CX] + B[N] → P[C] + Q[NX]`: 39 ping-pong and 239 sequential. These are the base tier,
+what `candidate_mechanisms(rxn)` returns with no regulator declared: the seeds of
+`init_mechanisms` with the 7 degenerate ping-pong seeds replaced by their 21 flip children.
+The census gave every group every state, at one catalytic subunit with no regulatory site,
+and asked the enumerator's exit test (`_enumerator_keeps`) about each version. Scripts and outputs are on the maintainer's
 machine in `claude-scratchpad/allosteric-state-census/`.
 
 **Today's moves reach a quarter of the kept versions.** On the 39 ping-pong parents the
@@ -68,7 +70,9 @@ second to the first (`K_I_P = K_A_P · K_I_A / K_A_A` when A and P differ).
 **The exit test reads only the stops.** In all 32,706 versions that combine a stop with
 own constants (13,390 ping-pong, 19,316 sequential), the exit test's answer equals its
 answer on the stop set alone. No version without a stop is rejected (4,465 sequential, and
-every ping-pong one). So every kept version is a kept stop set plus own constants.
+every ping-pong one). So every kept version is a kept stop set plus own constants. This
+holds on the base tier. It fails on the degenerate ping-pong seeds, where the guard rejects
+both half-reactions with their own constants; the search never fits or expands those seeds.
 
 **Ten "all chemistry stopped" versions have no limit.** On 10 of the 39 ping-pong parents
 the guard rejects the version that stops both half-reactions and nothing else (3 `_FILLED`,
@@ -172,22 +176,48 @@ another version stops it is reached from the entry that leaves the group shared.
 
 ### Why this reaches every version
 
-Take a kept version with stop set `S` and own-constants set `N`. The exit test reads only
-the stops, so `S` alone is kept, and it is an entry (or `S` is empty). From there the
-groups of `N` are added in smallest gaining sets. A group of `N` that never gains has its
-constants fixed by thermodynamics to the shared ones, so the version without it has the
-same law.
+Call a version **irreducible** when the exit test keeps it and making any one of its
+own-constants groups shared lowers the fitted count. A version that is not irreducible
+holds a group whose constants thermodynamics fixes to the shared ones, so it has the law of
+the version without that group. The two moves should reach exactly the irreducible
+versions.
 
-The premise is measured, not proved: 32,706 of 32,706 versions on the bi-bi starting
-mechanisms. A test keeps it (see "Tests").
+Take an irreducible version with stop set `S` and own-constants set `N`. The exit test
+reads only the stops, so `S` alone is kept, and it is an entry (or `S` is empty). From
+there the groups of `N` are added in smallest gaining sets. What a group gains never falls
+as other groups get their own constants: a group's own constants are new unknowns, the
+thermodynamic rows that bind them are fixed, and the rank those rows add shrinks as more
+columns are free. So a set that gained when added still gains in the finished version, and
+while groups of `N` remain to add, some smallest set of them gains.
+
+Both premises are measured, not proved. The exit test read only the stops in 32,706 of
+32,706 versions on the bi-bi base tier. The argument about gains assumes that
+`fitted_parameter_count` is the number of unknowns less the rank of the constraint rows. A
+test keeps both (see "Tests").
 
 ### Seeds
 
-`seed_mechanisms` runs the entry move and the regulator move, never the later move, so a
-seed's catalytic `:NonequalAI` groups can only be an own-constants entry's. `_is_seed_node`
-rule 1 changes from "tags nothing `:NonequalAI`" to "no regulatory ligand is
-`:NonequalAI`". Without the change a required regulator would hide every shared-chemistry
-K-type, since no later move removes a stop.
+Two changes, both needed so that a required regulator, the default, hides no version.
+
+**Rule 1 of `_is_seed_node`** changes from "tags nothing `:NonequalAI`" to "no regulatory
+ligand is `:NonequalAI`". `seed_mechanisms` runs the entry move and the regulator move,
+never the later move, so a seed's catalytic `:NonequalAI` groups can only be an
+own-constants entry's. Without the change every shared-chemistry K-type would be missing,
+since no later move removes a stop.
+
+**The seed search starts from the plain base tier**, not from `init_mechanisms`. Today it
+runs the entry move on the 7 degenerate ping-pong seeds and flips the allosteric results
+afterwards (`_base_tier`). A version of one of the 21 flip children is then a starting
+mechanism only if the same states pass the exit test on the degenerate seed, which refuses
+each one-half stop of the six-step ping-pong and both halves with their own constants. With
+a regulator required no plain parent is ever fitted, so those versions are unreachable.
+Measured with today's moves and one required regulator at one and two subunits: the
+starting set grows from 6,428 to 7,126 and loses nothing; the six-step ping-pong whose Q
+release is at steady state goes from 12 versions to 80. `candidate_mechanisms(reaction)`
+still applies `_base_tier` to the seeds, for a dead-end regulator's sake.
+
+This second change is the author's call. It answers a hole the design review found, and it
+fixes the same hole in today's one-half bases.
 
 ### What goes
 
@@ -220,22 +250,28 @@ Written first and watched to fail, under the enumeration-engine rules.
   single binding is among them.
 - **Later move, exact children**: from a one-half stop, from a shared-chemistry K-type, and
   from a parent whose every group is stopped or independent (no child).
-- **Reachability**, an aggregate check that says so in a comment: on the bi-bi starting
-  mechanisms, or a sample if the full set is slow, the closure of the two moves equals the
-  kept versions whose fitted count rises along some chain; and the exit test's answer on a
-  version equals its answer on the version's stop set.
-- **Seeds**: a required regulator's starting set holds a shared-chemistry K-type with the
-  regulator bound. The aggregate pin in "seed_mechanisms drops a seed the guard rejects"
-  gets its new count.
+- **Reachability**, an aggregate check that says so in a comment: on the bi-bi base tier,
+  or a sample if the full set is slow, the closure of the two moves equals the irreducible
+  versions, found by brute force over every version; and the exit test's answer on a
+  version equals its answer on the version's stop set. The test runs on the base tier, not
+  on the degenerate seeds.
+- **Seeds**: with a required regulator, the starting set holds, on the six-step ping-pong
+  with both chemistry steps at steady state (one of the 21 flip children), a one-half stop
+  and a shared-chemistry K-type, each with the regulator bound. The aggregate pin in
+  "seed_mechanisms drops a seed the guard rejects" gets its new count.
 - **Derivation**: one shared-chemistry K-type ping-pong, written out, compared with the
   mass-action steady state, in `test/Derivation/`.
 - **Removed helpers**: the testsets in `test/test_oracles.jl` and
   `test/Enumeration/test_expansion_moves.jl` that call `_tagging_bases`, `_valid_tagging`
   or `_stops_inactive_turnover` are rewritten against the moves' children.
 
-Every existing testset that pins the tagging or relaxing move's children changes its
-expected set. Each such change is reviewed against this design, not regenerated from the
-new output.
+About 50 existing testsets pin the two moves' children (29 the entry move, 21 the later
+move, in `test/Enumeration/test_expansion_moves.jl`), and `test/test_oracles.jl` builds
+populations from the entry move's children. Their expected sets change. A six-group fixture
+now has 63 stop entries per oligomeric state, too many to write out. How these testsets are
+carried over is the maintainer's decision (see "Open for the maintainer"); whatever the
+answer, a new expected set is reviewed against this design, not regenerated from the new
+output.
 
 ## Guards and docs
 
@@ -307,7 +343,13 @@ group. Whichever branch lands second rewrites that section and rebases
 
 ## Open for the maintainer
 
-1. The regulator pairing covers own-constants entries that change only chemistry (author's
+1. How the existing testsets are carried over. The author's proposal: a testset that pins a
+   removed rule (a tagging base, the every-chemistry set, the relax-all rule) is deleted
+   and named in the pull request, its place taken by the new tests of the rule that
+   replaces it. A testset about another aspect (the hyperbolic drop, a multiplicity, one
+   regulator) keeps its assertion and moves to a fixture of at most four groups, or to one
+   oligomeric state, so that every child is still written out.
+2. The regulator pairing covers own-constants entries that change only chemistry (author's
    call above). Confirm or narrow to stop entries.
-2. Approval to re-pin the allocation bound of one bi-bi expansion.
-3. The version: results change and no public name does.
+3. Approval to re-pin the allocation bound of one bi-bi expansion.
+4. The version: results change and no public name does.
