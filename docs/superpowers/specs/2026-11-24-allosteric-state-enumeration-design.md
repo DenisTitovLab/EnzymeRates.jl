@@ -422,8 +422,9 @@ Take an irreducible version. Let `S` be its `:OnlyA` and `:OnlyI` groups and `N`
 - **`S` is not empty.** `_enumerator_keeps` reads only `S`, so the version with `S` as it
   is and every other group `:EqualAI` is kept and is a kind (a) child. From there the
   groups of `N` are added in minimal gaining sets. What a group gains never falls as other
-  groups become `:NonequalAI`: a group's own constants are new unknowns, the thermodynamic
-  equations that bind them are fixed, and they bind less as more constants are free. So a
+  groups become `:NonequalAI`: the constants a `:NonequalAI` group adds are new unknowns,
+  the thermodynamic equations that bind them are fixed, and they bind less as more
+  constants are free. So a
   set that gained when added still gains in the finished version, and while groups of `N`
   remain to add, some minimal gaining set of them exists.
 - **`S` is empty.** `N` holds a minimal gaining set `T`. If `T` tagged `:OnlyA` would not
@@ -619,7 +620,8 @@ two half-reactions.
 
 ## Tests
 
-Written first and watched to fail, under the enumeration-engine rules of `.claude/CLAUDE.md`.
+Written first and watched to fail, under the enumeration-engine rules of
+`.claude/CLAUDE.md`.
 
 - **`_expand_to_allosteric`, exact children**, on mechanisms small enough to write every
   child out: the uni-uni mechanism, the three-step ping-pong (three groups, seven `:OnlyA`
