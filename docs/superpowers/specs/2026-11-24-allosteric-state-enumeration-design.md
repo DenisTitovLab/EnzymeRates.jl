@@ -18,6 +18,10 @@ decides which stops are valid and the fitted count decides which own constants a
 The maintainer added a second aim: a competitive inhibitor may bind the inactive
 conformation alone. Today it binds both conformations or the active one alone.
 
+A third aim is the maintainer's rule that an allosteric mechanism's catalysis passes the
+checks a plain mechanism's does, the hyperbolic rule aside. One check differs today: the
+flip move skips a chain's flanks in a plain mechanism only.
+
 ## Terms
 
 An allosteric mechanism gives each kinetic group one state. This document calls a group
@@ -118,6 +122,12 @@ and a copy of `A`, and gave them every entry of the design below.
 - A reactant's copy made inactive-only can be redundant (`_redundant_copy_groups`): 14 of
   3,892 kept entries with one inactive-only group. No entry without one is (0 of 3,804).
 
+**A flank's flip on an allosteric mechanism seldom shows.** Of the 278 base-tier parents 15
+hold a steady-state chain (`_chain_flank_groups`). On four versions of each, the fitted
+count was compared with the rank the data determine. At one subunit 126 of 128 flips of
+flanks alone add no identifiable constant; the two that add one flip a flank of a version
+with a stop and an own-constants group. At two subunits 76 of 96 add none and 20 add one.
+
 ## Goals
 
 - Every version the exit test keeps, each of whose own-constants groups adds to the fitted
@@ -125,11 +135,13 @@ and a copy of `A`, and gave them every entry of the design below.
 - Every child of the two moves has more fitted constants than its parent.
 - The allosteric moves hold fewer rules than today: no tagging bases, no relax-all
   chemistry rule, no clause about stopped bindings.
+- The flip move has one chain-flank rule for plain and allosteric mechanisms.
 
 ## Non-goals
 
 - A conformational flip at a second free form (the ten rejected versions above).
-- Making the guard admit more.
+- Making the guard admit more. The maintainer left that for a change of its own.
+- Removing allosteric mechanisms at one subunit (see "Open for the maintainer").
 - `:OnlyI` on a group that binds a substrate or product at its catalytic site, abortive
   complexes included. Only an inhibitor group takes it.
 - Proofs that remove versions whose new constants the data cannot determine (see "Known
@@ -216,7 +228,12 @@ children at one subunit only stays as it is, and so does the drop of a child tha
    inhibitor is an entry too. The move drops a child with an inactive-only group in two
    cases: no step of the group runs in the inactive conformation
    (`Mechanisms.steps_running_in_allosteric_conformations`), so the inhibitor binds
-   nowhere; or the child holds a redundant copy group (`_redundant_copy_groups`).
+   nowhere; or the child holds a redundant copy group (`_redundant_copy_groups`). Nothing
+   stands in for a dropped child, so no mechanism holds an inhibitor that cannot bind,
+   whether the inhibitor is required or optional. The stop set stays an entry with the
+   inhibitor shared or stopped. The same stops without the inhibitor are an entry of the
+   plain mechanism without it, which the search holds when the inhibitor is optional, and
+   the dead-end move adds the inhibitor to that entry as to any parent.
 2. **Own-constants entries, where the stop is refused.** Take each smallest set of
    groups, by inclusion, that gains when tagged `:NonequalAI` with every other group
    `:EqualAI`. A set gains when its fitted count exceeds the plain mechanism's by more than
@@ -313,6 +330,17 @@ inactive-only group ends:
   cycle of the active conformation. This is an argument, not a measurement. Its docstring
   loses the sentence that no move tags a catalytic group `:OnlyI`.
 
+### The flip move: one chain-flank rule
+
+`_chain_flank_groups` loses its allosteric branch, so `_expand_re_to_ss` skips a chain's
+flanks in every mechanism. The chain is read on the catalytic scheme, whatever the states
+of its groups. For a plain mechanism the chain lemma proves that the flip adds no law. For
+an allosteric one the rule is a modeling choice, like the hyperbolic rule: most such flips
+add no identifiable constant, and the few that do leave the search (see "Known costs").
+After the change the hyperbolic rule is the only check of the catalytic scheme that reads
+whether a mechanism is allosteric. The other branches on it choose the moves or run one
+check on each conformation.
+
 ### Seeds
 
 Two changes, both needed so that a required regulator, the default, hides no version.
@@ -388,6 +416,9 @@ Written first and watched to fail, under the enumeration-engine rules.
   the dead-end move adding a second inhibitor to a parent that holds an inactive-only one.
   One mechanism with an inactive-only inhibitor, written out, is compared with the
   mass-action steady state in `test/Derivation/`, unless the suite already holds one.
+- **Chain flanks**, exact children: the flip move on an allosteric parent with a
+  steady-state chain, at one subunit and at two, has no child that flips a flank. Testsets
+  that pin a flank flip of an allosteric parent get their new expected sets.
 - **Seeds**: with a required regulator, the starting set holds, on the six-step ping-pong
   with both chemistry steps at steady state (one of the 21 flip children), a one-half stop
   and the kind-2 entry of A with B, each with the regulator bound. The aggregate pin in
@@ -435,20 +466,26 @@ A new expected set is reviewed against this design, not regenerated from the new
   - Planned, "Drop `change_allo_state` relaxations that free no parameter": removed. The
     later move emits only sets that gain, and a regulatory ligand's relaxation always adds
     one constant (see the census).
-  - Planned, "Decide whether to keep the hyperbolic drops above one subunit": decided, the
-    drops stay (see "Open for the maintainer"). The entry moves to "Decided against" with
-    the reason and the populations measured here.
-  - Ideas, "Apply the chain-flank exclusion at one catalytic subunit": stays, with what
-    this work measured. On versions of the 15 base-tier parents that hold a steady-state
-    chain, 126 of 128 flank flips at one subunit add no identifiable constant, and all 34
-    whose parent is an L phantom. Two flips of a parent with a stop and an own-constants
-    group add one, so the exclusion cannot cover every one-subunit mechanism.
+  - Planned, "Decide whether to keep the hyperbolic drops above one subunit": the
+    maintainer decided that the drops stay. The entry moves to "Decided against" with the
+    reason and the populations measured here: every one of 13,678 kept base-tier versions
+    on hyperbolic parents passes the test, and every one of 7,846 on parents with
+    inhibitors, but only because the exits refuse the failing candidates as bridges, which
+    the Known issue on the guard proposes to admit.
+  - Ideas, "Apply the chain-flank exclusion at one catalytic subunit": removed. The
+    exclusion now holds at every subunit count.
+  - Ideas, new: replace allosteric mechanisms at one subunit by a regulator that binds
+    forms of the catalytic scheme (see "Open for the maintainer").
   - Known issue, "The guard rejects some allosteric mechanisms whose law is the limit":
     its count of ter-bi starting mechanisms with no allosteric child is measured again.
   - Planned, new: let the dead-end move give its inhibitor any of the three states on an
     allosteric parent (see "Open for the maintainer").
-  - Known issues, new: one for each of the first, second and fourth items under "Known
-    costs".
+  - Known issues, new: one for each of the first, second, fourth and fifth items under
+    "Known costs".
+- **Flank rule**: the docstrings of `_chain_flank_groups` and `_expand_re_to_ss`, the flip
+  section of the engine page and "Apparent constants on a steady-state chain"
+  (`docs/src/deriving/re_vs_ss.md`) say that the rule covers allosteric mechanisms and
+  that there it is a choice, not a lemma.
 
 ## Search cost
 
@@ -484,10 +521,13 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   starting mechanisms.
 - **Inactive-only entries the data cannot determine at one subunit.** Of 122 sampled
   entries with the inhibitor inactive-only, 47 fit one constant more than their rank at
-  one subunit, and the L-phantom certificate covers 4 of them: `L` and the inhibitor's
-  constant enter the law only as a ratio, and at `L = 0` the inhibitor leaves the law. So
-  43 are fitted for nothing. The same 122 with the inhibitor active-only: 28, of which 19
-  are certified. At two subunits 3 of 122 are undetermined.
+  one subunit. With no stop, in 4 of 5 sampled, the law is the plain mechanism's with its
+  inhibitor constant replaced by `K·(1 + L)/L`. The L-phantom certificate covers 4 of the
+  47. It asks that the inactive conformation turn nothing over and that each term of its
+  denominator be a term of the active one, and the inhibitor's terms are in the inactive
+  denominator alone. So 43 are fitted with a constant the data cannot determine. The same
+  122 with the inhibitor active-only: 28, of which 19 are certified. At two subunits 3 of
+  122 are undetermined.
 - **Optional regulators on entries that stop a binding.** These are emitted bare. At one
   subunit an L phantom among them has its parent's loss and enters the beam only through
   the width floor, as today's K-types do.
@@ -497,6 +537,10 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   and 11 of the 124 on the ping-pong ones: it has its parent's loss and enters the beam
   only through the width floor. Above one subunit there are no phantoms. Emitting every
   smallest gaining set at entry would remove this cost (see "Own constants at entry").
+- **Flank flips that show.** In the sample of the census, 20 of 96 flank flips at two
+  subunits and 2 of 128 at one add a constant the data determine. The flip move no longer
+  makes them, so a slow binding beside a slow isomerization is missing from the allosteric
+  search where the two conformations treat the chain differently.
 - **A steady-state group that runs only beside an inactive-only inhibitor.** A split can
   put a mirrored step in a group of its own, and a flip can then take it to steady state.
   With the inhibitor inactive-only that group runs in the inactive conformation alone, and
@@ -528,17 +572,11 @@ Whichever branch lands second rewrites that section and rebases `expansion_moves
 ## Open for the maintainer
 
 The maintainer decided the approach, the entry rule, the regulator pairing, how the
-existing testsets are carried over, the allocation bound, the version, and that an
-inhibitor group can be inactive-only. Three calls in this document are the author's and
-wait for a yes or no:
+existing testsets are carried over, the allocation bound, the version, that an inhibitor
+group can be inactive-only, that the hyperbolic drops stay, that the flip move skips chain
+flanks in allosteric mechanisms too, and that the guard is left for another change. Three
+calls in this document are the author's and wait for a yes or no:
 
-- **The hyperbolic drops stay.** Above one subunit both moves drop a child whose
-  conformations' laws are not hyperbolic. The drops remove nothing the exits keep: on
-  hyperbolic parents every one of 13,678 kept base-tier versions passes the test, and
-  every one of 7,846 kept versions and entries on parents with inhibitors. But the exits
-  refuse the failing candidates as bridges, and the Known issue on the guard proposes
-  admitting more bridges. Removing the drops would rest a modeling rule on that
-  conservatism, to save two filter calls and two testsets.
 - **The dead-end move keeps adding its inhibitor shared.** Every version is reachable
   without more: add the inhibitor to the plain mechanism, then enter. An inhibitor added
   after entry reaches active-only or inactive-only binding only as a limit of its own
@@ -546,3 +584,12 @@ wait for a yes or no:
   children on allosteric parents and put a second place in the engine that chooses
   exclusive states.
 - **The seed search starts from the plain base tier** (see "Seeds").
+- **Allosteric mechanisms at one subunit stay, with a `ROADMAP.md` Idea to replace them.**
+  At one subunit the conformational equilibrium only reweights the enzyme forms, so the
+  law is a plain law written with `L` and two sets of constants, and the costs above that
+  name one subunit follow from it. But one subunit is today the only way a monomer binds
+  an allosteric regulator, and the only allosteric version of a scheme that is not
+  hyperbolic. Removing it needs its replacement first: a regulator that binds forms of the
+  catalytic scheme and leaves them active with constants of their own. That is a family of
+  mechanisms with its own enumeration rules, and a design of its own. Nothing here depends
+  on one subunit.
