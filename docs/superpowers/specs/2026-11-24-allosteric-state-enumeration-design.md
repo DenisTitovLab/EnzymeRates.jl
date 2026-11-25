@@ -377,7 +377,8 @@ the emitted children, and the other moves leave the test's answer as it was. The
 move keeps its shortcut for a parent that fails the test. On today's starting set with a
 required regulator, none of the 2,218 mechanisms above one subunit fails the rule.
 
-This is the author's call (see "Open for the maintainer").
+The maintainer chose this over removing the test from the two state moves, which changes
+no child today either but rests the rule on the guard refusing a bridge.
 
 ### The flip move: one chain-flank rule
 
@@ -635,18 +636,12 @@ Whichever branch lands second rewrites that section and rebases `expansion_moves
   ping-pong and from an "all chemistry stopped" mechanism with a regulator, each recovered
   by `identify_rate_equation`. It need not become a suite test.
 
-## Open for the maintainer
+## Decided by the maintainer
 
-The maintainer decided the approach, the entry rule, the regulator pairing, how the
-existing testsets are carried over, the allocation bound, the version, that an inhibitor
-group can be inactive-only, that the dead-end move gives its inhibitor the three states
-on an allosteric parent, that the flip move skips chain flanks in allosteric mechanisms
-too, that the later move checks every relaxation for a gain, that one subunit stays, that
-the seed search starts from the plain base tier, and that the guard is left for another
-change. One call in this document is the author's and waits for a yes or no:
-
-- **The hyperbolic rule runs once, at the exits** (see "The hyperbolic rule, in one
-  place"). The maintainer proposed either this or removing the test from the two state
-  moves. Removing it changes no child today either, and saves the two exit filters, but
-  it rests the rule on the guard refusing a bridge, which the planned guard change
-  would relax.
+The approach, the entry rule, the regulator pairing, how the existing testsets are carried
+over, the allocation bound, the version, that an inhibitor group can be inactive-only,
+that the dead-end move gives its inhibitor the three states on an allosteric parent, that
+the flip move skips chain flanks in allosteric mechanisms too, that the later move checks
+every relaxation for a gain, that the hyperbolic rule runs once at the exits, that one
+subunit stays, that the seed search starts from the plain base tier, and that the guard is
+left for another change. No call in this document waits for an answer.
