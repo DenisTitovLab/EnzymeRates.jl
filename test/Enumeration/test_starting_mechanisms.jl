@@ -2081,8 +2081,10 @@ end
             push!(visited, h); push!(queue, m)
             _testhelper_binds_all_required(m, req_allo, req_comp) && push!(seeds, m)
         end
-        for m in _testhelper_mechanisms(
-            EnzymeRates.Enumeration.init_mechanisms(rxn)); _testhelper_enq(m); end
+        for m in _testhelper_mechanisms(EnzymeRates.Enumeration._base_tier(
+                unique(EnzymeRates.Enumeration.init_mechanisms(rxn)), rxn))
+            _testhelper_enq(m)
+        end
         while !isempty(queue)
             m = popfirst!(queue)
             lifted = isempty(req_allo) ? [] : !_testhelper_is_allosteric(m) ?
@@ -2126,9 +2128,9 @@ end
     end
     seeds = _testhelper_mechanisms(
         ER.Enumeration.seed_mechanisms(rxn, Set([:R]), Set{Symbol}()))
-    # Aggregate regression pin over the whole seed set: the search reaches 1,728 seeds and
-    # the guard drops 90 of them, 80 `_PUMPED` and 10 `_FILLED`.
-    @test length(seeds) == 1638
+    # Aggregate regression pin over the whole seed set: the search reaches 1,916 seeds and
+    # the guard drops 54 of them, 26 `_FILLED`, 20 `_BRIDGE` and 8 `_PUMPED`.
+    @test length(seeds) == 1862
     @test all(_testhelper_is_valid, seeds)
     # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
     # zero A and B, so it is dropped. With its second half tagged instead, the inactive
@@ -2215,6 +2217,29 @@ end
           Set(vcat(filter(m -> !EnzymeRates.Enumeration._degenerate(
                                _testhelper_candidate(m)), seeds), cures))
     @test length(base) == 278
+end
+
+@testset "seed_mechanisms starts from the base tier" begin
+    # Aggregate regression pins over two whole starting sets. The search binds R to the 278
+    # mechanisms of the base tier, none of them degenerate, and the moves that bind it keep
+    # every rapid-equilibrium flag, so no starting mechanism is degenerate.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        allosteric_regulators: R
+        oligomeric_state: (1, 2)
+    end
+    starting = ER.Enumeration.candidate_mechanisms(rxn)
+    @test length(starting) == 7126
+    @test !any(ER.Enumeration._degenerate, starting)
+    rxn_inhibited = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I
+        oligomeric_state: (1, 2)
+    end
+    @test length(ER.Enumeration.candidate_mechanisms(rxn_inhibited)) == 1548
 end
 
 @testset "_base_tier replaces a degenerate seed by the flips that cure it" begin

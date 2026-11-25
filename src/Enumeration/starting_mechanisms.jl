@@ -533,11 +533,13 @@ end
 The starting mechanisms of `rxn` when it requires the allosteric regulators `required_allo`
 and the competitive inhibitors `required_comp`: the mechanisms that bind every regulator of
 `required_allo` at a regulatory site and every inhibitor of `required_comp` at a dead-end
-site. The regulator-binding moves grow them from `init_mechanisms(rxn)` through seed nodes
-alone. The dead-end move (`_expand_add_dead_end_regulator`) always runs; the tagging and
-regulator moves (`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when
-an allosteric regulator is required, so competitive inhibitors alone keep the seeds plain,
-with no `L`. A seed node (`_is_seed_node`):
+site. The regulator-binding moves grow them from the base tier of `init_mechanisms(rxn)`
+(`_base_tier`) through seed nodes alone. They keep every step's rapid-equilibrium flag, so
+no seed is degenerate (`_degenerate`). The dead-end move (`_expand_add_dead_end_regulator`)
+always runs; the tagging and regulator moves (`_expand_to_allosteric`,
+`_expand_add_allosteric_regulator`) run only when an allosteric regulator is required, so
+competitive inhibitors alone keep the seeds plain, with no `L`. A seed node
+(`_is_seed_node`):
 
 1. tags nothing `:NonequalAI` (the beam reaches `:NonequalAI` later through
    `_expand_change_allo_state`);
@@ -565,7 +567,11 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
             issubset(required_comp, _bound_comp_inhibitors(c)) && push!(seeds, c)
         true
     end
-    frontier = CandidateMechanism[c for c in init_mechanisms(rxn) if consider!(c)]
+    # From the base tier, not the seeds: `_enumerator_keeps` refuses some states on a
+    # degenerate seed that it keeps on the seed's flip children, and the search would never
+    # give those children these states.
+    base = _base_tier(unique(init_mechanisms(rxn)), rxn)
+    frontier = CandidateMechanism[c for c in base if consider!(c)]
     while !isempty(frontier)
         next = CandidateMechanism[]
         for cs in _seed_node_children(frontier, rxn, required_allo, required_comp), c in cs
@@ -627,9 +633,9 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction;
     required_allo, required_comp = _required_regulators(
         reaction, optional_allosteric_regulators, optional_competitive_inhibitors)
     seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        init_mechanisms(reaction) : seed_mechanisms(reaction, required_allo, required_comp)
-    _within_size_limits(_base_tier(unique(seeds), reaction), max_param_count,
-                        eq_complexity_filter)
+        _base_tier(unique(init_mechanisms(reaction)), reaction) :
+        seed_mechanisms(reaction, required_allo, required_comp)
+    _within_size_limits(seeds, max_param_count, eq_complexity_filter)
 end
 
 """
@@ -651,14 +657,15 @@ function _required_regulators(rxn::Mechanisms.EnzymeReaction,
 end
 
 """
-The candidates the search fits first: every seed of `mechs` that is not degenerate
+The plain mechanisms the search starts from: every seed of `mechs` that is not degenerate
 (`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
-that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
-worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
-ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
-step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
-degeneracy condition reads. Errors when a flip child does not conserve atoms
-(`_assert_atom_conserving`).
+that are not. The search fits them first when the reaction requires no regulator, and
+`seed_mechanisms` binds the required regulators to them when it does. A degenerate seed's
+law ignores a substrate or never saturates, so it is not worth a fit, but it is the only
+parent of mechanisms that are not degenerate (such as the ping-pong seeds' children). Only
+a flip can cure it: the other moves keep every catalytic step's rapid-equilibrium flag, and
+the steps they add bind regulators, which neither degeneracy condition reads. Errors when a
+flip child does not conserve atoms (`_assert_atom_conserving`).
 """
 function _base_tier(mechs::Vector{CandidateMechanism}, rxn::Mechanisms.EnzymeReaction)
     degenerate = _degenerate.(mechs)
