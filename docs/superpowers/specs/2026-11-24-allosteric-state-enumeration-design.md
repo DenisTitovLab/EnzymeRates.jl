@@ -122,6 +122,20 @@ and a copy of `A`, and gave them every entry of the design below.
 - A reactant's copy made inactive-only can be redundant (`_redundant_copy_groups`): 14 of
   3,892 kept entries with one inactive-only group. No entry without one is (0 of 3,804).
 
+**An inhibitor added to an allosteric parent can take any of the three states.** Today's
+dead-end move ran on 241 of today's entries of the 278 base-tier parents and gave 1,316
+children, each with the inhibitor shared. Each was rebuilt with the inhibitor active-only
+and inactive-only.
+
+- All 1,316 active-only children are kept, and each adds one constant, as the shared
+  child does.
+- 1,261 inactive-only children are kept, bind in the inactive conformation and add one
+  constant. The other 55 bind nowhere and add none.
+- In those 55 placements the shared and the active-only child have one law key: the
+  inactive conformation holds none of the inhibitor's sites. In the other 1,261 the three
+  children have three keys.
+- No child holds a redundant copy group.
+
 **A flank's flip on an allosteric mechanism seldom shows.** Of the 278 base-tier parents 15
 hold a steady-state chain (`_chain_flank_groups`). On four versions of each, the fitted
 count was compared with the rank the data determine. At one subunit 126 of 128 flips of
@@ -217,9 +231,9 @@ version is one later move from the paired stop entry.
 ### The entry move: `_expand_to_allosteric(c, rxn)`
 
 For each oligomeric state the reaction allows, the move emits three kinds of child, each
-with `c`'s catalytic scheme. The rule that a parent failing `_hyperbolic_catalysis` gets
-children at one subunit only stays as it is, and so does the drop of a child that fails
-`_hyperbolic_where_required`.
+with `c`'s catalytic scheme. A parent that fails `_hyperbolic_catalysis` gets children at
+one subunit only, as today: above one subunit every one would fail the hyperbolic rule
+(see "The hyperbolic rule, in one place").
 
 1. **Stop entries.** One child per nonempty set of kinetic groups: those groups `:OnlyA`,
    every other group `:EqualAI`, no regulatory site. The move emits all `2^g − 1` sets for
@@ -269,8 +283,8 @@ the titration and survives on its own. No paired child holds a `:NonequalAI` gro
   its fitted count exceeds `c`'s. The maintainer asked for the check on every relaxation.
   It never fired in the census (17,331 of 17,331 add one constant), so it keeps the rule
   for cases the census did not sample.
-- **Filters.** The drops for a redundant copy group and for a non-hyperbolic law above one
-  subunit stay.
+- **Filters.** The drop for a redundant copy group stays. The drop for a non-hyperbolic
+  law above one subunit moves out of the move (see "The hyperbolic rule, in one place").
 
 A group never returns to `:EqualAI`, `:OnlyA` or `:OnlyI`. A stop is the limit of own
 constants as the inactive affinity or rate goes to zero, and an inactive-only inhibitor is
@@ -318,21 +332,52 @@ subunits, on the 14 ping-pong parents that allow them, they reach all 2,214. On 
 parents with an inhibitor they reach all 14,898, of which 3,719 hold the inhibitor
 inactive-only.
 
+### The dead-end move on an allosteric parent
+
+The maintainer decided that an inhibitor added to an allosteric parent takes each state
+that adds one constant. For each placement the move emits three children, the new
+inhibitor group shared, active-only and inactive-only, where today it emits the shared one.
+It drops a child under the entry move's two rules: its inactive-only group runs no step
+in the inactive conformation, or it holds a redundant copy group. Where the inactive
+conformation holds none of the inhibitor's sites, the shared and the active-only child
+have one law and share a fit. Both stay, because they part once the later move gives a
+stopped group its own constants and the inactive conformation reaches a site.
+
+The entry move and this move then apply one rule to an inhibitor group, and the two orders
+of adding an inhibitor and making a mechanism allosteric give the same versions.
+
+On an allosteric child the move reads twins on the whole catalytic graph, which it takes
+for the active conformation's, and runs `_redundant_copy_groups` only when the copy has a
+twin at each binding (`_dead_end_child`). An inactive-only group ends that, in the parent
+or in the child. The move runs `_redundant_copy_groups` on every allosteric child; the
+builder may keep the shortcut where no group is inactive-only.
+
 ### Other moves on a parent with an inactive-only group
 
-The flip, split, dead-end and regulator moves run on such a parent as on any other. Two
-places assume that the whole catalytic graph is the active conformation's, which an
-inactive-only group ends:
+The flip, split and regulator moves run on such a parent as on any other.
+`_assert_emission_rules` reads a steady-state group's flux on the whole graph. That stays
+right for a step the active conformation runs: a cycle through an inhibitor's complexes
+follows mirrored steps, and replacing each by the step it mirrors gives a cycle of the
+active conformation. This is an argument, not a measurement. Its docstring loses the
+sentence that no move tags a catalytic group `:OnlyI`.
 
-- **The dead-end move** adds its inhibitor group shared, as today. On an allosteric parent
-  it runs `_redundant_copy_groups` only when the copy has a twin at each binding, with the
-  twins read on the whole graph (`_dead_end_child`). On a parent with an inactive-only
-  group it runs the test without that shortcut.
-- **`_assert_emission_rules`** reads a steady-state group's flux on the whole graph. That
-  stays right for a step the active conformation runs: a cycle through an inhibitor's
-  complexes follows mirrored steps, and replacing each by the step it mirrors gives a
-  cycle of the active conformation. This is an argument, not a measurement. Its docstring
-  loses the sentence that no move tags a catalytic group `:OnlyI`.
+### The hyperbolic rule, in one place
+
+Above one subunit each conformation's law must be hyperbolic. Three moves filter their
+children for it today: the flip move, which can change the scheme, and the two state
+moves, where a stop can leave the inactive conformation a part of the scheme with a power
+the whole scheme lacks. The state moves' filters remove nothing the exits keep today (see
+the `ROADMAP.md` entries below), but only because the guard refuses those children as
+bridges.
+
+The rule moves to the two places where the exit test runs on what the enumerator returns:
+`candidate_mechanisms(reaction, parent)` and the seed search. The three moves lose their
+filters, and the rule no longer rests on the guard. No child changes: each filter ran on
+the emitted children, and the other moves leave the test's answer as it was. The entry
+move keeps its shortcut for a parent that fails the test. On today's starting set with a
+required regulator, none of the 2,218 mechanisms above one subunit fails the rule.
+
+This is the author's call (see "Open for the maintainer").
 
 ### The flip move: one chain-flank rule
 
@@ -366,7 +411,7 @@ starting set grows from 6,428 to 7,126 and loses nothing; the six-step ping-pong
 release is at steady state goes from 12 versions to 80. `candidate_mechanisms(reaction)`
 still applies `_base_tier` to the seeds, for a dead-end regulator's sake.
 
-The second change is the author's call. It answers a hole the design review found, and
+The maintainer approved the second change. It answers a hole the design review found, and
 today's one-half bases have the same hole.
 
 ### What goes
@@ -422,6 +467,11 @@ Written first and watched to fail, under the enumeration-engine rules.
   the dead-end move adding a second inhibitor to a parent that holds an inactive-only one.
   One mechanism with an inactive-only inhibitor, written out, is compared with the
   mass-action steady state in `test/Derivation/`, unless the suite already holds one.
+- **Dead-end move on an allosteric parent**, exact children: a small parent with one
+  placement gives the three children; a parent whose stops cut the placement off the
+  inactive conformation gives the shared and the active-only child alone.
+- **Hyperbolic rule**: the two testsets that pin a drop through a state move pin it
+  through `candidate_mechanisms(reaction, parent)`, with the same fixtures.
 - **Chain flanks**, exact children: the flip move on an allosteric parent with a
   steady-state chain, at one subunit and at two, has no child that flips a flank. Testsets
   that pin a flank flip of an allosteric parent get their new expected sets.
@@ -459,7 +509,9 @@ A new expected set is reviewed against this design, not regenerated from the new
 - **Version.** 0.11.1: results change and no exported function does.
 - **Engine page** (`docs/src/identify/enumeration_engine.md`): moves 4 and 6 are rewritten
   around stop sets and own-constants sets, with the thermodynamic reason a binding cannot
-  differ alone and the three states an inhibitor group can enter with.
+  differ alone and the three states an inhibitor group can enter with. The dead-end
+  move's section gains the three states on an allosteric parent, and the hyperbolic rule
+  is stated once, for every move.
 - **Developer page** (`docs/src/developer.md`): the sentence on where the moves run the
   guard, and the enumeration section where it names bases.
 - **MWC page** (`docs/src/deriving/mwc_allostery.md`): the sentence "as the search's
@@ -472,20 +524,18 @@ A new expected set is reviewed against this design, not regenerated from the new
   - Planned, "Drop `change_allo_state` relaxations that free no parameter": removed. The
     later move emits only sets that gain, and a regulatory ligand's relaxation always adds
     one constant (see the census).
-  - Planned, "Decide whether to keep the hyperbolic drops above one subunit": the
-    maintainer decided that the drops stay. The entry moves to "Decided against" with the
-    reason and the populations measured here: every one of 13,678 kept base-tier versions
-    on hyperbolic parents passes the test, and every one of 7,846 on parents with
-    inhibitors, but only because the exits refuse the failing candidates as bridges, which
-    the Known issue on the guard proposes to admit.
+  - Planned, "Decide whether to keep the hyperbolic drops above one subunit": removed.
+    The rule stays and runs once, where the enumerator returns its candidates. Measured
+    here: every one of 13,678 kept base-tier versions on hyperbolic parents passes the
+    test, and every one of 7,846 on parents with inhibitors, but only because the exits
+    refuse the failing candidates as bridges, which the Known issue on the guard proposes
+    to admit.
   - Ideas, "Apply the chain-flank exclusion at one catalytic subunit": removed. The
     exclusion now holds at every subunit count.
   - Ideas, new: replace allosteric mechanisms at one subunit by a regulator that binds
     forms of the catalytic scheme (see "Known costs").
   - Known issue, "The guard rejects some allosteric mechanisms whose law is the limit":
     its count of ter-bi starting mechanisms with no allosteric child is measured again.
-  - Planned, new: let the dead-end move give its inhibitor any of the three states on an
-    allosteric parent (see "Open for the maintainer").
   - Known issues, new: one for each of the first, second, fourth and fifth items under
     "Known costs".
 - **Flank rule**: the docstrings of `_chain_flank_groups` and `_expand_re_to_ss`, the flip
@@ -516,6 +566,9 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   inhibitor inactive-only (medians of 42 parents). With two inhibitor groups it keeps 47
   and 60 (61 parents). A starting set that requires an inhibitor and an allosteric
   regulator grows by the same factor.
+- **Dead-end move.** Its children on an allosteric parent triple: a median of 6 becomes 18
+  on today's entries with one inhibitor declared. All but the 55 pairs above are distinct
+  laws.
 
 ## Known costs
 
@@ -586,15 +639,14 @@ Whichever branch lands second rewrites that section and rebases `expansion_moves
 
 The maintainer decided the approach, the entry rule, the regulator pairing, how the
 existing testsets are carried over, the allocation bound, the version, that an inhibitor
-group can be inactive-only, that the hyperbolic drops stay, that the flip move skips chain
-flanks in allosteric mechanisms too, that the later move checks every relaxation for a
-gain, that one subunit stays, and that the guard is left for another change. Two calls in
-this document are the author's and wait for a yes or no:
+group can be inactive-only, that the dead-end move gives its inhibitor the three states
+on an allosteric parent, that the flip move skips chain flanks in allosteric mechanisms
+too, that the later move checks every relaxation for a gain, that one subunit stays, that
+the seed search starts from the plain base tier, and that the guard is left for another
+change. One call in this document is the author's and waits for a yes or no:
 
-- **The dead-end move keeps adding its inhibitor shared.** Every version is reachable
-  without more: add the inhibitor to the plain mechanism, then enter. An inhibitor added
-  after entry reaches active-only or inactive-only binding only as a limit of its own
-  constants, at one constant more. Giving the move all three states would triple its
-  children on allosteric parents and put a second place in the engine that chooses
-  exclusive states.
-- **The seed search starts from the plain base tier** (see "Seeds").
+- **The hyperbolic rule runs once, at the exits** (see "The hyperbolic rule, in one
+  place"). The maintainer proposed either this or removing the test from the two state
+  moves. Removing it changes no child today either, and saves the two exit filters, but
+  it rests the rule on the guard refusing a bridge, which the planned guard change
+  would relax.
