@@ -551,7 +551,7 @@ competitive inhibitors alone keep the seeds plain, with no `L`. A seed node
 
 Each seed appears once, in an order that does not depend on the number of workers. Errors
 when no mechanism binds every required regulator. The search expands a node that
-`_enumerator_keeps` refuses but never returns it.
+`_enumerator_returns` refuses but never returns it.
 """
 function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
@@ -589,8 +589,7 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
               "optional with `optional_competitive_inhibitors` or " *
               "`optional_allosteric_regulators`, or remove its declaration")
     end
-    filter!(c -> _enumerator_keeps(c.mechanism), seeds)
-    seeds
+    filter!(_enumerator_returns, seeds)
 end
 
 """The children of each candidate of `frontier` that are seed nodes (`_is_seed_node`), in

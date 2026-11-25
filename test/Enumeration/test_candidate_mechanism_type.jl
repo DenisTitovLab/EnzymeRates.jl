@@ -1,5 +1,5 @@
-# ABOUTME: Tests of src/Enumeration/candidate_mechanism_type.jl: the records and form
-# ABOUTME: names, the structural tests, the size limits and _enumerator_keeps.
+# ABOUTME: Tests of src/Enumeration/candidate_mechanism_type.jl: records, form names,
+# ABOUTME: structural tests, size limits, _enumerator_keeps and _enumerator_returns.
 
 # ── Records, form names and the structural tests ──────────────────────────────────────
 
@@ -1792,6 +1792,77 @@ end
         end
     end
     @test En._kept_forms_keep_a_binding(plain_uni_uni)
+end
+
+@testset "_enumerator_returns" begin
+    En = EnzymeRates.Enumeration
+    # A uni-bi whose S binds fused into EPQ at steady state and whose products leave in
+    # either order. With S's binding and P's binding at E :OnlyA, the inactive conformation
+    # reaches EP only through steady-state steps, and its scheme fails
+    # `_hyperbolic_catalysis` (test_expansion_moves.jl, "Mechanism — a tagging child whose
+    # law is not hyperbolic is not returned"). The guard rejects it too.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S <--> EPQ
+            EP + Q <--> EPQ
+            EQ + P <--> EPQ
+            E + P ⇌ EP
+            E + Q ⇌ EQ
+        end
+    end
+    k_pe = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 2
+        steps: begin
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
+        end
+    end
+    k_pe_one = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
+        end
+    end
+    @test !En._hyperbolic_where_required(_testhelper_candidate(k_pe))
+    @test !En._enumerator_returns(_testhelper_candidate(k_pe))
+    @test En._enumerator_returns(_testhelper_candidate(k_pe_one)) ==
+          En._enumerator_keeps(k_pe_one)
+    @test En._enumerator_returns(_testhelper_candidate(m)) == En._enumerator_keeps(m)
+    # A uni-bi with random product release and P's group at steady state, every group
+    # :NonequalAI: its scheme carries Q² (test_expansion_moves.jl, "_expand_re_to_ss: an
+    # allosteric parent keeps a hyperbolic scheme"). The guard keeps it at either
+    # subunit count, so at two subunits only the hyperbolic rule refuses it.
+    flip_p = @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 2
+        steps: begin
+            E + S ⇌ ES                                :: NonequalAI
+            ES <--> EPQ                           :: NonequalAI
+            (E + P <--> EP, EQ + P <--> EPQ)    :: NonequalAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
+        end
+    end
+    flip_p_one = @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + S ⇌ ES                                :: NonequalAI
+            ES <--> EPQ                           :: NonequalAI
+            (E + P <--> EP, EQ + P <--> EPQ)    :: NonequalAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
+        end
+    end
+    @test En._enumerator_keeps(flip_p)
+    @test !En._enumerator_returns(_testhelper_candidate(flip_p))
+    @test En._enumerator_keeps(flip_p_one)
+    @test En._enumerator_returns(_testhelper_candidate(flip_p_one))
 end
 
 # ── Redundant copies per conformation ─────────────────────────────────────────────────

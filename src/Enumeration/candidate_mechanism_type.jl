@@ -666,6 +666,12 @@ accepts it, and no conformation keeps a form that only bindings it excludes ente
 _enumerator_keeps(m) =
     Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_keep_a_binding(m)
 
+"""Whether the enumerator returns candidate `c`: it passes `_hyperbolic_where_required`,
+and `_enumerator_keeps` accepts its mechanism."""
+_enumerator_returns(c::CandidateMechanism) =
+    # The hyperbolic test reads the graph alone, where the guard derives, so it runs first.
+    _hyperbolic_where_required(c) && _enumerator_keeps(c.mechanism)
+
 _copies(v::Vector{Int}, i::Int) = count(==(i), v)
 
 _is_allosteric(m::Mechanisms.Mechanism) = !isempty(m.allosteric.allosteric_states)

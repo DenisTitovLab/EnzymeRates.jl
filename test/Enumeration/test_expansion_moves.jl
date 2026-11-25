@@ -590,7 +590,12 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am)
     @test length(kids) == 4
     @test Set(kids) == Set([a_flip, b_flip, p_flip, q_flip])
-    @test all(EnzymeRates.Enumeration._hyperbolic_catalysis, _testhelper_candidate.(kids))
+    # candidate_mechanisms returns every flip, and every child it returns at two subunits
+    # is hyperbolic.
+    returned = _testhelper_children(rxn2, [am])
+    @test issubset(kids, returned)
+    @test all(EnzymeRates.Enumeration._hyperbolic_catalysis,
+              _testhelper_candidate.(returned))
     @test _testhelper_fitted(am) == _testhelper_identifiable_rank(am) == 6
     for k in kids
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 7
@@ -4227,8 +4232,11 @@ end
 
 @testset "Mechanism — merged abortive ping-pong: hyperbolic laws above one subunit" begin
     # SEED: the bi-bi ping-pong above with A's abortive binding at EP_res_plusA_minusP
-    # merged into A's group and P's at EA into P's group. At two subunits the move keeps
-    # a child only when both conformations' laws are hyperbolic (`_hyperbolic_catalysis`).
+    # merged into A's group and P's at EA into P's group. At two subunits
+    # candidate_mechanisms returns a child only when both conformations' laws are
+    # hyperbolic (`_enumerator_returns`). The second half alone :OnlyA leaves the inactive
+    # conformation the first half and both abortive bindings, and its law fails
+    # `_hyperbolic_catalysis`; the guard rejects that version too.
     # Both half-reactions :OnlyA is the one base: the inactive conformation runs no
     # chemistry, so its abortive complexes put no power into its law, and the move emits
     # all 15 K-types. The first half alone :OnlyA is no base: admission accepts it, class
@@ -4290,6 +4298,19 @@ end
              EA + P ⇌ EAP)                                       :: OnlyA
             EA <--> EP_res_plusA_minusP                           :: OnlyA
             EB_res_plusA_minusP ⇌ EQ                              :: EqualAI
+        end
+    end
+    half2 = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 2
+        steps: begin
+            (E + A ⇌ EA,
+             EP_res_plusA_minusP + A ⇌ EAP_res_plusA_minusP)   :: EqualAI
+            E + Q ⇌ EQ                                               :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP         :: EqualAI
+            (E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP,
+             EA + P ⇌ EAP)                                       :: EqualAI
+            EA <--> EP_res_plusA_minusP                           :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                              :: OnlyA
         end
     end
     a_every = @_testhelper_unguarded @enzyme_mechanism begin
@@ -4499,22 +4520,27 @@ end
     @test all(EnzymeRates.Enumeration._hyperbolic_where_required,
               _testhelper_candidate.([a_half1, p_half1, ap_half1]))
     @test !any(_testhelper_is_valid, [a_half1, p_half1, ap_half1])
-    @test Set(c for c in _testhelper_children(rxn, [m])
-              if _testhelper_is_allosteric(c)) == Set(kept)
+    @test !EnzymeRates.Enumeration._hyperbolic_where_required(_testhelper_candidate(half2))
+    @test EnzymeRates.Derivation._guard(half2).fault ===
+          EnzymeRates.Derivation._FAST_STEP_PINNED
+    returned = _testhelper_children(rxn, [m])
+    @test half2 ∉ returned
+    @test Set(c for c in returned if _testhelper_is_allosteric(c)) == Set(kept)
 end
 
-@testset "Mechanism — the tagging move drops a K-type whose law is not hyperbolic" begin
+@testset "Mechanism — a tagging child whose law is not hyperbolic is not returned" begin
     # A uni-bi parent: S binds fused into EPQ at steady state, and the products leave
     # in either order, each at steady state from EPQ and at rapid equilibrium from
     # EP or EQ. Its scheme is hyperbolic, so two subunits stay open, and at two
-    # subunits the move keeps a child only when both conformations' schemes are hyperbolic
-    # (`_hyperbolic_where_required`). The one base tags the fused S binding :OnlyA, and the
-    # move builds a K-type for each nonempty set of the four binding groups :OnlyA on it.
-    # It drops two: with P's binding at E alone :OnlyA too, the inactive conformation
+    # subunits candidate_mechanisms returns a child only when both conformations' schemes
+    # are hyperbolic (`_enumerator_returns`). The move tags the fused S binding :OnlyA and
+    # builds a child for each nonempty set of the four binding groups :OnlyA beside it.
+    # Two fail the rule: with P's binding at E alone :OnlyA too, the inactive conformation
     # reaches EP only through steady-state steps and its scheme fails
     # `_hyperbolic_catalysis`; likewise Q's binding at E alone. The guard rejects both as
     # well (the inactive conformation still joins the two sides of the excluded binding),
-    # so the exits would drop them anyway; this testset pins the move's own drop.
+    # so the testset pins that the rule refuses them and that candidate_mechanisms does
+    # not return them.
     m = @enzyme_mechanism begin
         substrates: S
         products: P, Q
@@ -4682,15 +4708,19 @@ end
         end
     end
     @test EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(m))
+    hyperbolic = [k_q_ep, k_p_eq, k_pe_qe, k_pe_q_ep, k_pe_p_eq, k_qe_q_ep, k_qe_p_eq,
+                  k_q_ep_p_eq, k_pe_qe_q_ep, k_pe_qe_p_eq, k_pe_q_ep_p_eq, k_qe_q_ep_p_eq,
+                  k_pe_qe_q_ep_p_eq]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test length(kids) == 13
-    @test Set(kids) == Set([k_q_ep, k_p_eq, k_pe_qe, k_pe_q_ep, k_pe_p_eq, k_qe_q_ep,
-                            k_qe_p_eq, k_q_ep_p_eq, k_pe_qe_q_ep, k_pe_qe_p_eq,
-                            k_pe_q_ep_p_eq, k_qe_q_ep_p_eq, k_pe_qe_q_ep_p_eq])
+    @test length(kids) == 15
+    @test Set(kids) == Set([hyperbolic; k_pe; k_qe])
     @test all(EnzymeRates.Enumeration._hyperbolic_where_required,
-              _testhelper_candidate.(kids))
+              _testhelper_candidate.(hyperbolic))
+    returned = [c for c in _testhelper_children(rxn, [m]) if _testhelper_is_allosteric(c)]
     for (dropped, step) in ((k_pe, "E + P ⇌ EP"), (k_qe, "E + Q ⇌ EQ"))
-        @test dropped ∉ kids
+        @test !EnzymeRates.Enumeration._hyperbolic_where_required(
+            _testhelper_candidate(dropped))
+        @test dropped ∉ returned
         runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(dropped)
         @test EnzymeRates.Enumeration._hyperbolic_catalysis(
             _testhelper_candidate(m), runs.active)
@@ -4700,8 +4730,7 @@ end
         @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
               (EnzymeRates.Derivation._FAST_STEP_PINNED, step)
     end
-    @test Set(c for c in _testhelper_children(rxn, [m])
-              if _testhelper_is_allosteric(c)) == Set(kids)
+    @test Set(returned) == Set(hyperbolic)
 end
 
 @testset "Mechanism — uni-uni: binding-group :OnlyA variants only" begin
@@ -6539,16 +6568,17 @@ end
         _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am_all_neq))
 end
 
-@testset "Allosteric mechanism — drops a relaxation whose inactive law has a power" begin
+@testset "Allosteric mechanism — a relaxation that is not hyperbolic is not returned" begin
     # The split abortive ping-pong at two subunits (testset "_hyperbolic_catalysis"): the
     # second half-reaction and both abortive bindings, A's at EP_res_plusA_minusP and
     # P's at EA, :OnlyA. Each other binding relaxes to :NonequalAI and keeps both laws
     # hyperbolic. Relaxing an abortive binding brings its complex into the inactive
-    # conformation, whose law then reaches A² or P² (`_hyperbolic_catalysis`), so the move
-    # drops both relaxations. The chemistry does not relax while a binding is :OnlyA. Four
-    # children. The predicate reads the graph alone: the guard rejects this parent and each
-    # relaxation, since the inactive conformation keeps the two sides of the
-    # rapid-equilibrium step EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`).
+    # conformation, whose law then reaches A² or P² (`_hyperbolic_catalysis`), so
+    # candidate_mechanisms does not return either relaxation (`_enumerator_returns`). The
+    # chemistry does not relax while a binding is :OnlyA. Six children. The predicate
+    # reads the graph alone: the guard rejects this parent and each relaxation, since the
+    # inactive conformation keeps the two sides of the rapid-equilibrium step
+    # EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`).
     am = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
@@ -6640,16 +6670,24 @@ end
             EB_res_plusA_minusP ⇌ EQ                          :: OnlyA
         end
     end
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        oligomeric_state: 2
+    end
+    hyperbolic = [a_relaxed, q_relaxed, b_relaxed, p_relaxed]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, am)
-    @test length(kids) == 4
-    @test Set(kids) == Set([a_relaxed, q_relaxed, b_relaxed, p_relaxed])
-    @test all(EnzymeRates.Enumeration._hyperbolic_catalysis, _testhelper_candidate.(kids))
+    @test length(kids) == 6
+    @test Set(kids) == Set([hyperbolic; abortive_a_relaxed; abortive_p_relaxed])
+    @test all(EnzymeRates.Enumeration._hyperbolic_catalysis,
+              _testhelper_candidate.(hyperbolic))
+    returned = _testhelper_children(rxn, [am])
     for d in (abortive_a_relaxed, abortive_p_relaxed)
-        @test !EnzymeRates.Enumeration._hyperbolic_catalysis(_testhelper_candidate(d))
+        @test !EnzymeRates.Enumeration._hyperbolic_where_required(_testhelper_candidate(d))
+        @test d ∉ returned
     end
     @test all(c -> EnzymeRates.Derivation._guard(c).fault ===
-                   EnzymeRates.Derivation._FAST_STEP_PINNED,
-              [am; kids; abortive_a_relaxed; abortive_p_relaxed])
+                   EnzymeRates.Derivation._FAST_STEP_PINNED, [am; kids])
 end
 
 end
@@ -8831,8 +8869,10 @@ end
         # off {ES} and the equation stays degree 1. Flipping the P group splits
         # off {EP, EPQ}, whose term carries Q from EPQ beyond its
         # bottom EP and again from the edge EQ → EPQ, so the equation
-        # carries Q²; flipping Q mirrors it with P². A plain Mechanism emits all
-        # three; an allosteric parent emits only the S flip.
+        # carries Q²; flipping Q mirrors it with P². The move emits all three, for a
+        # plain parent and for an allosteric one over two subunits. For the allosteric
+        # parent candidate_mechanisms returns only the S flip (`_enumerator_returns`):
+        # the guard keeps the P and Q flips, and the hyperbolic rule refuses them.
         plain = @enzyme_mechanism begin
             substrates: S
             products: P, Q
@@ -8899,16 +8939,51 @@ end
                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
             end
         end
-        allo_kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, allo)
+        allo_flipP = @enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            oligomeric_state: 2
+            steps: begin
+                E + S ⇌ ES                                :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P <--> EP, EQ + P <--> EPQ)    :: NonequalAI
+                (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
+            end
+        end
+        allo_flipQ = @enzyme_mechanism begin
+            substrates: S
+            products: P, Q
+            oligomeric_state: 2
+            steps: begin
+                E + S ⇌ ES                                :: NonequalAI
+                ES <--> EPQ                           :: NonequalAI
+                (E + P ⇌ EP, EQ + P ⇌ EPQ)          :: NonequalAI
+                (E + Q <--> EQ, EP + Q <--> EPQ)    :: NonequalAI
+            end
+        end
+        rxn = @enzyme_reaction begin
+            substrates: S[CN]
+            products: P[C], Q[N]
+            oligomeric_state: 2
+        end
+        # The flips are the children with the parent's allostery: every group is
+        # :NonequalAI already, so no group relaxes, and a split adds a group.
+        allo_kids = [c for c in _testhelper_children(rxn, [allo])
+                     if c.allosteric == allo.allosteric]
         @test length(allo_kids) == 1
         @test Set(allo_kids) == Set([allo_flipS])
+        for d in (allo_flipP, allo_flipQ)
+            @test EnzymeRates.Enumeration._enumerator_keeps(d)
+            @test !EnzymeRates.Enumeration._hyperbolic_where_required(
+                _testhelper_candidate(d))
+        end
     end
 
     @testset "_expand_re_to_ss: a one-subunit allosteric parent keeps every flip" begin
         # The same uni-bi as an allosteric mechanism with one catalytic subunit.
-        # The conformational equilibrium adds no concentration power, so the
-        # flip move keeps the P and Q flips it drops for two subunits, and emits
-        # the same three flips as the plain mechanism.
+        # The conformational equilibrium adds no concentration power, so
+        # candidate_mechanisms returns the P and Q flips it refuses for two subunits,
+        # and the same three flips as for the plain mechanism.
         allo_one = @enzyme_mechanism begin
             substrates: S
             products: P, Q
@@ -8953,7 +9028,13 @@ end
                 (E + Q <--> EQ, EP + Q <--> EPQ)    :: NonequalAI
             end
         end
-        kids_one = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, allo_one)
+        rxn = @enzyme_reaction begin
+            substrates: S[CN]
+            products: P[C], Q[N]
+        end
+        # The flips are the children with the parent's allostery, as above.
+        kids_one = [c for c in _testhelper_children(rxn, [allo_one])
+                    if c.allosteric == allo_one.allosteric]
         @test length(kids_one) == 3
         @test Set(kids_one) == Set([flipS_one, flipP_one, flipQ_one])
     end

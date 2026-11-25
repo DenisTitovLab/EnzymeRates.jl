@@ -62,7 +62,7 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction,
     eq_complexity_filter == typemax(Int) || filter!(
         c -> Derivation.rate_equation_term_count(c.mechanism) <= eq_complexity_filter,
         children)
-    filter!(c -> _enumerator_keeps(c.mechanism), children)
+    filter!(_enumerator_returns, children)
     _within_size_limits(children, max_param_count, typemax(Int))
 end
 
@@ -190,18 +190,17 @@ joint flip to steady state (`_minimal_flips`) passes three tests:
 
 A flip unit is a kinetic group that is all rapid equilibrium, takes up or gives off no
 modifier copy, carries flux with every edge steady state (`_flux_carrying_groups`) and is
-no chain flank (`_chain_flank_groups`). The child keeps everything else of `c`. A parent
-that `_requires_hyperbolic_catalysis` keeps only the children that pass
-`_hyperbolic_catalysis`. The engine page gives the reasons for each rule ("Flip
-rapid-equilibrium groups to steady state" in "The enumeration engine").
+no chain flank (`_chain_flank_groups`). The child keeps everything else of `c`. The engine
+page gives the reasons for each rule ("Flip rapid-equilibrium groups to steady state" in
+"The enumeration engine").
 
 The search extends a set that fails a test. A set that leaves a flipped group without flux
 gives the parent plus one phantom per such group, and its flux-carrying supersets are the
 smallest identifiable relaxations. The mechanisms that are not degenerate beyond a failed
 set stay reachable, through the other cut orders of the same ring, or through the extended
-set when no other order gains. The hyperbolic test runs on the emitted sets, not inside the
-search: there a failing set would be extended with more flips, and more steady-state steps
-never restore a hyperbolic equation, so its supersets need no visit.
+set when no other order gains. The search does not read the hyperbolic rule, which
+`_enumerator_returns` applies to the children: more steady-state steps never restore a
+hyperbolic equation, so a set that fails the rule has no superset that passes it.
 """
 function _expand_re_to_ss(c::CandidateMechanism)
     cm = c.mechanism.catalytic
@@ -214,8 +213,7 @@ function _expand_re_to_ss(c::CandidateMechanism)
     eligible(g) = !(g in flanks) && !exchanges_modifier[g]
     base = _re_segment_count(cm, _rapid_equilibrium_flags(cm))
     flips = _minimal_flips(re -> _re_segment_count(cm, re) > base, c, eligible)
-    children = CandidateMechanism[_with_flags(c, re) for re in flips]
-    filter(_hyperbolic_where_required, children)
+    CandidateMechanism[_with_flags(c, re) for re in flips]
 end
 
 """
@@ -870,9 +868,8 @@ K-types, then the V-types:
 The move never emits the all-`:EqualAI` tagging: its two conformations are identical, `L`
 cancels, and the law is `m`'s. The variants are distinct: each differs from the others in
 its tags, its regulatory site or its oligomeric state. A parent that fails
-`_hyperbolic_catalysis` gets variants at oligomeric state 1 only, and above one subunit the
-move drops a variant whose conformations' laws fail it (`_requires_hyperbolic_catalysis`).
-Errors on an allosteric `c`.
+`_hyperbolic_catalysis` gets variants at oligomeric state 1 only, since above one subunit
+every variant would fail `_hyperbolic_where_required`. Errors on an allosteric `c`.
 """
 function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction)
     # The variants carry states and sites of their own; an allosteric parent's would be
@@ -907,7 +904,7 @@ function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReac
                   _candidate(c, base, cn, [Mechanisms.RegulatorySite([reg], cn, [tag])]))
         end
     end
-    filter(_hyperbolic_where_required, results)
+    results
 end
 
 """
@@ -990,10 +987,9 @@ The relaxing move: the children of candidate `c`, whose mechanism is allosteric,
 Relaxing an `:OnlyA` binding brings its complex into the inactive state. There a copy's
 complex that had no twin can gain one, and with a consistent gauge the copy's constant
 shows in neither state. So the move drops a child with a redundant competitive-inhibitor
-group (`_redundant_copy_groups`). An `:OnlyA` abortive binding, once relaxed, brings its
-complex into the inactive law, which can then carry a power. So above one subunit the move
-drops a child whose conformations' laws fail `_hyperbolic_catalysis`
-(`_requires_hyperbolic_catalysis`). The exits (`_enumerator_keeps`) judge the rest.
+group (`_redundant_copy_groups`). The exits (`_enumerator_returns`) judge the rest. An
+`:OnlyA` abortive binding, once relaxed, brings its complex into the inactive law, which
+can then carry a power and fail `_hyperbolic_where_required` above one subunit.
 Relaxing an `:OnlyA` binding joins its two sides, which can leave another tagged binding
 inside one component or close a cycle of tagged bindings, and a face can fail. A
 regulatory ligand's tag does not enter the guard, since a regulator site completes no
@@ -1023,7 +1019,6 @@ function _expand_change_allo_state(c::CandidateMechanism)
         push!(results, _candidate(c, states, a.oligomeric_state, new_sites))
     end
     filter!(child -> isempty(_redundant_copy_groups(child)), results)
-    filter!(_hyperbolic_where_required, results)
 end
 
 """
