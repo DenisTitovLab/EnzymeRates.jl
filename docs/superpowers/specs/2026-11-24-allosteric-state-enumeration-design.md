@@ -1,6 +1,6 @@
 # Enumerate every feasible allosteric state: design
 
-Date: 2026-11-24. Branch: `allosteric-state-enumeration`.
+Date: 2026-11-25. Branch: `allosteric-state-enumeration`.
 
 ## Intent
 
@@ -15,16 +15,20 @@ design replaces both. A mechanism becomes allosteric by stopping any set of grou
 inactive conformation, and a later move gives groups their own constants there. The guard
 decides which stops are valid and the fitted count decides which own constants are real.
 
+The maintainer added a second aim: a competitive inhibitor may bind the inactive
+conformation alone. Today it binds both conformations or the active one alone.
+
 ## Terms
 
 An allosteric mechanism gives each kinetic group one state. This document calls a group
 **stopped** when it is `:OnlyA`, **shared** when it is `:EqualAI`, and says it has **its
-own constants** when it is `:NonequalAI`. A **version** of a plain mechanism is one choice
-of state for every group, not all shared. A **stop set** is a set of groups stopped with
-every other group shared. An **own-constants set** is a set of groups given their own
-constants. A set **gains** when giving its groups their own constants raises the fitted
-count, and a **smallest gaining set** has no subset that gains. An **entry** is a child of
-the move that makes a plain mechanism allosteric.
+own constants** when it is `:NonequalAI`. An **inhibitor group** is a kinetic group whose
+steps bind a competitive inhibitor, and it alone may be **inactive-only**, `:OnlyI`. A
+**version** of a plain mechanism is one choice of state for every group, not all shared. A
+**stop set** is a set of groups stopped with every other group shared. An **own-constants
+set** is a set of groups given their own constants. A set **gains** when giving its groups
+their own constants raises the fitted count, and a **smallest gaining set** has no subset
+that gains. An **entry** is a child of the move that makes a plain mechanism allosteric.
 
 ## What the census established
 
@@ -91,11 +95,34 @@ at zero A and B. In all ten the first half-reaction is at steady state and the s
 half's chemistry is a rapid-equilibrium step. Each keeps the stop of its first half. These
 need the conformations to flip at the covalent form, which is outside this design.
 
+**Today's later move makes children that add no constant, and none costs a fit.** Over two
+rounds of `_expand_change_allo_state` from today's entries, 3,687 of 25,509 kept children
+on the base tier add no fitted constant, and 2,907 of 35,395 on starting mechanisms with
+two regulators, separate or merged into one site. Each is one binding relaxed alone, and
+each has its parent's law key, so it shares its parent's fit. Every relaxation of a
+regulatory ligand adds one constant (17,331 of 17,331): a regulatory site's constants enter
+no thermodynamic cycle.
+
+**An inhibitor group can be inactive-only.** Two censuses ran on starting mechanisms of the
+same reaction with a competitive inhibitor `I`. The first gave every group every state on
+42 of the 1,548 mechanisms that bind `I`. The second took 61 of the 17,060 that bind `I`
+and a copy of `A`, and gave them every entry of the design below.
+
+- The exit test reads only the stops and the inactive-only groups: its answer on a version
+  equals its answer with the own-constants groups shared, in 29,832 of 29,832 versions.
+- An inactive-only inhibitor adds no constant when the stops cut every form it binds off
+  the inactive conformation. It then binds nowhere: 24 such entries, each at the plain
+  mechanism's fitted count. Every other inactive-only entry adds one constant.
+- Giving an inactive-only inhibitor its own constants is always kept and always adds one
+  constant (765 of 765).
+- A reactant's copy made inactive-only can be redundant (`_redundant_copy_groups`): 14 of
+  3,892 kept entries with one inactive-only group. No entry without one is (0 of 3,804).
+
 ## Goals
 
 - Every version the exit test keeps, each of whose own-constants groups adds to the fitted
   count, is reachable from its plain mechanism.
-- Every child has more fitted constants than its parent.
+- Every child of the two moves has more fitted constants than its parent.
 - The allosteric moves hold fewer rules than today: no tagging bases, no relax-all
   chemistry rule, no clause about stopped bindings.
 
@@ -103,7 +130,8 @@ need the conformations to flip at the covalent form, which is outside this desig
 
 - A conformational flip at a second free form (the ten rejected versions above).
 - Making the guard admit more.
-- A catalytic group tagged `:OnlyI`. The enumerator does not build one today and will not.
+- `:OnlyI` on a group that binds a substrate or product at its catalytic site, abortive
+  complexes included. Only an inhibitor group takes it.
 - Proofs that remove versions whose new constants the data cannot determine (see "Known
   costs").
 
@@ -183,7 +211,12 @@ children at one subunit only stays as it is, and so does the drop of a child tha
 1. **Stop entries.** One child per nonempty set of kinetic groups: those groups `:OnlyA`,
    every other group `:EqualAI`, no regulatory site. The move emits all `2^g − 1` sets for
    `g` groups and tests none; the exits drop those `_enumerator_keeps` refuses, as they drop
-   today's K-types.
+   today's K-types. Each inhibitor group has a third choice, `:OnlyI`, so with `k` inhibitor
+   groups the move emits `2^(g−k) · 3^k − 1` children; one with no stop and an inactive-only
+   inhibitor is an entry too. The move drops a child with an inactive-only group in two
+   cases: no step of the group runs in the inactive conformation
+   (`Mechanisms.steps_running_in_allosteric_conformations`), so the inhibitor binds
+   nowhere; or the child holds a redundant copy group (`_redundant_copy_groups`).
 2. **Own-constants entries, where the stop is refused.** Take each smallest set of
    groups, by inclusion, that gains when tagged `:NonequalAI` with every other group
    `:EqualAI`. A set gains when its fitted count exceeds the plain mechanism's by more than
@@ -193,9 +226,9 @@ children at one subunit only stays as it is, and so does the drop of a child tha
    stop is kept, it is a kind-1 entry and the later move reaches the own-constants version
    from it.
 3. **Regulator pairing.** Each stop entry whose set holds chemistry groups only
-   (`_chemistry_groups`) is emitted a second time with each declared allosteric regulator
-   at a new site of the mechanism's multiplicity, once `:OnlyA` and once `:OnlyI`. The
-   bare entry stays.
+   (`_chemistry_groups`), with no inactive-only group, is emitted a second time with each
+   declared allosteric regulator at a new site of the mechanism's multiplicity, once
+   `:OnlyA` and once `:OnlyI`. The bare entry stays.
 
 Kind 2 exists because a stop is not always a valid mechanism (see the census). The K-type
 whose inactive conformation binds A and B with their own affinities and runs the shared
@@ -210,30 +243,33 @@ the titration and survives on its own. No paired child holds a `:NonequalAI` gro
 
 - **Catalytic groups.** One child per smallest set of groups not yet `:NonequalAI`, by
   inclusion, that raises the fitted count over `c`'s when tagged `:NonequalAI`. The groups
-  are `:EqualAI` or `:OnlyA`, bindings and chemistry alike. `_minimal_gaining_sets` finds
-  the sets, as in the entry move; the two moves share that search. A set that holds a
-  stopped group changes the stop set, so its child is counted only if `_enumerator_keeps`
-  keeps it.
+  are `:EqualAI`, `:OnlyA` or `:OnlyI`, bindings and chemistry alike.
+  `_minimal_gaining_sets` finds the sets, as in the entry move; the two moves share that
+  search. A set that holds a stopped or inactive-only group changes what the exit test
+  reads, so its child is counted only if `_enumerator_keeps` keeps it.
 - **Regulatory ligands.** One child per ligand relaxed to `:NonequalAI`, as today.
 - **Filters.** The drops for a redundant copy group and for a non-hyperbolic law above one
   subunit stay.
 
-A group never returns to `:EqualAI` or `:OnlyA`. A stop is the limit of own constants as
-the inactive affinity or rate goes to zero. Where the inactive conformation binds a ligand
+A group never returns to `:EqualAI`, `:OnlyA` or `:OnlyI`. A stop is the limit of own
+constants as the inactive affinity or rate goes to zero, and an inactive-only inhibitor is
+the limit as its active affinity does. Where the inactive conformation binds a ligand
 weakly, the stop entry fits better than the shared one at the same fitted count, the beam
 may hold only the stop entry, and the step from `:OnlyA` lets that entry grow into the true
 version.
 
 ### Why this reaches every version
 
-Call a version **irreducible** when the exit test keeps it and making any one of its
-own-constants groups shared lowers the fitted count. A version that is not irreducible
+Call a version **irreducible** when the exit test keeps it, each of its inactive-only
+groups binds in the inactive conformation, and making any one of its own-constants groups
+shared lowers the fitted count. A version that is not irreducible
 holds a group whose own constants add nothing: thermodynamics fixes them to the shared
 ones, or the inactive conformation never reaches the group's forms and they do not show.
 It has the law of the version with that group shared. The two moves should reach every
 irreducible version.
 
-Take an irreducible version with stop set `S` and own-constants set `N`.
+Take an irreducible version with stop set `S` and own-constants set `N`. Read an
+inactive-only group as one more member of `S`: the exit test reads it as it reads a stop.
 
 - **`S` is not empty.** The exit test reads only the stops, so `S` alone is kept and is an
   entry. From there the groups of `N` are added in smallest gaining sets. What a group
@@ -257,7 +293,25 @@ The conclusion is measured too, from the census's fitted counts and law keys at 
 subunit. On the 39 ping-pong parents the two moves reach all 5,861 irreducible versions,
 which hold 4,574 distinct laws, and 52 further versions that each share a law, and so a
 fit, with one of them. On the 239 sequential parents they reach all 14,999. At two
-subunits, on the 14 ping-pong parents that allow them, they reach all 2,214.
+subunits, on the 14 ping-pong parents that allow them, they reach all 2,214. On the 42
+parents with an inhibitor they reach all 14,898, of which 3,719 hold the inhibitor
+inactive-only.
+
+### Other moves on a parent with an inactive-only group
+
+The flip, split, dead-end and regulator moves run on such a parent as on any other. Two
+places assume that the whole catalytic graph is the active conformation's, which an
+inactive-only group ends:
+
+- **The dead-end move** adds its inhibitor group shared, as today. On an allosteric parent
+  it runs `_redundant_copy_groups` only when the copy has a twin at each binding, with the
+  twins read on the whole graph (`_dead_end_child`). On a parent with an inactive-only
+  group it runs the test without that shortcut.
+- **`_assert_emission_rules`** reads a steady-state group's flux on the whole graph. That
+  stays right for a step the active conformation runs: a cycle through an inhibitor's
+  complexes follows mirrored steps, and replacing each by the step it mirrors gives a
+  cycle of the active conformation. This is an argument, not a measurement. Its docstring
+  loses the sentence that no move tags a catalytic group `:OnlyI`.
 
 ### Seeds
 
@@ -320,11 +374,20 @@ Written first and watched to fail, under the enumeration-engine rules.
   them), from the stop of A and P (both to their own constants in one child), from a
   shared-chemistry K-type, and from a parent whose every group has its own constants (no
   child).
-- **Reachability**, an aggregate check that says so in a comment: on the bi-bi base tier,
-  or a sample if the full set is slow, the closure of the two moves holds every irreducible
+- **Reachability**, an aggregate check that says so in a comment: on the bi-bi base tier
+  and on a sample of the starting mechanisms with a competitive inhibitor, or on samples
+  of both if the full sets are slow, the closure of the two moves holds every irreducible
   version, found by brute force over every version; every child has more fitted constants
   than its parent; and the exit test's answer on a version equals its answer on the
   version's stop set. The test runs on the base tier, not on the degenerate seeds.
+- **Inactive-only inhibitor**, exact children: the entry move on the uni-uni seed with a
+  competitive inhibitor bound at free E (four groups); a fixture whose stops cut the
+  inhibitor's only site off the inactive conformation, with no inactive-only child for
+  those stop sets; a fixture with a reactant's copy whose inactive-only child is dropped
+  as redundant; the later move taking an inactive-only inhibitor to its own constants; and
+  the dead-end move adding a second inhibitor to a parent that holds an inactive-only one.
+  One mechanism with an inactive-only inhibitor, written out, is compared with the
+  mass-action steady state in `test/Derivation/`, unless the suite already holds one.
 - **Seeds**: with a required regulator, the starting set holds, on the six-step ping-pong
   with both chemistry steps at steady state (one of the 21 flip children), a one-half stop
   and the kind-2 entry of A with B, each with the regulator bound. The aggregate pin in
@@ -359,7 +422,7 @@ A new expected set is reviewed against this design, not regenerated from the new
 - **Version.** 0.11.1: results change and no exported function does.
 - **Engine page** (`docs/src/identify/enumeration_engine.md`): moves 4 and 6 are rewritten
   around stop sets and own-constants sets, with the thermodynamic reason a binding cannot
-  differ alone.
+  differ alone and the three states an inhibitor group can enter with.
 - **Developer page** (`docs/src/developer.md`): the sentence on where the moves run the
   guard, and the enumeration section where it names bases.
 - **MWC page** (`docs/src/deriving/mwc_allostery.md`): the sentence "as the search's
@@ -367,11 +430,25 @@ A new expected set is reviewed against this design, not regenerated from the new
 - **`ROADMAP.md`**: the Known issue "An allosteric ping-pong whose covalent forms empty only
   by binding B cannot stop both half-reactions" shrinks to what the census found: ten
   starting mechanisms, no limit under any reading, fixed only by a flip at the covalent
-  form. Its three sub-entries go. The Planned entry on the hyperbolic drops loses its
-  mention of bases. The Planned entry "Drop `change_allo_state` relaxations that free no
-  parameter" shrinks to the regulatory ligands, whose relaxation keeps no gain test. Two
-  Known issues are added, one for each of the first and third items under "Known costs".
-  `docs/src/roadmap.md` keeps its entry.
+  form. Its three sub-entries go. `docs/src/roadmap.md` keeps its entry.
+- **`ROADMAP.md`, other entries on these moves.**
+  - Planned, "Drop `change_allo_state` relaxations that free no parameter": removed. The
+    later move emits only sets that gain, and a regulatory ligand's relaxation always adds
+    one constant (see the census).
+  - Planned, "Decide whether to keep the hyperbolic drops above one subunit": decided, the
+    drops stay (see "Open for the maintainer"). The entry moves to "Decided against" with
+    the reason and the populations measured here.
+  - Ideas, "Apply the chain-flank exclusion at one catalytic subunit": stays, with what
+    this work measured. On versions of the 15 base-tier parents that hold a steady-state
+    chain, 126 of 128 flank flips at one subunit add no identifiable constant, and all 34
+    whose parent is an L phantom. Two flips of a parent with a stop and an own-constants
+    group add one, so the exclusion cannot cover every one-subunit mechanism.
+  - Known issue, "The guard rejects some allosteric mechanisms whose law is the limit":
+    its count of ter-bi starting mechanisms with no allosteric child is measured again.
+  - Planned, new: let the dead-end move give its inhibitor any of the three states on an
+    allosteric parent (see "Open for the maintainer").
+  - Known issues, new: one for each of the first, second and fourth items under "Known
+    costs".
 
 ## Search cost
 
@@ -392,6 +469,10 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   ping-pong parent three. Each adds two children per declared regulator.
 - **Later move.** Over the 5,861 ping-pong versions it emits about 16,000 children, a
   median of three per mechanism.
+- **Inhibitors.** A parent with one inhibitor group keeps 25 stop entries and 12 with the
+  inhibitor inactive-only (medians of 42 parents). With two inhibitor groups it keeps 47
+  and 60 (61 parents). A starting set that requires an inhibitor and an allosteric
+  regulator grows by the same factor.
 
 ## Known costs
 
@@ -401,6 +482,12 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   two. The L-phantom certificate does not cover them, since their inactive conformation
   turns over, so they are fitted. The `ROADMAP.md` entry gives the count over the bi-bi
   starting mechanisms.
+- **Inactive-only entries the data cannot determine at one subunit.** Of 122 sampled
+  entries with the inhibitor inactive-only, 47 fit one constant more than their rank at
+  one subunit, and the L-phantom certificate covers 4 of them: `L` and the inhibitor's
+  constant enter the law only as a ratio, and at `L = 0` the inhibitor leaves the law. So
+  43 are fitted for nothing. The same 122 with the inhibitor active-only: 28, of which 19
+  are certified. At two subunits 3 of 122 are undetermined.
 - **Optional regulators on entries that stop a binding.** These are emitted bare. At one
   subunit an L phantom among them has its parent's loss and enters the beam only through
   the width floor, as today's K-types do.
@@ -410,6 +497,11 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   and 11 of the 124 on the ping-pong ones: it has its parent's loss and enters the beam
   only through the width floor. Above one subunit there are no phantoms. Emitting every
   smallest gaining set at entry would remove this cost (see "Own constants at entry").
+- **A steady-state group that runs only beside an inactive-only inhibitor.** A split can
+  put a mirrored step in a group of its own, and a flip can then take it to steady state.
+  With the inhibitor inactive-only that group runs in the inactive conformation alone, and
+  where the stops end that conformation's turnover its two rate constants enter as a
+  ratio. The flux test reads the whole graph and does not see it.
 - **Selections can change** on data already analysed, since more mechanisms compete.
 
 ## Interaction with the iso-enumeration design
@@ -435,5 +527,22 @@ Whichever branch lands second rewrites that section and rebases `expansion_moves
 
 ## Open for the maintainer
 
-Nothing. The maintainer decided the approach, the entry rule, the regulator pairing, how
-the existing testsets are carried over, the allocation bound and the version.
+The maintainer decided the approach, the entry rule, the regulator pairing, how the
+existing testsets are carried over, the allocation bound, the version, and that an
+inhibitor group can be inactive-only. Three calls in this document are the author's and
+wait for a yes or no:
+
+- **The hyperbolic drops stay.** Above one subunit both moves drop a child whose
+  conformations' laws are not hyperbolic. The drops remove nothing the exits keep: on
+  hyperbolic parents every one of 13,678 kept base-tier versions passes the test, and
+  every one of 7,846 kept versions and entries on parents with inhibitors. But the exits
+  refuse the failing candidates as bridges, and the Known issue on the guard proposes
+  admitting more bridges. Removing the drops would rest a modeling rule on that
+  conservatism, to save two filter calls and two testsets.
+- **The dead-end move keeps adding its inhibitor shared.** Every version is reachable
+  without more: add the inhibitor to the plain mechanism, then enter. An inhibitor added
+  after entry reaches active-only or inactive-only binding only as a limit of its own
+  constants, at one constant more. Giving the move all three states would triple its
+  children on allosteric parents and put a second place in the engine that chooses
+  exclusive states.
+- **The seed search starts from the plain base tier** (see "Seeds").
