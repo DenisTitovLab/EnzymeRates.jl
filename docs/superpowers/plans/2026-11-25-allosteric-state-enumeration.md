@@ -61,7 +61,7 @@ spec's; do not put them in code or docstrings.
 ## Review Focus
 
 1. **A reaction with no competitive inhibitor.** No child of any move may hold an `:OnlyI`
-   kinetic group. Pinned in Task 6.
+   kinetic group. Pinned in Task 7.
 2. **A parent that is not hyperbolic.** With allowed oligomeric states `(1, 2)` it gets
    children at one subunit only; with `2` alone it gets none and no error. Pinned by the
    existing testsets at `test_expansion_moves.jl` 5202, 5224, 5259, which must keep
@@ -70,7 +70,7 @@ spec's; do not put them in code or docstrings.
    every group is `:NonequalAI` returns nothing, and on a ten-group parent it returns
    within the time bound of Task 4.
 4. **A regulator with a declared effect.** With `R::Activator` required, no starting
-   mechanism holds `R` tagged `:OnlyI`. Pinned in Task 5b.
+   mechanism holds `R` tagged `:OnlyI`. Pinned in Task 6.
 5. **Determinism.** Two calls of `candidate_mechanisms(reaction, parent)` return equal
    vectors, in the same order. Pinned in Task 5.
 
@@ -290,7 +290,7 @@ spec's; do not put them in code or docstrings.
   `length(children) == 21` (786–832) and the seed counts. Regenerate the developer tables.
   Commit.
 
-### Task 5b: Populations built from the moves
+### Task 6: Populations built from the moves
 
 **Files:**
 - Test: `test/test_oracles.jl`, `test/Mechanisms/test_mechanism_type.jl`,
@@ -313,7 +313,7 @@ spec's; do not put them in code or docstrings.
 - [ ] **Step 5: Run all five files and `test_starting_mechanisms.jl`. Commit, with the
   list of re-pins in the message body.**
 
-### Task 6: A competitive inhibitor's group can be `:OnlyI`
+### Task 7: A competitive inhibitor's group can be `:OnlyI`
 
 **Files:**
 - Modify: `src/Enumeration/expansion_moves.jl` (`_expand_to_allosteric`,
@@ -327,7 +327,7 @@ spec's; do not put them in code or docstrings.
   `inactive`, one flag per step), `_redundant_copy_groups(c)`.
 - Produces: `_inhibitors_bind(c::CandidateMechanism)::Bool` in `expansion_moves.jl`: true
   when every kinetic group that binds a competitive inhibitor has a step that runs in the
-  active or the inactive conformation. Task 7 calls it.
+  active or the inactive conformation. Task 8 calls it.
 - Produces: in item 1 of `_expand_to_allosteric`, a group that binds a competitive
   inhibitor takes `:EqualAI`, `:OnlyA` or `:OnlyI`, so `2^(g−k) · 3^k − 1` children for
   `k` such groups. Every child of the move (items 1 to 3) is dropped when `_inhibitors_bind`
@@ -361,7 +361,7 @@ spec's; do not put them in code or docstrings.
   `test/test_oracles.jl` (the testset at 1324 asserts "none tags catalysis :OnlyI": its
   assertion now reads "only an inhibitor's group is `:OnlyI`"; list the change). Commit.**
 
-### Task 7: `_expand_add_dead_end_regulator` on an allosteric parent
+### Task 8: `_expand_add_dead_end_regulator` on an allosteric parent
 
 **Files:**
 - Modify: `src/Enumeration/expansion_moves.jl` (`_dead_end_child` 704–723 and its
@@ -369,7 +369,7 @@ spec's; do not put them in code or docstrings.
 - Test: `test/Enumeration/test_expansion_moves.jl`
 
 **Interfaces:**
-- Consumes: `_inhibitors_bind(c)` (Task 6).
+- Consumes: `_inhibitors_bind(c)` (Task 7).
 - Produces: `_dead_end_children(m, metabolites, forms, steps, reg)::Vector{CandidateMechanism}`
   replaces `_dead_end_child`. Plain `m`: the one child, or none when its inhibitor is
   redundant, as today. Allosteric `m`: the children with the new group `:EqualAI`,
@@ -395,7 +395,7 @@ spec's; do not put them in code or docstrings.
   `test/test_oracles.jl`, `test/Mechanisms/test_mechanism_type.jl`; re-pin populations and
   list them. Regenerate the developer tables. Commit.**
 
-### Task 8: Reachability and measurements
+### Task 9: Reachability and measurements
 
 **Files:**
 - Test: `test/Enumeration/test_expansion_moves.jl`
@@ -431,7 +431,7 @@ spec's; do not put them in code or docstrings.
   ping-pong with A and B `:NonequalAI`.
 - [ ] **Step 6: Commit.**
 
-### Task 9: Docs, roadmap and version
+### Task 10: Docs, roadmap and version
 
 **Files:**
 - Modify: `docs/src/identify/enumeration_engine.md`, `docs/src/deriving/re_vs_ss.md`,
@@ -444,13 +444,13 @@ spec's; do not put them in code or docstrings.
 - [ ] **Step 2: The other pages** named in the spec's "Guards and docs" (developer page
   697, 745–746, 781–782; MWC page 150; `re_vs_ss.md`).
 - [ ] **Step 3: `ROADMAP.md`.** Apply every bullet of the spec's two `ROADMAP.md` items,
-  with the numbers Task 8 measured. Write the new Known issues for items 1, 2, 4, 5 and 6
+  with the numbers Task 9 measured. Write the new Known issues for items 1, 2, 4, 5 and 6
   of "Known costs" and the new Idea.
 - [ ] **Step 4: `Project.toml`** version `0.11.1`.
 - [ ] **Step 5: Build the docs** (`julia --project=docs docs/make.jl`) and run
   `test/test_boundaries.jl`. Commit.
 
-### Task 10: Whole suite and cleanup
+### Task 11: Whole suite and cleanup
 
 - [ ] **Step 1: Run the full suite** in the background:
   `timeout 1200 julia --project=. -e 'using Pkg; Pkg.test(julia_args=["--heap-size-hint=2500M"])'`.
