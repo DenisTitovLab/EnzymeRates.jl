@@ -11,8 +11,9 @@ conformation runs the same chemistry with different affinities, and an inactive
 conformation that stops one half-reaction.
 
 The cause is two rules in the allosteric moves, not chemistry and not the derivation. This
-design replaces both rules with one that proposes every state and lets the joint solve and
-the guard decide.
+design replaces both. A mechanism becomes allosteric by stopping any set of groups in the
+inactive conformation, and a later move gives groups their own constants there. The guard
+decides which stops are valid and the fitted count decides which own constants are real.
 
 ## Terms
 
@@ -21,7 +22,9 @@ An allosteric mechanism gives each kinetic group one state. This document calls 
 own constants** when it is `:NonequalAI`. A **version** of a plain mechanism is one choice
 of state for every group, not all shared. A **stop set** is a set of groups stopped with
 every other group shared. An **own-constants set** is a set of groups given their own
-constants.
+constants. A set **gains** when giving its groups their own constants raises the fitted
+count, and a **smallest gaining set** has no subset that gains. An **entry** is a child of
+the move that makes a plain mechanism allosteric.
 
 ## What the census established
 
@@ -35,7 +38,7 @@ outputs are on the maintainer's machine in `claude-scratchpad/allosteric-state-c
 
 **Today's moves reach a quarter of the kept versions.** On the 39 ping-pong parents the
 exit test keeps 9,054 of 16,512 versions. The tagging, relaxing and regulator moves reach
-2,169. Counted by chemistry state:
+2,169. Counted by law, they reach 941 of 4,609. By chemistry state, in versions:
 
 | Chemistry in the inactive conformation | Kept | Reached |
 |:--|--:|--:|
@@ -74,16 +77,24 @@ every ping-pong one). So every kept version is a kept stop set plus own constant
 holds on the base tier. It fails on the degenerate ping-pong seeds, where the guard rejects
 both half-reactions with their own constants; the search never fits or expands those seeds.
 
+**A stop is not always a valid mechanism.** On the bi-bi mechanism that binds A then B,
+the guard refuses an inactive conformation that binds neither and keeps the chemistry
+(`_BRIDGE`): stopping a substrate requires stopping the chemistry too. The same two
+bindings with their own constants and the chemistry shared are kept. Of the smallest
+own-constants sets that add a fitted constant, the exit test refuses the stop of 414 of
+953 on the sequential parents and of 98 of 222 on the ping-pong ones.
+
 **Ten "all chemistry stopped" versions have no limit.** On 10 of the 39 ping-pong parents
 the guard rejects the version that stops both half-reactions and nothing else (3 `_FILLED`,
 7 `_BRIDGE`). The ε-path oracle finds no limit under any consistent reading, at zero B and
-at zero A and B. These need the conformations to flip at the covalent form, which is
-outside this design.
+at zero A and B. In all ten the first half-reaction is at steady state and the second
+half's chemistry is a rapid-equilibrium step. Each keeps the stop of its first half. These
+need the conformations to flip at the covalent form, which is outside this design.
 
 ## Goals
 
-- Every version the exit test keeps, and whose fitted count shows that its conformations
-  differ, is reachable from its plain mechanism.
+- Every version the exit test keeps, each of whose own-constants groups adds to the fitted
+  count, is reachable from its plain mechanism.
 - Every child has more fitted constants than its parent.
 - The allosteric moves hold fewer rules than today: no tagging bases, no relax-all
   chemistry rule, no clause about stopped bindings.
@@ -93,7 +104,7 @@ outside this design.
 - A conformational flip at a second free form (the ten rejected versions above).
 - Making the guard admit more.
 - A catalytic group tagged `:OnlyI`. The enumerator does not build one today and will not.
-- Proofs that remove entries whose new constants the data cannot determine (see "Known
+- Proofs that remove versions whose new constants the data cannot determine (see "Known
   costs").
 
 ## Anti-goals
@@ -113,17 +124,17 @@ outside this design.
 
 ## Approaches
 
-**A, picked: one propose-and-test rule, with every stop set at entry.** The move that makes
-a plain mechanism allosteric emits every stop set. The later move gives groups their own
+**A, picked: every stop set at entry, own constants later.** The move that makes a plain
+mechanism allosteric emits every stop set. The later move gives groups their own
 constants, from shared or from stopped, in the smallest sets that gain. The maintainer
 picked it because every child then has more fitted constants than its parent, which is the
 engine's principle. It costs about twice as many children when a mechanism becomes
 allosteric.
 
-**A with a stop move, set aside.** The entry would emit only the smallest sets, and a later
-move would stop a shared group. A plain parent would get as many children as today. A stop
-adds no fitted constant, so the move breaks the engine's principle, and a stop child
-arriving at a parameter count whose beam floor is spent enters only by its loss.
+**A with a stop move, set aside.** The entry would emit only the smallest stop sets, and a
+later move would stop a shared group. A plain parent would get as many children as today.
+A stop adds no fitted constant, so the move breaks the engine's principle, and a stop
+child arriving at a parameter count whose beam floor is spent enters only by its loss.
 
 **B, set aside: keep today's moves and add the missing transitions** (un-stop one chemistry
 group, relax one chemistry group, relax a pair of bindings). It changes less code. A
@@ -131,16 +142,43 @@ shared-chemistry K-type would sit four or more moves from the plain mechanism, a
 would guarantee that every version is reachable.
 
 **C, set aside: emit every kept version as a child of the plain mechanism.** It needs no
-later move. It costs about 177 fits per ping-pong parent where A costs about 35.
+later move. It gives a ping-pong parent about 150 children, with 117 distinct laws, where
+A gives about 35.
+
+### Own constants at entry
+
+A stop entry adds one fitted constant, `L`. An own-constants entry adds two. The
+maintainer asked whether the entry could be stops alone. Three ways, measured on the bi-bi
+base tier at one subunit:
+
+| Entry | Misses | Entries adding two constants, per parent (median) |
+|:--|:--|--:|
+| Stops alone | 140 of 4,574 ping-pong laws; 566 of 14,999 sequential versions | 0 |
+| Stops, and own constants where the stop is refused | nothing | 2 sequential, 3 ping-pong |
+| Stops, and every smallest gaining set | nothing | 3 sequential, 8 ping-pong |
+
+The maintainer picked the middle row. Stops alone misses versions with no stop, mostly the
+shared-chemistry K-type of a sequential mechanism, on 227 of the 239 sequential parents and
+28 of the 39 ping-pong ones. The bottom row adds a route that does not pass through a stop
+entry (see "Known costs") for one more entry per sequential parent and five per ping-pong
+parent.
+
+### Regulator pairing
+
+The maintainer set it: an entry that stops only chemistry is also emitted with each
+declared regulator. Pairing own-constants versions too was set aside. It would put an
+inactive conformation with slower chemistry and a regulator in the starting set, at one or
+two more starting mechanisms per parent, regulator state and oligomeric state. That
+version is one later move from the paired stop entry.
 
 ## Design
 
 ### The entry move: `_expand_to_allosteric(c, rxn)`
 
-For each oligomeric state the reaction allows, the move emits these children, each with
-`c`'s catalytic scheme. Kind 2 is open (see "Open for the maintainer"). The rule that a
-parent failing `_hyperbolic_catalysis` gets children at one subunit only stays as it is,
-and so does the drop of a child that fails `_hyperbolic_where_required`.
+For each oligomeric state the reaction allows, the move emits three kinds of child, each
+with `c`'s catalytic scheme. The rule that a parent failing `_hyperbolic_catalysis` gets
+children at one subunit only stays as it is, and so does the drop of a child that fails
+`_hyperbolic_where_required`.
 
 1. **Stop entries.** One child per nonempty set of kinetic groups: those groups `:OnlyA`,
    every other group `:EqualAI`, no regulatory site. The move emits all `2^g − 1` sets for
@@ -155,23 +193,18 @@ and so does the drop of a child that fails `_hyperbolic_where_required`.
    stop is kept, it is a kind-1 entry and the later move reaches the own-constants version
    from it.
 3. **Regulator pairing.** Each stop entry whose set holds chemistry groups only
-   (`_chemistry_groups`) is emitted again with each declared allosteric regulator at a new
-   site of the mechanism's multiplicity, once `:OnlyA` and once `:OnlyI`.
+   (`_chemistry_groups`) is emitted a second time with each declared allosteric regulator
+   at a new site of the mechanism's multiplicity, once `:OnlyA` and once `:OnlyI`. The
+   bare entry stays.
 
-The maintainer set the pairing rule: a version that stops only chemistry shows nothing in a
-substrate or product titration that the plain mechanism lacks, so without a regulator it
-can drop out of the beam before the regulator move reaches it. A version that stops a
-binding changes the titration and survives on its own. No pairing child holds a
-`:NonequalAI` group; an inactive conformation with slower chemistry and a regulator is one
-later move from the paired stop entry.
+Kind 2 exists because a stop is not always a valid mechanism (see the census). The K-type
+whose inactive conformation binds A and B with their own affinities and runs the shared
+chemistry has no stop to grow from, so it enters directly.
 
-Kind 2 exists because a stop is not always a valid mechanism. On the bi-bi mechanism that
-binds A then B, an inactive conformation that binds neither and keeps the chemistry is
-refused (`_BRIDGE`): stopping a substrate requires stopping the chemistry too. So the
-K-type whose inactive conformation binds A and B with their own affinities and runs the
-shared chemistry has no stop to grow from. Measured at one subunit, kind 2 is a median of
-two entries on a sequential parent (414 over the 239) and three on a ping-pong parent (98
-over the 39).
+The reason for kind 3: a version that stops only chemistry shows nothing in a substrate or
+product titration that the plain mechanism lacks, so without a regulator it can drop out
+of the beam before the regulator move reaches it. A version that stops a binding changes
+the titration and survives on its own. No paired child holds a `:NonequalAI` group.
 
 ### The later move: `_expand_change_allo_state(c)`
 
@@ -217,15 +250,14 @@ The premises are measured, not proved. The exit test read only the stops in 32,7
 32,706 versions on the bi-bi base tier. The argument about gains assumes that
 `fitted_parameter_count` is the number of unknowns less the rank of the constraint rows.
 That a kept stop of a smallest gaining set always grows into that set's own-constants
-version held on every parent below. A test keeps all three (see "Tests").
+version is the third premise; it held on every parent measured. A test keeps all three
+(see "Tests").
 
 The conclusion is measured too, from the census's fitted counts and law keys at one
 subunit. On the 39 ping-pong parents the two moves reach all 5,861 irreducible versions,
 which hold 4,574 distinct laws, and 52 further versions that each share a law, and so a
-fit, with one of them. On the 239 sequential parents they reach all 14,999.
-
-Entering by stops alone, without kind 2, misses 140 of the 4,574 ping-pong laws and 566 of
-the 14,999 sequential versions, all of them versions with no stop.
+fit, with one of them. On the 239 sequential parents they reach all 14,999. At two
+subunits, on the 14 ping-pong parents that allow them, they reach all 2,214.
 
 ### Seeds
 
@@ -233,8 +265,8 @@ Two changes, both needed so that a required regulator, the default, hides no ver
 
 **Rule 1 of `_is_seed_node`** changes from "tags nothing `:NonequalAI`" to "no regulatory
 ligand is `:NonequalAI`". `seed_mechanisms` runs the entry move and the regulator move,
-never the later move, so a seed's catalytic `:NonequalAI` groups can only be an
-own-constants entry's. Without the change a required regulator would hide every kind-2
+never the later move, so a seed's catalytic `:NonequalAI` groups can only be a kind-2
+entry's. Without the change a required regulator would hide every kind-2
 entry.
 
 **The seed search starts from the plain base tier**, not from `init_mechanisms`. Today it
@@ -248,14 +280,15 @@ starting set grows from 6,428 to 7,126 and loses nothing; the six-step ping-pong
 release is at steady state goes from 12 versions to 80. `candidate_mechanisms(reaction)`
 still applies `_base_tier` to the seeds, for a dead-end regulator's sake.
 
-This second change is the author's call. It answers a hole the design review found, and it
-fixes the same hole in today's one-half bases.
+The second change is the author's call. It answers a hole the design review found, and
+today's one-half bases have the same hole.
 
 ### What goes
 
 `_tagging_bases`, `_valid_tagging`, `_stops_inactive_turnover`, the K-type and V-type
-branches of the entry move, the relax-all-chemistry rule and its "no `:OnlyA` binding"
-clause.
+branches of the entry move, and the later move's two rules for catalytic groups: one
+binding at a time with no gain test, and all chemistry together while no binding is
+`:OnlyA`.
 
 ### A worked case
 
@@ -268,8 +301,8 @@ bindings of A and Q at free E, of B and P at the covalent form, and the two half
   gains nothing and is extended to its pairs.
 - **Own-constants entries:** three of the eight, the pairs whose stop the exits refuse: A
   with B, Q with P, B with P. The other five are stop entries, and the later move takes
-  each to its own constants: a half-reaction alone, or A and P together, since A alone
-  beside a stopped P is refused.
+  each to its own constants. A stopped half-reaction goes alone. The stop of A and P goes
+  as a pair, since A alone beside a stopped P is refused.
 - **Regulator pairing:** the three stop sets that hold only half-reactions (the first, the
   second, both), each with each regulator in two states.
 
@@ -294,7 +327,7 @@ Written first and watched to fail, under the enumeration-engine rules.
   version's stop set. The test runs on the base tier, not on the degenerate seeds.
 - **Seeds**: with a required regulator, the starting set holds, on the six-step ping-pong
   with both chemistry steps at steady state (one of the 21 flip children), a one-half stop
-  and a shared-chemistry K-type, each with the regulator bound. The aggregate pin in
+  and the kind-2 entry of A with B, each with the regulator bound. The aggregate pin in
   "seed_mechanisms drops a seed the guard rejects" gets its new count.
 - **Derivation**: one shared-chemistry K-type ping-pong, written out, compared with the
   mass-action steady state, in `test/Derivation/`.
@@ -335,9 +368,10 @@ A new expected set is reviewed against this design, not regenerated from the new
   by binding B cannot stop both half-reactions" shrinks to what the census found: ten
   starting mechanisms, no limit under any reading, fixed only by a flip at the covalent
   form. Its three sub-entries go. The Planned entry on the hyperbolic drops loses its
-  mention of bases. `docs/src/roadmap.md` keeps its entry. The Planned
-  entry "Drop `change_allo_state` relaxations that free no parameter" goes: the later move
-  now has the gain test.
+  mention of bases. The Planned entry "Drop `change_allo_state` relaxations that free no
+  parameter" shrinks to the regulatory ligands, whose relaxation keeps no gain test. Two
+  Known issues are added, one for each of the first and third items under "Known costs".
+  `docs/src/roadmap.md` keeps its entry.
 
 ## Search cost
 
@@ -364,9 +398,9 @@ Children per plain parent at one oligomeric state, without a regulator, after th
 - **Versions the data cannot determine at one subunit.** The gain test is the fitted count.
   On the six-step ping-pong, the pairs A with Q and B with P with their own constants fit
   two constants more than the plain mechanism and have its rank at one subunit, one more at
-  two. The L-phantom
-  certificate does not cover them, since their inactive conformation turns over, so they are
-  fitted. `ROADMAP.md` gets an entry with the count over the bi-bi starting mechanisms.
+  two. The L-phantom certificate does not cover them, since their inactive conformation
+  turns over, so they are fitted. The `ROADMAP.md` entry gives the count over the bi-bi
+  starting mechanisms.
 - **Optional regulators on entries that stop a binding.** These are emitted bare. At one
   subunit an L phantom among them has its parent's loss and enters the beam only through
   the width floor, as today's K-types do.
@@ -375,23 +409,23 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   the stop entry is an L phantom for 227 of the 539 such sets on the sequential parents
   and 11 of the 124 on the ping-pong ones: it has its parent's loss and enters the beam
   only through the width floor. Above one subunit there are no phantoms. Emitting every
-  smallest gaining set at entry would remove this cost for one more entry per sequential
-  parent and five per ping-pong parent.
+  smallest gaining set at entry would remove this cost (see "Own constants at entry").
 - **Selections can change** on data already analysed, since more mechanisms compete.
 
 ## Interaction with the iso-enumeration design
 
 `docs/superpowers/specs/2026-11-24-iso-enumeration-design.md` (branch `iso-enumeration`)
 states its allosteric behaviour in terms of tagging bases. Under this design the same
-decisions read: the flip is not a chemistry group, so a stop set or own-constants set that
-holds it gets no regulator pairing, and the later move gives it its own constants like any
-group. Whichever branch lands second rewrites that section and rebases
-`expansion_moves.jl`.
+decisions read: the flip is not a chemistry group, so a stop set that holds it gets no
+regulator pairing, and the later move gives it its own constants like any group.
+Whichever branch lands second rewrites that section and rebases `expansion_moves.jl`.
 
 ## Left to the builder
 
-- How the two moves share the own-constants search, and whether its extension needs a
-  narrower rule than "any other shared group" once measured on ter-ter parents.
+- How the two moves share the search for smallest gaining sets, and whether its extension
+  needs a narrower rule than "any other group" once measured on ter-ter parents.
+- Where the later move asks `_enumerator_keeps` about a set that holds a stopped group,
+  before it reads the fitted count.
 - The order of the children, as long as it does not depend on the number of workers.
 - The fixtures for the exact-children tests, within the test rules.
 - Whether the reachability test runs on all 278 bi-bi starting mechanisms or a sample.
@@ -401,18 +435,5 @@ group. Whichever branch lands second rewrites that section and rebases
 
 ## Open for the maintainer
 
-Whether the entry move emits kind 2, the own-constants entries where the stop is refused.
-The maintainer proposed entering by stops alone, since an own-constants entry adds two
-fitted constants (`L` and one more) where a stop adds one. Three ways, measured on the
-bi-bi base tier at one subunit:
-
-| Entry | Misses | Entries with two more constants, per parent (median) |
-|:--|:--|--:|
-| Stops alone | 140 of 4,574 ping-pong laws; 566 of 14,999 sequential versions | 0 |
-| Stops, and own constants where the stop is refused (written above) | nothing | 2 sequential, 3 ping-pong |
-| Stops, and every smallest gaining set | nothing | 3 sequential, 8 ping-pong |
-
-What stops alone misses is mostly the shared-chemistry K-type of a sequential mechanism,
-on 227 of the 239 sequential parents and 28 of the 39 ping-pong ones. The author recommends
-the middle row. A regulator-paired entry already adds two constants, `L` and the
-regulator's.
+Nothing. The maintainer decided the approach, the entry rule, the regulator pairing, how
+the existing testsets are carried over, the allocation bound and the version.
