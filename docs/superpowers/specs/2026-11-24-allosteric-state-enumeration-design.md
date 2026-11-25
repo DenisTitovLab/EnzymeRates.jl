@@ -123,9 +123,9 @@ and a copy of `A`, and gave them every entry of the design below.
   3,892 kept entries with one inactive-only group. No entry without one is (0 of 3,804).
 
 **An inhibitor added to an allosteric parent can take any of the three states.** Today's
-dead-end move ran on 241 of today's entries of the 278 base-tier parents and gave 1,316
-children, each with the inhibitor shared. Each was rebuilt with the inhibitor active-only
-and inactive-only.
+dead-end move ran on 241 of today's entries, at one and two subunits, of 47 of the 278
+base-tier parents. It gave 1,316 children, each with the inhibitor shared. Each was
+rebuilt with the inhibitor active-only and inactive-only.
 
 - All 1,316 active-only children are kept, and each adds one constant, as the shared
   child does.
@@ -146,7 +146,8 @@ with a stop and an own-constants group. At two subunits 76 of 96 add none and 20
 
 - Every version the exit test keeps, each of whose own-constants groups adds to the fitted
   count, is reachable from its plain mechanism.
-- Every child of the two moves has more fitted constants than its parent.
+- Every child of the entry move, the later move and the dead-end move has more fitted
+  constants than its parent.
 - The allosteric moves hold fewer rules than today: no tagging bases, no relax-all
   chemistry rule, no clause about stopped bindings.
 - The flip move has one chain-flank rule for plain and allosteric mechanisms.
@@ -164,7 +165,8 @@ with a stop and an own-constants group. At two subunits 76 of 96 add none and 20
 
 ## Anti-goals
 
-- A move that changes a mechanism without adding a fitted constant.
+- A child of the entry move, the later move or the dead-end move with no more fitted
+  constants than its parent.
 - A bound on the entries that would hide a feasible version.
 - A numerical identifiability test in `src/`.
 
@@ -237,10 +239,11 @@ one subunit only, as today: above one subunit every one would fail the hyperboli
 
 1. **Stop entries.** One child per nonempty set of kinetic groups: those groups `:OnlyA`,
    every other group `:EqualAI`, no regulatory site. The move emits all `2^g − 1` sets for
-   `g` groups and tests none; the exits drop those `_enumerator_keeps` refuses, as they drop
-   today's K-types. Each inhibitor group has a third choice, `:OnlyI`, so with `k` inhibitor
-   groups the move emits `2^(g−k) · 3^k − 1` children; one with no stop and an inactive-only
-   inhibitor is an entry too. The move drops a child with an inactive-only group in two
+   `g` groups without asking the exit test; the exits drop those `_enumerator_keeps`
+   refuses, as they drop today's K-types. Each inhibitor group has a third choice,
+   `:OnlyI`, so with `k` inhibitor groups the move emits `2^(g−k) · 3^k − 1` children; one
+   with no stop and an inactive-only inhibitor is an entry too. The move drops a child
+   with an inactive-only group in two
    cases: no step of the group runs in the inactive conformation
    (`Mechanisms.steps_running_in_allosteric_conformations`), so the inhibitor binds
    nowhere; or the child holds a redundant copy group (`_redundant_copy_groups`). Nothing
@@ -321,8 +324,8 @@ The premises are measured, not proved. The exit test read only the stops in 32,7
 32,706 versions on the bi-bi base tier. The argument about gains assumes that
 `fitted_parameter_count` is the number of unknowns less the rank of the constraint rows.
 That a kept stop of a smallest gaining set always grows into that set's own-constants
-version is the third premise; it held on every parent measured. A test keeps all three
-(see "Tests").
+version is the third premise; it held on every parent measured. The reachability test
+checks the first premise and the conclusion on every run (see "Tests").
 
 The conclusion is measured too, from the census's fitted counts and law keys at one
 subunit. On the 39 ping-pong parents the two moves reach all 5,861 irreducible versions,
@@ -367,15 +370,17 @@ Above one subunit each conformation's law must be hyperbolic. Three moves filter
 children for it today: the flip move, which can change the scheme, and the two state
 moves, where a stop can leave the inactive conformation a part of the scheme with a power
 the whole scheme lacks. The state moves' filters remove nothing the exits keep today (see
-the `ROADMAP.md` entries below), but only because the guard refuses those children as
+"Guards and docs" for the counts), but only because the guard refuses those children as
 bridges.
 
 The rule moves to the two places where the exit test runs on what the enumerator returns:
 `candidate_mechanisms(reaction, parent)` and the seed search. The three moves lose their
 filters, and the rule no longer rests on the guard. No child changes: each filter ran on
 the emitted children, and the other moves leave the test's answer as it was. The entry
-move keeps its shortcut for a parent that fails the test. On today's starting set with a
-required regulator, none of the 2,218 mechanisms above one subunit fails the rule.
+move keeps its shortcut for a parent that fails the test. `_base_tier` calls the flip
+move, and after the change in "Seeds" it flips plain mechanisms only, which the rule does
+not concern. On today's starting set with a required regulator, none of the 2,218
+mechanisms above one subunit fails the rule.
 
 The maintainer chose this over removing the test from the two state moves, which changes
 no child today either but rests the rule on the guard refusing a bridge.
@@ -409,8 +414,13 @@ each one-half stop of the six-step ping-pong and both halves with their own cons
 a regulator required no plain parent is ever fitted, so those versions are unreachable.
 Measured with today's moves and one required regulator at one and two subunits: the
 starting set grows from 6,428 to 7,126 and loses nothing; the six-step ping-pong whose Q
-release is at steady state goes from 12 versions to 80. `candidate_mechanisms(reaction)`
-still applies `_base_tier` to the seeds, for a dead-end regulator's sake.
+release is at steady state goes from 12 versions to 80.
+
+So `candidate_mechanisms(reaction)` applies `_base_tier` to `init_mechanisms` once, before
+the seed search, whatever the reaction requires, and not to the search's results. The
+moves of the seed search keep every step's rapid-equilibrium flag, so no result is
+degenerate. With a required inhibitor and no regulator the starting set is the same 1,548
+mechanisms either way.
 
 The maintainer approved the second change. It answers a hole the design review found, and
 today's one-half bases have the same hole.
@@ -420,7 +430,8 @@ today's one-half bases have the same hole.
 `_tagging_bases`, `_valid_tagging`, `_stops_inactive_turnover`, the K-type and V-type
 branches of the entry move, and the later move's two rules for catalytic groups: one
 binding at a time with no gain test, and all chemistry together while no binding is
-`:OnlyA`.
+`:OnlyA`. Also the hyperbolic filter in the flip move and in the two state moves, the
+allosteric branch of `_chain_flank_groups`, and `_base_tier` on the seed search's results.
 
 ### A worked case
 
@@ -470,9 +481,13 @@ Written first and watched to fail, under the enumeration-engine rules.
   mass-action steady state in `test/Derivation/`, unless the suite already holds one.
 - **Dead-end move on an allosteric parent**, exact children: a small parent with one
   placement gives the three children; a parent whose stops cut the placement off the
-  inactive conformation gives the shared and the active-only child alone.
-- **Hyperbolic rule**: the two testsets that pin a drop through a state move pin it
-  through `candidate_mechanisms(reaction, parent)`, with the same fixtures.
+  inactive conformation gives the shared and the active-only child alone. One fixture
+  checks that the inhibitor added before entry and after it gives the same mechanisms.
+- **Hyperbolic rule**: the testsets that pin a drop through the flip move pin it through
+  `candidate_mechanisms(reaction, parent)`, with the same fixtures. The two that pin a
+  drop through a state move cannot show it there, since the guard refuses the same child.
+  They assert that the rule itself refuses the written-out child, and that
+  `candidate_mechanisms(reaction, parent)` does not return it.
 - **Chain flanks**, exact children: the flip move on an allosteric parent with a
   steady-state chain, at one subunit and at two, has no child that flips a flank. Testsets
   that pin a flank flip of an allosteric parent get their new expected sets.
@@ -537,8 +552,10 @@ A new expected set is reviewed against this design, not regenerated from the new
     forms of the catalytic scheme (see "Known costs").
   - Known issue, "The guard rejects some allosteric mechanisms whose law is the limit":
     its count of ter-bi starting mechanisms with no allosteric child is measured again.
-  - Known issues, new: one for each of the first, second, fourth and fifth items under
-    "Known costs".
+  - Known issues, new: one for each of the first, second, fourth, fifth and sixth items
+    under "Known costs".
+- **Developer page tables.** Where a call between the files of `Enumeration` moves,
+  `julia test/update_module_map.jl` regenerates the file table in the same commit.
 - **Flank rule**: the docstrings of `_chain_flank_groups` and `_expand_re_to_ss`, the flip
   section of the engine page and "Apparent constants on a steady-state chain"
   (`docs/src/deriving/re_vs_ss.md`) say that the rule covers allosteric mechanisms and
@@ -566,7 +583,7 @@ Children per plain parent at one oligomeric state, without a regulator, after th
 - **Inhibitors.** A parent with one inhibitor group keeps 25 stop entries and 12 with the
   inhibitor inactive-only (medians of 42 parents). With two inhibitor groups it keeps 47
   and 60 (61 parents). A starting set that requires an inhibitor and an allosteric
-  regulator grows by the same factor.
+  regulator grows by about the same factor; it was not measured.
 - **Dead-end move.** Its children on an allosteric parent triple: a median of 6 becomes 18
   on today's entries with one inhibitor declared. All but the 55 pairs above are distinct
   laws.
@@ -577,8 +594,8 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   On the six-step ping-pong, the pairs A with Q and B with P with their own constants fit
   two constants more than the plain mechanism and have its rank at one subunit, one more at
   two. The L-phantom certificate does not cover them, since their inactive conformation
-  turns over, so they are fitted. The `ROADMAP.md` entry gives the count over the bi-bi
-  starting mechanisms.
+  turns over, so they are fitted. How many versions of the base tier this covers was not
+  counted.
 - **Inactive-only entries the data cannot determine at one subunit.** Of 122 sampled
   entries with the inhibitor inactive-only, 47 fit one constant more than their rank at
   one subunit. With no stop, in 4 of 5 sampled, the law is the plain mechanism's with its
@@ -619,9 +636,11 @@ Children per plain parent at one oligomeric state, without a regulator, after th
 
 `docs/superpowers/specs/2026-11-24-iso-enumeration-design.md` (branch `iso-enumeration`)
 states its allosteric behaviour in terms of tagging bases. Under this design the same
-decisions read: the flip is not a chemistry group, so a stop set that holds it gets no
-regulator pairing, and the later move gives it its own constants like any group.
-Whichever branch lands second rewrites that section and rebases `expansion_moves.jl`.
+decisions read: that design's flip step, the isomerization of the free enzyme, is not a
+chemistry group, so a stop set that holds it gets no regulator pairing, and the later move
+gives it its own constants like any group. That design also names the hyperbolic test in
+the tagging move, which here runs at the exits. Whichever branch lands second rewrites
+that section and rebases `expansion_moves.jl`.
 
 ## Left to the builder
 
@@ -630,6 +649,9 @@ Whichever branch lands second rewrites that section and rebases `expansion_moves
 - Where the later move asks `_enumerator_keeps` about a set that holds a stopped group,
   before it reads the fitted count.
 - The order of the children, as long as it does not depend on the number of workers.
+- Where in the seed search the hyperbolic rule runs: on each node or on the results.
+- Whether the entry move and the dead-end move share the code that gives an inhibitor
+  group its three states and drops the two cases.
 - The fixtures for the exact-children tests, within the test rules.
 - Whether the reachability test runs on all 278 bi-bi starting mechanisms or a sample.
 - A recovery check during implementation: data generated from a shared-chemistry K-type
