@@ -975,50 +975,52 @@ end
 The relaxing move: the children of candidate `c`, whose mechanism is allosteric, that tag
 `:NonequalAI` what `c` tags `:EqualAI`, `:OnlyA` or `:OnlyI`, keeping the rest of `c`:
 
-  * one child per binding group, and one per regulatory ligand;
-  * one child that relaxes every chemistry group (`_chemistry_groups`) at once, so a fully
-    live inactive conformation is one move from every V-type, the tagging move's one-half
-    bases included. The move makes it only while no binding group is `:OnlyA`. Beside an
-    `:OnlyA` binding the restored chemistry can join the binding's two sides in the
-    inactive conformation and leave its affinity no path to zero. Where the inactive
-    conformation binds nothing (every binding `:OnlyA`), the skipped variant is
-    rate-equivalent to the form emitted directly, so no observable hypothesis is lost.
+  * one child per minimal set of kinetic groups (`_minimal_gaining_sets`), binding and
+    chemistry groups alike, whose groups tagged `:NonequalAI` give a child with more
+    fitted constants than `c` (`Derivation.fitted_parameter_count`) that the enumerator
+    returns (`_enumerator_returns`) and that binds no competitive inhibitor redundantly
+    (`_redundant_copy_groups`). A set that fails any of the three is extended by any other
+    group not yet `:NonequalAI`;
+  * then one child per regulatory ligand, kept when it has more fitted constants than `c`.
 
-Relaxing an `:OnlyA` binding brings its complex into the inactive state. There a copy's
-complex that had no twin can gain one, and with a consistent gauge the copy's constant
-shows in neither state. So the move drops a child with a redundant competitive-inhibitor
-group (`_redundant_copy_groups`). The exits (`_enumerator_returns`) judge the rest. An
-`:OnlyA` abortive binding, once relaxed, brings its complex into the inactive law, which
-can then carry a power and fail `_hyperbolic_where_required` above one subunit.
-Relaxing an `:OnlyA` binding joins its two sides, which can leave another tagged binding
-inside one component or close a cycle of tagged bindings, and a face can fail. A
-regulatory ligand's tag does not enter the guard, since a regulator site completes no
-catalytic cycle.
+The sets come by size, then in lexicographic order, and the ligands after them.
 """
 function _expand_change_allo_state(c::CandidateMechanism)
     a = c.mechanism.allosteric
     states = a.allosteric_states
-    chem = _chemistry_groups(c)
-    relaxations = [[g] for g in eachindex(states) if !chem[g] && states[g] != :NonequalAI]
-    any(chem .& (states .!= :NonequalAI)) && !any(.!chem .& (states .== :OnlyA)) &&
-        push!(relaxations, findall(chem))
-    results = CandidateMechanism[]
-    for gs in relaxations
-        new_states = copy(states)
-        new_states[gs] .= :NonequalAI
-        push!(results, _candidate(c, new_states, a.oligomeric_state, a.regulatory_sites))
+    base = Derivation.fitted_parameter_count(c.mechanism)
+    gains_constant(child) = Derivation.fitted_parameter_count(child.mechanism) > base
+    # The child of each set the search accepts, built once and emitted as judged.
+    accepted = Dict{Vector{Int}, CandidateMechanism}()
+    function gains(groups)
+        tagged = copy(states)
+        tagged[groups] .= :NonequalAI
+        child = _candidate(c, tagged, a.oligomeric_state, a.regulatory_sites)
+        # Cheapest first: on bi-bi mechanisms that bind an inhibitor the copy test takes a
+        # tenth of the count's time, and the count a quarter of `_enumerator_returns`'s.
+        isempty(_redundant_copy_groups(child)) && gains_constant(child) &&
+            _enumerator_returns(child) || return false
+        accepted[groups] = child
+        true
     end
-    for (si, site) in enumerate(a.regulatory_sites),
-        li in eachindex(site.ligands)
+    # A failed set is extended by any other group, since one more can lift each failure.
+    # Where the inactive conformation runs a whole catalytic cycle it must give the same
+    # Keq, so one binding tagged alone gets back the active conformation's constant and
+    # two gain one. An `:OnlyA` binding beside one tagged can have its affinity pinned in
+    # the inactive conformation (`_FAST_STEP_PINNED`); tagging it too frees it.
+    taggable = findall(!=(:NonequalAI), states)
+    results = CandidateMechanism[accepted[groups]
+                                 for groups in _minimal_gaining_sets(gains, _ -> taggable)]
+    for (si, site) in enumerate(a.regulatory_sites), li in eachindex(site.ligands)
         site.allosteric_states[li] == :NonequalAI && continue
-        new_sites = copy(a.regulatory_sites)
-        new_states = copy(site.allosteric_states)
-        new_states[li] = :NonequalAI
-        new_sites[si] = Mechanisms.RegulatorySite(site.ligands,
-                                                  site.multiplicity, new_states)
-        push!(results, _candidate(c, states, a.oligomeric_state, new_sites))
+        site_states = copy(site.allosteric_states)
+        site_states[li] = :NonequalAI
+        sites = copy(a.regulatory_sites)
+        sites[si] = Mechanisms.RegulatorySite(site.ligands, site.multiplicity, site_states)
+        child = _candidate(c, states, a.oligomeric_state, sites)
+        gains_constant(child) && push!(results, child)
     end
-    filter!(child -> isempty(_redundant_copy_groups(child)), results)
+    results
 end
 
 """

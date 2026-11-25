@@ -717,11 +717,12 @@ the parent's catalytic scheme, so the constructor runs only the state and site c
 
 The enumerator refuses a reaction whose names spell one string two ways, such as `NAD`, `P`
 and `NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Its exits and its
-flip, split and tagging searches drop a mechanism that `_enumerator_keeps` refuses. It
-refuses one the guard rejects (see [Well-posedness guard](@ref)). It also refuses an
-allosteric mechanism in which a conformation keeps a form, other than free E, that only
-bindings it excludes enter (`_kept_forms_keep_a_binding`). The guard admits the second when
-its law is the limit, so a user may write it, but the enumerator does not propose it.
+flip, split, tagging and relaxing searches drop a mechanism that `_enumerator_keeps`
+refuses. It refuses one the guard rejects (see [Well-posedness guard](@ref)). It also
+refuses an allosteric mechanism in which a conformation keeps a form, other than free E,
+that only bindings it excludes enter (`_kept_forms_keep_a_binding`). The guard admits the
+second when its law is the limit, so a user may write it, but the enumerator does not
+propose it.
 
 Mechanisms and candidates are ordinary value types to avoid excessive precompilation
 costs. The enumeration builds, expands, and deduplicates many thousands of candidate
@@ -740,6 +741,9 @@ proof sits in the docstring of the function that applies it; this list says whic
   fitted-parameter count rises and the guard accepts the built child. The count comes from
   the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A split
   never changes admission's interior verdict, since both parts keep the group's tag.
+- The relaxing move (`_expand_change_allo_state`) tags a set of kinetic groups
+  `:NonequalAI` only if the fitted-parameter count rises and the enumerator would return
+  the child, and a regulatory ligand only if the count rises.
 - The flip move (`_expand_re_to_ss`) flips whole groups and accepts a set only if the
   rapid-equilibrium segment count rises and every flipped group carries net flux in the
   child. It never flips a flank of a steady-state chain (`_chain_flank_groups`; see
@@ -754,10 +758,11 @@ proof sits in the docstring of the function that applies it; this list says whic
   productive twin and the dwell gauge moves its constant along a direction the rate law
   cannot see (`_redundant_copy_groups`, `_productive_twin`, `_gauge_rescaling`). The
   dead-end move skips a redundant placement, the split drops every child that holds a
-  redundant copy group, and `_expand_change_allo_state` drops a child with one.
+  redundant copy group, and the relaxing move counts a set whose child holds one as
+  failed.
 
 `candidate_mechanisms` asserts both rules, flux and no redundant copy, on every parent
-(`_assert_emission_rules`). Both refinement moves share one minimal-set search
+(`_assert_emission_rules`). The flip, split and relaxing moves share one minimal-set search
 (`_minimal_gaining_sets`). Duplicate laws that survive these proofs share one fit, an L
 phantom's key aside: identify fits one mechanism per key (`_canonical`,
 `src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability rank exists only
