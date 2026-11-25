@@ -370,6 +370,13 @@ Children per plain parent at one oligomeric state, without a regulator, after th
 - **Optional regulators on entries that stop a binding.** These are emitted bare. At one
   subunit an L phantom among them has its parent's loss and enters the beam only through
   the width floor, as today's K-types do.
+- **Own-constants versions behind a phantom stop.** Where a smallest gaining set's stop is
+  kept, its own-constants version is reached only through that stop entry. At one subunit
+  the stop entry is an L phantom for 227 of the 539 such sets on the sequential parents
+  and 11 of the 124 on the ping-pong ones: it has its parent's loss and enters the beam
+  only through the width floor. Above one subunit there are no phantoms. Emitting every
+  smallest gaining set at entry would remove this cost for one more entry per sequential
+  parent and five per ping-pong parent.
 - **Selections can change** on data already analysed, since more mechanisms compete.
 
 ## Interaction with the iso-enumeration design
