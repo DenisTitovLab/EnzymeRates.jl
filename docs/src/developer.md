@@ -742,8 +742,9 @@ proof sits in the docstring of the function that applies it; this list says whic
   never changes admission's interior verdict, since both parts keep the group's tag.
 - The flip move (`_expand_re_to_ss`) flips whole groups and accepts a set only if the
   rapid-equilibrium segment count rises and every flipped group carries net flux in the
-  child. In a plain mechanism it never flips a flank of a steady-state chain
-  (`_chain_flank_groups`; see [Apparent constants on a steady-state chain](@ref)).
+  child. It never flips a flank of a steady-state chain (`_chain_flank_groups`; see
+  [Apparent constants on a steady-state chain](@ref)). In a plain mechanism that is a proof;
+  in an allosteric one it is a modeling choice.
 - Flux is decided on the graph of rapid-equilibrium segments: a steady-state step carries
   flux exactly when its biconnected block holds a cycle that runs net reaction
   (`_flux_carrying_edges`). A steady-state group with no such step exposes only the ratio

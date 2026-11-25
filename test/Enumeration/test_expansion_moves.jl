@@ -499,27 +499,20 @@ end
     end
 end
 
-@testset "Allosteric mechanism — a chain flank still flips at multiplicity 2" begin
-    # A K-type variant of the ordered seed over two catalytic subunits: the iso and the
-    # A binding :OnlyA, the other bindings :EqualAI. Its flank flips stay children: two
-    # conformations over two subunits can see a flank's flip. The A-state graph is the
-    # plain seed's, so each single flip cuts the one segment in two, keeps a bottom
-    # form and carries flux. The parent needs a hyperbolic scheme
-    # (`_hyperbolic_catalysis`). With two segments an arborescence toward a root holds
-    # one edge, which leaves the other segment, so the scheme fails only when a
+@testset "Allosteric mechanism — a chain flank does not flip at multiplicity 2" begin
+    # A variant of the ordered seed over two catalytic subunits: the iso and the A
+    # binding :OnlyA, the other bindings :EqualAI. The B and P groups are the flanks of
+    # the iso, so only the A and Q flips are children. The parent needs a hyperbolic
+    # scheme (`_hyperbolic_catalysis`). With two segments an arborescence toward a root
+    # holds one edge, which leaves the other segment, so the scheme fails only when a
     # metabolite scores 2 on one edge or one segment, or scores in one segment and on
     # an edge leaving the other. Each flip passes:
     #   A: {E, EQ, EPQ} | {EA, EAB}. A scores on E → EA only; B in the
     #      second segment and on EAB → EPQ, which leaves it; P and Q in the
     #      first and on EPQ → EAB, which leaves it.
     #   Q: the mirror of A.
-    #   B: {E, EA, EQ, EPQ} | {EAB}. A, P and Q score in the first segment
-    #      and on edges leaving it (EA → EAB, EPQ → EAB); B scores 1 on
-    #      EA → EAB and in no segment.
-    #   P: the mirror of B.
-    # Four children, tags kept. The parent is identifiable at 6; every child adds one
-    # constant and gains one, the B and P flank flips included, where the plain
-    # seed's flank flips gain none.
+    # Two children, tags kept. The parent is identifiable at 6; each child adds one
+    # constant and gains one.
     seed = @enzyme_mechanism begin
         substrates: A, B; products: P, Q
         steps: begin
@@ -546,7 +539,6 @@ end
         end
     end
     @test am in _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, seed, rxn2)
-    @test isempty(EnzymeRates.Enumeration._chain_flank_groups(am))
     a_flip = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 2
         steps: begin
@@ -554,26 +546,6 @@ end
             EA + B ⇌ EAB          :: EqualAI
             EAB <--> EPQ        :: OnlyA
             EQ + P ⇌ EPQ          :: EqualAI
-            E + Q ⇌ EQ                :: EqualAI
-        end
-    end
-    b_flip = @enzyme_mechanism begin
-        substrates: A, B ; products: P, Q ; oligomeric_state: 2
-        steps: begin
-            E + A ⇌ EA                :: OnlyA
-            EA + B <--> EAB       :: EqualAI
-            EAB <--> EPQ        :: OnlyA
-            EQ + P ⇌ EPQ          :: EqualAI
-            E + Q ⇌ EQ                :: EqualAI
-        end
-    end
-    p_flip = @enzyme_mechanism begin
-        substrates: A, B ; products: P, Q ; oligomeric_state: 2
-        steps: begin
-            E + A ⇌ EA                :: OnlyA
-            EA + B ⇌ EAB          :: EqualAI
-            EAB <--> EPQ        :: OnlyA
-            EQ + P <--> EPQ       :: EqualAI
             E + Q ⇌ EQ                :: EqualAI
         end
     end
@@ -588,8 +560,8 @@ end
         end
     end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am)
-    @test length(kids) == 4
-    @test Set(kids) == Set([a_flip, b_flip, p_flip, q_flip])
+    @test length(kids) == 2
+    @test Set(kids) == Set([a_flip, q_flip])
     # candidate_mechanisms returns every flip, and every child it returns at two subunits
     # is hyperbolic.
     returned = _testhelper_children(rxn2, [am])
@@ -601,6 +573,79 @@ end
         @test _testhelper_fitted(k) == _testhelper_identifiable_rank(k) == 7
     end
 end
+
+@testset "an allosteric mechanism's chain flanks are not flipped" begin
+    # The iso EAB <--> EPQ is alone in its group at steady state, with one binding on
+    # each side: B into EAB and P into EPQ. Those two groups are its flanks, whatever
+    # the conformation states of the groups. Only the A and Q bindings can flip.
+    for n in 1:2
+        am = n == 1 ? (@enzyme_mechanism begin
+            substrates: A, B ; products: P, Q ; oligomeric_state: 1
+            steps: begin
+                E + A ⇌ EA            :: OnlyA
+                EA + B ⇌ EAB          :: EqualAI
+                EAB <--> EPQ          :: OnlyA
+                EQ + P ⇌ EPQ          :: EqualAI
+                E + Q ⇌ EQ            :: EqualAI
+            end
+        end) : (@enzyme_mechanism begin
+            substrates: A, B ; products: P, Q ; oligomeric_state: 2
+            steps: begin
+                E + A ⇌ EA            :: OnlyA
+                EA + B ⇌ EAB          :: EqualAI
+                EAB <--> EPQ          :: OnlyA
+                EQ + P ⇌ EPQ          :: EqualAI
+                E + Q ⇌ EQ            :: EqualAI
+            end
+        end)
+        a_flip = n == 1 ? (@enzyme_mechanism begin
+            substrates: A, B ; products: P, Q ; oligomeric_state: 1
+            steps: begin
+                E + A <--> EA         :: OnlyA
+                EA + B ⇌ EAB          :: EqualAI
+                EAB <--> EPQ          :: OnlyA
+                EQ + P ⇌ EPQ          :: EqualAI
+                E + Q ⇌ EQ            :: EqualAI
+            end
+        end) : (@enzyme_mechanism begin
+            substrates: A, B ; products: P, Q ; oligomeric_state: 2
+            steps: begin
+                E + A <--> EA         :: OnlyA
+                EA + B ⇌ EAB          :: EqualAI
+                EAB <--> EPQ          :: OnlyA
+                EQ + P ⇌ EPQ          :: EqualAI
+                E + Q ⇌ EQ            :: EqualAI
+            end
+        end)
+        q_flip = n == 1 ? (@enzyme_mechanism begin
+            substrates: A, B ; products: P, Q ; oligomeric_state: 1
+            steps: begin
+                E + A ⇌ EA            :: OnlyA
+                EA + B ⇌ EAB          :: EqualAI
+                EAB <--> EPQ          :: OnlyA
+                EQ + P ⇌ EPQ          :: EqualAI
+                E + Q <--> EQ         :: EqualAI
+            end
+        end) : (@enzyme_mechanism begin
+            substrates: A, B ; products: P, Q ; oligomeric_state: 2
+            steps: begin
+                E + A ⇌ EA            :: OnlyA
+                EA + B ⇌ EAB          :: EqualAI
+                EAB <--> EPQ          :: OnlyA
+                EQ + P ⇌ EPQ          :: EqualAI
+                E + Q <--> EQ         :: EqualAI
+            end
+        end)
+        members = _testhelper_group_members(am.catalytic)
+        flanks = Set(EnzymeRates.Mechanisms.step_text(am.catalytic, only(members[g]))
+                     for g in EnzymeRates.Enumeration._chain_flank_groups(am))
+        @test flanks == Set(["EA + B ⇌ EAB", "EQ + P ⇌ EPQ"])
+        kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am)
+        @test length(kids) == 2
+        @test Set(kids) == Set([a_flip, q_flip])
+    end
+end
+
 
 @testset "_chain_flank_groups: the flanks of steady-state chains only" begin
     # Ping-pong seed. EA → EstarP is steady state, alone in its group, and its two
@@ -795,16 +840,12 @@ end
     end
 end
 
-@testset "Allosteric mechanism — uni-uni RE→SS flips one group and preserves the tags" begin
-    # Each seed is a uni-uni allosteric mechanism whose two binding groups are all-RE and
-    # whose isomerization is SS: _expand_re_to_ss fires per all-RE group → 2 variants,
-    # one with the P binding steady state and one with the S binding steady state, each
-    # keeping every tag.
-    for (am, deltas, expected) in [
-        # :EqualAI groups. Each converted group stays :EqualAI (RE K → SS (kf, kr),
-        # shared R/T). Cheap-tag RE→SS adds 1 fitted param per variant (no separate
-        # T-state pair).
-        ((@enzyme_mechanism begin
+@testset "Allosteric mechanism — uni-uni emits no flip, both bindings are chain flanks" begin
+    # The binding of S into ES and the binding of P into EP are alone in their groups and
+    # flank the steady-state isomerization ES <--> EP, whatever the tags of the three
+    # groups, so no group is a unit.
+    for am in [
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -813,40 +854,8 @@ end
                 E + S ⇌ ES      :: EqualAI
                 ES <--> EP    :: EqualAI
             end
-        end), [1, 1], [
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P <--> EP   :: EqualAI
-                    E + S ⇌ ES      :: EqualAI
-                    ES <--> EP    :: EqualAI
-                end
-            end),
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P ⇌ EP      :: EqualAI
-                    E + S <--> ES   :: EqualAI
-                    ES <--> EP    :: EqualAI
-                end
-            end)]),
-        # Both binding groups :OnlyA (a balanced substrate/product pair, so the
-        # mechanism is Haldane-valid) and :EqualAI catalysis. :OnlyA groups live in the
-        # R-state only; the T-state contributes no kf_T/kr_T after RE→SS. The move MUST
-        # NOT change R/T-state semantics, so the converted group stays :OnlyA.
-        # Connected-component pruning populates the inactive state from free E over ALL
-        # surviving steps, so because catalysis is :EqualAI the base mechanism's Q_I
-        # ALREADY carries ES and EP through the inactive catalytic step — even
-        # though both bindings are :OnlyA and cannot bind directly in the T-state.
-        # Those forms are therefore present in the inactive state of the base AND of
-        # every variant, so flipping a binding group RE→SS adds only that group's own SS
-        # rate constant (+1) — it does not introduce a new inactive-state form. Both
-        # variants → Δ=1.
-        ((@enzyme_mechanism begin
+        end),
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -855,32 +864,8 @@ end
                 E + S ⇌ ES      :: OnlyA
                 ES <--> EP    :: EqualAI
             end
-        end), [1, 1], [
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P <--> EP   :: OnlyA
-                    E + S ⇌ ES      :: OnlyA
-                    ES <--> EP    :: EqualAI
-                end
-            end),
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P ⇌ EP      :: OnlyA
-                    E + S <--> ES   :: OnlyA
-                    ES <--> EP    :: EqualAI
-                end
-            end)]),
-        # One :NonequalAI group (S-binding), the others :EqualAI. When RE→SS converts a
-        # :NonequalAI group, BOTH the R-state K and the T-state K_T must split into
-        # (kf, kr) and (kf_T, kr_T): P-binding :EqualAI → +1; S-binding :NonequalAI → +2.
-        # SS :NonequalAI adds kf_T, kr_T on top of the R-state pair.
-        ((@enzyme_mechanism begin
+        end),
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
@@ -889,79 +874,21 @@ end
                 E + S ⇌ ES      :: NonequalAI
                 ES <--> EP    :: EqualAI
             end
-        end), [1, 2], [
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P <--> EP   :: EqualAI
-                    E + S ⇌ ES      :: NonequalAI
-                    ES <--> EP    :: EqualAI
-                end
-            end),
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P ⇌ EP      :: EqualAI
-                    E + S <--> ES   :: NonequalAI
-                    ES <--> EP    :: EqualAI
-                end
-            end)]),
-        # Every group :NonequalAI — a distinguishable mechanism (an all-:EqualAI seed, the
-        # first entry above, is a model-space no-op that is never enumerated; the move is
-        # still tested on it). :NonequalAI RE→SS adds 2 fitted params per variant (the A-
-        # and I-state binding K each split into (kf, kr)).
-        ((@enzyme_mechanism begin
+        end),
+        (@enzyme_mechanism begin
             substrates: S
             products: P
             oligomeric_state: 2
             steps: begin
-                E + S ⇌ ES    :: NonequalAI
-                E + P ⇌ EP    :: NonequalAI
-                ES <--> EP  :: NonequalAI
+                E + P ⇌ EP      :: NonequalAI
+                E + S ⇌ ES      :: NonequalAI
+                ES <--> EP    :: NonequalAI
             end
-        end), [2, 2], [
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P <--> EP   :: NonequalAI
-                    E + S ⇌ ES      :: NonequalAI
-                    ES <--> EP    :: NonequalAI
-                end
-            end),
-            (@enzyme_mechanism begin
-                substrates: S
-                products: P
-                oligomeric_state: 2
-                steps: begin
-                    E + P ⇌ EP      :: NonequalAI
-                    E + S <--> ES   :: NonequalAI
-                    ES <--> EP    :: NonequalAI
-                end
-            end)]),
+        end),
     ]
         _testhelper_assert_mechanism_invariants(am)
-        result = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am)
-        @test length(result) == 2
-        @test Set(result) == Set(expected)
-        @test _testhelper_param_deltas(am, result) == deltas
-        for r in result
-            _testhelper_assert_mechanism_invariants(r)
-            # Exactly one group newly all-SS; every tag, the multiplicity, the
-            # regulatory sites and the reaction preserved.
-            n_newly_ss = count(((old, new),) -> all(old) && !any(new),
-                               zip(_testhelper_group_flags(am), _testhelper_group_flags(r)))
-            @test n_newly_ss == 1
-            @test r.allosteric.allosteric_states == am.allosteric.allosteric_states
-            @test r.allosteric.oligomeric_state == am.allosteric.oligomeric_state
-            @test r.allosteric.regulatory_sites == am.allosteric.regulatory_sites
-            @test _testhelper_keeps_reaction(r, am)
-        end
+        @test length(EnzymeRates.Enumeration._chain_flank_groups(am)) == 2
+        @test isempty(_testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am))
     end
 end
 
@@ -1061,8 +988,9 @@ end
 @testset "Allosteric mechanism — the modifier copy never flips; tags are preserved" begin
     # The same mechanism as an allosteric one with a dead inactive conformation
     # (the chemistry `:OnlyA`, every binding `:EqualAI`) and one catalytic subunit.
-    # All four groups A, B, P and Q flip: an allosteric mechanism has no chain
-    # flanks (`_chain_flank_groups`). Every child keeps one `:OnlyA` group, the
+    # The copy binds at E and EQ, so EAB and EPQ keep one step each beside the
+    # isomerization: B and P are the flanks of a chain and never flip
+    # (`_chain_flank_groups`). The A and Q groups flip. Every child keeps one `:OnlyA` group, the
     # chemistry, and the multiplicity and (empty) regulatory sites.
     am = @enzyme_mechanism begin
         substrates: A, B
@@ -1097,32 +1025,6 @@ end
             oligomeric_state: 1
             steps: begin
                 E + A ⇌ EA                                            :: EqualAI
-                EA + B <--> EAB                                   :: EqualAI
-                EAB <--> EPQ                                    :: OnlyA
-                EQ + P ⇌ EPQ                                      :: EqualAI
-                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)            :: EqualAI
-                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
-            end
-        end),
-        (@enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            oligomeric_state: 1
-            steps: begin
-                E + A ⇌ EA                                            :: EqualAI
-                EA + B ⇌ EAB                                      :: EqualAI
-                EAB <--> EPQ                                    :: OnlyA
-                EQ + P <--> EPQ                                   :: EqualAI
-                (E + Q ⇌ EQ, EAmod + Q ⇌ EAmodQ)            :: EqualAI
-                (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)  :: EqualAI
-            end
-        end),
-        (@enzyme_mechanism begin
-            substrates: A, B
-            products: P, Q
-            oligomeric_state: 1
-            steps: begin
-                E + A ⇌ EA                                            :: EqualAI
                 EA + B ⇌ EAB                                      :: EqualAI
                 EAB <--> EPQ                                    :: OnlyA
                 EQ + P ⇌ EPQ                                      :: EqualAI
@@ -1132,7 +1034,7 @@ end
         end),
     ]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, am)
-    @test length(kids) == 4
+    @test length(kids) == 2
     @test Set(kids) == Set(expected)
     for r in kids
         _testhelper_assert_mechanism_invariants(r)
@@ -1161,8 +1063,9 @@ end
     # substrate/inhibitor roles unambiguous. Binding is ordered (A then B)
     # so the pair flip stays hyperbolic; a conformational parent drops a
     # child whose catalytic scheme carries a concentration power, and the
-    # random-order pair flip would carry B². The three children flip the P
-    # binding, the B binding, or the A binding with its mirror.
+    # random-order pair flip would carry B². The B and P bindings are the flanks of the
+    # isomerization EAB <--> EP (`_chain_flank_groups`) and never flip, so the one
+    # child flips the A binding with its mirror.
     m = EnzymeRates.@enzyme_mechanism begin
         substrates: A, B
         products: P
@@ -1184,34 +1087,6 @@ end
             products: P
             modifiers: I
             steps: begin
-                E + A ⇌ EA          :: EqualAI
-                EA + B ⇌ EAB    :: EqualAI
-                EAB <--> EP      :: EqualAI
-                E + P <--> EP       :: EqualAI
-                E + I ⇌ EI          :: EqualAI
-                EA + I ⇌ EAI    :: EqualAI
-                EI + A ⇌ EAI    :: EqualAI
-            end
-        end),
-        @enzyme_mechanism(begin
-            substrates: A, B
-            products: P
-            modifiers: I
-            steps: begin
-                E + A ⇌ EA          :: EqualAI
-                EA + B <--> EAB  :: EqualAI
-                EAB <--> EP      :: EqualAI
-                E + P ⇌ EP          :: EqualAI
-                E + I ⇌ EI          :: EqualAI
-                EA + I ⇌ EAI    :: EqualAI
-                EI + A ⇌ EAI    :: EqualAI
-            end
-        end),
-        @enzyme_mechanism(begin
-            substrates: A, B
-            products: P
-            modifiers: I
-            steps: begin
                 E + A <--> EA        :: EqualAI
                 EA + B ⇌ EAB    :: EqualAI
                 EAB <--> EP      :: EqualAI
@@ -1221,7 +1096,7 @@ end
                 EI + A <--> EAI  :: EqualAI
             end
         end)]
-    @test length(kids) == 3
+    @test length(kids) == 1
     @test Set(kids) == Set(expected)
     # Mirror-lock: in every child the A binding at E and its mirror at EI carry one
     # flag.
@@ -8966,6 +8841,9 @@ end
             products: P[C], Q[N]
             oligomeric_state: 2
         end
+        allo_move = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, allo)
+        @test length(allo_move) == 3
+        @test Set(allo_move) == Set([allo_flipS, allo_flipP, allo_flipQ])
         # The flips are the children with the parent's allostery: every group is
         # :NonequalAI already, so no group relaxes, and a split adds a group.
         allo_kids = [c for c in _testhelper_children(rxn, [allo])
@@ -12589,9 +12467,11 @@ end
     # P and Q the inactive conformation then feeds the covalent forms, which leave only
     # through the vanishing chemistry step (`_PUMPED`). That is admission's face
     # condition, part of the guard the flip search asks of each candidate, so the two sets
-    # count as failed and are extended: D's and Q's groups together pass. The flips of
-    # B's group, P's binding, A's binding and the first chemistry step pass alone: five
-    # children. Three keep the seed's degeneracy; the base tier keeps the other two. The
+    # count as failed and are extended: D's and Q's groups together pass. A's and P's
+    # bindings are the flanks of the steady-state EA_res_plusB_plusD_minusQ <--> EP and
+    # never flip (`_chain_flank_groups`). The flips of B's group and the first chemistry
+    # step pass alone: three children. One keeps the seed's degeneracy; the base tier
+    # keeps the other two. The
     # extension rests on Q's flip being refused: under the guard's first built reading the
     # ε-path oracle too finds no limit at zero P and Q. A guard that admitted Q's flip
     # would emit it alone and leave D's flip with no failed partner to extend with.
@@ -12625,38 +12505,6 @@ end
              EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
             E + P ⇌ EP                                                      :: OnlyA
             E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
-            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
-             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
-             ED + Q ⇌ EDQ)                                              :: EqualAI
-            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
-            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
-        end
-    end
-    p_flip = @enzyme_mechanism begin
-        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        steps: begin
-            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
-             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
-            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
-             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
-            E + P <--> EP                                                   :: OnlyA
-            E_res_plusB_plusD_minusQ + A ⇌ EA_res_plusB_plusD_minusQ        :: EqualAI
-            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
-             EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
-             ED + Q ⇌ EDQ)                                              :: EqualAI
-            EA_res_plusB_plusD_minusQ <--> EP                              :: OnlyA
-            EBD ⇌ EQ_res_plusB_plusD_minusQ                              :: OnlyA
-        end
-    end
-    a_flip = @enzyme_mechanism begin
-        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
-        steps: begin
-            (E + B ⇌ EB, ED + B ⇌ EBD, EDQ + B ⇌ EBDQ,
-             EQ_res_plusB_plusD_minusQ + B ⇌ EBQ_res_plusB_plusD_minusQ)  :: OnlyA
-            (E + D ⇌ ED, EB + D ⇌ EBD, EBQ + D ⇌ EBDQ,
-             EQ_res_plusB_plusD_minusQ + D ⇌ EDQ_res_plusB_plusD_minusQ)  :: EqualAI
-            E + P ⇌ EP                                                      :: OnlyA
-            E_res_plusB_plusD_minusQ + A <--> EA_res_plusB_plusD_minusQ     :: EqualAI
             (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
              EB + Q ⇌ EBQ, EBD + Q ⇌ EBDQ,
              ED + Q ⇌ EDQ)                                              :: EqualAI
@@ -12748,11 +12596,11 @@ end
           "nothing runs back the way it came, so admission cannot show that their " *
           "weight does not depend on how fast that step vanishes."
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_re_to_ss, seed)
-    @test length(kids) == 5
-    @test Set(kids) == Set([b_flip, p_flip, a_flip, chemistry_flip, dq_flip])
+    @test length(kids) == 3
+    @test Set(kids) == Set([b_flip, chemistry_flip, dq_flip])
     @test Set(filter(m -> EnzymeRates.Enumeration._degenerate(_testhelper_candidate(m)),
                      kids)) ==
-          Set([b_flip, p_flip, a_flip])
+          Set([b_flip])
     base = _testhelper_mechanisms(
         EnzymeRates.Enumeration._base_tier(_testhelper_candidate.([seed]), rxn))
     @test length(base) == 2

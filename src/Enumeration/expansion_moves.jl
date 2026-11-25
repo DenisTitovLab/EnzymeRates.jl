@@ -224,11 +224,11 @@ mechanism sees such a chain only through its flux and enzyme content, four numbe
 the form with both flanks at rapid equilibrium already covers, so flipping a flank adds
 parameters and no rate law. The tests call this the chain lemma; the docs page "Rapid
 equilibrium vs steady state" states it under "Apparent constants on a steady-state chain".
-An allosteric mechanism has none: at more than one catalytic subunit a flank's flip can be
-visible through the two conformations.
+For an allosteric mechanism the chain is read on the catalytic scheme whatever the states of
+its groups. There the rule is a modeling choice and not a proof: a flank's flip can be
+visible through the two conformations at more than one catalytic subunit.
 """
 function _chain_flank_groups(am::Mechanisms.Mechanism)
-    _is_allosteric(am) && return Set{Int}()
     m = am.catalytic
     # The group of each edge alone in its group, 0 for any other edge.
     lone = zeros(Int, length(m.steps))
