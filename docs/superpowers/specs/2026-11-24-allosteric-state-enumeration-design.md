@@ -141,7 +141,8 @@ with a stop and an own-constants group. At two subunits 76 of 96 add none and 20
 
 - A conformational flip at a second free form (the ten rejected versions above).
 - Making the guard admit more. The maintainer left that for a change of its own.
-- Removing allosteric mechanisms at one subunit (see "Open for the maintainer").
+- Removing allosteric mechanisms at one subunit. The maintainer keeps them (see "Known
+  costs").
 - `:OnlyI` on a group that binds a substrate or product at its catalytic site, abortive
   complexes included. Only an inhibitor group takes it.
 - Proofs that remove versions whose new constants the data cannot determine (see "Known
@@ -264,7 +265,10 @@ the titration and survives on its own. No paired child holds a `:NonequalAI` gro
   `_minimal_gaining_sets` finds the sets, as in the entry move; the two moves share that
   search. A set that holds a stopped or inactive-only group changes what the exit test
   reads, so its child is counted only if `_enumerator_keeps` keeps it.
-- **Regulatory ligands.** One child per ligand relaxed to `:NonequalAI`, as today.
+- **Regulatory ligands.** One child per ligand relaxed to `:NonequalAI`, kept only when
+  its fitted count exceeds `c`'s. The maintainer asked for the check on every relaxation.
+  It never fired in the census (17,331 of 17,331 add one constant), so it keeps the rule
+  for cases the census did not sample.
 - **Filters.** The drops for a redundant copy group and for a non-hyperbolic law above one
   subunit stay.
 
@@ -407,7 +411,9 @@ Written first and watched to fail, under the enumeration-engine rules.
   of both if the full sets are slow, the closure of the two moves holds every irreducible
   version, found by brute force over every version; every child has more fitted constants
   than its parent; and the exit test's answer on a version equals its answer on the
-  version's stop set. The test runs on the base tier, not on the degenerate seeds.
+  version's stop set. The test runs on the base tier, not on the degenerate seeds. The
+  check that every child has more fitted constants than its parent also runs on a sample
+  of mechanisms with two regulators, at separate sites and at one.
 - **Inactive-only inhibitor**, exact children: the entry move on the uni-uni seed with a
   competitive inhibitor bound at free E (four groups); a fixture whose stops cut the
   inhibitor's only site off the inactive conformation, with no inactive-only child for
@@ -475,7 +481,7 @@ A new expected set is reviewed against this design, not regenerated from the new
   - Ideas, "Apply the chain-flank exclusion at one catalytic subunit": removed. The
     exclusion now holds at every subunit count.
   - Ideas, new: replace allosteric mechanisms at one subunit by a regulator that binds
-    forms of the catalytic scheme (see "Open for the maintainer").
+    forms of the catalytic scheme (see "Known costs").
   - Known issue, "The guard rejects some allosteric mechanisms whose law is the limit":
     its count of ter-bi starting mechanisms with no allosteric child is measured again.
   - Planned, new: let the dead-end move give its inhibitor any of the three states on an
@@ -546,6 +552,13 @@ Children per plain parent at one oligomeric state, without a regulator, after th
   With the inhibitor inactive-only that group runs in the inactive conformation alone, and
   where the stops end that conformation's turnover its two rate constants enter as a
   ratio. The flux test reads the whole graph and does not see it.
+- **One subunit.** The costs above that name one subunit share a cause: there the
+  conformational equilibrium only reweights the enzyme forms, so the law is a plain law
+  written with `L` and two sets of constants. The maintainer keeps one subunit. It is the
+  only way a monomer binds an allosteric regulator, and the only allosteric version of a
+  scheme that is not hyperbolic. Its replacement would be a regulator that binds forms of
+  the catalytic scheme and leaves them active with constants of their own, a family of
+  mechanisms that needs a design of its own.
 - **Selections can change** on data already analysed, since more mechanisms compete.
 
 ## Interaction with the iso-enumeration design
@@ -574,8 +587,9 @@ Whichever branch lands second rewrites that section and rebases `expansion_moves
 The maintainer decided the approach, the entry rule, the regulator pairing, how the
 existing testsets are carried over, the allocation bound, the version, that an inhibitor
 group can be inactive-only, that the hyperbolic drops stay, that the flip move skips chain
-flanks in allosteric mechanisms too, and that the guard is left for another change. Three
-calls in this document are the author's and wait for a yes or no:
+flanks in allosteric mechanisms too, that the later move checks every relaxation for a
+gain, that one subunit stays, and that the guard is left for another change. Two calls in
+this document are the author's and wait for a yes or no:
 
 - **The dead-end move keeps adding its inhibitor shared.** Every version is reachable
   without more: add the inhibitor to the plain mechanism, then enter. An inhibitor added
@@ -584,12 +598,3 @@ calls in this document are the author's and wait for a yes or no:
   children on allosteric parents and put a second place in the engine that chooses
   exclusive states.
 - **The seed search starts from the plain base tier** (see "Seeds").
-- **Allosteric mechanisms at one subunit stay, with a `ROADMAP.md` Idea to replace them.**
-  At one subunit the conformational equilibrium only reweights the enzyme forms, so the
-  law is a plain law written with `L` and two sets of constants, and the costs above that
-  name one subunit follow from it. But one subunit is today the only way a monomer binds
-  an allosteric regulator, and the only allosteric version of a scheme that is not
-  hyperbolic. Removing it needs its replacement first: a regulator that binds forms of the
-  catalytic scheme and leaves them active with constants of their own. That is a family of
-  mechanisms with its own enumeration rules, and a design of its own. Nothing here depends
-  on one subunit.
