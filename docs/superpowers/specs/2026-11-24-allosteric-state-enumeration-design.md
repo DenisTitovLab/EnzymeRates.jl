@@ -178,9 +178,10 @@ another version stops it is reached from the entry that leaves the group shared.
 
 Call a version **irreducible** when the exit test keeps it and making any one of its
 own-constants groups shared lowers the fitted count. A version that is not irreducible
-holds a group whose constants thermodynamics fixes to the shared ones, so it has the law of
-the version without that group. The two moves should reach exactly the irreducible
-versions.
+holds a group whose own constants add nothing: thermodynamics fixes them to the shared
+ones, or the inactive conformation never reaches the group's forms and they do not show.
+It has the law of the version with that group shared. The two moves should reach exactly
+the irreducible versions.
 
 Take an irreducible version with stop set `S` and own-constants set `N`. The exit test
 reads only the stops, so `S` alone is kept, and it is an entry (or `S` is empty). From
@@ -194,6 +195,29 @@ Both premises are measured, not proved. The exit test read only the stops in 32,
 32,706 versions on the bi-bi base tier. The argument about gains assumes that
 `fitted_parameter_count` is the number of unknowns less the rank of the constraint rows. A
 test keeps both (see "Tests").
+
+The conclusion is measured too. Computed from the census's fitted counts, the closure of
+the two moves equals the irreducible versions on each of the 39 ping-pong parents: 5,861
+versions at one subunit and 2,214 at two.
+
+### The step this design leaves out: a stopped group to its own constants
+
+Today's later move relaxes a stopped binding to `:NonequalAI`. This design drops that
+step, since the same version is reached from the entry that leaves the group shared.
+Measured on the 39 ping-pong parents at one subunit, adding the step back under the same
+gain test (smallest sets of groups not yet at their own constants):
+
+- reaches no law the design misses. It reaches 52 more versions, and each has the law of a
+  version the design reaches, under another name for one constant (checked on two of
+  them by deriving both laws);
+- raises the later move's children from 10,598 to 16,262 over the reached versions, a
+  median of 2 to 3 per mechanism.
+
+What it would buy is a second route. A stop is the limit of own constants as the inactive
+affinity or rate goes to zero, so where the inactive conformation binds a ligand weakly
+the stop entry fits better than the shared one at the same fitted count, and the beam may
+hold only the stop entry. Without the step that entry cannot grow into the true version.
+Whether to keep the step is open (see "Open for the maintainer").
 
 ### Seeds
 
@@ -268,16 +292,25 @@ Written first and watched to fail, under the enumeration-engine rules.
 About 50 existing testsets pin the two moves' children (29 the entry move, 21 the later
 move, in `test/Enumeration/test_expansion_moves.jl`), and `test/test_oracles.jl` builds
 populations from the entry move's children. Their expected sets change. A six-group fixture
-now has 63 stop entries per oligomeric state, too many to write out. How these testsets are
-carried over is the maintainer's decision (see "Open for the maintainer"); whatever the
-answer, a new expected set is reviewed against this design, not regenerated from the new
-output.
+now has 63 stop entries per oligomeric state, too many to write out. The maintainer
+approved how they are carried over:
+
+- A testset that pins a removed rule (a tagging base, the every-chemistry set, the
+  relax-all rule) is deleted and named in the pull request. The new tests of the rule that
+  replaces it take its place.
+- A testset about another aspect (the hyperbolic drop, a multiplicity, one regulator)
+  keeps its assertion and moves to a fixture of at most four groups, or to one oligomeric
+  state, so that every child is still written out.
+
+A new expected set is reviewed against this design, not regenerated from the new output.
 
 ## Guards and docs
 
 - **Allocation bound.** `test/Enumeration/test_starting_mechanisms.jl` bounds the bytes one
   expansion of the bi-bi starting set allocates. The entry move builds more children, so
-  the bound will trip. Re-pinning it needs the maintainer's approval.
+  the bound will trip. The maintainer approved re-pinning it; the pull request states the
+  bytes before and after.
+- **Version.** 0.12.0, a minor bump: results change and no exported function does.
 - **Engine page** (`docs/src/identify/enumeration_engine.md`): moves 4 and 6 are rewritten
   around stop sets and own-constants sets, with the thermodynamic reason a binding cannot
   differ alone.
@@ -289,7 +322,10 @@ output.
   by binding B cannot stop both half-reactions" shrinks to what the census found: ten
   starting mechanisms, no limit under any reading, fixed only by a flip at the covalent
   form. Its three sub-entries go. The Planned entry on the hyperbolic drops loses its
-  mention of bases. `docs/src/roadmap.md` keeps its entry.
+  mention of bases. `docs/src/roadmap.md` keeps its entry. A new Known issue records that
+  `rate_equation_dedup_key` separates two laws that differ only in one constant's name
+  (`K_x` shared, `K_A_x` when the group has its own constants that do not show), so the
+  search can fit one law twice.
 
 ## Search cost
 
@@ -343,13 +379,15 @@ group. Whichever branch lands second rewrites that section and rebases
 
 ## Open for the maintainer
 
-1. How the existing testsets are carried over. The author's proposal: a testset that pins a
-   removed rule (a tagging base, the every-chemistry set, the relax-all rule) is deleted
-   and named in the pull request, its place taken by the new tests of the rule that
-   replaces it. A testset about another aspect (the hyperbolic drop, a multiplicity, one
-   regulator) keeps its assertion and moves to a fixture of at most four groups, or to one
-   oligomeric state, so that every child is still written out.
-2. The regulator pairing covers own-constants entries that change only chemistry (author's
-   call above). Confirm or narrow to stop entries.
-3. Approval to re-pin the allocation bound of one bi-bi expansion.
-4. The version: results change and no public name does.
+Two linked questions.
+
+1. Whether the later move also takes a stopped group to its own constants (see "The step
+   this design leaves out"). The author recommends yes: the rule becomes "smallest sets of
+   groups not yet at their own constants that raise the fitted count", with no case for
+   stopped groups, and a stop entry in the beam can grow into the version it is the limit
+   of.
+2. Whether the regulator pairing covers own-constants entries that change only chemistry.
+   If question 1 is yes, an inactive conformation with slower chemistry and a regulator is
+   one move from the stop entry with that regulator, and the pairing can cover stop entries
+   only, as the maintainer first set it. If question 1 is no, the pairing is the only
+   route that does not pass through a bare entry, and the author keeps it.
