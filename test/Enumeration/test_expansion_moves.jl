@@ -9289,6 +9289,165 @@ end
 
 end
 
+# ─── Reachability of the allosteric versions ────────────────────────────
+
+"""
+    _testhelper_irreducible_versions(c) -> (; irreducible, keeps_reads_nonequal)
+
+Every version of the plain candidate `c` at one subunit with no regulatory site, tried one
+by one: each kinetic group `:EqualAI`, `:OnlyA` or `:NonequalAI`, or also `:OnlyI` when it
+binds a competitive inhibitor (`_bound_copy`), but not every group `:EqualAI`. A mechanism
+shows when the enumerator returns it (`_enumerator_returns`), every group that binds an
+inhibitor runs in a conformation (`_inhibitors_bind`) and none binds it redundantly
+(`_redundant_copy_groups`). `irreducible` holds the versions that show and in which making
+any one `:NonequalAI` group `:EqualAI` gives a mechanism with fewer fitted constants
+(`Derivation.fitted_parameter_count`) or one that does not show. The mechanism with every
+group `:EqualAI` is judged like the others: it fits `c`'s constants and `L`.
+`keeps_reads_nonequal` holds the versions whose `_enumerator_keeps` answer changes when
+every `:NonequalAI` group is made `:EqualAI`.
+"""
+function _testhelper_irreducible_versions(c)
+    EN = EnzymeRates.Enumeration
+    choices = [EN._bound_copy(c, first(ks)) === nothing ?
+                   [:EqualAI, :OnlyA, :NonequalAI] :
+                   [:EqualAI, :OnlyA, :NonequalAI, :OnlyI]
+               for ks in EN._kinetic_groups(c.mechanism.catalytic)]
+    no_site = EnzymeRates.Mechanisms.RegulatorySite[]
+    mechanism = Dict{Vector{Symbol}, EnzymeRates.Mechanism}()
+    keeps = Dict{Vector{Symbol}, Bool}()
+    shows = Dict{Vector{Symbol}, Bool}()
+    # One pass asks the guard of each version once: it remembers the last mechanism only.
+    for states in Iterators.product(choices...)
+        s = collect(states)
+        v = EN._candidate(c, s, 1, no_site)
+        mechanism[s] = v.mechanism
+        keeps[s] = EN._enumerator_keeps(v.mechanism)
+        shows[s] = keeps[s] && EN._enumerator_returns(v) && EN._inhibitors_bind(v) &&
+                   isempty(EN._redundant_copy_groups(v))
+    end
+    fitted = Dict{Vector{Symbol}, Int}()
+    fitted_of(s) =
+        get!(() -> EnzymeRates.Derivation.fitted_parameter_count(mechanism[s]), fitted, s)
+    versions = filter(s -> any(!=(:EqualAI), s), collect(keys(mechanism)))
+    keeps_reads_nonequal =
+        filter(s -> keeps[s] != keeps[replace(s, :NonequalAI => :EqualAI)], versions)
+    irreducible = Set{EnzymeRates.Mechanism}()
+    for s in versions
+        shows[s] || continue
+        lowers(g) = (r = copy(s); r[g] = :EqualAI; fitted_of(r) < fitted_of(s) || !shows[r])
+        all(lowers, findall(==(:NonequalAI), s)) && push!(irreducible, mechanism[s])
+    end
+    (; irreducible, keeps_reads_nonequal)
+end
+
+"""
+    _testhelper_reached_versions(c, rxn) -> (; reached, no_gain)
+
+The mechanisms that the two allosteric moves reach from the plain candidate `c` of `rxn`:
+the children of `_expand_to_allosteric` that the enumerator returns
+(`_enumerator_returns`), then, round by round, the returned children of
+`_expand_change_allo_state` of each mechanism reached. `no_gain` holds each pair
+`parent => child` of a returned child whose fitted count is not above its parent's.
+"""
+function _testhelper_reached_versions(c, rxn)
+    EN = EnzymeRates.Enumeration
+    fitted = Dict{EnzymeRates.Mechanism, Int}()
+    fitted_of(m) = get!(() -> EnzymeRates.Derivation.fitted_parameter_count(m), fitted, m)
+    no_gain = Pair{EnzymeRates.Mechanism, EnzymeRates.Mechanism}[]
+    reached = Set{EnzymeRates.Mechanism}()
+    level = [c]
+    while !isempty(level)
+        next = EN.CandidateMechanism[]
+        for p in level
+            children = p === c ? EN._expand_to_allosteric(c, rxn) :
+                                 EN._expand_change_allo_state(p)
+            for k in filter(EN._enumerator_returns, children)
+                fitted_of(k.mechanism) > fitted_of(p.mechanism) ||
+                    push!(no_gain, p.mechanism => k.mechanism)
+                k.mechanism in reached && continue
+                push!(reached, k.mechanism)
+                push!(next, k)
+            end
+        end
+        level = next
+    end
+    (; reached, no_gain)
+end
+
+@testset "to_allosteric and change_allo_state reach every irreducible version" begin
+    # An aggregate check over samples of three populations of starting mechanisms, the
+    # exception to writing every mechanism inline. For each sampled plain mechanism, at one
+    # subunit with no regulator, every version is tried: each irreducible one, which the
+    # enumerator would return and each of whose :NonequalAI groups adds a fitted constant,
+    # is reached by `_expand_to_allosteric` and then `_expand_change_allo_state`; every
+    # returned child of the two moves has more fitted constants than its parent; and
+    # `_enumerator_keeps` reads the :OnlyA and :OnlyI groups alone, which the argument that
+    # the moves reach every irreducible version assumes. The samples: every 7th of the 278
+    # base-tier mechanisms of the bi-bi reaction (40), every 150th of the 1,548 that bind
+    # a competitive inhibitor I (11), and every 3,200th of the 15,852 of at most seven
+    # groups that bind I and a copy of A (5). A group takes 3 states, an inhibitor's 4, so
+    # seven groups, two of them inhibitors', give 3,887 versions; the samples keep the
+    # testset under two minutes.
+    EN = EnzymeRates.Enumeration
+    plain_rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    inhibitor_rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I
+    end
+    copy_rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I, A
+    end
+    at_most_seven_groups(c) = length(EN._kinetic_groups(c.mechanism.catalytic)) <= 7
+    samples = [
+        (plain_rxn, EN.candidate_mechanisms(plain_rxn)[1:7:end]),
+        (inhibitor_rxn, EN.candidate_mechanisms(inhibitor_rxn)[1:150:end]),
+        (copy_rxn,
+         filter(at_most_seven_groups, EN.candidate_mechanisms(copy_rxn))[1:3200:end])]
+    @test [length(parents) for (_, parents) in samples] == [40, 11, 5]
+    for (rxn, parents) in samples, c in parents
+        versions = _testhelper_irreducible_versions(c)
+        reach = _testhelper_reached_versions(c, rxn)
+        @test !isempty(versions.irreducible)
+        @test isempty(setdiff(versions.irreducible, reach.reached))
+        @test isempty(reach.no_gain)
+        @test isempty(versions.keeps_reads_nonequal)
+    end
+end
+
+@testset "change_allo_state gains a constant on mechanisms with two regulators" begin
+    # An aggregate check over a sample of starting mechanisms, the exception to writing
+    # every mechanism inline, and the only testset that runs the gain check on regulatory
+    # ligands: every 4,000th of the 19,456 starting mechanisms that bind R and S at sites
+    # of their own (5), and the children of `_expand_merge_regulatory_sites` that put the
+    # two at one site and that the enumerator returns. Every child of
+    # `_expand_change_allo_state`, a kinetic group's or a ligand's, has more fitted
+    # constants than its parent. On this sample every ligand tagged :NonequalAI adds one,
+    # so the check drops no ligand's child.
+    EN = EnzymeRates.Enumeration
+    fitted(c) = EnzymeRates.Derivation.fitted_parameter_count(c.mechanism)
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        allosteric_regulators: R, S
+    end
+    separate = EN.candidate_mechanisms(rxn)[1:4000:end]
+    shared = filter(EN._enumerator_returns,
+                    [k for p in separate for k in EN._expand_merge_regulatory_sites(p)])
+    @test length(separate) == 5
+    @test all(p -> length(p.mechanism.allosteric.regulatory_sites) == 2, separate)
+    @test !isempty(shared)
+    @test all(p -> length(p.mechanism.allosteric.regulatory_sites) == 1, shared)
+    no_gain = [p => k for p in [separate; shared] for k in EN._expand_change_allo_state(p)
+               if fitted(k) <= fitted(p)]
+    @test isempty(no_gain)
+end
+
 # ─── _site_active_states ─────────────────────────────────────────────────
 @testset "_site_active_states" begin
 _testhelper_mk(states) = EnzymeRates.Mechanisms.RegulatorySite(
