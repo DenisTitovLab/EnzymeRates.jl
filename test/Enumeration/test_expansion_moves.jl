@@ -646,7 +646,6 @@ end
     end
 end
 
-
 @testset "_chain_flank_groups: the flanks of steady-state chains only" begin
     # Ping-pong seed. EA → EstarP is steady state, alone in its group, and its two
     # ends each have one other step, a binding into that end, alone in its group: the
@@ -840,7 +839,7 @@ end
     end
 end
 
-@testset "Allosteric mechanism — uni-uni emits no flip, both bindings are chain flanks" begin
+@testset "Allosteric mechanism — uni-uni has no flip: both bindings are chain flanks" begin
     # The binding of S into ES and the binding of P into EP are alone in their groups and
     # flank the steady-state isomerization ES <--> EP, whatever the tags of the three
     # groups, so no group is a unit.
@@ -990,8 +989,8 @@ end
     # (the chemistry `:OnlyA`, every binding `:EqualAI`) and one catalytic subunit.
     # The copy binds at E and EQ, so EAB and EPQ keep one step each beside the
     # isomerization: B and P are the flanks of a chain and never flip
-    # (`_chain_flank_groups`). The A and Q groups flip. Every child keeps one `:OnlyA` group, the
-    # chemistry, and the multiplicity and (empty) regulatory sites.
+    # (`_chain_flank_groups`). The A and Q groups flip. Every child keeps one `:OnlyA`
+    # group, the chemistry, and the multiplicity and (empty) regulatory sites.
     am = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -3580,6 +3579,7 @@ end
     end
     @test !isempty(
         EnzymeRates.Enumeration._redundant_copy_groups(_testhelper_candidate(only_a)))
+    @test _testhelper_identifiable_rank(only_a) == _testhelper_identifiable_rank(onlya)
     nonequal = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -3662,6 +3662,8 @@ end
     end
     @test !isempty(
         EnzymeRates.Enumeration._redundant_copy_groups(_testhelper_candidate(only_a)))
+    @test _testhelper_identifiable_rank(only_a) ==
+          _testhelper_identifiable_rank(dead_inactive)
 end
 
 @testset "Allosteric mechanism — no relaxation makes a kept copy redundant" begin
@@ -3830,8 +3832,8 @@ end
     result = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, am,
                               rxn)
 
-    # 1. count: 3, one per state of I's group, as for any one placement (:R is excluded
-    # as allosteric).
+    # 1. count: 3, one per state of I's group at its one placement, free E, which both
+    # conformations hold, so none is dropped (:R is excluded as allosteric).
     @test length(result) == 3
     @test Set(result) == Set(expected)
 
@@ -4132,10 +4134,15 @@ end
     dead_end = EnzymeRates.Enumeration._expand_add_dead_end_regulator
     to_allosteric = EnzymeRates.Enumeration._expand_to_allosteric
     @test _testhelper_move(dead_end, plain, rxn) == [with_i]
-    # Each assignment of states comes once, so the three are all of its children that tag
-    # the chemistry alone :OnlyA among S's binding, P's and the chemistry.
-    bound_then_tagged = _testhelper_move(to_allosteric, with_i, rxn)
-    @test issubset(expected, bound_then_tagged)
+    # The children that tag the chemistry alone :OnlyA among S's binding, P's and the
+    # chemistry; each keeps the catalytic scheme of `with_i`.
+    group(text) = with_i.catalytic.steps[_testhelper_edge(with_i, text)].kinetic_group
+    catalytic = group.(["E + S ⇌ ES", "ES <--> EP", "E + P ⇌ EP"])
+    bound_then_tagged = filter(_testhelper_move(to_allosteric, with_i, rxn)) do c
+        c.allosteric.allosteric_states[catalytic] == [:EqualAI, :OnlyA, :EqualAI]
+    end
+    @test length(bound_then_tagged) == 3
+    @test Set(bound_then_tagged) == Set(expected)
     @test chemistry_only_a in _testhelper_move(to_allosteric, plain, rxn)
     tagged_then_bound = _testhelper_move(dead_end, chemistry_only_a, rxn)
     @test length(tagged_then_bound) == 3
@@ -4510,6 +4517,14 @@ end
     nonequal = filter(r -> :NonequalAI in r.allosteric.allosteric_states, result)
     @test Set(nonequal) == Set([q_half2_nonequal, a_b_nonequal, q_b_nonequal,
                                 b_half2_nonequal])
+    # The other 63, distinct and each with only :OnlyA and :EqualAI groups, are the 63
+    # nonempty sets tagged :OnlyA.
+    @test all(setdiff(result, nonequal)) do r
+        r.catalytic == m.catalytic && r.allosteric.oligomeric_state == 2 &&
+            isempty(r.allosteric.regulatory_sites) &&
+            :OnlyA in r.allosteric.allosteric_states &&
+            issubset(r.allosteric.allosteric_states, (:OnlyA, :EqualAI))
+    end
     @test issubset([a_half1, p_half1, ap_half1, kept...], result)
     for c in (a_half1, p_half1, ap_half1)
         v = EnzymeRates.Derivation._guard(c)
@@ -5216,10 +5231,13 @@ end
                             chem_r_a, chem_r_i])
     @test count(k -> k.allosteric.allosteric_states ==
                      only_chem.allosteric.allosteric_states, kids) == 3
-    binding_only_a(k) = any(g -> k.allosteric.allosteric_states[g] === :OnlyA &&
-                                 !_testhelper_is_catalytic_group(m, g),
-                            eachindex(k.allosteric.allosteric_states))
-    @test all(k -> isempty(k.allosteric.regulatory_sites), filter(binding_only_a, kids))
+    # Whether `k` tags a binding group :OnlyA.
+    _testhelper_binding_only_a(k) =
+        any(g -> k.allosteric.allosteric_states[g] === :OnlyA &&
+                 !_testhelper_is_catalytic_group(m, g),
+            eachindex(k.allosteric.allosteric_states))
+    @test all(k -> isempty(k.allosteric.regulatory_sites),
+              filter(_testhelper_binding_only_a, kids))
     @test !any(k -> !isempty(k.allosteric.regulatory_sites) &&
                     :NonequalAI in k.allosteric.allosteric_states, kids)
 end
@@ -5388,6 +5406,243 @@ end
     returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
     @test !any(returns, [a_b_only_a, q_p_only_a, b_p_only_a])
     @test all(returns, [a_q_only_a, a_p_only_a, q_b_only_a, half1_only_a, half2_only_a])
+end
+
+@testset "to_allosteric on a random-order ping-pong: the oracles on two children" begin
+    # A ping-pong of census pingpong: A and Q bind free E at random, P and B bind the
+    # covalent form E_res_plusA_minusP, and two chemistry groups, EA to EP_res_plusA_minusP
+    # and EB_res_plusA_minusP to EQ, make the two half-reactions. At one subunit the move
+    # tags every set of the six groups :OnlyA; the testset checks two of those children
+    # and does not write out the others. With both half-reactions :OnlyA (`every`) the
+    # inactive conformation never reaches the covalent forms: both oracles find the law
+    # to be the limit on every face, and the enumerator returns it. With the first
+    # half-reaction alone :OnlyA (`half1`) admission's interior accepts it, but a face
+    # holds a rapid-equilibrium segment whose lowest forms split (`_SPLIT`), so the
+    # enumerator does not return it.
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            EA <--> EP_res_plusA_minusP
+            EB_res_plusA_minusP ⇌ EQ
+        end
+    end
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+    end
+    half1 = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: EqualAI
+        end
+    end
+    every = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: OnlyA
+            EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
+        end
+    end
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test half1 in kids && every in kids
+    D = EnzymeRates.Derivation
+    returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
+    @test D._admission_interior(half1, D._built_reading(half1)) === D._WELL_POSED
+    @test D._guard(half1).fault === D._SPLIT
+    @test !returns(half1)
+    @test all(_testhelper_admission_agreement(every; rng = Random.MersenneTwister(15327),
+                                              corners = true))
+    _testhelper_check_law_against_limit(every)
+    @test returns(every)
+end
+
+@testset "to_allosteric on a ter-bi ping-pong: the oracles on every group :OnlyA" begin
+    # Census ter-bi parent 0dc399e7dab6e4f5 (census/base6): its covalent form E(; residual
+    # = B + D - Q) takes up A and gives off P. Four groups hold chemistry, those of B, D, A
+    # and Q, each mixing a plain binding with a fused one; P's binding at E is the only
+    # binding group. At one subunit the move tags every set of the five groups :OnlyA;
+    # the testset checks three of those children and does not write out the others. The
+    # four chemistry groups :OnlyA (`chemistry`) fail the guard: at zero A, B and D the
+    # fused A binding, vanishing one way into the covalent form, fills it faster than it
+    # empties (`_FILLED`). B's group alone (`b_alone`) passes the guard but keeps EB,
+    # which only the binding it excludes enters (`_kept_forms_keep_a_binding`). With every
+    # group :OnlyA (`every`) both oracles find the law to be the limit on every face, and
+    # the enumerator returns it, but neither of the other two.
+    m = @enzyme_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)
+            E + P <--> EP
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ)
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)
+        end
+    end
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N], D[X]
+        products: P[CN], Q[X]
+    end
+    chemistry = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: OnlyA
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: OnlyA
+        end
+    end
+    b_alone = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: EqualAI
+        end
+    end
+    every = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: OnlyA
+            E + P <--> EP                                                  :: OnlyA
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: OnlyA
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: OnlyA
+        end
+    end
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test chemistry in kids && b_alone in kids && every in kids
+    D = EnzymeRates.Derivation
+    v = D._guard(chemistry)
+    @test (v.fault, EnzymeRates.Mechanisms.step_text(chemistry.catalytic, v.edge)) ==
+          (D._FILLED, "E_res_plusB_plusD_minusQ + A ⇌ EP")
+    @test _testhelper_is_valid(b_alone) &&
+          !EnzymeRates.Enumeration._kept_forms_keep_a_binding(b_alone)
+    @test all(_testhelper_admission_agreement(every; rng = Random.MersenneTwister(13964)))
+    _testhelper_check_law_against_limit(every)
+    returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
+    @test returns(every) && !returns(chemistry) && !returns(b_alone)
+end
+
+@testset "a ter-bi ping-pong's chemistry groups, each :OnlyA alone, are refused" begin
+    # A ter-bi ping-pong of the census ter-bi reaction: B and D bind free E in either
+    # order, the second fused into the product-bound covalent form E(Q; residual = B + D -
+    # Q) (B's and D's groups, each chemistry); Q's release from it leaves E(; residual =
+    # B + D - Q), which takes up A into EP, fused (A's group), and Q's group holds Q's
+    # abortive binding at EP beside its release. P's binding at E is the one binding
+    # group. At one subunit the move tags every set of the five groups :OnlyA; the testset
+    # checks the four that hold one chemistry group and does not write out the others.
+    # The enumerator returns none of the four. Q's group alone keeps the two sides of its
+    # rapid-equilibrium release joined in the inactive conformation (`_FAST_STEP_PINNED`),
+    # and A's alone those of its fused binding; the guard names the group's first step in
+    # step order. B's group alone passes the guard but keeps EB, which only the binding it
+    # excludes enters (`_kept_forms_keep_a_binding`), and D's alone keeps ED so.
+    m = @enzyme_mechanism begin
+        substrates: A, B, D
+        products: P, Q
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)
+            E + P <--> EP
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ)
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)
+        end
+    end
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N], D[X]
+        products: P[CN], Q[X]
+    end
+    q_alone = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: OnlyA
+        end
+    end
+    a_alone = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: OnlyA
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
+        end
+    end
+    b_alone = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
+        end
+    end
+    d_alone = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: OnlyA
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
+        end
+    end
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test all(in(kids), [q_alone, a_alone, b_alone, d_alone])
+    D = EnzymeRates.Derivation
+    for (x, step) in (
+            (q_alone, "EP + Q ⇌ EAQ_res_plusB_plusD_minusQ"),
+            (a_alone, "EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ"))
+        v = D._guard(x)
+        @test (v.fault, EnzymeRates.Mechanisms.step_text(x.catalytic, v.edge)) ==
+              (D._FAST_STEP_PINNED, step)
+    end
+    for x in (b_alone, d_alone)
+        @test _testhelper_is_valid(x)
+        @test !EnzymeRates.Enumeration._kept_forms_keep_a_binding(x)
+    end
+    @test !any(x -> EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x)),
+               [q_alone, a_alone, b_alone, d_alone])
 end
 
 @testset "Mechanism — enumerates all allowed multiplicities" begin
@@ -6305,8 +6560,20 @@ end
     end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, parent, rxn)
     @test length(children) == 95 + 4
-    @test Set(filter(c -> :NonequalAI in c.allosteric.allosteric_states, children)) ==
-          Set([a_nonequal, b_nonequal, q_nonequal, p_nonequal])
+    @test allunique(children)
+    nonequal = filter(c -> :NonequalAI in c.allosteric.allosteric_states, children)
+    @test Set(nonequal) == Set([a_nonequal, b_nonequal, q_nonequal, p_nonequal])
+    # The other 95, distinct, are the 95 assignments: no site, some group not :EqualAI,
+    # and :OnlyI on the inhibitor's group alone.
+    copy_group =
+        parent.catalytic.steps[_testhelper_edge(parent, "E + A ⇌ EAmod")].kinetic_group
+    @test all(setdiff(children, nonequal)) do c
+        states = c.allosteric.allosteric_states
+        c.catalytic == parent.catalytic && c.allosteric.oligomeric_state == 2 &&
+            isempty(c.allosteric.regulatory_sites) && any(!=(:EqualAI), states) &&
+            issubset(states, (:OnlyA, :EqualAI, :OnlyI)) &&
+            all(g -> states[g] !== :OnlyI || g == copy_group, eachindex(states))
+    end
     @test all(EnzymeRates.Enumeration._hyperbolic_catalysis,
               _testhelper_candidate.(children))
 end
@@ -7026,8 +7293,8 @@ end
         @test !runs.active[i_binding] && !runs.inactive[i_binding]
         @test !EnzymeRates.Enumeration._inhibitors_bind(_testhelper_candidate(am))
         @test fitted(am) == fitted(m)
-        # The guard accepts it, so only the move keeps it from the search.
-        @test _testhelper_is_valid(am)
+        # The enumerator would return it, so only the move keeps it from the search.
+        @test EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(am))
     end
     @test isempty(intersect(nowhere, _testhelper_children(rxn, [m])))
 end
@@ -7118,11 +7385,14 @@ end
     @test redundant_groups(_testhelper_candidate(redundant)) == [2]
     @test isempty(redundant_groups(_testhelper_candidate(i_equal)))
     @test isempty(redundant_groups(_testhelper_candidate(i_only_a)))
-    # The guard accepts the redundant child, so only the move keeps it from the search.
-    @test _testhelper_is_valid(redundant)
+    # I binds the inactive conformation, so the copy alone drops the child; and the
+    # enumerator would return it, so only the move keeps it from the search.
+    @test EnzymeRates.Enumeration._inhibitors_bind(_testhelper_candidate(redundant))
+    @test EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(redundant))
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(children) == 126
     @test allunique(children)
+    @test all(c -> isempty(redundant_groups(_testhelper_candidate(c))), children)
     @test redundant ∉ children
     @test i_equal in children
     @test i_only_a in children
@@ -8197,10 +8467,10 @@ end
 @testset "change_allo_state tags an :OnlyA half-reaction :NonequalAI alone" begin
     # The six-step ping-pong with both half-reactions at steady state, at one subunit, its
     # first half-reaction :OnlyA. The inactive conformation then turns nothing over, so
-    # no cycle ties a constant of its own to the active conformation's, and each group
-    # tagged :NonequalAI alone adds one: the stopped half-reaction, which runs in the
-    # inactive conformation with rate constants of its own, and every other group. Six
-    # children.
+    # each group tagged :NonequalAI alone gains: each binding its one constant, the second
+    # half-reaction both of its rate constants, since no cycle of the inactive
+    # conformation ties either, and the stopped half-reaction one, since running in the
+    # inactive conformation it closes the cycle whose Keq ties the other. Six children.
     parent = @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
@@ -8380,7 +8650,7 @@ end
     @test _testhelper_fitted(first_half) == _testhelper_fitted(parent)
 end
 
-@testset "change_allo_state never tags one binding alone" begin
+@testset "change_allo_state tags no binding of an all-:EqualAI ping-pong alone" begin
     # The six-step ping-pong with both half-reactions at steady state, at one subunit,
     # every group :EqualAI. The inactive conformation runs the whole cycle, so it must give
     # the same Keq: one binding tagged :NonequalAI gets K_I = K_A from thermodynamics and
@@ -8574,6 +8844,33 @@ end
     @test length(kids) == 4
     @test Set(kids) == Set([q, p, first_half, second_half])
     @test _testhelper_param_deltas(parent, kids) == [1, 1, 2, 2]
+end
+
+@testset "a ping-pong whose fast second half is :NonequalAI with the first is refused" begin
+    # The six-step ping-pong with the first half-reaction at steady state and the second
+    # at rapid equilibrium, at one subunit, R at an :OnlyA site, both half-reactions
+    # :NonequalAI and every binding :EqualAI. The conformations then run different
+    # chemistry on one rapid-equilibrium segment, and with every substrate zero, or B
+    # zero, the covalent forms hold the enzyme in both, joined only through free E: a
+    # split whose limit depends on the speeds (`_SPLIT`). So the enumerator never returns
+    # it, whichever move builds it.
+    both = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: NonequalAI
+            EB_res_plusA_minusP ⇌ EQ                      :: NonequalAI
+        end
+        regulatory_site(1): R::OnlyA
+    end
+    D = EnzymeRates.Derivation
+    v = D._guard(both)
+    names = D._face_names(both.catalytic, D._faces(both.catalytic)[v.face])
+    @test (v.fault, v.limit, names) == (D._SPLIT, D._LIMIT_SPEED, [:A, :B])
+    @test !EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(both))
 end
 
 @testset "change_allo_state on a parent with every group :NonequalAI" begin
@@ -9341,19 +9638,22 @@ function _testhelper_irreducible_versions(c)
 end
 
 """
-    _testhelper_reached_versions(c, rxn) -> (; reached, no_gain)
+    _testhelper_reached_versions(c, rxn) -> (; reached, no_gain, not_returned)
 
 The mechanisms that the two allosteric moves reach from the plain candidate `c` of `rxn`:
 the children of `_expand_to_allosteric` that the enumerator returns
 (`_enumerator_returns`), then, round by round, the returned children of
 `_expand_change_allo_state` of each mechanism reached. `no_gain` holds each pair
-`parent => child` of a returned child whose fitted count is not above its parent's.
+`parent => child` of a child, returned or not, whose fitted count is not above its
+parent's, and `not_returned` each such pair of a child of `_expand_change_allo_state` that
+the enumerator does not return.
 """
 function _testhelper_reached_versions(c, rxn)
     EN = EnzymeRates.Enumeration
     fitted = Dict{EnzymeRates.Mechanism, Int}()
     fitted_of(m) = get!(() -> EnzymeRates.Derivation.fitted_parameter_count(m), fitted, m)
     no_gain = Pair{EnzymeRates.Mechanism, EnzymeRates.Mechanism}[]
+    not_returned = Pair{EnzymeRates.Mechanism, EnzymeRates.Mechanism}[]
     reached = Set{EnzymeRates.Mechanism}()
     level = [c]
     while !isempty(level)
@@ -9361,9 +9661,13 @@ function _testhelper_reached_versions(c, rxn)
         for p in level
             children = p === c ? EN._expand_to_allosteric(c, rxn) :
                                  EN._expand_change_allo_state(p)
-            for k in filter(EN._enumerator_returns, children)
+            for k in children
                 fitted_of(k.mechanism) > fitted_of(p.mechanism) ||
                     push!(no_gain, p.mechanism => k.mechanism)
+                if !EN._enumerator_returns(k)
+                    p === c || push!(not_returned, p.mechanism => k.mechanism)
+                    continue
+                end
                 k.mechanism in reached && continue
                 push!(reached, k.mechanism)
                 push!(next, k)
@@ -9371,7 +9675,7 @@ function _testhelper_reached_versions(c, rxn)
         end
         level = next
     end
-    (; reached, no_gain)
+    (; reached, no_gain, not_returned)
 end
 
 @testset "to_allosteric and change_allo_state reach every irreducible version" begin
@@ -9380,7 +9684,8 @@ end
     # subunit with no regulator, every version is tried: each irreducible one, which the
     # enumerator would return and each of whose :NonequalAI groups adds a fitted constant,
     # is reached by `_expand_to_allosteric` and then `_expand_change_allo_state`; every
-    # returned child of the two moves has more fitted constants than its parent; and
+    # child of the two moves, returned or not, has more fitted constants than its parent,
+    # and the enumerator returns every child of `_expand_change_allo_state`; and
     # `_enumerator_keeps` reads the :OnlyA and :OnlyI groups alone, which the argument that
     # the moves reach every irreducible version assumes. The samples: every 7th of the 278
     # base-tier mechanisms of the bi-bi reaction (40), every 150th of the 1,548 that bind
@@ -9404,11 +9709,12 @@ end
         competitive_inhibitors: I, A
     end
     at_most_seven_groups(c) = length(EN._kinetic_groups(c.mechanism.catalytic)) <= 7
-    samples = [
-        (plain_rxn, EN.candidate_mechanisms(plain_rxn)[1:7:end]),
-        (inhibitor_rxn, EN.candidate_mechanisms(inhibitor_rxn)[1:150:end]),
-        (copy_rxn,
-         filter(at_most_seven_groups, EN.candidate_mechanisms(copy_rxn))[1:3200:end])]
+    populations = [
+        (plain_rxn, EN.candidate_mechanisms(plain_rxn), 7),
+        (inhibitor_rxn, EN.candidate_mechanisms(inhibitor_rxn), 150),
+        (copy_rxn, filter(at_most_seven_groups, EN.candidate_mechanisms(copy_rxn)), 3200)]
+    @test [length(population) for (_, population, _) in populations] == [278, 1548, 15852]
+    samples = [(rxn, population[1:step:end]) for (rxn, population, step) in populations]
     @test [length(parents) for (_, parents) in samples] == [40, 11, 5]
     for (rxn, parents) in samples, c in parents
         versions = _testhelper_irreducible_versions(c)
@@ -9416,6 +9722,7 @@ end
         @test !isempty(versions.irreducible)
         @test isempty(setdiff(versions.irreducible, reach.reached))
         @test isempty(reach.no_gain)
+        @test isempty(reach.not_returned)
         @test isempty(versions.keeps_reads_nonequal)
     end
 end
@@ -9427,8 +9734,8 @@ end
     # of their own (5), and the children of `_expand_merge_regulatory_sites` that put the
     # two at one site and that the enumerator returns. Every child of
     # `_expand_change_allo_state`, a kinetic group's or a ligand's, has more fitted
-    # constants than its parent. On this sample every ligand tagged :NonequalAI adds one,
-    # so the check drops no ligand's child.
+    # constants than its parent. On this sample every ligand not yet :NonequalAI gives a
+    # child, which adds one constant, so the check drops no ligand's child.
     EN = EnzymeRates.Enumeration
     fitted(c) = EnzymeRates.Derivation.fitted_parameter_count(c.mechanism)
     rxn = @enzyme_reaction begin
@@ -9436,16 +9743,29 @@ end
         products: P[C], Q[NX]
         allosteric_regulators: R, S
     end
-    separate = EN.candidate_mechanisms(rxn)[1:4000:end]
+    starting = EN.candidate_mechanisms(rxn)
+    @test length(starting) == 19456
+    separate = starting[1:4000:end]
     shared = filter(EN._enumerator_returns,
                     [k for p in separate for k in EN._expand_merge_regulatory_sites(p)])
     @test length(separate) == 5
     @test all(p -> length(p.mechanism.allosteric.regulatory_sites) == 2, separate)
     @test !isempty(shared)
     @test all(p -> length(p.mechanism.allosteric.regulatory_sites) == 1, shared)
-    no_gain = [p => k for p in [separate; shared] for k in EN._expand_change_allo_state(p)
+    parents = [separate; shared]
+    children = [EN._expand_change_allo_state(p) for p in parents]
+    no_gain = [p => k for (p, ks) in zip(parents, children) for k in ks
                if fitted(k) <= fitted(p)]
     @test isempty(no_gain)
+    # A ligand's child keeps its parent's kinetic states; a kinetic group's changes them.
+    ligand_children = [p => k for (p, ks) in zip(parents, children) for k in ks
+                       if k.mechanism.allosteric.allosteric_states ==
+                          p.mechanism.allosteric.allosteric_states]
+    untagged = sum(count(!=(:NonequalAI), site.allosteric_states)
+                   for p in parents for site in p.mechanism.allosteric.regulatory_sites)
+    @test !isempty(ligand_children)
+    @test length(ligand_children) == untagged
+    @test all(((p, k),) -> fitted(k) == fitted(p) + 1, ligand_children)
 end
 
 # ─── _site_active_states ─────────────────────────────────────────────────
@@ -12658,14 +12978,14 @@ end
     @test _testhelper_phantom_map_holds(both_only_a; rng = Random.MersenneTwister(1))
 end
 
-@testset "_expand_change_allo_state on a merged uni-uni K-type" begin
+@testset "_expand_change_allo_state on a merged uni-uni with both groups :OnlyA" begin
     # The fused step E + S → EP is the chemistry group. Relaxing P to :NonequalAI
     # keeps the chemistry :OnlyA: the inactive conformation binds P with a constant of
     # its own and runs no chemistry, a valid child. The chemistry tagged :NonequalAI
     # alone is refused: restored, it would join E to EP in the inactive conformation
     # beside the :OnlyA P binding, which then cannot be switched off
     # (`_FAST_STEP_PINNED`). P's set gains, so the search builds no larger one. One child.
-    k_type = @enzyme_mechanism begin
+    both_only_a = @enzyme_mechanism begin
         substrates: S
         products: P
         oligomeric_state: 1
@@ -12683,7 +13003,7 @@ end
             E + P ⇌ EP       :: NonequalAI
         end
     end
-    kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, k_type)
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, both_only_a)
     @test length(kids) == 1
     @test Set(kids) == Set([p_relaxed])
     # The child's rate is k·(S − P/Keq)/(1 + L + P·(1/Kp_A + L/Kp_I)): dividing by
@@ -14851,7 +15171,7 @@ end
     @test a_flip ∉ children
 end
 
-@testset "no move tags a catalytic group :OnlyI" begin
+@testset "a seed that binds no inhibitor has no :OnlyI group a round later" begin
     # Aggregate check over the whole uni-uni seed set with an allosteric regulator and a
     # competitive inhibitor, and its first expansion round: no seed or child tags a
     # kinetic group :OnlyI, since a move gives the tag to a competitive inhibitor's group
@@ -15025,10 +15345,10 @@ end
     # bindings are the flanks of the steady-state EA_res_plusB_plusD_minusQ <--> EP and
     # never flip (`_chain_flank_groups`). The flips of B's group and the first chemistry
     # step pass alone: three children. One keeps the seed's degeneracy; the base tier
-    # keeps the other two. The
-    # extension rests on Q's flip being refused: under the guard's first built reading the
-    # ε-path oracle too finds no limit at zero P and Q. A guard that admitted Q's flip
-    # would emit it alone and leave D's flip with no failed partner to extend with.
+    # keeps the other two. The extension rests on Q's flip being refused: under the
+    # guard's first built reading the ε-path oracle too finds no limit at zero P and Q. A
+    # guard that admitted Q's flip would emit it alone and leave D's flip with no failed
+    # partner to extend with.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N], D[X]
         products: P[CN], Q[X]

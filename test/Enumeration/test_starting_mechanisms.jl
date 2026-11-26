@@ -1907,17 +1907,15 @@ end
 
     @testset "undesignated: skeletons × 2²" begin
         @test !isempty(seeds_xy)
-        # Every seed is a fully-regulated, cheap-state allosteric mechanism with X
-        # and Y each at their own single-ligand site.
+        # Every seed is a fully-regulated allosteric mechanism with X and Y each at their
+        # own single-ligand site, neither tagged :NonequalAI.
         for s in seeds_xy
             @test _testhelper_is_allosteric(s)
             @test EnzymeRates.Enumeration._bound_allo_regs(s) == Set([:X, :Y])
             sites = s.allosteric.regulatory_sites
             @test length(sites) == 2
             @test all(length(si.ligands) == 1 for si in sites)
-            @test :NonequalAI ∉ [
-                s.allosteric.allosteric_states;
-                [st for si in sites for st in si.allosteric_states]]
+            @test :NonequalAI ∉ [st for si in sites for st in si.allosteric_states]
         end
         # Each lineage contributes exactly 2² = 4 state assignments.
         skels = Dict{UInt64, Int}()
@@ -2296,10 +2294,12 @@ end
 end
 
 @testset "a declared activator is never :OnlyI in a starting mechanism" begin
-    # The tagging move gives each version whose :OnlyA groups hold chemistry alone each
-    # allosteric regulator at a new site, tagged :OnlyA and :OnlyI. An activator binds the
-    # active conformation, so no starting mechanism holds R :OnlyI when R is declared one;
-    # with R declared neither way some starting mechanism does.
+    # With R required, every starting mechanism of the uni-uni reaction binds R at a site
+    # of its own: the tagging move gives its child whose one :OnlyA group is the chemistry
+    # R tagged :OnlyA and :OnlyI, and the regulator move gives R to the tagging move's
+    # other children. An activator binds the active conformation, so no starting mechanism
+    # holds R :OnlyI when R is declared one; with R declared neither way some starting
+    # mechanism does.
     function _testhelper_states_of_R(rxn)
         starting = _testhelper_mechanisms(EnzymeRates.Enumeration.candidate_mechanisms(rxn))
         [only(state for site in m.allosteric.regulatory_sites

@@ -1946,8 +1946,8 @@ end
     # Census #3268, the RE→SS flip of B's binding in the K-type of an ordered
     # bi-bi, is an L phantom whose law at L = 0 no mechanism of the batch or the memo
     # holds (the flip move never emits it, for a plain parent or an allosteric one:
-    # `_chain_flank_groups` keeps B's group at rapid equilibrium). It is fitted as an ordinary candidate under its own key,
-    # unflagged, its L fitted.
+    # `_chain_flank_groups` keeps B's group at rapid equilibrium). It is fitted as an
+    # ordinary candidate under its own key, unflagged, its L fitted.
     m3268 = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
