@@ -2584,8 +2584,10 @@ end
 end
 
 @testset "Mechanism — Two regulators chain: J added after I preserves I" begin
-    # After step A (add I) and step B (add J), J-binding steps must exist
-    # and I-binding steps must remain.
+    # The uni-uni mechanism with I and J declared competitive inhibitors. S and P are
+    # free only at E, so each inhibitor has the one placement E: step A gives I at E and J
+    # at E. Step B adds J to the child that binds I; I is free only at E too, so J at E,
+    # beside I's binding, is the one child whether J competes with I or not.
     m = @enzyme_mechanism begin
         substrates: S
         products: P
@@ -2601,17 +2603,46 @@ end
         products: P[C]
         competitive_inhibitors: I, J
     end
+    with_i = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I
+        steps: begin
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
+            E + I ⇌ EI
+        end
+    end
+    with_j = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: J
+        steps: begin
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
+            E + J ⇌ EJ
+        end
+    end
+    with_i_j = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I, J
+        steps: begin
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
+            E + I ⇌ EI
+            E + J ⇌ EJ
+        end
+    end
 
     # Step A: 2 eligible regs (I, J), 1 form each → 2 variants total.
     i_or_j_ms = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m,
                                  rxn)
     @test length(i_or_j_ms) == 2
-    with_i = first(filter(r -> !isempty(_testhelper_groups_binding(r, :I)), i_or_j_ms))
+    @test Set(i_or_j_ms) == Set([with_i, with_j])
 
     # Step B: add J on top of the I-bound variant.
     j_ms = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, with_i,
                             rxn)
-    @test !isempty(j_ms)
+    @test length(j_ms) == 1
+    @test Set(j_ms) == Set([with_i_j])
 
     # Property: each result has ≥1 J-binding step AND ≥1 I-binding
     # step (adding J must not remove I-binding steps).
@@ -2622,10 +2653,14 @@ end
 end
 
 @testset "Mechanism — Two regulators competition: 17 variants" begin
-    # Bi-bi random with two dead-end inhibitors. Step A: add both regs
-    # (9 + 9 = 18 variants). Step B: pick variant with I1 at ≥2 forms
-    # and add I2 on top → 17 variants (one less than 18 after dedup
-    # accounts for I2's active-form set intersection with existing I1).
+    # Bi-bi random with two dead-end inhibitors. An inhibitor competes with a nonempty
+    # set of substrates and one of products and binds where one of them is free and none
+    # is bound: A is free at E and EB, B at E and EA, P at E and EQ, Q at E and EP. Step
+    # A: nine placements for each inhibitor, 18 children. Step B adds I2 to the child
+    # with I1 at E, EB and EQ, whose mirrors bind B and Q at EI1. I2 competes with I1 or
+    # not: 18 patterns. Competing with A and P it has the placement E, EB and EQ either
+    # way, since I1 is free only where A or P is, and every other pattern has its own:
+    # 17 children.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2643,26 +2678,460 @@ end
         products: P[C], Q[N]
         competitive_inhibitors: I1, I2
     end
+    i1_at_e_eb_eq = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; modifiers: I1
+        steps: begin
+            (E + A ⇌ EA, EB + A ⇌ EAB)
+            (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+            (E + P ⇌ EP, EQ + P ⇌ EPQ)
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+            EAB <--> EPQ
+            (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+        end
+    end
+    # Each child's comment names what its inhibitor competes with and where it binds.
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    step_a = [
+        # I1 competing with A and P: at E, EB and EQ
+        i1_at_e_eb_eq,
+        # I1 competing with A and Q: at E, EB and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI1 + P ⇌ EI1P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EP + I1 ⇌ EI1P)
+             end
+         end),
+        # I1 competing with A, P and Q: at E and EB
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1)
+             end
+         end),
+        # I1 competing with B and P: at E, EA and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI1 + A ⇌ EAI1)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EA + I1 ⇌ EAI1, EQ + I1 ⇌ EI1Q)
+             end
+         end),
+        # I1 competing with B and Q: at E, EA and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI1 + A ⇌ EAI1)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI1 + P ⇌ EI1P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EA + I1 ⇌ EAI1, EP + I1 ⇌ EI1P)
+             end
+         end),
+        # I1 competing with B, P and Q: at E and EA
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI1 + A ⇌ EAI1)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EA + I1 ⇌ EAI1)
+             end
+         end),
+        # I1 competing with A, B and P: at E and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EQ + I1 ⇌ EI1Q)
+             end
+         end),
+        # I1 competing with A, B and Q: at E and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI1 + P ⇌ EI1P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EP + I1 ⇌ EI1P)
+             end
+         end),
+        # I1 competing with A, B, P and Q: at E
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 E + I1 ⇌ EI1
+             end
+         end),
+        # I2 competing with A and P: at E, EB and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2, EQ + I2 ⇌ EI2Q)
+             end
+         end),
+        # I2 competing with A and Q: at E, EB and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2, EP + I2 ⇌ EI2P)
+             end
+         end),
+        # I2 competing with A, P and Q: at E and EB
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2)
+             end
+         end),
+        # I2 competing with B and P: at E, EA and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EQ + I2 ⇌ EI2Q)
+             end
+         end),
+        # I2 competing with B and Q: at E, EA and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EP + I2 ⇌ EI2P)
+             end
+         end),
+        # I2 competing with B, P and Q: at E and EA
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2)
+             end
+         end),
+        # I2 competing with A, B and P: at E and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EQ + I2 ⇌ EI2Q)
+             end
+         end),
+        # I2 competing with A, B and Q: at E and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 (E + I2 ⇌ EI2, EP + I2 ⇌ EI2P)
+             end
+         end),
+        # I2 competing with A, B, P and Q: at E
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ)
+                 EAB <--> EPQ
+                 E + I2 ⇌ EI2
+             end
+         end)]
+    step_b = [
+        # competing with A and P (with I1 or not): at E, EB and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2, EQ + I2 ⇌ EI2Q)
+             end
+         end),
+        # competing with A and Q: at E, EB, EP and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2, EP + I2 ⇌ EI2P, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with A, Q and I1: at E, EB and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2, EP + I2 ⇌ EI2P)
+             end
+         end),
+        # competing with A, P and Q: at E, EB and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with A, P, Q and I1: at E and EB
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1, EI2 + B ⇌ EBI2)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EB + I2 ⇌ EBI2)
+             end
+         end),
+        # competing with B and P: at E, EA, EQ and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EQ + I2 ⇌ EI2Q, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with B, P and I1: at E, EA and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EQ + I2 ⇌ EI2Q)
+             end
+         end),
+        # competing with B and Q: at E, EA, EP and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EP + I2 ⇌ EI2P, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with B, Q and I1: at E, EA and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EP + I2 ⇌ EI2P)
+             end
+         end),
+        # competing with B, P and Q: at E, EA and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with B, P, Q and I1: at E and EA
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB, EI2 + A ⇌ EAI2)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EA + I2 ⇌ EAI2)
+             end
+         end),
+        # competing with A, B and P: at E, EQ and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EQ + I2 ⇌ EI2Q, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with A, B, P and I1: at E and EQ
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q, EI2 + Q ⇌ EI2Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EQ + I2 ⇌ EI2Q)
+             end
+         end),
+        # competing with A, B and Q: at E, EP and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EP + I2 ⇌ EI2P, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with A, B, Q and I1: at E and EP
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ, EI2 + P ⇌ EI2P)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 (E + I2 ⇌ EI2, EP + I2 ⇌ EI2P)
+             end
+         end),
+        # competing with A, B, P and Q: at E and EI1
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q, EI2 + I1 ⇌ EI1I2)
+                 (E + I2 ⇌ EI2, EI1 + I2 ⇌ EI1I2)
+             end
+         end),
+        # competing with A, B, P, Q and I1: at E
+        (@enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I1, I2
+             steps: begin
+                 (E + A ⇌ EA, EB + A ⇌ EAB)
+                 (E + B ⇌ EB, EA + B ⇌ EAB, EI1 + B ⇌ EBI1)
+                 (E + P ⇌ EP, EQ + P ⇌ EPQ)
+                 (E + Q ⇌ EQ, EP + Q ⇌ EPQ, EI1 + Q ⇌ EI1Q)
+                 EAB <--> EPQ
+                 (E + I1 ⇌ EI1, EB + I1 ⇌ EBI1, EQ + I1 ⇌ EI1Q)
+                 E + I2 ⇌ EI2
+             end
+         end)]
 
     # Step A
     result1 = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m,
                                rxn)
     @test length(result1) == 18
-
-    # Pick variant where I1 binds at multiple forms.
-    multi = filter(result1) do r
-        i1_forms = Set(e.to for e in r.catalytic.steps
-                       if EnzymeRates.Enumeration._is_binding(e) &&
-                          r.catalytic.metabolites[only(e.taken_up)] === :I1)
-        length(i1_forms) >= 2
-    end
-    @test !isempty(multi)
-    m_i1 = first(multi)
+    @test Set(result1) == Set(step_a)
 
     # Step B
-    result2 = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m_i1,
-                               rxn)
+    result2 = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
+                               i1_at_e_eb_eq, rxn)
     @test length(result2) == 17
+    @test Set(result2) == Set(step_b)
 
     # Property: ≥1 variant has I1 + I2 coexisting on the same enzyme
     # form (non-competing); ≥1 variant has I2 forms that never
@@ -14197,7 +14666,9 @@ end
     # the segment {EP, EPQ, EQ} without a bottom form. The macro rejects such a
     # mechanism; the constructor, which checks the representation only, builds it from
     # the walker's raw value. Its dead-end children keep the segment, the first of them
-    # with the copy's complex EIQ in it, and `candidate_mechanisms` drops them.
+    # with the copy's complex EIQ in it, and `candidate_mechanisms` drops them. I competes
+    # with S, free at E, and with P, free at E and EQ, or Q, free at E and EP, or both,
+    # which leaves E alone: three placements.
     rxn = @enzyme_reaction begin
         substrates: S[C2]
         products: P[C], Q[C]
@@ -14215,8 +14686,51 @@ end
             EQ <--> E + Q
         end
     end)))
-    @test !isempty(_testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
-                                    parent, rxn))
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    dead_end_children = [
+        # I at E and EQ
+        (@_testhelper_unguarded @enzyme_mechanism begin
+            substrates: S ; products: P, Q ; modifiers: I
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EPQ
+                EPQ ⇌ EQ + P
+                EPQ ⇌ EP + Q
+                EP <--> E + P
+                (EQ <--> E + Q, EIQ <--> EI + Q)
+                (E + I ⇌ EI, EQ + I ⇌ EIQ)
+            end
+        end),
+        # I at E and EP
+        (@_testhelper_unguarded @enzyme_mechanism begin
+            substrates: S ; products: P, Q ; modifiers: I
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EPQ
+                EPQ ⇌ EQ + P
+                EPQ ⇌ EP + Q
+                (EP <--> E + P, EIP <--> EI + P)
+                EQ <--> E + Q
+                (E + I ⇌ EI, EP + I ⇌ EIP)
+            end
+        end),
+        # I at E
+        (@_testhelper_unguarded @enzyme_mechanism begin
+            substrates: S ; products: P, Q ; modifiers: I
+            steps: begin
+                E + S ⇌ ES
+                ES <--> EPQ
+                EPQ ⇌ EQ + P
+                EPQ ⇌ EP + Q
+                EP <--> E + P
+                EQ <--> E + Q
+                E + I ⇌ EI
+            end
+        end)]
+    dead_end = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
+                                parent, rxn)
+    @test length(dead_end) == 3
+    @test Set(dead_end) == Set(dead_end_children)
     # The exit keeps the two flips that cut the segment, one product release steady state.
     expected = [
         (@enzyme_mechanism begin
