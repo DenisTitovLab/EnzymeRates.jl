@@ -289,6 +289,26 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   pins such a refusal, but no testset shows a larger set emitted after one. The
   reachability testset ("to_allosteric and change_allo_state reach every irreducible
   version", same file) would show a version either search hides on its samples.
+- **An allosteric mechanism is reached only through a plain mechanism the search expands.**
+  `identify_rate_equation` fits the plain starting mechanisms first and expands the best of
+  them, and a mechanism becomes allosteric only as a child of an expanded plain one
+  (`_expand_to_allosteric`), unless the reaction requires an allosteric regulator. Data
+  from an allosteric enzyme fit no plain mechanism well, so the plain mechanisms with the
+  fewest constants win, and the true mechanism's plain parent can stay unexpanded.
+  Measured once, on the bi-bi reaction `A[CX] + B[N] → P[C] + Q[NX]` at two subunits: 84
+  noiseless rates generated from the six-step ping-pong with both half-reactions at steady
+  state and the bindings of A and B `:NonequalAI` (9 fitted constants, of which the data
+  determine 8), searched with `min_beam_width = 10` and `max_param_count = 9`. Of the 278
+  starting mechanisms the search expanded 10, all with 5 fitted constants (losses 0.030 to
+  0.045). None of the 64 with 6 constants or the 25 with 7 was expanded: their best loss
+  is 0.033. The generator's plain parent has 7 constants and a loss of 0.042, ninth of
+  those 25, so the generator was never built. The search still selected a mechanism that
+  fits the data to a loss of 3.7e-13: an 8-constant ping-pong in which each of A's and
+  B's bindings is one step with its chemistry, those two steps `:NonequalAI`. So this run
+  recovered the rate equation and which steps differ between the conformations, and not
+  the mechanism. Whether a rate equation can be missed this way is not known. A second
+  run, with all chemistry `:OnlyA` and a required regulator, selected its generator, which
+  is a starting mechanism there.
 - **A batch's progress-log header can print twice.**
   When an L phantom's source's fit throws in the phantom's own batch, `run_batch!`'s log
   closure (`src/identify_rate_equation.jl`) prints the batch header again above the demotion
