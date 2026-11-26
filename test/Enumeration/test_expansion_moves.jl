@@ -4853,7 +4853,7 @@ end
     @test length(result) == length(expected) == 31 + 2
     @test Set(result) == Set(expected)
     for (refused, step) in ((a_b_only_a, "EA + B ⇌ EAB"), (q_p_only_a, "EQ + P ⇌ EPQ"))
-        @test refused in only_a
+        @test refused in result
         v = EnzymeRates.Derivation._guard(refused)
         @test (v.fault, EnzymeRates.Mechanisms.step_text(m.catalytic, v.edge)) ==
               (EnzymeRates.Derivation._BRIDGE, step)
