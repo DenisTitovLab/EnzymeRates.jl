@@ -805,21 +805,23 @@ each with `m`'s catalytic scheme and a state for each kinetic group. For each ol
 state of `rxn`'s `allowed_oligomeric_states` in turn, the move emits:
 
   * each nonempty set of kinetic groups tagged `:OnlyA`, every other group `:EqualAI`, with
-    no regulatory site, the sets in `_subsets` order. The move does not test them;
-    `candidate_mechanisms` drops those the enumerator does not return
-    (`_enumerator_returns`);
-  * then each of those sets that holds chemistry groups alone (`_chemistry_groups`), once
-    with each allosteric regulator of `rxn` at a new site of the oligomeric state's
-    multiplicity, tagged `:OnlyA` and then `:OnlyI`. Such a version shows nothing in a
-    substrate or product titration that `m` lacks, so without a regulator it could leave
-    the search before `_expand_add_allosteric_regulator` reaches it;
+    no regulatory site, the sets in `_subsets` order of the groups' numbers in `m`'s
+    catalytic scheme. The move does not test them; `candidate_mechanisms` drops those the
+    enumerator does not return (`_enumerator_returns`);
+  * then, in the same order, each of those sets that holds chemistry groups alone
+    (`_chemistry_groups`), once with each allosteric regulator of `rxn`, by name (the
+    order `rxn` holds them in), at a new site of the oligomeric state's multiplicity,
+    tagged `:OnlyA` and then `:OnlyI`. Such a version shows nothing in a substrate or
+    product titration that `m` lacks, so without a regulator it could leave the search
+    before `_expand_add_allosteric_regulator` reaches it;
   * then each minimal set of kinetic groups that gains (`_minimal_gaining_sets`), tagged
     `:NonequalAI` with every other group `:EqualAI` and no regulatory site, when the same
-    set tagged `:OnlyA` is not returned. A set gains when that child has more fitted
-    constants (`Derivation.fitted_parameter_count`) than `m` and `L` together and is
-    returned; a set that does not is extended by any other group. Where the set tagged
-    `:OnlyA` is returned, `_expand_change_allo_state` reaches its `:NonequalAI` version
-    from that child.
+    set tagged `:OnlyA` is not returned, the sets by size and then in lexicographic order.
+    A set gains when that child has more fitted constants
+    (`Derivation.fitted_parameter_count`) than `m` and `L` together and is returned; a set
+    that does not is extended by any other group. Where the set tagged `:OnlyA` is
+    returned, `_expand_change_allo_state` reaches its `:NonequalAI` version from that
+    child.
 
 No child is all `:EqualAI`: its two conformations would be identical and `L` would cancel.
 Over one subunit `L` can be a phantom, which a rescaling of the other constants absorbs (the

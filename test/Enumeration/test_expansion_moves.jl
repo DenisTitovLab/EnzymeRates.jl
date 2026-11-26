@@ -5834,31 +5834,134 @@ end
 end
 end
 
-@testset "candidate_mechanisms is deterministic" begin
-    # Two calls on one plain parent return the same children in the same order: the
-    # searches for minimal sets keep their accepted children in dictionaries, and the
-    # order of the children must come from the sets, never from hashing.
-    rxn = @enzyme_reaction begin
-        substrates: A[C], B[N]
-        products: P[C], Q[N]
-        allosteric_regulators: R
-        oligomeric_state: (1, 2)
-    end
+@testset "to_allosteric emits its children in the order its docstring states" begin
+    # A uni-uni with both bindings at steady state, at two subunits with R declared, so
+    # that every kind of child appears. The groups are numbered P's binding 1, S's 2, the
+    # chemistry 3. The move emits the nonempty sets of groups :OnlyA in `_subsets` order
+    # of those numbers, then the chemistry alone with R :OnlyA and then :OnlyI, then the
+    # minimal gaining sets that are refused tagged :OnlyA, tagged :NonequalAI by size and
+    # then lexicographically: P's binding, then S's. Each steady-state binding alone gains
+    # its rate constant in the inactive conformation and is refused tagged :OnlyA. A move
+    # that emitted its children in hash order would break the vector.
     m = @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
+        substrates: S
+        products: P
         steps: begin
-            E + A ⇌ EA
-            EA + B ⇌ EAB
-            E + Q ⇌ EQ
-            EQ + P ⇌ EPQ
-            EAB <--> EPQ
+            E + P <--> EP
+            E + S <--> ES
+            ES <--> EP
         end
     end
-    first_call = EnzymeRates.Enumeration.candidate_mechanisms(rxn, _testhelper_candidate(m))
-    @test !isempty(first_call)
-    @test EnzymeRates.Enumeration.candidate_mechanisms(rxn, _testhelper_candidate(m)) ==
-          first_call
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + P <--> EP", "E + S <--> ES", "ES <--> EP"]
+    # Each child's comment names its :OnlyA groups, or its :NonequalAI one.
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    expected = [
+        # P
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: OnlyA
+                 E + S <--> ES :: EqualAI
+                 ES <--> EP    :: EqualAI
+             end
+         end),
+        # S
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: EqualAI
+                 E + S <--> ES :: OnlyA
+                 ES <--> EP    :: EqualAI
+             end
+         end),
+        # P, S
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: OnlyA
+                 E + S <--> ES :: OnlyA
+                 ES <--> EP    :: EqualAI
+             end
+         end),
+        # the chemistry
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: EqualAI
+                 E + S <--> ES :: EqualAI
+                 ES <--> EP    :: OnlyA
+             end
+         end),
+        # P, the chemistry
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: OnlyA
+                 E + S <--> ES :: EqualAI
+                 ES <--> EP    :: OnlyA
+             end
+         end),
+        # S, the chemistry
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: EqualAI
+                 E + S <--> ES :: OnlyA
+                 ES <--> EP    :: OnlyA
+             end
+         end),
+        # P, S, the chemistry
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: OnlyA
+                 E + S <--> ES :: OnlyA
+                 ES <--> EP    :: OnlyA
+             end
+         end),
+        # the chemistry, R::OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: EqualAI
+                 E + S <--> ES :: EqualAI
+                 ES <--> EP    :: OnlyA
+             end
+             regulatory_site(2): R::OnlyA
+         end),
+        # the chemistry, R::OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: EqualAI
+                 E + S <--> ES :: EqualAI
+                 ES <--> EP    :: OnlyA
+             end
+             regulatory_site(2): R::OnlyI
+         end),
+        # P :NonequalAI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: NonequalAI
+                 E + S <--> ES :: EqualAI
+                 ES <--> EP    :: EqualAI
+             end
+         end),
+        # S :NonequalAI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 2
+             steps: begin
+                 E + P <--> EP :: EqualAI
+                 E + S <--> ES :: NonequalAI
+                 ES <--> EP    :: EqualAI
+             end
+         end)]
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m,
+                            uni_uni_allo_reg)
+    @test kids == expected
 end
 
 # ─── _expand_add_allosteric_regulator ──────────────────────────────────
