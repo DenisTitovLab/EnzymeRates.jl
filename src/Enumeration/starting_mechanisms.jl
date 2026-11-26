@@ -543,8 +543,9 @@ competitive inhibitors alone keep the seeds plain, with no `L`. A seed node
 
 1. tags no regulatory ligand `:NonequalAI` (the beam reaches those later through
    `_expand_change_allo_state`). A kinetic group can be `:NonequalAI`: the tagging move
-   tags groups so only where the same groups tagged `:OnlyA` are not returned, and this
-   search never runs `_expand_change_allo_state`, the only other route to them;
+   tags a set of groups `:NonequalAI` only where the same set tagged `:OnlyA` is not
+   returned, and this search never runs `_expand_change_allo_state`, the only other route
+   to such a version;
 2. binds one ligand per regulatory site, which bounds the search: a child that adds a
    regulator to an existing site fails, and the search drops it before expanding it;
 3. binds no optional regulator: every bound allosteric ligand is in `required_allo` and

@@ -1137,8 +1137,9 @@ end
     @test twin(fused_re.catalytic.steps[only(members[copy_g])].from, :A) ==
           fused_re.catalytic.steps[fused_k].to
     C(g) = ER.Enumeration._GaugeClass(g, 0, 1)
+    one_state(h, t) = ER.Enumeration._GaugeClass(h, t, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(fused_re), members, copy_g,
-                                          twin, ER.Enumeration._one_state_class) ==
+                                          twin, one_state) ==
           Dict(copy_g => (ER.Enumeration._NO_RESCALING, C(copy_g)),
                fused_g => (ER.Enumeration._NO_RESCALING, C(fused_g)),
                p_g => (ER.Enumeration._NO_RESCALING, C(fused_g)))
@@ -1284,7 +1285,8 @@ end
     @test [twin(m.catalytic.steps[k].from, :A) for k in members[copy_g]] == [2, 2]
     @test ER.Enumeration._GaugeClass(2, 0, 1) != ER.Enumeration._GaugeClass(0, 2, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(m), members, copy_g, twin,
-                                          ER.Enumeration._one_state_class) === nothing
+                                          (h, t) -> ER.Enumeration._GaugeClass(h, t, 1)) ===
+          nothing
     @test ER.Enumeration._gauge_rescaling(
         _testhelper_candidate(m), members, copy_g, twin,
         (h, t) -> ER.Enumeration._GaugeClass(h + t, 0, 1)) !== nothing

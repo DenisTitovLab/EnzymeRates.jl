@@ -117,8 +117,8 @@ function _groups_with(pred, m::Mechanisms.CatalyticScheme)
 end
 
 """Whether each kinetic group of the catalytic graph of candidate `c` holds a chemistry
-step: anything but a plain binding (`_is_plain_binding`). The allosteric moves tag a
-chemistry group apart from a binding group."""
+step: anything but a plain binding (`_is_plain_binding`). The tagging move gives a declared
+regulator to a version whose `:OnlyA` groups hold chemistry alone."""
 _chemistry_groups(c::CandidateMechanism) =
     _groups_with(k -> !_is_plain_binding(c, k), c.mechanism.catalytic)
 
@@ -845,7 +845,7 @@ function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReac
     isempty(cns) && return CandidateMechanism[]
     chem = _chemistry_groups(c)
     groups = collect(eachindex(chem))
-    tagged(set, state) = (tags = fill(:EqualAI, length(chem)); tags[set] .= state; tags)
+    nonequal_at(set) = (tags = fill(:EqualAI, length(chem)); tags[set] .= :NonequalAI; tags)
     # The assignments to the groups so far, the first group's state changing fastest.
     assignments = [Symbol[]]
     for ks in _kinetic_groups(c.mechanism.catalytic)
@@ -875,7 +875,7 @@ function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReac
         # give the same Keq, so one rapid-equilibrium binding tagged alone gets the active
         # conformation's constant back and gains nothing, while two gain one.
         nonequal = _minimal_gaining_children(
-            set -> _candidate(c, tagged(set, :NonequalAI), cn, no_site),
+            set -> _candidate(c, nonequal_at(set), cn, no_site),
             child -> Derivation.fitted_parameter_count(child.mechanism) >
                      parent_count + 1 && returned(child),
             _ -> groups)

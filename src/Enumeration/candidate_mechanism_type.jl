@@ -205,7 +205,7 @@ some binding enters (a step that takes up one metabolite and gives off none) is 
 binding the conformation does not exclude: one outside the `:OnlyI` groups in the active
 conformation, outside the `:OnlyA` groups in the inactive one. True for a plain mechanism.
 The guard admits a mechanism that fails this when its law is the limit, so a user may write
-one; the enumerator does not build it.
+one; the enumerator does not return it.
 """
 function _kept_forms_keep_a_binding(am::Mechanisms.Mechanism)
     # A plain mechanism excludes no binding.
@@ -352,10 +352,6 @@ end
 """The class of the factor 1, which every form outside a copy's complexes and twins
 takes."""
 const _NO_RESCALING = _GaugeClass(0, 0, 0)
-
-"""The gauge class of group `h` or form `t` (`_GaugeClass`) in a mechanism with one
-conformational state."""
-_one_state_class(h::Int, t::Int) = _GaugeClass(h, t, 1)
 
 """
     _productive_twin(c, mask) -> (site, ligand) -> Int
@@ -536,8 +532,9 @@ function _redundant_copy_groups(c::CandidateMechanism)
     # A plain mechanism has one state; an allosteric one has two, which form one system.
     if !_is_allosteric(am)
         twin = _productive_twin(c, trues(length(cm.steps)))
+        one_state = (h, t) -> _GaugeClass(h, t, 1)
         return [g for g in eachindex(members)
-                if _gauge_rescaling(c, members, g, twin, _one_state_class) !== nothing]
+                if _gauge_rescaling(c, members, g, twin, one_state) !== nothing]
     end
     equal(h) = am.allosteric.allosteric_states[h] === :EqualAI
     runs = Mechanisms.steps_running_in_allosteric_conformations(am)
