@@ -614,6 +614,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   whose curvature MWC cannot fit. Revisit allosteric ping-pong with this work: a flip at a
   second free form is the same question (see the Known issue "An allosteric ping-pong whose
   covalent forms empty only by binding B cannot stop both half-reactions"). Priority: low.
+- **Pin the exact allosteric children that three testsets only count.**
+  Three testsets of `test/Enumeration/test_expansion_moves.jl` count the allosteric
+  mechanisms `candidate_mechanisms` returns for one parent, without the exact set that
+  rule 2 of the enumeration-engine tests in `.claude/CLAUDE.md` asks for: "Mechanism —
+  bi-bi ping-pong at two subunits: every :OnlyA set" (`length(returned) == 14 + 4`, nine of
+  the 14 returned `:OnlyA` children unnamed), "Mechanism — Allosteric expansion included"
+  (`allo_count == 5`) and "a seed that binds no inhibitor has no :OnlyI group a round
+  later" (`length(allo) == 7`). Converting each needs the returned `:OnlyA` sets as state
+  assignments (`_testhelper_with_states`), and each refused set listed with the guard fault
+  or exit that refuses it, checked on its own mechanism; the last testset also needs its
+  two regulator children written out. The first is the larger job: 49 refused sets of 63.
+  Priority: low.
 
 ## Ideas
 

@@ -58,17 +58,6 @@ _testhelper_is_catalytic_group(m, g) =
               (!EnzymeRates.Enumeration._is_binding(e) || _testhelper_is_fused(c, e)),
          m.catalytic.steps))
 
-# The mechanism with the catalytic scheme of the plain mechanism `m`, the allosteric state
-# `states[g]` for its kinetic group `g` (numbered as `_testhelper_group_members` gives
-# them), the oligomeric state `oligomeric_state` and no regulatory site. It calls the
-# `Mechanisms` constructors alone, so a testset can list a move's expected children
-# without the code under test.
-_testhelper_with_states(m, states; oligomeric_state = 1) =
-    EnzymeRates.Mechanism(m.catalytic,
-                          EnzymeRates.Mechanisms.Allostery(
-                              collect(Symbol, states), oligomeric_state,
-                              EnzymeRates.Mechanisms.RegulatorySite[]))
-
 const uni_uni_allo = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
@@ -2637,6 +2626,10 @@ end
                                  rxn)
     @test length(i_or_j_ms) == 2
     @test Set(i_or_j_ms) == Set([with_i, with_j])
+    # Why a testset, here and below, asserts `allunique` of its expected list: equal sets
+    # and lengths show that the move returns no child twice only when the list holds none
+    # twice, and written-out mechanisms hold none twice only by inspection.
+    @test allunique([with_i, with_j])
 
     # Step B: add J on top of the I-bound variant.
     j_ms = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, with_i,
@@ -3124,14 +3117,16 @@ end
     # Step A
     result1 = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator, m,
                                rxn)
-    @test length(result1) == 18
+    @test length(result1) == length(step_a) == 18
     @test Set(result1) == Set(step_a)
+    @test allunique(step_a)
 
     # Step B
     result2 = _testhelper_move(EnzymeRates.Enumeration._expand_add_dead_end_regulator,
                                i1_at_e_eb_eq, rxn)
-    @test length(result2) == 17
+    @test length(result2) == length(step_b) == 17
     @test Set(result2) == Set(step_b)
+    @test allunique(step_b)
 
     # Property: ≥1 variant has I1 + I2 coexisting on the same enzyme
     # form (non-competing); ≥1 variant has I2 forms that never
@@ -4852,6 +4847,7 @@ end
                               bi_bi_allo_rxn)
     @test length(result) == length(expected) == 31 + 2
     @test Set(result) == Set(expected)
+    @test allunique(expected)
     for (refused, step) in ((a_b_only_a, "EA + B ⇌ EAB"), (q_p_only_a, "EQ + P ⇌ EPQ"))
         @test refused in result
         v = EnzymeRates.Derivation._guard(refused)
@@ -5045,6 +5041,7 @@ end
                               bi_bi_pp_allo_rxn)
     @test length(result) == length(expected) == 63 + 4
     @test Set(result) == Set(expected)
+    @test allunique(expected)
     @test issubset([a_half1, p_half1, ap_half1, kept...], result)
     for c in (a_half1, p_half1, ap_half1)
         v = EnzymeRates.Derivation._guard(c)
@@ -5923,6 +5920,7 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(kids) == length(expected) == 63 + 3
     @test Set(kids) == Set(expected)
+    @test allunique(expected)
     returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
     @test !any(returns, [a_b_only_a, q_p_only_a, b_p_only_a])
     @test all(returns, [a_q_only_a, a_p_only_a, q_b_only_a, half1_only_a, half2_only_a])
@@ -6039,6 +6037,7 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(kids) == length(expected) == 63 + 4
     @test Set(kids) == Set(expected)
+    @test allunique(expected)
     @test half1 in kids && both_halves in kids
     D = EnzymeRates.Derivation
     returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
@@ -6159,6 +6158,7 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(kids) == length(expected) == 31 + 2
     @test Set(kids) == Set(expected)
+    @test allunique(expected)
     @test chemistry in kids && b_alone in kids && every in kids
     D = EnzymeRates.Derivation
     v = D._guard(chemistry)
@@ -6304,6 +6304,7 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(kids) == length(expected) == 31 + 3
     @test Set(kids) == Set(expected)
+    @test allunique(expected)
     @test all(in(kids), [q_alone, a_alone, b_alone, d_alone])
     D = EnzymeRates.Derivation
     for (x, step) in (
@@ -7255,6 +7256,7 @@ end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, parent, rxn)
     @test length(children) == length(expected) == 95 + 4
     @test Set(children) == Set(expected)
+    @test allunique(expected)
     @test all(EnzymeRates.Enumeration._hyperbolic_catalysis,
               _testhelper_candidate.(children))
 end
@@ -8081,11 +8083,11 @@ end
     binds_nowhere(s) = s[1] === :OnlyA && s[3] === :OnlyA && s[4] === :OnlyI
     # The copy's complex EAmod has the productive twin EA. The copy is redundant
     # (`_redundant_copy_groups`) where each conformation that binds it runs A's binding,
-    # which forms EA, and does not bind I at both EA and EQ (I's one group, binding at EA
-    # and at EQ, which has no twin, would leave no gauge), and where A's binding and B's,
-    # which leaves EA, the two groups the gauge rescales, are rescaled alike in both
-    # conformations wherever they are :EqualAI. In each assignment I's group is :OnlyI,
-    # so the active conformation binds no I.
+    # which forms EA, and does not bind I at both EA and EQ: I's one group, binding at EA
+    # and at EQ, which has no twin, would leave no gauge. The gauge rescales A's binding
+    # and B's, which leaves EA, and each of them that is :EqualAI must be rescaled alike
+    # in both conformations. In each assignment I's group is :OnlyI, so the active
+    # conformation binds no I.
     redundant_copy = [
         # The copy, A's binding and B's :OnlyA: the copy binds the active conformation
         # alone, and the inactive one runs neither A's binding nor B's.
@@ -8120,6 +8122,7 @@ end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
     @test length(children) == length(expected) == 126
     @test Set(children) == Set(expected)
+    @test allunique(expected)
     @test all(c -> isempty(redundant_groups(_testhelper_candidate(c))), children)
     @test redundant ∉ children
     @test i_equal in children
@@ -14731,6 +14734,7 @@ end
                                 parent, rxn)
     @test length(dead_end) == 3
     @test Set(dead_end) == Set(dead_end_children)
+    @test allunique(dead_end_children)
     # The exit keeps the two flips that cut the segment, one product release steady state.
     expected = [
         (@enzyme_mechanism begin
@@ -15021,6 +15025,10 @@ end
 end
 
 @testset "to_allosteric shares :EqualAI downstream constants across conformations" begin
+    # Aggregate check over the LDH reaction's starting mechanisms (`init_mechanisms`), up
+    # to the first three that lump a bound group, in place of a mechanism written in the
+    # testset.
+    #
     # The inactive conformation drops each `:OnlyA` binding step, and its law holds only
     # the forms its untagged steps join to free E: that ligand's downstream complex holds
     # inactive enzyme only if other untagged steps join it to free E.

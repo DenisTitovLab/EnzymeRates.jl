@@ -207,6 +207,17 @@ _testhelper_group_members(c::EnzymeRates.Mechanisms.CatalyticScheme) =
     [findall(e -> e.kinetic_group == g, c.steps)
      for g in 1:maximum(e -> e.kinetic_group, c.steps; init = 0)]
 
+"""The mechanism with the catalytic scheme of the plain mechanism `m`, the allosteric state
+`states[g]` for its kinetic group `g` (numbered as `_testhelper_group_members` gives them),
+the oligomeric state `oligomeric_state` and no regulatory site. It calls the `Mechanisms`
+constructors alone, so a testset can list a move's expected children without the code
+under test."""
+_testhelper_with_states(m, states; oligomeric_state = 1) =
+    EnzymeRates.Mechanism(m.catalytic,
+                          EnzymeRates.Mechanisms.Allostery(
+                              collect(Symbol, states), oligomeric_state,
+                              EnzymeRates.Mechanisms.RegulatorySite[]))
+
 """The index of the metabolite named `x` among the metabolites of the catalytic scheme
 `c`."""
 _testhelper_metabolite(c::EnzymeRates.Mechanisms.CatalyticScheme, x::Symbol) =
