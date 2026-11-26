@@ -1311,19 +1311,21 @@ let children = [c
                 for m in _testhelper_mechanisms(
                     EnzymeRates.Enumeration.init_mechanisms(_testhelper_inhibitor_rxn))
                 for c in _testhelper_plain_moves(m, _testhelper_inhibitor_rxn)]
-@testset "all but 34 inhibitor children pass the guard; none tags catalysis :OnlyI" begin
-    # Every child the moves give the census bi-bi seeds with inhibitors A and I passes the
-    # guard but 34, which candidate_mechanisms drops, and no allosteric child tags a
-    # catalytic group :OnlyI. Each of the 34 tags :OnlyA a fused rapid-equilibrium binding
-    # into EPQ, EA + B ⇌ EPQ or EB + A ⇌ EPQ, which the inactive conformation's other steps
-    # leave between two groups: at zero A and B it runs one way into a cut-off form that
-    # fills faster than it empties (`_FILLED`). An aggregate regression pin over the
-    # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
+@testset "754 of 8551 inhibitor children fail the guard; none tags catalysis :OnlyI" begin
+    # The moves give the census bi-bi seeds with inhibitors A and I 8551 children. The
+    # guard rejects 754 of them, which candidate_mechanisms drops: the tagging move emits
+    # every set of :OnlyA groups without testing it. The rejected children counted by
+    # their fault are an aggregate regression pin over the declaration's whole seed set
+    # (CLAUDE.md enumeration rule 1's exception), as are the two counts. No allosteric
+    # child tags a catalytic group :OnlyI.
     @test length(children) == 8551
     rejected = filter(!_testhelper_is_valid, children)
     @test length(rejected) == 754
-    @test all(c -> EnzymeRates.Derivation._guard(c).fault ===
-                   EnzymeRates.Derivation._FILLED, rejected)
+    faults = [EnzymeRates.Derivation._guard(c).fault for c in rejected]
+    @test Dict(f => count(==(f), faults) for f in unique(faults)) ==
+          Dict(EnzymeRates.Derivation._FILLED => 152,
+               EnzymeRates.Derivation._BRIDGE => 110,
+               EnzymeRates.Derivation._FAST_STEP_PINNED => 492)
     allo = [c for c in children if _testhelper_is_allosteric(c)]
     @test !isempty(allo)
     @test all(c -> :OnlyI ∉ c.allosteric.allosteric_states, allo)
