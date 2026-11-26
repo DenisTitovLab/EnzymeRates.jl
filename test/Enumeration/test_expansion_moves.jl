@@ -5297,7 +5297,8 @@ end
     # site; only the other (free) allosteric regulator is. In uni_uni_reg_and_inhibitor,
     # R1 is the competitive inhibitor and R2 the free allosteric regulator; the seed binds
     # R1 at free E. Four groups: the 15 nonempty sets :OnlyA, R1's binding among them,
-    # then the chemistry alone with R2 at a site.
+    # then R1's group :OnlyI with each of the 8 sets of the other three groups :OnlyA,
+    # the empty set among them, then the chemistry alone with R2 at a site.
     seed_ci = @enzyme_mechanism begin
         substrates: S; products: P
         modifiers: R1
@@ -5466,6 +5467,86 @@ end
                  ES <--> EP   :: OnlyA
              end
          end),
+        # R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: EqualAI
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: EqualAI
+                 ES <--> EP   :: EqualAI
+             end
+         end),
+        # P; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: OnlyA
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: EqualAI
+                 ES <--> EP   :: EqualAI
+             end
+         end),
+        # S; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: EqualAI
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: OnlyA
+                 ES <--> EP   :: EqualAI
+             end
+         end),
+        # P, S; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: OnlyA
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: OnlyA
+                 ES <--> EP   :: EqualAI
+             end
+         end),
+        # the chemistry; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: EqualAI
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: EqualAI
+                 ES <--> EP   :: OnlyA
+             end
+         end),
+        # P, the chemistry; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: OnlyA
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: EqualAI
+                 ES <--> EP   :: OnlyA
+             end
+         end),
+        # S, the chemistry; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: EqualAI
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: OnlyA
+                 ES <--> EP   :: OnlyA
+             end
+         end),
+        # P, S, the chemistry; R1 :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
+             steps: begin
+                 E + P ⇌ EP   :: OnlyA
+                 E + R1 ⇌ ER1 :: OnlyI
+                 E + S ⇌ ES   :: OnlyA
+                 ES <--> EP   :: OnlyA
+             end
+         end),
         # the chemistry, R2::OnlyA
         (@_testhelper_unguarded @enzyme_mechanism begin
              substrates: S ; products: P ; modifiers: R1 ; oligomeric_state: 2
@@ -5488,7 +5569,7 @@ end
              end
              regulatory_site(2): R2::OnlyI
          end)]
-    @test length(kids_ci) == 17
+    @test length(kids_ci) == 25
     @test Set(kids_ci) == Set(expected_ci)
     site_regs = Set(l for am in kids_ci
                     for s in am.allosteric.regulatory_sites
@@ -5775,8 +5856,10 @@ end
         competitive_inhibitors: A
         oligomeric_state: 2
     end
-    # Six groups, the inhibitor's own among them: the 2^6 − 1 = 63 nonempty sets tagged
-    # :OnlyA, all emitted, and four steady-state groups that each gain alone tagged
+    # Six groups, the inhibitor's own among them, which takes :EqualAI, :OnlyA or :OnlyI
+    # while the other five take :EqualAI or :OnlyA: 2^5 · 3 − 1 = 95 assignments, none
+    # dropped, since the copy binds free E, which both conformations hold, and no complex
+    # of it has a productive twin. Four steady-state groups each gain alone tagged
     # :NonequalAI, A's catalytic binding, B's, Q's and P's, whose :OnlyA versions are
     # refused. The reaction declares no allosteric regulator, so no child has a site. The
     # derived denominator carries A², but from the inhibitor site, so the catalytic scheme
@@ -5826,7 +5909,7 @@ end
         end
     end
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, parent, rxn)
-    @test length(children) == 63 + 4
+    @test length(children) == 95 + 4
     @test Set(filter(c -> :NonequalAI in c.allosteric.allosteric_states, children)) ==
           Set([a_nonequal, b_nonequal, q_nonequal, p_nonequal])
     @test all(EnzymeRates.Enumeration._hyperbolic_catalysis,
@@ -5962,6 +6045,685 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m,
                             uni_uni_allo_reg)
     @test kids == expected
+end
+
+@testset "to_allosteric gives an inhibitor's group three states" begin
+    # The uni-uni mechanism with the competitive inhibitor I bound at free E: four groups,
+    # numbered I's binding 1, P's 2, S's 3 and the chemistry 4. At one subunit with no
+    # regulator I's group takes :EqualAI, :OnlyA or :OnlyI and every other group
+    # :EqualAI or :OnlyA: 2^3 · 3 − 1 = 23 children, in counting order with I's group
+    # changing fastest. None is dropped: I binds free E, which both conformations hold,
+    # and its complex EI has no productive twin. Tagged :NonequalAI, three minimal sets
+    # gain a constant beyond L, I's group, the chemistry, and P's binding with S's; each
+    # is returned tagged :OnlyA, so no child is tagged :NonequalAI. The child with only
+    # I's group :OnlyI is returned and fits one constant more than the plain mechanism.
+    rxn = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: I
+    end
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        modifiers: I
+        steps: begin
+            E + I ⇌ EI
+            E + P ⇌ EP
+            E + S ⇌ ES
+            ES <--> EP
+        end
+    end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + I ⇌ EI", "E + P ⇌ EP", "E + S ⇌ ES", "ES <--> EP"]
+    # Each child's comment names its groups that are not :EqualAI.
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    expected = [
+        # I :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # P :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # I, P :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # P :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # S :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # I, S :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # S :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # P, S :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # I, P, S :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # P, S :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+             end
+         end),
+        # the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # I, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # the chemistry :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # P, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # I, P, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # P, the chemistry :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # S, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # I, S, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # S, the chemistry :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: EqualAI
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # P, S, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: EqualAI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # I, P, S, the chemistry :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyA
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+             end
+         end),
+        # P, S, the chemistry :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + I ⇌ EI :: OnlyI
+                 E + P ⇌ EP :: OnlyA
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+             end
+         end)]
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test length(kids) == 23
+    @test Set(kids) == Set(expected)
+    @test kids == expected
+    only_i = expected[2]
+    @test only_i in _testhelper_children(rxn, [m])
+    fitted = EnzymeRates.Derivation.fitted_parameter_count
+    @test fitted(only_i) == fitted(m) + 1
+    # The three minimal gaining sets, each returned tagged :OnlyA.
+    for (only_a, nonequal) in (
+            (expected[1],
+             @_testhelper_unguarded(@enzyme_mechanism begin
+                 substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+                 steps: begin
+                     E + I ⇌ EI :: NonequalAI
+                     E + P ⇌ EP :: EqualAI
+                     E + S ⇌ ES :: EqualAI
+                     ES <--> EP :: EqualAI
+                 end
+             end)),
+            (expected[12],
+             @_testhelper_unguarded(@enzyme_mechanism begin
+                 substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+                 steps: begin
+                     E + I ⇌ EI :: EqualAI
+                     E + P ⇌ EP :: EqualAI
+                     E + S ⇌ ES :: EqualAI
+                     ES <--> EP :: NonequalAI
+                 end
+             end)),
+            (expected[9],
+             @_testhelper_unguarded(@enzyme_mechanism begin
+                 substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+                 steps: begin
+                     E + I ⇌ EI :: EqualAI
+                     E + P ⇌ EP :: NonequalAI
+                     E + S ⇌ ES :: NonequalAI
+                     ES <--> EP :: EqualAI
+                 end
+             end)))
+        @test fitted(nonequal) == fitted(m) + 2
+        @test EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(only_a))
+    end
+end
+
+@testset "to_allosteric drops an :OnlyI inhibitor that binds nowhere" begin
+    # The three-step ping-pong with the competitive inhibitor I bound at the covalent form
+    # E_res_plusA_minusP alone, where B and P are free. Four groups, numbered Q's binding
+    # 1, the first half-reaction 2, I's binding 3 and the second half-reaction 4. The
+    # inactive conformation reaches the covalent form from free E through the first
+    # half-reaction, or through Q's binding and the second half-reaction. So with the
+    # first half-reaction :OnlyA and Q's binding or the second half-reaction :OnlyA, I
+    # :OnlyI binds in neither conformation and adds no constant: the move drops those
+    # three of the 2^3 · 3 − 1 = 23 assignments and keeps the same :OnlyA sets with I
+    # :EqualAI and :OnlyA. Tagged :NonequalAI each group alone gains a constant beyond L
+    # and is returned tagged :OnlyA, so no child is tagged :NonequalAI.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I
+    end
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + Q <--> EQ
+            E + A <--> E_res_plusA_minusP + P
+            E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP
+            E_res_plusA_minusP + B <--> EQ
+        end
+    end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + Q <--> EQ", "E + A <--> E_res_plusA_minusP + P",
+           "E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP",
+           "E_res_plusA_minusP + B <--> EQ"]
+    # Each child's comment names its groups that are not :EqualAI, in the move's order.
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    expected = [
+        # Q :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # the first half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # Q, the first half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # I :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # Q, I :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # the first half-reaction, I :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # Q, the first half-reaction, I :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # Q :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # the first half-reaction :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # Q, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # the first half-reaction, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # Q, the first half-reaction, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: EqualAI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # I, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # Q, I, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # the first half-reaction, I, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # Q, the first half-reaction, I, the second half-reaction :OnlyA
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyA
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # the second half-reaction :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # Q, the second half-reaction :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: EqualAI
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end)]
+    nowhere = [
+        # Q, the first half-reaction :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: EqualAI
+             end
+         end),
+        # the first half-reaction, the second half-reaction :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: EqualAI
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end),
+        # Q, the first half-reaction, the second half-reaction :OnlyA; I :OnlyI
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+             steps: begin
+                 E + Q <--> EQ                                :: OnlyA
+                 E + A <--> E_res_plusA_minusP + P            :: OnlyA
+                 E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP :: OnlyI
+                 E_res_plusA_minusP + B <--> EQ               :: OnlyA
+             end
+         end)]
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test length(kids) == 20
+    @test Set(kids) == Set(expected)
+    @test kids == expected
+    fitted = EnzymeRates.Derivation.fitted_parameter_count
+    i_binding = _testhelper_edge(m, "E_res_plusA_minusP + I ⇌ EI_res_plusA_minusP")
+    for am in nowhere
+        runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(am)
+        @test !runs.active[i_binding] && !runs.inactive[i_binding]
+        @test !EnzymeRates.Enumeration._inhibitors_bind(_testhelper_candidate(am))
+        @test fitted(am) == fitted(m)
+        # The guard accepts it, so only the move keeps it from the search.
+        @test _testhelper_is_valid(am)
+    end
+    @test isempty(intersect(nowhere, _testhelper_children(rxn, [m])))
+end
+
+@testset "no child holds :OnlyI without a competitive inhibitor" begin
+    # The uni-uni mechanism binds no inhibitor, so each of its three groups takes
+    # :EqualAI or :OnlyA alone: the seven sets of groups :OnlyA, at one subunit with no
+    # regulator, whether or not the reaction declares the inhibitor I. No child holds an
+    # :OnlyI group.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
+        end
+    end
+    without_i = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+    end
+    with_i = @enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        competitive_inhibitors: I
+    end
+    # Untyped: inside `T[...]` the parser reads `begin` as an index keyword.
+    expected = [
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+                 E + P ⇌ EP :: EqualAI
+             end
+         end),
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+                 E + P ⇌ EP :: EqualAI
+             end
+         end),
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+                 E + P ⇌ EP :: EqualAI
+             end
+         end),
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: EqualAI
+                 E + P ⇌ EP :: OnlyA
+             end
+         end),
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: EqualAI
+                 E + P ⇌ EP :: OnlyA
+             end
+         end),
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: EqualAI
+                 ES <--> EP :: OnlyA
+                 E + P ⇌ EP :: OnlyA
+             end
+         end),
+        (@_testhelper_unguarded @enzyme_mechanism begin
+             substrates: S ; products: P ; oligomeric_state: 1
+             steps: begin
+                 E + S ⇌ ES :: OnlyA
+                 ES <--> EP :: OnlyA
+                 E + P ⇌ EP :: OnlyA
+             end
+         end)]
+    for rxn in (without_i, with_i)
+        kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+        @test length(kids) == 7
+        @test Set(kids) == Set(expected)
+        @test all(k -> :OnlyI ∉ k.allosteric.allosteric_states, kids)
+    end
 end
 
 # ─── _expand_add_allosteric_regulator ──────────────────────────────────
@@ -7312,6 +8074,66 @@ end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, parent)
     @test length(kids) == 0
     @test Set(kids) == Set()
+end
+
+@testset "change_allo_state tags an :OnlyI inhibitor :NonequalAI" begin
+    # The uni-uni mechanism with the competitive inhibitor I bound at free E, I's group
+    # :OnlyI and every other group :EqualAI. Three minimal sets gain a constant: I's
+    # group, which then binds the active conformation too with a constant of its own;
+    # the chemistry; and P's binding with S's, since one binding alone gets back the
+    # active conformation's constant from thermodynamics.
+    parent = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + I ⇌ EI :: OnlyI
+            E + P ⇌ EP :: EqualAI
+            E + S ⇌ ES :: EqualAI
+            ES <--> EP :: EqualAI
+        end
+    end
+    i_nonequal = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + I ⇌ EI :: NonequalAI
+            E + P ⇌ EP :: EqualAI
+            E + S ⇌ ES :: EqualAI
+            ES <--> EP :: EqualAI
+        end
+    end
+    chem_nonequal = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + I ⇌ EI :: OnlyI
+            E + P ⇌ EP :: EqualAI
+            E + S ⇌ ES :: EqualAI
+            ES <--> EP :: NonequalAI
+        end
+    end
+    p_s_nonequal = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + I ⇌ EI :: OnlyI
+            E + P ⇌ EP :: NonequalAI
+            E + S ⇌ ES :: NonequalAI
+            ES <--> EP :: EqualAI
+        end
+    end
+    p_nonequal = @enzyme_mechanism begin
+        substrates: S ; products: P ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + I ⇌ EI :: OnlyI
+            E + P ⇌ EP :: NonequalAI
+            E + S ⇌ ES :: EqualAI
+            ES <--> EP :: EqualAI
+        end
+    end
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, parent)
+    @test length(kids) == 3
+    @test Set(kids) == Set([i_nonequal, chem_nonequal, p_s_nonequal])
+    fitted = EnzymeRates.Derivation.fitted_parameter_count
+    @test fitted(i_nonequal) == fitted(chem_nonequal) == fitted(p_s_nonequal) ==
+          fitted(parent) + 1
+    @test fitted(p_nonequal) == fitted(parent)
 end
 
 @testset "change_allo_state keeps a regulatory ligand's child that adds a constant" begin
@@ -13355,10 +14177,11 @@ end
 @testset "no move tags a catalytic group :OnlyI" begin
     # Aggregate check over the whole uni-uni seed set with an allosteric regulator and a
     # competitive inhibitor, and its first expansion round: no seed or child tags a
-    # catalytic group :OnlyI (only a hand-written mechanism may), while the tagging move
-    # still gives regulatory sites the tag. The round's seven allosteric children are the
-    # five sets of the seed's groups :OnlyA that the exits keep and the chemistry alone
-    # :OnlyA with R at a site, tagged :OnlyA and :OnlyI.
+    # kinetic group :OnlyI, since a move gives the tag to a competitive inhibitor's group
+    # alone and the seed binds no inhibitor (a hand-written mechanism may tag any group),
+    # while the tagging move still gives regulatory sites the tag. The round's seven
+    # allosteric children are the five sets of the seed's groups :OnlyA that the exits
+    # keep and the chemistry alone :OnlyA with R at a site, tagged :OnlyA and :OnlyI.
     rxn = @enzyme_reaction begin
         substrates: S[C]
         products: P[C]

@@ -1311,13 +1311,13 @@ let children = [c
                 for m in _testhelper_mechanisms(
                     EnzymeRates.Enumeration.init_mechanisms(_testhelper_inhibitor_rxn))
                 for c in _testhelper_plain_moves(m, _testhelper_inhibitor_rxn)]
-@testset "754 of 8551 inhibitor children fail the guard; none tags catalysis :OnlyI" begin
+@testset "754 of 8551 children fail the guard; only an inhibitor's group is :OnlyI" begin
     # The moves give the census bi-bi seeds with inhibitors A and I 8551 children. The
     # guard rejects 754 of them, which candidate_mechanisms drops: the tagging move emits
     # every set of :OnlyA groups without testing it. The rejected children counted by
     # their fault are an aggregate regression pin over the declaration's whole seed set
-    # (CLAUDE.md enumeration rule 1's exception), as are the two counts. No allosteric
-    # child tags a catalytic group :OnlyI.
+    # (CLAUDE.md enumeration rule 1's exception), as are the two counts. An allosteric
+    # child tags :OnlyI only a group that binds a competitive inhibitor.
     @test length(children) == 8551
     rejected = filter(!_testhelper_is_valid, children)
     @test length(rejected) == 754
@@ -1328,7 +1328,13 @@ let children = [c
                EnzymeRates.Derivation._FAST_STEP_PINNED => 492)
     allo = [c for c in children if _testhelper_is_allosteric(c)]
     @test !isempty(allo)
-    @test all(c -> :OnlyI ∉ c.allosteric.allosteric_states, allo)
+    @test all(allo) do am
+        c = _testhelper_candidate(am)
+        all(enumerate(_testhelper_group_members(am.catalytic))) do (g, ks)
+            am.allosteric.allosteric_states[g] !== :OnlyI ||
+                EnzymeRates.Enumeration._bound_copy(c, first(ks)) !== nothing
+        end
+    end
 end
 
 @testset "the guard equals the RE-speed oracle on inhibitor children's modifier faces" begin
