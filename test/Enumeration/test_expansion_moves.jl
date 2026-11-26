@@ -6637,6 +6637,104 @@ end
     @test isempty(intersect(nowhere, _testhelper_children(rxn, [m])))
 end
 
+@testset "to_allosteric drops a reactant copy an :OnlyI inhibitor makes redundant" begin
+    # An ordered bi-bi whose B binding forms EPQ, with A bound a second time as a copy at
+    # free E (EAmod) and the inhibitor I bound at EA and EQ. Six groups, numbered A's
+    # binding 1, A's copy 2, Q's binding 3, I's binding 4, B's 5 and P's 6. The copy's
+    # complex EAmod has the productive twin EA. Tag A's binding, the copy and B's binding
+    # :OnlyA and I's group :OnlyI: the active conformation, the only one the copy binds,
+    # then no longer binds I at EA, and the copy is redundant (`_redundant_copy_groups`),
+    # so the move drops that child. With I's group :EqualAI or :OnlyA instead, the active
+    # conformation binds I at EA, the copy is not redundant, and both children are
+    # emitted. The two groups that bind an inhibitor take three states, the other four
+    # two: 2^4 · 3^2 − 1 = 143 assignments. 12 are dropped because I binds in neither
+    # conformation and 6 because the copy is redundant, which leaves 125, and Q's binding
+    # tagged :NonequalAI is the one minimal gaining set refused tagged :OnlyA: 126
+    # children. They are not all written out: the smallest mechanism that shows this drop
+    # has these six groups and 126 children, and a search over the bi-bi, ping-pong and
+    # uni-bi starting mechanisms with one or two inhibitors bound found none smaller.
+    rxn = @enzyme_reaction begin
+        substrates: A[C], B[N]
+        products: P[C], Q[N]
+        competitive_inhibitors: A, I
+    end
+    m = @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        modifiers: I
+        steps: begin
+            E + A ⇌ EA
+            E + A ⇌ EAmod
+            E + Q <--> EQ
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ)
+            EA + B <--> EPQ
+            EQ + P ⇌ EPQ
+        end
+    end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, first(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + A ⇌ EA", "E + A ⇌ EAmod", "E + Q <--> EQ", "EA + I ⇌ EAI",
+           "EA + B <--> EPQ", "EQ + P ⇌ EPQ"]
+    redundant = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                   :: OnlyA
+            E + A ⇌ EAmod                :: OnlyA
+            E + Q <--> EQ                :: EqualAI
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ) :: OnlyI
+            EA + B <--> EPQ              :: OnlyA
+            EQ + P ⇌ EPQ                 :: EqualAI
+        end
+    end
+    i_equal = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                   :: OnlyA
+            E + A ⇌ EAmod                :: OnlyA
+            E + Q <--> EQ                :: EqualAI
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ) :: EqualAI
+            EA + B <--> EPQ              :: OnlyA
+            EQ + P ⇌ EPQ                 :: EqualAI
+        end
+    end
+    i_only_a = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                   :: OnlyA
+            E + A ⇌ EAmod                :: OnlyA
+            E + Q <--> EQ                :: EqualAI
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ) :: OnlyA
+            EA + B <--> EPQ              :: OnlyA
+            EQ + P ⇌ EPQ                 :: EqualAI
+        end
+    end
+    q_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; modifiers: I ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                   :: EqualAI
+            E + A ⇌ EAmod                :: EqualAI
+            E + Q <--> EQ                :: NonequalAI
+            (EA + I ⇌ EAI, EQ + I ⇌ EIQ) :: EqualAI
+            EA + B <--> EPQ              :: EqualAI
+            EQ + P ⇌ EPQ                 :: EqualAI
+        end
+    end
+    redundant_groups = EnzymeRates.Enumeration._redundant_copy_groups
+    @test redundant_groups(_testhelper_candidate(redundant)) == [2]
+    @test isempty(redundant_groups(_testhelper_candidate(i_equal)))
+    @test isempty(redundant_groups(_testhelper_candidate(i_only_a)))
+    # The guard accepts the redundant child, so only the move keeps it from the search.
+    @test _testhelper_is_valid(redundant)
+    children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test length(children) == 126
+    @test allunique(children)
+    @test redundant ∉ children
+    @test i_equal in children
+    @test i_only_a in children
+    @test filter(c -> :NonequalAI in c.allosteric.allosteric_states, children) ==
+          [q_nonequal]
+end
+
 @testset "no child holds :OnlyI without a competitive inhibitor" begin
     # The uni-uni mechanism binds no inhibitor, so each of its three groups takes
     # :EqualAI or :OnlyA alone: the seven sets of groups :OnlyA, at one subunit with no

@@ -1000,7 +1000,10 @@ function _expand_change_allo_state(c::CandidateMechanism)
         _candidate(c, tagged, a.oligomeric_state, a.regulatory_sites)
     end
     # Cheapest first: on bi-bi mechanisms that bind an inhibitor the copy test takes a
-    # tenth of the count's time, and the count a quarter of `_enumerator_returns`'s.
+    # tenth of the count's time, and the count a quarter of `_enumerator_returns`'s. No
+    # `_inhibitors_bind` test: tagging a group :NonequalAI lifts its exclusion from one
+    # conformation, so each conformation runs every step it ran in `c`, and an inhibitor
+    # that binds in `c` binds in every child.
     gains(child) = isempty(_redundant_copy_groups(child)) && gains_constant(child) &&
                    _enumerator_returns(child)
     # A failed set is extended by any other group, since one more can lift each failure.
