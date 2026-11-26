@@ -9589,21 +9589,22 @@ end
 # ─── Reachability of the allosteric versions ────────────────────────────
 
 """
-    _testhelper_irreducible_versions(c) -> (; irreducible, keeps_reads_nonequal)
+    _testhelper_irreducible_versions(c, oligomeric_state)
+        -> (; irreducible, keeps_reads_nonequal)
 
-Every version of the plain candidate `c` at one subunit with no regulatory site, tried one
-by one: each kinetic group `:EqualAI`, `:OnlyA` or `:NonequalAI`, or also `:OnlyI` when it
-binds a competitive inhibitor (`_bound_copy`), but not every group `:EqualAI`. A mechanism
-shows when the enumerator returns it (`_enumerator_returns`), every group that binds an
-inhibitor runs in a conformation (`_inhibitors_bind`) and none binds it redundantly
-(`_redundant_copy_groups`). `irreducible` holds the versions that show and in which making
-any one `:NonequalAI` group `:EqualAI` gives a mechanism with fewer fitted constants
-(`Derivation.fitted_parameter_count`) or one that does not show. The mechanism with every
-group `:EqualAI` is judged like the others: it fits `c`'s constants and `L`.
+Every version of the plain candidate `c` at `oligomeric_state` with no regulatory site,
+tried one by one: each kinetic group `:EqualAI`, `:OnlyA` or `:NonequalAI`, or also
+`:OnlyI` when it binds a competitive inhibitor (`_bound_copy`), but not every group
+`:EqualAI`. A mechanism shows when the enumerator returns it (`_enumerator_returns`), every
+group that binds an inhibitor runs in a conformation (`_inhibitors_bind`) and none binds it
+redundantly (`_redundant_copy_groups`). `irreducible` holds the versions that show and in
+which making any one `:NonequalAI` group `:EqualAI` gives a mechanism with fewer fitted
+constants (`Derivation.fitted_parameter_count`) or one that does not show. The mechanism
+with every group `:EqualAI` is judged like the others: it fits `c`'s constants and `L`.
 `keeps_reads_nonequal` holds the versions whose `_enumerator_keeps` answer changes when
 every `:NonequalAI` group is made `:EqualAI`.
 """
-function _testhelper_irreducible_versions(c)
+function _testhelper_irreducible_versions(c, oligomeric_state)
     EN = EnzymeRates.Enumeration
     choices = [EN._bound_copy(c, first(ks)) === nothing ?
                    [:EqualAI, :OnlyA, :NonequalAI] :
@@ -9616,7 +9617,7 @@ function _testhelper_irreducible_versions(c)
     # One pass asks the guard of each version once: it remembers the last mechanism only.
     for states in Iterators.product(choices...)
         s = collect(states)
-        v = EN._candidate(c, s, 1, no_site)
+        v = EN._candidate(c, s, oligomeric_state, no_site)
         mechanism[s] = v.mechanism
         keeps[s] = EN._enumerator_keeps(v.mechanism)
         shows[s] = keeps[s] && EN._enumerator_returns(v) && EN._inhibitors_bind(v) &&
@@ -9640,10 +9641,10 @@ end
 """
     _testhelper_reached_versions(c, rxn) -> (; reached, no_gain, not_returned)
 
-The mechanisms that the two allosteric moves reach from the plain candidate `c` of `rxn`:
-the children of `_expand_to_allosteric` that the enumerator returns
-(`_enumerator_returns`), then, round by round, the returned children of
-`_expand_change_allo_state` of each mechanism reached. `no_gain` holds each pair
+The candidates that the two allosteric moves reach from the plain candidate `c` of `rxn`,
+keyed by their mechanisms: the children of `_expand_to_allosteric` that the enumerator
+returns (`_enumerator_returns`), then, round by round, the returned children of
+`_expand_change_allo_state` of each candidate reached. `no_gain` holds each pair
 `parent => child` of a child, returned or not, whose fitted count is not above its
 parent's, and `not_returned` each such pair of a child of `_expand_change_allo_state` that
 the enumerator does not return.
@@ -9654,7 +9655,7 @@ function _testhelper_reached_versions(c, rxn)
     fitted_of(m) = get!(() -> EnzymeRates.Derivation.fitted_parameter_count(m), fitted, m)
     no_gain = Pair{EnzymeRates.Mechanism, EnzymeRates.Mechanism}[]
     not_returned = Pair{EnzymeRates.Mechanism, EnzymeRates.Mechanism}[]
-    reached = Set{EnzymeRates.Mechanism}()
+    reached = Dict{EnzymeRates.Mechanism, EN.CandidateMechanism}()
     level = [c]
     while !isempty(level)
         next = EN.CandidateMechanism[]
@@ -9668,8 +9669,8 @@ function _testhelper_reached_versions(c, rxn)
                     p === c || push!(not_returned, p.mechanism => k.mechanism)
                     continue
                 end
-                k.mechanism in reached && continue
-                push!(reached, k.mechanism)
+                haskey(reached, k.mechanism) && continue
+                reached[k.mechanism] = k
                 push!(next, k)
             end
         end
@@ -9684,19 +9685,28 @@ end
     # subunit with no regulator, every version is tried: each irreducible one, which the
     # enumerator would return and each of whose :NonequalAI groups adds a fitted constant,
     # is reached by `_expand_to_allosteric` and then `_expand_change_allo_state`; every
+    # version reached binds each inhibitor in a conformation and none redundantly; every
     # child of the two moves, returned or not, has more fitted constants than its parent,
     # and the enumerator returns every child of `_expand_change_allo_state`; and
     # `_enumerator_keeps` reads the :OnlyA and :OnlyI groups alone, which the argument that
     # the moves reach every irreducible version assumes. The samples: every 7th of the 278
     # base-tier mechanisms of the bi-bi reaction (40), every 150th of the 1,548 that bind
     # a competitive inhibitor I (11), and every 3,200th of the 15,852 of at most seven
-    # groups that bind I and a copy of A (5). A group takes 3 states, an inhibitor's 4, so
-    # seven groups, two of them inhibitors', give 3,887 versions; the samples keep the
-    # testset under two minutes.
+    # groups that bind I and a copy of A (5). The base-tier sample runs again at two
+    # subunits, on its mechanisms that pass `_hyperbolic_catalysis` (10): the hyperbolic
+    # rule (`_hyperbolic_where_required`), which the two searches for minimal gaining sets
+    # read, can refuse a version only above one subunit. A group takes 3 states, an
+    # inhibitor's 4, so seven groups, two of them inhibitors', give 3,887 versions; the
+    # samples keep the testset under two minutes.
     EN = EnzymeRates.Enumeration
     plain_rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
         products: P[C], Q[NX]
+    end
+    two_subunit_rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        oligomeric_state: 2
     end
     inhibitor_rxn = @enzyme_reaction begin
         substrates: A[CX], B[N]
@@ -9716,11 +9726,18 @@ end
     @test [length(population) for (_, population, _) in populations] == [278, 1548, 15852]
     samples = [(rxn, population[1:step:end]) for (rxn, population, step) in populations]
     @test [length(parents) for (_, parents) in samples] == [40, 11, 5]
-    for (rxn, parents) in samples, c in parents
-        versions = _testhelper_irreducible_versions(c)
+    (_, base_sample) = first(samples)
+    hyperbolic = filter(EN._hyperbolic_catalysis, base_sample)
+    @test length(hyperbolic) == 10
+    runs = [[(rxn, 1, parents) for (rxn, parents) in samples];
+            (two_subunit_rxn, 2, hyperbolic)]
+    for (rxn, oligomeric_state, parents) in runs, c in parents
+        versions = _testhelper_irreducible_versions(c, oligomeric_state)
         reach = _testhelper_reached_versions(c, rxn)
         @test !isempty(versions.irreducible)
-        @test isempty(setdiff(versions.irreducible, reach.reached))
+        @test isempty(setdiff(versions.irreducible, keys(reach.reached)))
+        @test all(EN._inhibitors_bind, values(reach.reached))
+        @test all(k -> isempty(EN._redundant_copy_groups(k)), values(reach.reached))
         @test isempty(reach.no_gain)
         @test isempty(reach.not_returned)
         @test isempty(versions.keeps_reads_nonequal)
