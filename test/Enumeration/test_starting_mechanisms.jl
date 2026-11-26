@@ -2134,51 +2134,22 @@ end
     end
     seeds = _testhelper_mechanisms(
         ER.Enumeration.seed_mechanisms(rxn, Set([:R]), Set{Symbol}()))
-    # Aggregate regression pin over the whole seed set: the search reaches 1,916 seeds and
-    # the guard drops 54 of them, 26 `_FILLED`, 20 `_BRIDGE` and 8 `_PUMPED`.
-    @test length(seeds) == 1862
+    # Aggregate regression pin over the whole seed set: the search reaches 4,432 seeds and
+    # the enumerator drops 996 of them. 260 fail the hyperbolic rule, 60 keep a form that
+    # only bindings they exclude enter (`_kept_forms_keep_a_binding`), and the guard
+    # rejects 676: 236 `_BRIDGE`, 204 `_FAST_STEP_PINNED`, 188 `_FILLED` and 48 `_PUMPED`.
+    @test length(seeds) == 3436
     @test all(_testhelper_is_valid, seeds)
-    # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
-    # zero A and B, so it is dropped. With its second half tagged instead, the inactive
-    # conformation keeps the two sides of the rapid-equilibrium step
-    # EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`), so it is no seed either.
-    # With both halves tagged it stays.
-    half1 = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        oligomeric_state: 2
-        steps: begin
-            E + A ⇌ EA                                        :: EqualAI
-            EA <--> EP_res_plusA_minusP                    :: OnlyA
-            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
-            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
-            EB_res_plusA_minusP ⇌ EQ                       :: EqualAI
-            EQ ⇌ E + Q                                        :: EqualAI
-        end
-        regulatory_site(2): R::OnlyA
-    end
-    v = ER.Derivation._guard(half1)
-    @test v.fault === ER.Derivation._SPLIT
-    @test ER.Derivation._face_names(half1.catalytic,
-                                    ER.Derivation._faces(half1.catalytic)[v.face]) ==
-          [:A, :B]
-    @test half1 ∉ seeds
-    half2 = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        oligomeric_state: 2
-        steps: begin
-            E + A ⇌ EA                                        :: EqualAI
-            EA <--> EP_res_plusA_minusP                    :: EqualAI
-            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
-            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
-            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
-            EQ ⇌ E + Q                                        :: EqualAI
-        end
-        regulatory_site(2): R::OnlyA
-    end
-    @test ER.Derivation._guard(half2).fault === ER.Derivation._FAST_STEP_PINNED
-    @test half2 ∉ seeds
+    # The six-step ping-pong with every binding and the second half-reaction at rapid
+    # equilibrium is degenerate, so the search binds R to its flip children instead
+    # (`_base_tier`). Three versions of two of them, each with R::OnlyA. With both
+    # half-reactions at steady state and both tagged :OnlyA the guard admits the
+    # mechanism, and it is a seed. With Q's release at steady state instead, the same
+    # tags fail admission's face condition (`_BRIDGE`), and the second half-reaction
+    # tagged alone leaves the inactive conformation the two sides of the
+    # rapid-equilibrium step EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`):
+    # neither is a seed. On every such flip child the guard admits the first
+    # half-reaction alone :OnlyA, which it refused (`_SPLIT`) on the degenerate mechanism.
     both = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2188,12 +2159,46 @@ end
             EA <--> EP_res_plusA_minusP                    :: OnlyA
             EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
             E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
-            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EB_res_plusA_minusP <--> EQ                    :: OnlyA
             EQ ⇌ E + Q                                        :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
     @test both ∈ seeds
+    both_q_slow = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        oligomeric_state: 2
+        steps: begin
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: OnlyA
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EQ <--> E + Q                                     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyA
+    end
+    @test ER.Derivation._guard(both_q_slow).fault === ER.Derivation._BRIDGE
+    @test both_q_slow ∉ seeds
+    half2_q_slow = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        oligomeric_state: 2
+        steps: begin
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: EqualAI
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EQ <--> E + Q                                     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyA
+    end
+    v = ER.Derivation._guard(half2_q_slow)
+    @test (v.fault, ER.Mechanisms.step_text(half2_q_slow.catalytic, v.edge)) ==
+          (ER.Derivation._FAST_STEP_PINNED, "EB_res_plusA_minusP ⇌ EQ")
+    @test half2_q_slow ∉ seeds
 end
 
 @testset "candidate_mechanisms expands degenerate seeds instead of fitting them" begin
