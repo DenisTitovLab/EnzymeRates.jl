@@ -1159,39 +1159,29 @@ end
 
 @testset "ping-pong seeds' tagging children are admitted, distinct and oracle-checked" begin
     # An aggregate pin over the seed set: the 18 ping-pong seeds (seeds with a covalent
-    # form) of the census ping-pong reaction. Each seed gets one base, which stops the
-    # inactive conformation's catalysis and passes the guard (test_expansion_moves.jl,
-    # "the tagging search extends a tag set whose child the guard rejects", holds a parent
-    # with several bases). The move emits 94 children and the guard keeps 53; class 3
-    # rejects none of the other 41, admission rejects them all. Every kept child is
-    # distinct, its verdict matches the one its tags get at one subunit, on every face its
-    # guard verdict agrees with the RE-speed oracle, and, under the reading the guard
-    # admits it with, it converges along the ε-path at the interior, the one face the
-    # suite's time budget allows it.
+    # form) of the census ping-pong reaction. The reaction allows two subunits alone, so
+    # the 8 seeds whose catalysis is not hyperbolic get no child. The move emits 420
+    # children and `_enumerator_keeps` keeps 170; class 3 faults 36 of the other 250 on
+    # some face, and admission rejects the rest. Every kept child is distinct, on every
+    # face its guard verdict agrees with the RE-speed oracle, and, under the reading the
+    # guard admits it with, it converges along the ε-path at the interior, the one face
+    # the suite's time budget allows it.
     rxn = _testhelper_pingpong_census_rxn
     rng = Random.MersenneTwister(406)
     seeds = [m for m in _testhelper_mechanisms(EnzymeRates.Enumeration.init_mechanisms(rxn))
              if _testhelper_covalent(m)]
     @test length(seeds) == 18
-    nbases, n_moved, n_kids, n_class3 = Dict{Int, Int}(), 0, 0, 0
+    n_parents, n_moved, n_kids, n_class3 = 0, 0, 0, 0
     for m in seeds
-        tags = EnzymeRates.Enumeration._tagging_bases(_testhelper_candidate(m))
-        nbases[length(tags)] = get(nbases, length(tags), 0) + 1
-        @test all(t -> EnzymeRates.Enumeration._valid_tagging(
-                           _testhelper_candidate(m), t) &&
-                       EnzymeRates.Enumeration._stops_inactive_turnover(
-                           _testhelper_candidate(m), t), tags)
         moved = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-        kids = filter(_testhelper_is_valid, moved)
+        kids = filter(EnzymeRates.Enumeration._enumerator_keeps, moved)
+        n_parents += !isempty(moved)
         n_moved += length(moved)
         n_kids += length(kids)
         n_class3 += count(c -> any(!=(EnzymeRates.Derivation._NO_FAULT),
                                    _testhelper_face_faults(c)), moved)
         @test allunique(kids)
         for c in kids
-            @test EnzymeRates.Enumeration._valid_tagging(
-                _testhelper_candidate(_testhelper_plain_of(c)),
-                c.allosteric.allosteric_states)
             faults = _testhelper_face_faults(c)
             admitted = all(==(EnzymeRates.Derivation._NO_FAULT), faults)
             verdicts = _testhelper_respeed_verdicts(c; rng,
@@ -1205,10 +1195,10 @@ end
             @test _testhelper_epath_verdict(c; rng, reading) === :converges
         end
     end
-    @test nbases == Dict(1 => 18)
-    @test n_moved == 94
-    @test n_kids == 53
-    @test n_class3 == 0
+    @test n_parents == 10
+    @test n_moved == 420
+    @test n_kids == 170
+    @test n_class3 == 36
 end
 
 # ── Population tests of the well-posedness guard ────────────────────────────
@@ -1329,9 +1319,9 @@ let children = [c
     # leave between two groups: at zero A and B it runs one way into a cut-off form that
     # fills faster than it empties (`_FILLED`). An aggregate regression pin over the
     # declaration's whole seed set (CLAUDE.md enumeration rule 1's exception).
-    @test length(children) == 5505
+    @test length(children) == 8551
     rejected = filter(!_testhelper_is_valid, children)
-    @test length(rejected) == 34
+    @test length(rejected) == 754
     @test all(c -> EnzymeRates.Derivation._guard(c).fault ===
                    EnzymeRates.Derivation._FILLED, rejected)
     allo = [c for c in children if _testhelper_is_allosteric(c)]
@@ -1610,7 +1600,7 @@ end
     @test length(kids) == 200
     flagged = [am for am in kids
                if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(am))]
-    @test length(flagged) == 76
+    @test length(flagged) == 57
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
     for am in first(flagged, 4)
@@ -1622,7 +1612,7 @@ end
 @testset "every flagged one-subunit ping-pong tagging child is its L→0 law's family" begin
     # The tagging children at one catalytic subunit of 30 ping-pong parents,
     # the covalent init mechanisms and their well-posed covalent flips, spaced through
-    # their content order. In 93 children the inactive conformation keeps no step, and 111
+    # their content order. In 286 children the inactive conformation keeps no step, and 232
     # children, kept steps or not, have a certificate. Each of these reproduces its law at
     # L = 0 under the certificate's rescaling, so its family is that law's and no flagged
     # child gains rank; the rank oracle confirms it on the first four. The counts are
@@ -1638,13 +1628,13 @@ end
     parents = _testhelper_spaced(unique!([inits; flips]), 30)
     @test length(parents) == 30
     kids = _testhelper_tagging_children(parents, rxn)
-    @test length(kids) == 247
+    @test length(kids) == 879
     @test count(kids) do am
         !any(EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(am).inactive)
-    end == 93
+    end == 286
     flagged = [am for am in kids
                if EnzymeRates.Derivation._is_phantom(EnzymeRates.Derivation._memo_law(am))]
-    @test length(flagged) == 111
+    @test length(flagged) == 232
     rng = Random.MersenneTwister(505)
     @test all(am -> _testhelper_phantom_map_holds(am; rng), flagged)
     for am in first(flagged, 4)

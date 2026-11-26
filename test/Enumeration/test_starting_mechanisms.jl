@@ -2295,6 +2295,33 @@ end
     @test a_b_nonequal in starting
 end
 
+@testset "a declared activator is never :OnlyI in a starting mechanism" begin
+    # The tagging move gives each version whose :OnlyA groups hold chemistry alone each
+    # allosteric regulator at a new site, tagged :OnlyA and :OnlyI. An activator binds the
+    # active conformation, so no starting mechanism holds R :OnlyI when R is declared one;
+    # with R declared neither way some starting mechanism does.
+    function _testhelper_states_of_R(rxn)
+        starting = _testhelper_mechanisms(EnzymeRates.Enumeration.candidate_mechanisms(rxn))
+        [only(state for site in m.allosteric.regulatory_sites
+              for (ligand, state) in zip(site.ligands, site.allosteric_states)
+              if ligand === :R)
+         for m in starting]
+    end
+    activator = _testhelper_states_of_R(@enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R::Activator
+    end)
+    @test !isempty(activator)
+    @test :OnlyI ∉ activator
+    undeclared = _testhelper_states_of_R(@enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+    end)
+    @test :OnlyI in undeclared
+end
+
 @testset "_base_tier replaces a degenerate seed by the flips that cure it" begin
     # The undecorated ping-pong seed. Its steady-state chemistry EA → E(P; res) is a
     # qualifying chain, so the flip rule keeps its flanks, the A and P bindings, at rapid
