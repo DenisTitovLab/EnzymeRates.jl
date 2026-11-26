@@ -3004,7 +3004,7 @@ let population = _testhelper_census_population(),
     # The census's first populations: each graph decodes from its Sig and builds again
     # from the forms and steps it writes back. The count: the six reactions' init
     # mechanisms, then the bi-bi reaction's children.
-    @test length(population) == 5508 + 5471
+    @test length(population) == 5508 + 7453
     @test all(_testhelper_decode(ER.Derivation._sig_of(x)) == x for x in population)
     @test all(_testhelper_build(_testhelper_written(x)) == x for x in population)
 end
@@ -3026,7 +3026,7 @@ end
         @test ER.DSL.parse_mechanism(sprint(show, spec.mechanism)) == spec.mechanism
     end
     # The allosteric children of the uni-uni, ping-pong and two-site reactions.
-    @test length(allosteric) == 5 + 885 + 5
+    @test length(allosteric) == 7 + 1590 + 7
     @test isempty([i for (i, x) in enumerate(population) if !_testhelper_reads_back(x)])
     @test isempty([i for (i, x) in enumerate(allosteric) if !_testhelper_reads_back(x)])
 end

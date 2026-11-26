@@ -533,14 +533,19 @@ end
 The starting mechanisms of `rxn` when it requires the allosteric regulators `required_allo`
 and the competitive inhibitors `required_comp`: the mechanisms that bind every regulator of
 `required_allo` at a regulatory site and every inhibitor of `required_comp` at a dead-end
-site. The regulator-binding moves grow them from `init_mechanisms(rxn)` through seed nodes
-alone. The dead-end move (`_expand_add_dead_end_regulator`) always runs; the tagging and
-regulator moves (`_expand_to_allosteric`, `_expand_add_allosteric_regulator`) run only when
-an allosteric regulator is required, so competitive inhibitors alone keep the seeds plain,
-with no `L`. A seed node (`_is_seed_node`):
+site. The regulator-binding moves grow them from the base tier of `init_mechanisms(rxn)`
+(`_base_tier`) through seed nodes alone. They keep every step's rapid-equilibrium flag, so
+no seed is degenerate (`_degenerate`). The dead-end move (`_expand_add_dead_end_regulator`)
+always runs; the tagging and regulator moves (`_expand_to_allosteric`,
+`_expand_add_allosteric_regulator`) run only when an allosteric regulator is required, so
+competitive inhibitors alone keep the seeds plain, with no `L`. A seed node
+(`_is_seed_node`):
 
-1. tags nothing `:NonequalAI` (the beam reaches `:NonequalAI` later through
-   `_expand_change_allo_state`);
+1. tags no regulatory ligand `:NonequalAI` (the beam reaches those later through
+   `_expand_change_allo_state`). A kinetic group can be `:NonequalAI`: the tagging move
+   tags a set of groups `:NonequalAI` only where the same set tagged `:OnlyA` is not
+   returned, and this search never runs `_expand_change_allo_state`, the only other route
+   to such a version;
 2. binds one ligand per regulatory site, which bounds the search: a child that adds a
    regulator to an existing site fails, and the search drops it before expanding it;
 3. binds no optional regulator: every bound allosteric ligand is in `required_allo` and
@@ -549,7 +554,7 @@ with no `L`. A seed node (`_is_seed_node`):
 
 Each seed appears once, in an order that does not depend on the number of workers. Errors
 when no mechanism binds every required regulator. The search expands a node that
-`_enumerator_keeps` refuses but never returns it.
+`_enumerator_returns` refuses but never returns it.
 """
 function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symbol},
                          required_comp::Set{Symbol})
@@ -565,7 +570,11 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
             issubset(required_comp, _bound_comp_inhibitors(c)) && push!(seeds, c)
         true
     end
-    frontier = CandidateMechanism[c for c in init_mechanisms(rxn) if consider!(c)]
+    # From the base tier, not the seeds: `_enumerator_keeps` refuses some states on a
+    # degenerate seed that it keeps on the seed's flip children, and the search would never
+    # give those children these states.
+    base = _base_tier(unique(init_mechanisms(rxn)), rxn)
+    frontier = CandidateMechanism[c for c in base if consider!(c)]
     while !isempty(frontier)
         next = CandidateMechanism[]
         for cs in _seed_node_children(frontier, rxn, required_allo, required_comp), c in cs
@@ -583,8 +592,7 @@ function seed_mechanisms(rxn::Mechanisms.EnzymeReaction, required_allo::Set{Symb
               "optional with `optional_competitive_inhibitors` or " *
               "`optional_allosteric_regulators`, or remove its declaration")
     end
-    filter!(c -> _enumerator_keeps(c.mechanism), seeds)
-    seeds
+    filter!(_enumerator_returns, seeds)
 end
 
 """The children of each candidate of `frontier` that are seed nodes (`_is_seed_node`), in
@@ -608,10 +616,8 @@ end
 function _is_seed_node(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction,
                        required_allo::Set{Symbol}, required_comp::Set{Symbol})
     m = c.mechanism
-    (:NonequalAI in m.allosteric.allosteric_states ||
-        any(site -> length(site.ligands) != 1 ||
-                    only(site.allosteric_states) == :NonequalAI,
-            m.allosteric.regulatory_sites)) && return false
+    any(site -> length(site.ligands) != 1 || only(site.allosteric_states) == :NonequalAI,
+        m.allosteric.regulatory_sites) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(c), required_comp) || return false
     _respects_reg_type(m, rxn) || return false
@@ -627,9 +633,9 @@ function candidate_mechanisms(reaction::Mechanisms.EnzymeReaction;
     required_allo, required_comp = _required_regulators(
         reaction, optional_allosteric_regulators, optional_competitive_inhibitors)
     seeds = (isempty(required_allo) && isempty(required_comp)) ?
-        init_mechanisms(reaction) : seed_mechanisms(reaction, required_allo, required_comp)
-    _within_size_limits(_base_tier(unique(seeds), reaction), max_param_count,
-                        eq_complexity_filter)
+        _base_tier(unique(init_mechanisms(reaction)), reaction) :
+        seed_mechanisms(reaction, required_allo, required_comp)
+    _within_size_limits(seeds, max_param_count, eq_complexity_filter)
 end
 
 """
@@ -639,7 +645,8 @@ end
 
 The regulators the starting mechanisms must bind: every allosteric regulator and every
 competitive inhibitor declared in `rxn`, minus the names the caller marked optional. Both
-sets empty means the search starts from the unregulated seeds (`init_mechanisms`).
+sets empty means the search starts from the base tier of `init_mechanisms` (`_base_tier`),
+which binds no regulator.
 """
 function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},
@@ -651,14 +658,15 @@ function _required_regulators(rxn::Mechanisms.EnzymeReaction,
 end
 
 """
-The candidates the search fits first: every seed of `mechs` that is not degenerate
+The plain mechanisms the search starts from: every seed of `mechs` that is not degenerate
 (`_degenerate`), and in place of each one that is, its flip children (`_expand_re_to_ss`)
-that are not. A degenerate seed's law ignores a substrate or never saturates, so it is not
-worth a fit, but it is the only parent of mechanisms that are not degenerate (such as the
-ping-pong seeds' children). Only a flip can cure it: the other moves keep every catalytic
-step's rapid-equilibrium flag, and the steps they add bind regulators, which neither
-degeneracy condition reads. Errors when a flip child does not conserve atoms
-(`_assert_atom_conserving`).
+that are not. The search fits them first when the reaction requires no regulator, and
+`seed_mechanisms` binds the required regulators to them when it does. A degenerate seed's
+law ignores a substrate or never saturates, so it is not worth a fit, but it is the only
+parent of mechanisms that are not degenerate (such as the ping-pong seeds' children). Only
+a flip can cure it: the other moves keep every catalytic step's rapid-equilibrium flag, and
+the steps they add bind regulators, which neither degeneracy condition reads. Errors when a
+flip child does not conserve atoms (`_assert_atom_conserving`).
 """
 function _base_tier(mechs::Vector{CandidateMechanism}, rxn::Mechanisms.EnzymeReaction)
     degenerate = _degenerate.(mechs)

@@ -247,8 +247,8 @@ both pairs under "Known issues", with the use in each that would have to go.
 | DSL | `enzyme_mechanism_macro.jl` | @enzyme\_mechanism and parse\_mechanism, which build a mechanism from its text and check it with the guard, and the reader of a mechanism block as written. | ★ `@enzyme_mechanism`, `parse_mechanism` |  |
 | Plotting | `plot_rate_equation_on_data.jl` | plot\_rate\_equation\_on\_data and the plain description of each measurement group's panel it prepares; ext/EnzymeRatesMakieExt.jl draws the panels with Makie. | ★ `plot_rate_equation_on_data` |  |
 | Enumeration | `candidate_mechanism_type.jl` | CandidateMechanism, a mechanism with the enumerator's record of each form, the structural tests of a candidate, and the helpers the moves and the seeds share. | `CandidateMechanism` |  |
-| Enumeration | `expansion_moves.jl` | A candidate's children, candidate\_mechanisms(reaction, parent), and the moves that make them: RE→SS flips, group splits, regulators, states, site merges. | `candidate_mechanisms` | `candidate_mechanism_type` (26) |
-| Enumeration | `starting_mechanisms.jl` | The starting mechanisms of a reaction, candidate\_mechanisms(reaction): catalytic topologies, dead-end decorations, merged and Theorell–Chance variants, seeds. | `candidate_mechanisms` | `candidate_mechanism_type` (21), `expansion_moves` (6) |
+| Enumeration | `expansion_moves.jl` | A candidate's children, candidate\_mechanisms(reaction, parent), and the moves that make them: RE→SS flips, group splits, regulators, states, site merges. | `candidate_mechanisms` | `candidate_mechanism_type` (23) |
+| Enumeration | `starting_mechanisms.jl` | The starting mechanisms of a reaction, candidate\_mechanisms(reaction): catalytic topologies, dead-end decorations, merged and Theorell–Chance variants, seeds. | `candidate_mechanisms` | `candidate_mechanism_type` (22), `expansion_moves` (6) |
 | Fitting | `fit_rate_equation.jl` | Fitting rate equations to experimental data and scaling them to a reference scale: FittingProblem, the loss, multi-start fits and test\_rate\_equation. | ★ `fit_rate_equation`, ★ `FittingProblem`, `test_rate_equation` |  |
 | Derivation | `thermodynamic_constraints.jl` | A mechanism's constants under the joint thermodynamic solve: their types and names, the solve, parameters, their units and the dependent constants' values. | ★ `parameters`, ★ `dependent_parameter_values`, `fitted_parameter_count`, `parameter_units` | `rate_equation_correctness_guard` (1) |
 | Derivation | `rate_equation_derivation.jl` | A mechanism's rate law: sparse polynomials, the law on edge masks and the MWC law, its code (compile\_rate\_equation), its text and the unit rule it prints by. | ★ `compile_rate_equation`, ★ `rate_equation_string`, ★ `parameters`, `RateEquationTooLargeError`, `rate_equation_term_count` | `thermodynamic_constraints` (5), `rate_equation_correctness_guard` (3) |
@@ -694,9 +694,10 @@ passes the guard.
 On a mechanism the guard rejects, the macro, the parser and the derivation entries throw;
 `init_mechanisms`, `seed_mechanisms` and both methods of `Enumeration.candidate_mechanisms`
 drop it. The flip move runs the guard on each candidate it builds, the split move on each
-candidate whose count rises, and the tagging move on each tag set its base search tries.
-The constructors and the Sig decoder never run it, so code that builds a mechanism inside
-the package never trips a check meant for the mechanisms it returns.
+candidate whose count rises, and the tagging and relaxing moves on each set of kinetic
+groups tagged `:NonequalAI` whose count rises, the tagging move also on that set tagged
+`:OnlyA`. The constructors and the Sig decoder never run it, so code that builds a
+mechanism inside the package never trips a check meant for the mechanisms it returns.
 
 ## Enumeration engine architecture
 
@@ -717,11 +718,12 @@ the parent's catalytic scheme, so the constructor runs only the state and site c
 
 The enumerator refuses a reaction whose names spell one string two ways, such as `NAD`, `P`
 and `NADP` (`_check_decodable_names`, run by `candidate_mechanisms`). Its exits and its
-flip, split and tagging searches drop a mechanism that `_enumerator_keeps` refuses. It
-refuses one the guard rejects (see [Well-posedness guard](@ref)). It also refuses an
-allosteric mechanism in which a conformation keeps a form, other than free E, that only
-bindings it excludes enter (`_kept_forms_keep_a_binding`). The guard admits the second when
-its law is the limit, so a user may write it, but the enumerator does not propose it.
+flip, split, tagging and relaxing searches drop a mechanism that `_enumerator_keeps`
+refuses. It refuses one the guard rejects (see [Well-posedness guard](@ref)). It also
+refuses an allosteric mechanism in which a conformation keeps a form, other than free E,
+that only bindings it excludes enter (`_kept_forms_keep_a_binding`). The guard admits the
+second when its law is the limit, so a user may write it, but the enumerator does not
+propose it.
 
 Mechanisms and candidates are ordinary value types to avoid excessive precompilation
 costs. The enumeration builds, expands, and deduplicates many thousands of candidate
@@ -740,10 +742,14 @@ proof sits in the docstring of the function that applies it; this list says whic
   fitted-parameter count rises and the guard accepts the built child. The count comes from
   the joint solve (`fitted_parameter_count`), which derives no rate polynomial. A split
   never changes admission's interior verdict, since both parts keep the group's tag.
+- The relaxing move (`_expand_change_allo_state`) tags a set of kinetic groups
+  `:NonequalAI` only if the fitted-parameter count rises and the enumerator would return
+  the child, and a regulatory ligand only if the count rises.
 - The flip move (`_expand_re_to_ss`) flips whole groups and accepts a set only if the
   rapid-equilibrium segment count rises and every flipped group carries net flux in the
-  child. In a plain mechanism it never flips a flank of a steady-state chain
-  (`_chain_flank_groups`; see [Apparent constants on a steady-state chain](@ref)).
+  child. It never flips a flank of a steady-state chain (`_chain_flank_groups`; see
+  [Apparent constants on a steady-state chain](@ref)). In a plain mechanism that is a proof;
+  in an allosteric one it is a modeling choice.
 - Flux is decided on the graph of rapid-equilibrium segments: a steady-state step carries
   flux exactly when its biconnected block holds a cycle that runs net reaction
   (`_flux_carrying_edges`). A steady-state group with no such step exposes only the ratio
@@ -752,16 +758,20 @@ proof sits in the docstring of the function that applies it; this list says whic
 - A dead-end copy of a substrate or product is redundant when each of its complexes has a
   productive twin and the dwell gauge moves its constant along a direction the rate law
   cannot see (`_redundant_copy_groups`, `_productive_twin`, `_gauge_rescaling`). The
-  dead-end move skips a redundant placement, the split drops every child that holds a
-  redundant copy group, and `_expand_change_allo_state` drops a child with one.
+  dead-end move drops a child that holds a redundant copy group or whose new inhibitor
+  binds in neither conformation (`_inhibitors_bind`), the split drops every child that
+  holds a redundant copy group, and the searches of the tagging and relaxing moves count a
+  set whose child holds one as failed. The tagging move drops the same two kinds of child,
+  though they are not copies of its plain parent: data cannot determine the inhibitor's
+  constant.
 
 `candidate_mechanisms` asserts both rules, flux and no redundant copy, on every parent
-(`_assert_emission_rules`). Both refinement moves share one minimal-set search
-(`_minimal_gaining_sets`). Duplicate laws that survive these proofs share one fit, an L
-phantom's key aside: identify fits one mechanism per key (`_canonical`,
-`src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability rank exists only
-in the test suite, as an oracle for the proofs and the L-phantom certificate; nothing in
-`src/` estimates identifiability numerically.
+(`_assert_emission_rules`). The flip, split, tagging and relaxing moves share one
+minimal-set search (`_minimal_gaining_sets`). Duplicate laws that survive these proofs
+share one fit, an L phantom's key aside: identify fits one mechanism per key
+(`_canonical`, `src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability
+rank exists only in the test suite, as an oracle for the proofs and the L-phantom
+certificate; nothing in `src/` estimates identifiability numerically.
 
 `init_mechanisms` appends to the seeds their merged and Theorell–Chance variants
 (`_seed_variants`, plain `Mechanism`s only), whose rules [The enumeration engine](@ref)
@@ -770,7 +780,8 @@ them on index arrays, with a weighted union-find (`has_nonzero_weight_cycle`), a
 test also reads only the flags. Only a candidate that passes those four is built and goes
 through the guard (`_minimal_flips`). `_degenerate`, the failure of condition V or C on the
 active-state graph, marks the starting mechanisms that `candidate_mechanisms`
-(`_base_tier`) replaces by their flip children that are not degenerate. Both methods of
+(`_base_tier`) replaces by their flip children that are not degenerate, before
+`seed_mechanisms` binds any required regulator. Both methods of
 `candidate_mechanisms` return a `CandidateMechanism` for each mechanism within the two size
 limits, which they apply to what they return and never inside a move's own search.
 
@@ -778,10 +789,14 @@ Over more than one catalytic subunit a conformational equilibrium raises every
 catalytic-site binding to a power. So a mechanism above one subunit must keep a hyperbolic
 catalytic scheme (`_requires_hyperbolic_catalysis`), one whose King–Altman denominator has
 degree at most 1 in every substrate and product; `_hyperbolic_catalysis` tests that.
-`_expand_to_allosteric` promotes a parent that fails the test at oligomeric state 1 only,
-and above one subunit the tagging, relaxing and flip moves drop a child that fails it. The
-test reads the degree from the rapid-equilibrium segment graph without deriving the law,
-and the `_hyperbolic_catalysis` docstring proves that reading exact. It decides "degree at
+`_expand_to_allosteric` promotes a parent that fails the test at oligomeric state 1 only.
+`_enumerator_returns` applies the rule where the enumerator returns its mechanisms,
+`candidate_mechanisms(reaction, parent)` and `seed_mechanisms`, whichever move built them;
+the searches of the tagging and relaxing moves for `:NonequalAI` sets read it too, since
+tagging one more group can make a conformation's law hyperbolic again. The flip search does
+not: more steady-state steps never restore a hyperbolic law. The test reads the degree
+from the rapid-equilibrium segment graph without deriving the law, and the
+`_hyperbolic_catalysis` docstring proves that reading exact. It decides "degree at
 most 1" with reachability checks (`_all_reach`) rather than a max-arborescence solve. The
 testset "_hyperbolic_catalysis matches the derived denominator"
 (`test/Enumeration/test_candidate_mechanism_type.jl`) checks it against the derived

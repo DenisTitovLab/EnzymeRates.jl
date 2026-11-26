@@ -205,7 +205,7 @@ some binding enters (a step that takes up one metabolite and gives off none) is 
 binding the conformation does not exclude: one outside the `:OnlyI` groups in the active
 conformation, outside the `:OnlyA` groups in the inactive one. True for a plain mechanism.
 The guard admits a mechanism that fails this when its law is the limit, so a user may write
-one; the enumerator does not build it.
+one; the enumerator does not return it.
 """
 function _kept_forms_keep_a_binding(am::Mechanisms.Mechanism)
     # A plain mechanism excludes no binding.
@@ -353,10 +353,6 @@ end
 takes."""
 const _NO_RESCALING = _GaugeClass(0, 0, 0)
 
-"""The gauge class of group `h` or form `t` (`_GaugeClass`) in a mechanism with one
-conformational state."""
-_one_state_class(h::Int, t::Int) = _GaugeClass(h, t, 1)
-
 """
     _productive_twin(c, mask) -> (site, ligand) -> Int
 
@@ -379,7 +375,7 @@ Only productive forms are twin sources, so the complex itself never is one. A co
 that duplicates only a copy's complex shares its weight with that copy's constant, and
 the sites that pin either copy may keep both constants separable, so such a match never
 makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end move
-builds are found on that mechanism (`_dead_end_child`).
+builds are found on that mechanism (`_dead_end_children`).
 """
 function _productive_twin(c::CandidateMechanism, mask::BitVector)
     m = c.mechanism.catalytic
@@ -536,8 +532,9 @@ function _redundant_copy_groups(c::CandidateMechanism)
     # A plain mechanism has one state; an allosteric one has two, which form one system.
     if !_is_allosteric(am)
         twin = _productive_twin(c, trues(length(cm.steps)))
+        one_state = (h, t) -> _GaugeClass(h, t, 1)
         return [g for g in eachindex(members)
-                if _gauge_rescaling(c, members, g, twin, _one_state_class) !== nothing]
+                if _gauge_rescaling(c, members, g, twin, one_state) !== nothing]
     end
     equal(h) = am.allosteric.allosteric_states[h] === :EqualAI
     runs = Mechanisms.steps_running_in_allosteric_conformations(am)
@@ -665,6 +662,12 @@ accepts it, and no conformation keeps a form that only bindings it excludes ente
 (`_kept_forms_keep_a_binding`)."""
 _enumerator_keeps(m) =
     Derivation.check_valid_rate_equation(Bool, m) && _kept_forms_keep_a_binding(m)
+
+"""Whether the enumerator returns candidate `c`: it passes `_hyperbolic_where_required`,
+and `_enumerator_keeps` accepts its mechanism."""
+_enumerator_returns(c::CandidateMechanism) =
+    # The hyperbolic test reads the graph alone, where the guard derives, so it runs first.
+    _hyperbolic_where_required(c) && _enumerator_keeps(c.mechanism)
 
 _copies(v::Vector{Int}, i::Int) = count(==(i), v)
 

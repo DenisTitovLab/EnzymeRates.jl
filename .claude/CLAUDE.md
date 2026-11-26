@@ -199,6 +199,10 @@ A docstring gives a caller what they need: arguments, result, units and errors. 
 not describe the implementation. A helper private to its file needs none when its name
 and arguments make its job obvious.
 
+A spec or plan under `docs/superpowers/` uses the same names as `src/` and the docs
+pages. If it needs a term the code lacks, that term is a candidate name for the code, so
+choose it as carefully as a function name.
+
 Every code file starts with exactly two comment lines, each beginning `ABOUTME: `, saying
 what the file holds.
 
@@ -295,7 +299,11 @@ moves live in `test/Enumeration/` (`test_starting_mechanisms.jl`, `test_expansio
 2. **Assert the exact children**: `length(children) == n` and
    `Set(children) == Set(expected)`, the children read as mechanisms (`c.mechanism`,
    `_testhelper_move`, `_testhelper_children`), with every expected child written out.
-   Property assertions are welcome in addition, never instead.
+   Where every child of a move is the parent's catalytic scheme with one allosteric state
+   per kinetic group, the expected children may be given as state assignments over the
+   mechanism written in the testset (`_testhelper_with_states`), built without the
+   enumerator; the testset still asserts the count and the exact set. Property
+   assertions are welcome in addition, never instead.
 3. **Write chemistry the enumerator's way.** Name each form as the enumerator does (`EAB`,
    `ESSmod`, `EB_res_plusA_minusP`): `_testhelper_candidate` reads the form's contents from
    its name. Unmerged chemistry is an isomerization to the product-bound form followed by
@@ -346,6 +354,8 @@ Workflow:
 - Never skip or disable a pre-commit hook. Run `git status` before any `git add -A`.
 - Specs and plans under `docs/superpowers/` are working documents: delete a change's spec
   and plan in the pull request that implements it.
+- A spec opens with the problem and the proposed change in plain language, one paragraph
+  each, before any internal name appears.
 
 ## Working with the maintainer
 
@@ -360,3 +370,23 @@ Workflow:
 - When asked how to approach something, answer the question; do not start implementing.
 - Doing it right matters more than doing it fast. Tedious, systematic work is often the
   correct solution.
+
+### Writing to the maintainer
+
+These rules cover chat messages, specs, plans and pull request descriptions.
+
+- Use the names the code and the docs already have. Write `:NonequalAI`, not "own
+  constants"; write `_expand_change_allo_state`, not "the later move" or "the state
+  moves". Never give a second name to something that has one.
+- Coin a term only for a thing the code has no name for. Define it in one sentence where
+  it first appears in each message, and keep such terms to two or three per document.
+- Assume the maintainer knows the public names in the module map and nothing below
+  them. The first time a message names an internal function (a leading `_`), a private
+  rule or a testset, say in one clause what it does and which file holds it. Say it again
+  in a later message: do not rely on an earlier one being remembered.
+- Explain as to a scientist who has not read the code. Start with the problem in terms of
+  enzymes, mechanisms and rate equations, give one small concrete example, and only then
+  name the code that is involved.
+- Each message stands alone. A reader who skipped the earlier ones can follow it.
+- When a question shows that a term or a function was unclear, explain it and stop using
+  the unclear form. Do not answer with more new terms.

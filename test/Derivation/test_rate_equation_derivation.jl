@@ -3709,6 +3709,66 @@ end
                                  _testhelper_edge(half2, "EB_res_plusA_minusP ⇌ EQ"))
 end
 
+@testset "ping-pong whose inactive conformation binds A and B with its own constants" begin
+    # The six-step ping-pong with both half-reactions at steady state, A's and B's
+    # bindings :NonequalAI and every other group :EqualAI: the inactive conformation runs
+    # the same chemistry with affinities of its own for both substrates. A conformation
+    # that runs the whole cycle gives the same Keq, so B's inactive constant follows from
+    # A's, and the version fits two constants more than the plain mechanism, L and A's
+    # inactive constant. Its law equals the exact steady state of the two conformations'
+    # mass-action network at one subunit, and that of the concerted network at two.
+    plain = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q
+        steps: begin
+            E + A ⇌ EA
+            EA <--> EP_res_plusA_minusP
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP
+            EB_res_plusA_minusP <--> EQ
+            E + Q ⇌ EQ
+        end
+    end
+    monomer = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            EA <--> EP_res_plusA_minusP                      :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: NonequalAI
+            EB_res_plusA_minusP <--> EQ                      :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+        end
+    end
+    dimer = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 2
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            EA <--> EP_res_plusA_minusP                      :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP     :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP     :: NonequalAI
+            EB_res_plusA_minusP <--> EQ                      :: EqualAI
+            E + Q ⇌ EQ                                       :: EqualAI
+        end
+    end
+    @test length(parameters(monomer)) == length(parameters(plain)) + 2
+    @test length(parameters(dimer)) == length(parameters(monomer))
+    _testhelper_check_law_against_oracle(monomer; bigfloat = true)
+    s = EnzymeRates.Derivation._solve(dimer)
+    law = EnzymeRates.Derivation._law(dimer, s)
+    rate = compile_rate_equation(dimer)
+    mets = Tuple(metabolites(dimer))
+    rng = Random.MersenneTwister(77)
+    for _ in 1:3
+        point, concs, params = _testhelper_law_inputs(dimer, s.fitted, rng)
+        oracle = setprecision(() -> _testhelper_protomer_rate(dimer, point, concs; n = 2),
+                              BigFloat, 256)
+        @test abs(_testhelper_evaluate_law(law, merge(params, concs)) - oracle) <=
+              big(10)^-20 * abs(oracle)
+        c64, p64, keq64 = _testhelper_float64_inputs(s.fitted, params, concs, mets)
+        @test isapprox(rate(c64, p64, keq64), Float64(oracle); rtol = 1e-8)
+    end
+end
+
 # ── Fully-inert inactive network (both substrate and product bind :OnlyA) ─────
 # S and P both bind :OnlyA, so the inactive conformation binds nothing — it is a
 # free-enzyme reservoir of mass L, coupled to the active cycle only by the E flip.

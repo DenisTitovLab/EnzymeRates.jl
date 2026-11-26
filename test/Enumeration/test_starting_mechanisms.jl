@@ -816,19 +816,23 @@ end
     @info "bi-bi enumeration: $(round(Int, held)) bytes held per candidate; " *
           "$start_bytes bytes allocated by the starting set, $expand_bytes by one expansion"
     # The bounds hold for a known amount of work: fewer candidates or children would
-    # allocate less and pass.
+    # allocate less and pass. The 33 children are the 6 of the flip and split moves, the
+    # 25 sets of the parent's five groups tagged :OnlyA that the enumerator returns, and
+    # the pairs of substrate bindings and of product bindings tagged :NonequalAI, which it
+    # refuses tagged :OnlyA.
     @test length(start) == 239
-    @test length(children) == 21
+    @test length(children) == 33
     # 1,593.6 bytes, the same in every process on Julia 1.11.9 and 1.13.4, so the margin
     # of 3.5% only allows for an untested Julia version. A field derived from the steps
     # and stored on `Mechanism`, `Step` or the candidate's record of a form raises it: one
     # `Int` vector on `Mechanism` takes it to 1,700.
     @test held < 1_650
-    # Each allocation bound sits 25% above the larger of its two values; more work per
-    # candidate raises it. 42,545,112 bytes on 1.11, 38,788,376 on 1.13:
+    # More work per candidate raises the bytes allocated. Each bound sits 25% above the
+    # larger of its two values. The starting set: 42,568,056 bytes on 1.11, 38,811,320 on
+    # 1.13.
     @test start_bytes < 53_000_000
-    # 13,750,248 bytes on 1.13, 12,683,288 on 1.11:
-    @test expand_bytes < 17_200_000
+    # One expansion: 28,492,448 bytes on 1.11, 30,854,032 on 1.13.
+    @test expand_bytes < 38_500_000
 end
 
 @testset "init_mechanisms on ter-ter within its time and allocation budgets" begin
@@ -1903,17 +1907,15 @@ end
 
     @testset "undesignated: skeletons × 2²" begin
         @test !isempty(seeds_xy)
-        # Every seed is a fully-regulated, cheap-state allosteric mechanism with X
-        # and Y each at their own single-ligand site.
+        # Every seed is a fully-regulated allosteric mechanism with X and Y each at their
+        # own single-ligand site, neither tagged :NonequalAI.
         for s in seeds_xy
             @test _testhelper_is_allosteric(s)
             @test EnzymeRates.Enumeration._bound_allo_regs(s) == Set([:X, :Y])
             sites = s.allosteric.regulatory_sites
             @test length(sites) == 2
             @test all(length(si.ligands) == 1 for si in sites)
-            @test :NonequalAI ∉ [
-                s.allosteric.allosteric_states;
-                [st for si in sites for st in si.allosteric_states]]
+            @test :NonequalAI ∉ [st for si in sites for st in si.allosteric_states]
         end
         # Each lineage contributes exactly 2² = 4 state assignments.
         skels = Dict{UInt64, Int}()
@@ -2066,7 +2068,8 @@ end
 end
 
 @testset "seed_mechanisms wave-parallel equivalence" begin
-    # Inline serial FIFO BFS = the reference the parallel version must match.
+    # Inline serial FIFO BFS = the reference the parallel version must match. It expands
+    # every seed node and returns those the enumerator returns (`_enumerator_returns`).
     _testhelper_binds_all_required(m, req_allo, req_comp) =
         issubset(req_allo, EnzymeRates.Enumeration._bound_allo_regs(m)) &&
         issubset(req_comp,
@@ -2081,8 +2084,10 @@ end
             push!(visited, h); push!(queue, m)
             _testhelper_binds_all_required(m, req_allo, req_comp) && push!(seeds, m)
         end
-        for m in _testhelper_mechanisms(
-            EnzymeRates.Enumeration.init_mechanisms(rxn)); _testhelper_enq(m); end
+        for m in _testhelper_mechanisms(EnzymeRates.Enumeration._base_tier(
+                unique(EnzymeRates.Enumeration.init_mechanisms(rxn)), rxn))
+            _testhelper_enq(m)
+        end
         while !isempty(queue)
             m = popfirst!(queue)
             lifted = isempty(req_allo) ? [] : !_testhelper_is_allosteric(m) ?
@@ -2097,7 +2102,8 @@ end
                     _testhelper_enq(c)
             end
         end
-        seeds
+        filter(m -> EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(m)),
+               seeds)
     end
 
     req = Set([:R])
@@ -2126,51 +2132,22 @@ end
     end
     seeds = _testhelper_mechanisms(
         ER.Enumeration.seed_mechanisms(rxn, Set([:R]), Set{Symbol}()))
-    # Aggregate regression pin over the whole seed set: the search reaches 1,728 seeds and
-    # the guard drops 90 of them, 80 `_PUMPED` and 10 `_FILLED`.
-    @test length(seeds) == 1638
+    # Aggregate regression pin over the whole seed set: the search reaches 4,432 seeds and
+    # the enumerator drops 996 of them. 260 fail the hyperbolic rule, 60 keep a form that
+    # only bindings they exclude enter (`_kept_forms_keep_a_binding`), and the guard
+    # rejects 676: 236 `_BRIDGE`, 204 `_FAST_STEP_PINNED`, 188 `_FILLED` and 48 `_PUMPED`.
+    @test length(seeds) == 3436
     @test all(_testhelper_is_valid, seeds)
-    # The six-step ping-pong with its first half-reaction tagged :OnlyA fails class 3 at
-    # zero A and B, so it is dropped. With its second half tagged instead, the inactive
-    # conformation keeps the two sides of the rapid-equilibrium step
-    # EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`), so it is no seed either.
-    # With both halves tagged it stays.
-    half1 = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        oligomeric_state: 2
-        steps: begin
-            E + A ⇌ EA                                        :: EqualAI
-            EA <--> EP_res_plusA_minusP                    :: OnlyA
-            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
-            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
-            EB_res_plusA_minusP ⇌ EQ                       :: EqualAI
-            EQ ⇌ E + Q                                        :: EqualAI
-        end
-        regulatory_site(2): R::OnlyA
-    end
-    v = ER.Derivation._guard(half1)
-    @test v.fault === ER.Derivation._SPLIT
-    @test ER.Derivation._face_names(half1.catalytic,
-                                    ER.Derivation._faces(half1.catalytic)[v.face]) ==
-          [:A, :B]
-    @test half1 ∉ seeds
-    half2 = @_testhelper_unguarded @enzyme_mechanism begin
-        substrates: A, B
-        products: P, Q
-        oligomeric_state: 2
-        steps: begin
-            E + A ⇌ EA                                        :: EqualAI
-            EA <--> EP_res_plusA_minusP                    :: EqualAI
-            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
-            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
-            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
-            EQ ⇌ E + Q                                        :: EqualAI
-        end
-        regulatory_site(2): R::OnlyA
-    end
-    @test ER.Derivation._guard(half2).fault === ER.Derivation._FAST_STEP_PINNED
-    @test half2 ∉ seeds
+    # The six-step ping-pong with every binding and the second half-reaction at rapid
+    # equilibrium is degenerate, so the search binds R to its flip children instead
+    # (`_base_tier`). Three versions of two of them, each with R::OnlyA. With both
+    # half-reactions at steady state and both tagged :OnlyA the guard admits the
+    # mechanism, and it is a seed. With Q's release at steady state instead, the same
+    # tags fail admission's face condition (`_BRIDGE`), and the second half-reaction
+    # tagged alone leaves the inactive conformation the two sides of the
+    # rapid-equilibrium step EB_res_plusA_minusP ⇌ EQ joined (`_FAST_STEP_PINNED`):
+    # neither is a seed. On every such flip child the guard admits the first
+    # half-reaction alone :OnlyA, which it refused (`_SPLIT`) on the degenerate mechanism.
     both = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -2180,12 +2157,46 @@ end
             EA <--> EP_res_plusA_minusP                    :: OnlyA
             EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
             E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
-            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EB_res_plusA_minusP <--> EQ                    :: OnlyA
             EQ ⇌ E + Q                                        :: EqualAI
         end
         regulatory_site(2): R::OnlyA
     end
     @test both ∈ seeds
+    both_q_slow = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        oligomeric_state: 2
+        steps: begin
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: OnlyA
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EQ <--> E + Q                                     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyA
+    end
+    @test ER.Derivation._guard(both_q_slow).fault === ER.Derivation._BRIDGE
+    @test both_q_slow ∉ seeds
+    half2_q_slow = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: A, B
+        products: P, Q
+        oligomeric_state: 2
+        steps: begin
+            E + A ⇌ EA                                        :: EqualAI
+            EA <--> EP_res_plusA_minusP                    :: EqualAI
+            EP_res_plusA_minusP ⇌ E_res_plusA_minusP + P  :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP  :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                       :: OnlyA
+            EQ <--> E + Q                                     :: EqualAI
+        end
+        regulatory_site(2): R::OnlyA
+    end
+    v = ER.Derivation._guard(half2_q_slow)
+    @test (v.fault, ER.Mechanisms.step_text(half2_q_slow.catalytic, v.edge)) ==
+          (ER.Derivation._FAST_STEP_PINNED, "EB_res_plusA_minusP ⇌ EQ")
+    @test half2_q_slow ∉ seeds
 end
 
 @testset "candidate_mechanisms expands degenerate seeds instead of fitting them" begin
@@ -2215,6 +2226,100 @@ end
           Set(vcat(filter(m -> !EnzymeRates.Enumeration._degenerate(
                                _testhelper_candidate(m)), seeds), cures))
     @test length(base) == 278
+end
+
+@testset "seed_mechanisms starts from the base tier" begin
+    # Aggregate regression pins over two whole starting sets. The search binds R to the 278
+    # mechanisms of the base tier, none of them degenerate, and the moves that bind it keep
+    # every rapid-equilibrium flag, so no starting mechanism is degenerate.
+    ER = EnzymeRates
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        allosteric_regulators: R
+        oligomeric_state: (1, 2)
+    end
+    starting = ER.Enumeration.candidate_mechanisms(rxn)
+    @test length(starting) == 14078
+    @test !any(ER.Enumeration._degenerate, starting)
+    rxn_inhibited = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        competitive_inhibitors: I
+        oligomeric_state: (1, 2)
+    end
+    @test length(ER.Enumeration.candidate_mechanisms(rxn_inhibited)) == 1548
+end
+
+@testset "starting mechanisms hold one half-reaction :OnlyA and a :NonequalAI pair" begin
+    # With R required the starting mechanisms are grown from the base tier by the tagging
+    # and regulator moves (`seed_mechanisms`), never by `_expand_change_allo_state`. On the
+    # six-step ping-pong with both half-reactions at steady state they hold the version
+    # whose inactive conformation stops the first half-reaction alone, and the version
+    # whose inactive conformation binds A and B with constants of its own: A's and B's
+    # bindings tagged :OnlyA are refused, so the tagging move tags them :NonequalAI. Each
+    # binds R.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        allosteric_regulators: R
+    end
+    half1 = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                   :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                   :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                  :: OnlyA
+            EB_res_plusA_minusP <--> EQ                  :: EqualAI
+        end
+        regulatory_site(1): R::OnlyA
+    end
+    a_b_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                   :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                   :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                  :: EqualAI
+            EB_res_plusA_minusP <--> EQ                  :: EqualAI
+        end
+        regulatory_site(1): R::OnlyA
+    end
+    starting = _testhelper_mechanisms(EnzymeRates.Enumeration.candidate_mechanisms(rxn))
+    @test half1 in starting
+    @test a_b_nonequal in starting
+end
+
+@testset "a declared activator is never :OnlyI in a starting mechanism" begin
+    # With R required, every starting mechanism of the uni-uni reaction binds R at a site
+    # of its own. The tagging move emits its child with the chemistry alone :OnlyA twice
+    # more, with R at a site tagged :OnlyA and tagged :OnlyI, and the regulator move gives
+    # R to the tagging move's other children. An activator binds the active conformation,
+    # so no starting mechanism holds R :OnlyI when R is declared one; with R declared
+    # neither way some starting mechanism does.
+    function _testhelper_states_of_R(rxn)
+        starting = _testhelper_mechanisms(EnzymeRates.Enumeration.candidate_mechanisms(rxn))
+        [only(state for site in m.allosteric.regulatory_sites
+              for (ligand, state) in zip(site.ligands, site.allosteric_states)
+              if ligand === :R)
+         for m in starting]
+    end
+    activator = _testhelper_states_of_R(@enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R::Activator
+    end)
+    @test !isempty(activator)
+    @test :OnlyI ∉ activator
+    undeclared = _testhelper_states_of_R(@enzyme_reaction begin
+        substrates: S[C]
+        products: P[C]
+        allosteric_regulators: R
+    end)
+    @test :OnlyI in undeclared
 end
 
 @testset "_base_tier replaces a degenerate seed by the flips that cure it" begin

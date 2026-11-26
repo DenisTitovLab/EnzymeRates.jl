@@ -76,12 +76,13 @@ doubles that. Each further inhibitor multiplies the count again.
 
 ## Allosteric regulation
 
-Making an enzyme allosteric adds a second conformation. Every binding group may
-then bind in both conformations equally, in both with different affinities, or
-in the active one only, and every regulator takes one of four states. A bi-bi
-promotes to about 15 allosteric variants with no regulator declared, and each
-regulator adds variants of its own; two regulators may also share a site or sit
-at separate sites.
+Making an enzyme allosteric adds a second conformation. Every kinetic group may
+then run in both conformations with the same constants, in both with different
+ones, or in the active one only, a competitive inhibitor's binding also in the
+inactive one only, and every regulator takes one of four states. A bi-bi
+promotes to a median of 13 allosteric variants with no regulator declared (7 to
+27), and each regulator adds variants of its own; two regulators may also share a
+site or sit at separate sites.
 
 ## Putting it together
 

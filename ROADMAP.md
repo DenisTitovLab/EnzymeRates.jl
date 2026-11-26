@@ -102,10 +102,13 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     readings. 441 gate mechanisms are too large to search. The 33 among them with no
     consistent built reading are rejected with `_TOO_MANY_READINGS`, whatever their law: 27
     of the 2,000 ter-ter taggings, 2 of 3,000 ter-bi, 1 of 3,000 bi-ter and 3 of the
-    admission tests' mechanisms. Without a regulator, 20 of the 4,885 census ter-bi starting
-    mechanisms keep no allosteric child, since their only K-type is too large to search.
-    Raising the caps costs time: the slowest guard call, on a ter-bi mechanism of 25 steps
-    with 2,157 pairs, takes 0.3 s.
+    admission tests' mechanisms. No starting mechanism is left without an allosteric child:
+    with no regulator declared and one subunit, each of the 5,158 starting mechanisms of the
+    census ter-bi reaction `A[C] + B[N] + D[X] → P[CN] + Q[X]` (`candidate_mechanisms(rxn)`,
+    which replaces each degenerate one of its 4,885 `init_mechanisms` by its flip children)
+    gets at least one from `candidate_mechanisms(rxn, parent)`, a median of 26 (measured
+    2026-11-25). Raising the caps costs time: the slowest guard call, on a ter-bi mechanism
+    of 25 steps with 2,157 pairs, takes 0.3 s.
   - **Refused as a bridge.** The face condition refuses vanishing transitions that open a
     faster route between two of the law's forms when it cannot prove the route harmless.
     Gate entry 53246, a ter-ter tagging that holds an excluded rapid-equilibrium step that
@@ -125,20 +128,29 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     (`test/Derivation/test_allosteric_rate_equation_correctness_guard.jl`, "conservative
     rejections the oracle admits stay rejected under their reading"). A rule that also set
     aside groups touching forms in equilibrium for another reason, such as a dead-end
-    branch, admitted nothing in any population.
-  - **Refused by a face check though the rate equals the law's.** Of the mechanisms of
-    8 steps or fewer that a face check refuses, sampled 40 per population, these have a
-    limit along corner directions under some consistent reading: 9 of 40 `:OnlyA` taggings
-    of the uni-uni, bi-bi and ping-pong starting mechanisms (an estimated 127 of 566), 16 of
-    40 of the admission tests' mechanisms (47 of 118), 7 of 40 ter-bi (16 of 89), 4 of the 8
-    ping-pong taggings with both halves' chemistry `:OnlyA` (below), 1 of 40 bi-ter (2 of
-    86), and none of the `:OnlyI`, ter-ter, bi-bi split and inhibitor ones. The guard
-    reports each with its first consistent reading's `_PUMPED` or `_FILLED`. Nearly all are
-    ping-pongs. Under the reading the oracles accept, the guard refuses 8 of the 9 `:OnlyA`
-    taggings by the filling check and 1 as a bridge, 8 times at B's binding to the covalent
-    form and once at P's. On such a face the cut-off forms hold most of the enzyme, yet the
-    rate equals the law's because the inactive conformation's kept chemistry has the active
-    one's constants. No simple rule found separates these from the wrong ones.
+    branch, admitted nothing in any population. A wider rule could also give the test for
+    hyperbolic laws something to drop. Above one subunit the enumerator returns no mechanism
+    whose conformations' laws are not hyperbolic (`_hyperbolic_where_required`,
+    `src/Enumeration/candidate_mechanism_type.jl`), and today that drops nothing that
+    `_enumerator_keeps` keeps: every one of the 13,678 state assignments it keeps on the
+    bi-bi starting mechanisms with hyperbolic schemes passes `_hyperbolic_catalysis` at two
+    subunits, and every one of 7,846 on mechanisms with an inhibitor, but only because the
+    guard refuses the assignments that would fail it.
+  - **Refused by a face check though the rate equals the law's.** Of the mechanisms of 8
+    steps or fewer that a face check refuses, sampled 40 per population, these have a limit
+    along corner directions under some consistent reading: 9 of 40 `:OnlyA` taggings of the
+    uni-uni, bi-bi and ping-pong starting mechanisms (an estimated 127 of 566), 16 of 40 of
+    the admission tests' mechanisms (47 of 118), 7 of 40 ter-bi (16 of 89), 4 of the 8
+    refused ping-pong taggings (the gate's 25 bi-bi ping-pongs with a covalent form, each
+    with both halves' chemistry `:OnlyA` and with every step `:OnlyA`; all 4 tag every
+    step), 1 of 40 bi-ter (2 of 86), and none of the `:OnlyI`, ter-ter, bi-bi split and
+    inhibitor ones. The guard reports each with its first consistent reading's `_PUMPED` or
+    `_FILLED`. Nearly all are ping-pongs. Under the reading the oracles accept, the guard
+    refuses 8 of the 9 `:OnlyA` taggings by the filling check and 1 as a bridge, 8 times at
+    B's binding to the covalent form and once at P's. On such a face the cut-off forms hold
+    most of the enzyme, yet the rate equals the law's because the inactive conformation's
+    kept chemistry has the active one's constants. No simple rule found separates these from
+    the wrong ones.
 - **The guard's face checks under a searched reading rest on numerical evidence.**
   The filling check and the set-aside rule (Developer page, "Well-posedness guard") have
   arguments, not proofs, that the face condition with them suffices under every reading. A
@@ -147,9 +159,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   fails. The protection is a gate run once on the guard as built. It ran the guard on 78,554
   mechanisms in ten populations: `:OnlyA` taggings of the uni-uni, bi-bi and ping-pong
   starting mechanisms (9,616), taggings with an `:OnlyI` group (43,311), ter-ter taggings
-  (2,000), K-type taggings of the bi-bi split children (9,878), ping-pong taggings (50),
-  bi-bi with a competitive inhibitor, ter-bi and bi-ter taggings (3,000 each), one expansion
-  round's allosteric children (1,990) and the admission tests' mechanisms (2,709). None of
+  (2,000), taggings of the bi-bi split children with the chemistry and some bindings
+  `:OnlyA` (9,878), ping-pong taggings (50), bi-bi with a competitive inhibitor, ter-bi and
+  bi-ter taggings (3,000 each), one expansion round's allosteric children (1,990) and the
+  admission tests' mechanisms (2,709). None of
   the 29,517 the built readings admit is rejected. It ran the ε-path and RE-speed oracles on
   the 1,575 that only the search or the set-aside rule admits, all of them of 8 steps or
   fewer and samples of the rest: all 591 small ones agree along corner directions, 598
@@ -167,46 +180,135 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
 - **An allosteric ping-pong whose covalent forms empty only by binding B cannot stop both
   half-reactions.**
   PDH and OGDH are ping-pong and allosteric, so allosteric ping-pong must stay in the
-  search. The guard admits a ping-pong whose inactive conformation runs neither
-  half-reaction when the covalent forms can lie higher in energy there: each half's step
-  into them loses its rate and its step out keeps it, so they empty whatever the ratio of
-  the two vanishing rates. Of the 25 bi-bi ping-pong `init_mechanisms` with a covalent form,
-  each with both halves' chemistry `:OnlyA` and with every step `:OnlyA`, it admits 40 of
-  the 50. The 3 rejected with only their chemistry `:OnlyA` (`_FILLED`) have no limit under
-  any reading: their covalent forms empty only by binding B. Stopping both halves there
-  needs the conformations to flip at the covalent form as well, with an equilibrium constant
-  of its own and the multi-subunit rate formula rederived for two flip forms; that belongs
-  with iso mechanisms. The 7 rejected with every step `:OnlyA` (`_PUMPED`) hold the 4 valid
-  ping-pongs counted under "The guard rejects some allosteric mechanisms whose law is the
-  limit". What the search does today:
-  - **The tagging move stops both half-reactions where the guard admits it.**
-    Its first candidate base tags every chemistry group `:OnlyA` (`_tagging_bases`,
-    `src/Enumeration/expansion_moves.jl`). On the six-step and three-step bi-bi ping-pongs,
-    and on the six-step one whose A and P groups each hold an abortive binding, the guard
-    admits it, so it is the one base. On the six-step ping-pong every allosteric child kept
-    at the exits, and every allosteric child of those on the same graph, turns over at zero
-    products: 44 with a regulator declared, at one subunit and again at two, and 18 without
-    one. A one-half base arises only where the guard rejects the every-chemistry set, as on
-    the four-step bi-bi ping-pong whose A binding is fused at steady state and whose B
-    binding is fused at rapid equilibrium; several bases occur in 48 of the 4,885 census
-    ter-bi parents.
-  - **Change-tag cannot give the six-step bi-bi ping-pong a live inactive conformation.**
-    On the V-type that stops both halves, change-tag's relaxation of both half-reactions to
-    `:NonequalAI` excludes nothing, but class 3 rejects it: at zero substrates, and at zero
-    B, the covalent forms of both conformations lie on one rapid-equilibrium segment, joined
-    only through free E, so the rate's limit depends on how fast each conformation's steps
-    run (`_SPLIT`, `_LIMIT_SPEED`). `candidate_mechanisms` drops that child, and none of the
-    44 children above has an inactive conformation that turns the reaction over. On the
-    three-step ping-pong, whose steps are all steady-state, the same relaxation passes.
-  - **A bare tagging base is fitted only beside a regulator.**
-    The tagging move emits a base only beside a declared regulator, and no move reaches the
-    bare base: change-tag relaxes tags only to `:NonequalAI`, and no move removes a site.
-    Yet a bare base can be well-posed with its `L` identifiable. The three-step ping-pong's
-    every-chemistry base, its only base, fits 6 parameters at rank 6 over the parent's 5 at
-    two subunits (at rank 5 at one, where `L` is a phantom). The four-step ping-pong's
-    one-half base, which stops the first half-reaction, fits 6 at rank 6 at one and at two
-    subunits. Both turn over at zero products. Whether the enumerator should emit a bare
-    base, at least above one subunit, is the maintainer's decision.
+  search. On 10 of the 39 ping-pong starting mechanisms of the bi-bi reaction
+  `A[CX] + B[N] → P[C] + Q[NX]`, the guard rejects the version that tags both
+  half-reactions `:OnlyA` and nothing else (3 as `_FILLED`, 7 as `_BRIDGE`), and the test
+  suite's oracle finds no mass-action limit under any reading, at zero B and at zero A and
+  B. In all ten the first half-reaction is at steady state and the second half's chemistry
+  is a rapid-equilibrium step, and the enumerator keeps the version with the first half
+  alone `:OnlyA`. Stopping both halves there needs the conformations to interconvert at the
+  covalent form as well, with an equilibrium constant of its own and the multi-subunit rate
+  formula rederived for two such forms; that belongs with iso mechanisms.
+- **Some `:NonequalAI` mechanisms fit a constant the data cannot determine at one subunit.**
+  The search tags a set of kinetic groups `:NonequalAI` when that raises the fitted count
+  (`Derivation.fitted_parameter_count`), which counts constants the thermodynamic
+  equations leave free, not constants the data determine. On the six-step bi-bi ping-pong
+  with both half-reactions at steady state, the bindings of A and Q tagged together, or of
+  B and P, fit two constants more than the plain mechanism; the data determine none more at
+  one subunit and one more at two (`_testhelper_identifiable_rank`, `test/testhelpers.jl`).
+  The L-phantom certificate (`_phantom_weights`,
+  `src/Derivation/rate_equation_dedup_key.jl`) covers only mechanisms whose inactive
+  conformation turns nothing over, so identify fits these. How many allosteric versions of
+  the starting mechanisms are like them was not counted.
+- **Some `:OnlyI` inhibitors fit a constant the data cannot determine at one subunit.**
+  `_expand_to_allosteric` (the tagging move, `src/Enumeration/expansion_moves.jl`) can tag
+  a competitive inhibitor's group `:OnlyI`, so that only the inactive conformation binds
+  it. Of 122 sampled such children with no `:NonequalAI` group, of the bi-bi starting
+  mechanisms of `A[CX] + B[N] → P[C] + Q[NX]` with a competitive inhibitor `I`, 47 fit more
+  constants than the data determine at one subunit (2 of them two more), and 3 at two
+  subunits. Where no group is `:OnlyA`, in 4 of 5 sampled, the rate equation is the plain
+  mechanism's with the inhibitor's constant `K` replaced by `K·(1 + L)/L`. The L-phantom
+  certificate covers 4 of the 47, whose inhibitor's terms lie in the inactive
+  conformation's denominator alone, so identify fits 43 with a constant the data cannot
+  determine. With the inhibitor's group `:OnlyA` instead, 28 of the same 122 fit one
+  constant too many, and 19 of those pass the certificate.
+- **Some `:NonequalAI` versions are reached only through an L phantom.**
+  Where a set of kinetic groups gains a fitted constant tagged `:NonequalAI` and the
+  enumerator also returns it tagged `:OnlyA`, the tagging move emits only the `:OnlyA`
+  child, and `_expand_change_allo_state` (the relaxing move,
+  `src/Enumeration/expansion_moves.jl`) reaches the `:NonequalAI` version from it. At one
+  subunit that child is an L phantom for 227 of the 539 such sets on the 239 sequential
+  bi-bi starting mechanisms of `A[CX] + B[N] → P[C] + Q[NX]`, and for 11 of the 124 on the
+  39 ping-pong ones. An L phantom reads its parent's fit, so it enters the beam only
+  through the beam's minimum width, and the `:NonequalAI` version is fitted only if it does.
+  Above one subunit there are no L phantoms. Emitting these sets tagged `:NonequalAI` from
+  the tagging move as well would end this, for a median of one more child per sequential
+  mechanism and five per ping-pong one.
+- **The flip move skips allosteric flank flips that the data can see.**
+  `_expand_re_to_ss` never flips a flank of a steady-state chain (`_chain_flank_groups`,
+  `src/Enumeration/expansion_moves.jl`), in allosteric mechanisms as in plain ones. For a
+  plain mechanism a proof shows the flip adds no rate equation; for an allosteric one the
+  rule is a modeling choice. Of the 278 bi-bi starting mechanisms of
+  `A[CX] + B[N] → P[C] + Q[NX]`, 15 hold a chain. On four allosteric versions of each, a
+  flip of flanks alone adds a constant the data determine (`_testhelper_identifiable_rank`)
+  in 20 of 96 cases at two subunits and in 2 of 128 at one; the two at one subunit come
+  from a version with an `:OnlyA` and a `:NonequalAI` group. So the search misses a slow
+  binding beside a slow isomerization where the two conformations treat the chain
+  differently.
+- **A steady-state step beside an `:OnlyI` inhibitor can fit two constants for one ratio.**
+  `_expand_split_kinetic_group` can give a step between two of a competitive inhibitor's
+  complexes a kinetic group of its own, and `_expand_re_to_ss` can then flip that group to
+  steady state. With the inhibitor's group `:OnlyI` the step runs in the inactive
+  conformation alone, and where that conformation turns nothing over, its two rate
+  constants enter the rate equation only as their ratio. The check that every steady-state
+  group carries net flux (`_assert_emission_rules`, `src/Enumeration/expansion_moves.jl`)
+  reads the whole catalytic scheme and does not see it. How often the search builds such a
+  mechanism was not counted.
+- **Requiring a competitive inhibitor and an allosteric regulator together makes 236,444
+  starting mechanisms.**
+  On the bi-bi reaction `A[CX] + B[N] → P[C] + Q[NX]` at oligomeric states 1 and 2, with a
+  competitive inhibitor `I` and an allosteric regulator `R` both required,
+  `candidate_mechanisms(rxn)` returns 236,444 starting mechanisms in 173 s, peaking at
+  2.29 GiB resident, against 69,178 in 36 s and 1.19 GiB at 0.11.0; identify fits all of
+  them in its first batch. With `R` alone required it returns 14,078 (6,428 at 0.11.0), and
+  with `I` alone 1,548 (unchanged). The tagging move emits every set of `:OnlyA` groups and
+  gives an inhibitor's group three states, and the dead-end move gives a new inhibitor
+  three states on an allosteric parent. Marking either regulator optional
+  (`optional_competitive_inhibitors`, `optional_allosteric_regulators`) avoids the cost.
+  Measured once each in a fresh process (compilation included) on the maintainer's
+  machine, Julia 1.13.4, `--heap-size-hint=2500M`.
+- **One parent's allosteric children double with each kinetic group.**
+  `_expand_to_allosteric` (the tagging move, `src/Enumeration/expansion_moves.jl`) emits
+  every set of `:OnlyA` groups at each oligomeric state, `2^g − 1` for `g` kinetic groups,
+  and the design measured how many of them the enumerator returns only up to seven groups
+  (90 at seven, on ter-bi). Take the ordered ter-ter mechanism of
+  `A[X] + B[Y] + C[Z] → P[X] + Q[Y] + R[Z]` with the abortive complexes EAR, EAQR and
+  EABR, every step at rapid equilibrium but the chemistry: ten groups. At oligomeric
+  states 1 and 2 its children (`candidate_mechanisms(rxn, parent)`) number 1,838 and take
+  0.4 s, against 1,026 at 0.11.0. With a competitive inhibitor bound (eleven groups) they
+  number 5,488 and take 3.0 s, and the call allocates 21.4 GB in passing, against 2,052,
+  0.9 s and 6.3 GB at 0.11.0. The design forbids a bound on these children: any bound
+  would hide a feasible version, and the argument that the tagging and relaxing moves
+  reach every irreducible version starts from every set of `:OnlyA` groups. The relaxing
+  move's search for minimal gaining sets (`_expand_change_allo_state`) grows the same way
+  where `:OnlyA` groups cut others off from free E: tagging such a group `:NonequalAI`
+  gains nothing, so the search extends every set that holds it. It tries 48 of 63 sets at
+  six groups and 768 of 1,023 at ten (40 ms). At that rate it is harmless to about 15
+  groups, an estimate and not a measurement, and exponential beyond. Measured on the
+  maintainer's machine, Julia 1.13.4, `--heap-size-hint=2500M`; the times of the children
+  are of a second call in one process.
+- **No test shows the inhibitor checks deciding a `:NonequalAI` search.**
+  Inside its search for `:NonequalAI` sets, `_expand_to_allosteric` counts a set whose child
+  binds a competitive inhibitor in neither conformation or redundantly
+  (`_inhibitors_bind`, `_redundant_copy_groups`) as not gaining and extends it, and asks the
+  same of the set tagged `:OnlyA`. No known mechanism of six or fewer kinetic groups makes
+  these checks change which children the search emits, so no testset pins that path.
+  `_expand_change_allo_state` likewise counts a set whose child binds an inhibitor
+  redundantly as not gaining and extends it. The testset "Allosteric mechanism — no
+  relaxation makes a kept copy redundant" (`test/Enumeration/test_expansion_moves.jl`)
+  pins such a refusal, but no testset shows a larger set emitted after one. The
+  reachability testset ("to_allosteric and change_allo_state reach every irreducible
+  version", same file) would show a version either search hides on its samples.
+- **An allosteric mechanism is reached only through a plain mechanism the search expands.**
+  `identify_rate_equation` fits the plain starting mechanisms first and expands the best of
+  them, and a mechanism becomes allosteric only as a child of an expanded plain one
+  (`_expand_to_allosteric`), unless the reaction requires an allosteric regulator. Data
+  from an allosteric enzyme fit no plain mechanism well, so the plain mechanisms with the
+  fewest constants win, and the true mechanism's plain parent can stay unexpanded.
+  Measured once, on the bi-bi reaction `A[CX] + B[N] → P[C] + Q[NX]` at two subunits: 84
+  noiseless rates generated from the six-step ping-pong with both half-reactions at steady
+  state and the bindings of A and B `:NonequalAI` (9 fitted constants, of which the data
+  determine 8), searched with `min_beam_width = 10` and `max_param_count = 9`. Of the 278
+  starting mechanisms the search expanded 10, all with 5 fitted constants (losses 0.030 to
+  0.045). None of the 64 with 6 constants or the 25 with 7 was expanded: their best loss
+  is 0.033. The generator's plain parent has 7 constants and a loss of 0.042, ninth of
+  those 25, so the generator was never built. The search still selected a mechanism that
+  fits the data to a loss of 3.7e-13: an 8-constant ping-pong in which each of A's and
+  B's bindings is one step with its chemistry, those two steps `:NonequalAI`. So this run
+  recovered the rate equation and which steps differ between the conformations, and not
+  the mechanism. Whether a rate equation can be missed this way is not known. A second
+  run, with all chemistry `:OnlyA` and a required regulator, selected its generator, which
+  is a starting mechanism there.
 - **A batch's progress-log header can print twice.**
   When an L phantom's source's fit throws in the phantom's own batch, `run_batch!`'s log
   closure (`src/identify_rate_equation.jl`) prints the batch header again above the demotion
@@ -412,11 +514,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     taggings because their children differ; and a user who writes `:: EqualAI` would see
     `:: OnlyA` printed. The guard treats "excluded by its state" (`_excluded_steps`) and
     "does not run" in separate code, so its verdicts would need checking again on the gate's
-    mechanisms. Storing whether each conformation turns the reaction over would serve two of
-    the four callers of `has_turnover_cycle` (admission's `_active_turnover_verdict` and the
-    tagging move's `_stops_inactive_turnover`); the guard's class 1 asks about every step,
-    and the enumerator's maximal-rate test (`_has_vmax`) about a hypothetical subset of
-    steps, so the function stays shared.
+    mechanisms. Storing whether each conformation turns the reaction over would serve one of
+    the three callers of `has_turnover_cycle`, admission's `_active_turnover_verdict`; the
+    guard's class 1 asks about every step, and the enumerator's maximal-rate test
+    (`_has_vmax`) about a hypothetical subset of steps, so the function stays shared.
   - **`rate_equation_panels` takes a `Keq` it only passes on.**
     `Plotting.rate_equation_panels` hands `Keq` to `Data.RateData` and reads it nowhere
     else, and the method of `plot_rate_equation_on_data` for a rate function passes a
@@ -460,9 +561,8 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   only after a reparametrization (`_canonical`,
   `src/Derivation/rate_equation_dedup_key.jl`), or laws that differ only outside the data.
   Separating the two would size a saving of up to 3–4×. Still unmeasured on these runs: fits
-  whose parent fails the final parsimony cutoff, children and survivors per move, zero-gain
-  `change_allo_state` children, and how many PGK rows identify flags `L_phantom`. Priority:
-  medium.
+  whose parent fails the final parsimony cutoff, children and survivors per move, and how
+  many PGK rows identify flags `L_phantom`. Priority: medium.
 - **Tighten the speed gate's two bounds once CI's readings without coverage are in.**
   The bounds on the compiled law (50 ns + 0.5 ns per denominator term) and on `loss!` (1.25
   times the law plus eight `log` calls per row) were set from timings taken under coverage
@@ -500,34 +600,6 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   merge only sites of equal multiplicity. Keep a bare `A` at the oligomeric state, widen
   only on an explicit list, and reject `I(m)` for a competitive inhibitor. Priority:
   medium-low.
-- **Drop `change_allo_state` relaxations that free no parameter, if measurement finds any.**
-  `_expand_change_allo_state` (`src/Enumeration/expansion_moves.jl`) has no gain test,
-  unlike the split and RE→SS moves, and in a past LDH run it produced 20 of 33 zero-gain
-  edges. A child whose law equals one already fitted, up to renaming its constants, shares
-  that fit through the key (`_canonical`, `src/Derivation/rate_equation_dedup_key.jl`) and
-  costs no fit; a zero-gain child with a law of its own still costs one. First count, over
-  the bi-bi allosteric depth-2 population, the children whose `fitted_parameter_count` does
-  not exceed their parent's and whose key is new, and confirm them with
-  `_testhelper_identifiable_rank`. A naive filter can drop a different model with the same
-  count, so check reachability before filtering. Priority: medium-low.
-- **Decide whether to keep the hyperbolic drops above one subunit.**
-  Above one subunit the tagging and change-tag moves drop a child whose inactive law is not
-  hyperbolic (`_hyperbolic_where_required`, `src/Enumeration/candidate_mechanism_type.jl`).
-  Neither drop removes a candidate the guard admits in any population searched: 81,687
-  tagging and 378,543 change-tag candidates at two subunits on bi-bi and census ping-pong
-  parents, and 1,046,178 tag vectors on hyperbolic parents of at most 7 groups. On the
-  six-step bi-bi ping-pong whose A and P groups each hold an abortive binding, the tagging
-  move's one base stops both half-reactions; at two subunits the drop removes none of its 15
-  K-types, and the exits keep 5. Why the drops find nothing, as an argument rather than a
-  proof: a tagging or change-tag child has no `:OnlyI` catalytic group, so its active law is
-  the parent's, which the move requires to be hyperbolic. Its inactive law keeps only forms
-  of free E's group. An excluded rapid-equilibrium step between two of them would be pinned,
-  which the guard rejects, so each rapid-equilibrium segment of the inactive law is a
-  segment of the parent cut down to the kept forms, and the law's degree in a metabolite
-  cannot exceed the parent's. The exception is a segment the cut splits in two: the cut-off
-  forms between the parts then drain into both, which the face condition refuses as a
-  bridge, unless the set-aside rule sets them aside; that case the argument does not cover.
-  Tests pin both drops on candidates the guard rejects anyway. Priority: low.
 - **Enumerate Cleland iso mechanisms.**
   The derivation handles iso mechanisms, but no enumeration move generates them, and each
   carries a dwell-time-gauge phantom unless the exact rank (see Ideas) or a
@@ -542,6 +614,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   whose curvature MWC cannot fit. Revisit allosteric ping-pong with this work: a flip at a
   second free form is the same question (see the Known issue "An allosteric ping-pong whose
   covalent forms empty only by binding B cannot stop both half-reactions"). Priority: low.
+- **Pin the exact allosteric children that three testsets only count.**
+  Three testsets of `test/Enumeration/test_expansion_moves.jl` count the allosteric
+  mechanisms `candidate_mechanisms` returns for one parent, without the exact set that
+  rule 2 of the enumeration-engine tests in `.claude/CLAUDE.md` asks for: "Mechanism —
+  bi-bi ping-pong at two subunits: every :OnlyA set" (`length(returned) == 14 + 4`, nine of
+  the 14 returned `:OnlyA` children unnamed), "Mechanism — Allosteric expansion included"
+  (`allo_count == 5`) and "a seed that binds no inhibitor has no :OnlyI group a round
+  later" (`length(allo) == 7`). Converting each needs the returned `:OnlyA` sets as state
+  assignments (`_testhelper_with_states`), and each refused set listed with the guard fault
+  or exit that refuses it, checked on its own mechanism; the last testset also needs its
+  two regulator children written out. The first is the larger job: 49 refused sets of 63.
+  Priority: low.
 
 ## Ideas
 
@@ -590,16 +674,17 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   saved runs to find the other phantom classes; performance may keep it out of `src/`,
   where it would otherwise replace the beam's parameter count. It must never filter
   children, since a phantom child can carry families its parent lacks.
-- **Apply the chain-flank exclusion at one catalytic subunit.**
-  The flip move keeps a chain's flanks at rapid equilibrium only in plain mechanisms
-  (`_chain_flank_groups`, `src/Enumeration/expansion_moves.jl`): an allosteric mechanism has
-  none, since above one subunit a flank's flip can show through the two
-  conformations. At one subunit an L phantom's flank flip stays invisible, so the move
-  emits a phantom whose law at L = 0 no plain mechanism of the search holds, and
-  identify fits it as an ordinary candidate (census #3268; the phase-5 research found
-  62 such bi-bi variants on 16 keys in a sampled round 2). Applying the exclusion to
-  one-subunit variants would drop these fits; first check that no other law becomes
-  unreachable.
+- **Replace allosteric mechanisms at one subunit by a regulator that binds forms of the
+  catalytic scheme.**
+  At one catalytic subunit the equilibrium between the two conformations only reweights the
+  enzyme forms, so the rate equation is a plain one written with `L` and two sets of
+  constants. That is the common cause of the one-subunit Known issues: L phantoms, and
+  `:NonequalAI` and `:OnlyI` versions with a constant the data cannot determine or reached
+  only through an L phantom. The maintainer keeps allosteric mechanisms at one subunit: they
+  are the only way a monomer binds an allosteric regulator, and the only allosteric versions
+  of a catalytic scheme that is not hyperbolic. Their replacement would be a regulator that
+  binds forms of the catalytic scheme and leaves them active with constants of their own, a
+  family of mechanisms that needs a design of its own.
 - **Choose the number of restarts per fit.**
   Over 120 sampled fits per enzyme, the best of 10 restarts took half the time of 20 and
   came within 1% of the best of 20 in 98% of PFKP's fits (worst 10.7% above it) and in all

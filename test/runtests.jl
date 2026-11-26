@@ -8,6 +8,14 @@ using Random
 include("testhelpers.jl")
 @testset "EnzymeRates.jl" begin
     include("test_compile_budget.jl")
+    # Every compiled rate equation leaves generated code that Julia never frees, so the
+    # heap grows as the suite runs. The four files that allocate most run first, while
+    # it is small: after the others they spend most of their time collecting garbage
+    # (the expansion-moves file took 323 s there and takes 108 s here).
+    include("Enumeration/test_expansion_moves.jl")
+    include("Enumeration/test_candidate_mechanism_type.jl")
+    include("Derivation/test_allosteric_rate_equation_correctness_guard.jl")
+    include("Enumeration/test_starting_mechanisms.jl")
     include("Mechanisms/test_enzyme_reaction_type.jl")
     include("Mechanisms/test_mechanism_type.jl")
     include("DSL/test_enzyme_reaction_macro.jl")
@@ -16,13 +24,9 @@ include("testhelpers.jl")
     include("Derivation/test_rate_equation_dedup_key.jl")
     include("test_oracles.jl")
     include("Derivation/test_rate_equation_correctness_guard.jl")
-    include("Derivation/test_allosteric_rate_equation_correctness_guard.jl")
     include("Derivation/test_thermodynamic_constraints.jl")
     include("Data/test_rate_data_type.jl")
     include("Fitting/test_fit_rate_equation.jl")
-    include("Enumeration/test_starting_mechanisms.jl")
-    include("Enumeration/test_expansion_moves.jl")
-    include("Enumeration/test_candidate_mechanism_type.jl")
     include("test_identify_rate_equation.jl")
     include("Plotting/test_plot_rate_equation_on_data.jl")
     include("ext/test_EnzymeRatesMakieExt.jl")

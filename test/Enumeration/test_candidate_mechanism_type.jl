@@ -1,5 +1,5 @@
-# ABOUTME: Tests of src/Enumeration/candidate_mechanism_type.jl: the records and form
-# ABOUTME: names, the structural tests, the size limits and _enumerator_keeps.
+# ABOUTME: Tests of src/Enumeration/candidate_mechanism_type.jl: records, form names,
+# ABOUTME: structural tests, size limits, _enumerator_keeps and _enumerator_returns.
 
 # ── Records, form names and the structural tests ──────────────────────────────────────
 
@@ -371,12 +371,12 @@ end
 
 @testset "eq_complexity_filter counts both conformations" begin
     # The 336-term random-order bi-bi at one catalytic subunit with its chemistry and its
-    # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
-    # conformation keeps the substrate square E, ES1, ES1S2, ES2, four segments and
+    # product bindings at free E :OnlyA, one of the :OnlyA sets the tagging move emits: the
+    # inactive conformation keeps the substrate square E, ES1, ES1S2, ES2, four segments and
     # four spanning trees, so the law counts 336 + 16 = 352. The default filter drops it
     # (`Enumeration._within_size_limits`, the enumerator's limits), where the active count
     # alone would let it through; the parameter limit reads its 16 fitted constants.
-    ktype = @enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
         oligomeric_state: 1
@@ -392,19 +392,19 @@ end
             ES2 + S1 <--> ES1S2 :: EqualAI
         end
     end
-    cm = ktype.catalytic
-    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(ktype)
+    cm = m.catalytic
+    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(m)
     @test _testhelper_laplacian_tree_count(cm, runs.active) == 336
     @test _testhelper_laplacian_tree_count(cm, runs.inactive) == 16
-    @test EnzymeRates.Derivation.rate_equation_term_count(ktype) == 352
-    @test EnzymeRates.Derivation.fitted_parameter_count(ktype) == 16
+    @test EnzymeRates.Derivation.rate_equation_term_count(m) == 352
+    @test EnzymeRates.Derivation.fitted_parameter_count(m) == 16
     within(max_param_count, eq_complexity_filter) =
         [c.mechanism for c in EnzymeRates.Enumeration._within_size_limits(
-             _testhelper_candidate.([ktype]), max_param_count, eq_complexity_filter)]
+             _testhelper_candidate.([m]), max_param_count, eq_complexity_filter)]
     @test isempty(within(typemax(Int), 337))
-    @test within(typemax(Int), 352) == [ktype]
+    @test within(typemax(Int), 352) == [m]
     @test isempty(within(15, typemax(Int)))
-    @test within(16, typemax(Int)) == [ktype]
+    @test within(16, typemax(Int)) == [m]
 end
 
 @testset "a reactant's modifier copy counts as its reactant in the seed tests" begin
@@ -1137,8 +1137,9 @@ end
     @test twin(fused_re.catalytic.steps[only(members[copy_g])].from, :A) ==
           fused_re.catalytic.steps[fused_k].to
     C(g) = ER.Enumeration._GaugeClass(g, 0, 1)
+    one_state(h, t) = ER.Enumeration._GaugeClass(h, t, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(fused_re), members, copy_g,
-                                          twin, ER.Enumeration._one_state_class) ==
+                                          twin, one_state) ==
           Dict(copy_g => (ER.Enumeration._NO_RESCALING, C(copy_g)),
                fused_g => (ER.Enumeration._NO_RESCALING, C(fused_g)),
                p_g => (ER.Enumeration._NO_RESCALING, C(fused_g)))
@@ -1284,7 +1285,8 @@ end
     @test [twin(m.catalytic.steps[k].from, :A) for k in members[copy_g]] == [2, 2]
     @test ER.Enumeration._GaugeClass(2, 0, 1) != ER.Enumeration._GaugeClass(0, 2, 1)
     @test ER.Enumeration._gauge_rescaling(_testhelper_candidate(m), members, copy_g, twin,
-                                          ER.Enumeration._one_state_class) === nothing
+                                          (h, t) -> ER.Enumeration._GaugeClass(h, t, 1)) ===
+          nothing
     @test ER.Enumeration._gauge_rescaling(
         _testhelper_candidate(m), members, copy_g, twin,
         (h, t) -> ER.Enumeration._GaugeClass(h + t, 0, 1)) !== nothing
@@ -1792,6 +1794,77 @@ end
         end
     end
     @test En._kept_forms_keep_a_binding(plain_uni_uni)
+end
+
+@testset "_enumerator_returns" begin
+    En = EnzymeRates.Enumeration
+    # A uni-bi whose S binds fused into EPQ at steady state and whose products leave in
+    # either order. With S's binding and P's binding at E :OnlyA, the inactive conformation
+    # reaches EP only through steady-state steps, and its scheme fails
+    # `_hyperbolic_catalysis` (test_expansion_moves.jl, "Mechanism — a tagging child whose
+    # law is not hyperbolic is not returned"). The guard rejects it too.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P, Q
+        steps: begin
+            E + S <--> EPQ
+            EP + Q <--> EPQ
+            EQ + P <--> EPQ
+            E + P ⇌ EP
+            E + Q ⇌ EQ
+        end
+    end
+    k_pe = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 2
+        steps: begin
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
+        end
+    end
+    k_pe_one = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + S <--> EPQ       :: OnlyA
+            EP + Q <--> EPQ    :: EqualAI
+            EQ + P <--> EPQ    :: EqualAI
+            E + P ⇌ EP             :: OnlyA
+            E + Q ⇌ EQ             :: EqualAI
+        end
+    end
+    @test !En._hyperbolic_where_required(_testhelper_candidate(k_pe))
+    @test !En._enumerator_returns(_testhelper_candidate(k_pe))
+    @test En._enumerator_returns(_testhelper_candidate(k_pe_one)) ==
+          En._enumerator_keeps(k_pe_one)
+    @test En._enumerator_returns(_testhelper_candidate(m)) == En._enumerator_keeps(m)
+    # A uni-bi with random product release and P's group at steady state, every group
+    # :NonequalAI: its scheme carries Q² (test_expansion_moves.jl, "_expand_re_to_ss: an
+    # allosteric parent keeps a hyperbolic scheme"). The guard keeps it at either
+    # subunit count, so at two subunits only the hyperbolic rule refuses it.
+    flip_p = @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 2
+        steps: begin
+            E + S ⇌ ES                                :: NonequalAI
+            ES <--> EPQ                           :: NonequalAI
+            (E + P <--> EP, EQ + P <--> EPQ)    :: NonequalAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
+        end
+    end
+    flip_p_one = @enzyme_mechanism begin
+        substrates: S ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + S ⇌ ES                                :: NonequalAI
+            ES <--> EPQ                           :: NonequalAI
+            (E + P <--> EP, EQ + P <--> EPQ)    :: NonequalAI
+            (E + Q ⇌ EQ, EP + Q ⇌ EPQ)          :: NonequalAI
+        end
+    end
+    @test En._enumerator_keeps(flip_p)
+    @test !En._enumerator_returns(_testhelper_candidate(flip_p))
+    @test En._enumerator_keeps(flip_p_one)
+    @test En._enumerator_returns(_testhelper_candidate(flip_p_one))
 end
 
 # ── Redundant copies per conformation ─────────────────────────────────────────────────
