@@ -813,12 +813,11 @@ The bytes held are the same in every process, on Julia 1.11.9 and 1.13.4 and on 
 platform, so their bound sits only 3.5% above them: one derived `Int` vector stored on
 `Mechanism` trips it, as would any field derived from the steps on `Mechanism`, `Step` or a
 candidate's record. The allocation bounds sit 25% above the larger of the values on the two
-Julia versions, which differ by about 10%, and the expansion's 3.5% above its value on
-1.13.4; more work per candidate trips them. Time and peak resident memory depend on the
-machine and its collector, so the ter-ter testset logs both and bounds only the time
-outside garbage collection. On the macOS CI runner the ter-ter call spent 13.9 to 116.1 s
-in garbage collection in three runs of nearly the same code; `ROADMAP.md` lists these runs
-under the slow macOS tests, whose cause is not known.
+Julia versions, which differ by about 10%; more work per candidate trips them. Time and
+peak resident memory depend on the machine and its collector, so the ter-ter testset logs
+both and bounds only the time outside garbage collection. On the macOS CI runner the
+ter-ter call spent 13.9 to 116.1 s in garbage collection in three runs of nearly the same
+code; `ROADMAP.md` lists these runs under the slow macOS tests, whose cause is not known.
 
 ## Optimization algorithm architecture
 

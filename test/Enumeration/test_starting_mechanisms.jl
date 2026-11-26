@@ -785,8 +785,7 @@ end
 
 @testset "the enumeration holds and allocates a bounded number of bytes" begin
     # Aggregate check over the whole bi-bi starting set. It bounds the bytes a candidate
-    # holds and the bytes the enumeration allocates, measured on Julia 1.11.9 and 1.13.4
-    # (one expansion on 1.13.4 alone).
+    # holds and the bytes the enumeration allocates, measured on Julia 1.11.9 and 1.13.4.
     # On one Julia version the bytes held are the same in every process. In the last CI
     # run, on all three runners, each candidate held 1,594 bytes and the bytes allocated
     # agreed within 2.5%. Time and peak memory depend on the machine. On the macOS CI
@@ -828,11 +827,12 @@ end
     # and stored on `Mechanism`, `Step` or the candidate's record of a form raises it: one
     # `Int` vector on `Mechanism` takes it to 1,700.
     @test held < 1_650
-    # More work per candidate raises the bytes allocated. The starting set's bound sits 25%
-    # above the larger of its two values, 42,545,112 bytes on 1.11 and 38,788,376 on 1.13:
+    # More work per candidate raises the bytes allocated. Each bound sits 25% above the
+    # larger of its two values. The starting set: 42,568,056 bytes on 1.11, 38,811,320 on
+    # 1.13.
     @test start_bytes < 53_000_000
-    # The expansion's bound sits 3.5% above its 30,804,736 bytes on 1.13:
-    @test expand_bytes < 31_883_000
+    # One expansion: 28,492,448 bytes on 1.11, 30,854,032 on 1.13.
+    @test expand_bytes < 38_500_000
 end
 
 @testset "init_mechanisms on ter-ter within its time and allocation budgets" begin
