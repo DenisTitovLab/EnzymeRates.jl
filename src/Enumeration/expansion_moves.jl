@@ -695,42 +695,31 @@ function _dead_end_graph(c::CandidateMechanism, reg::Symbol, sites::Vector{Int})
 end
 
 """
-The dead-end move's child of the mechanism `m` with the metabolites `metabolites`, the form
-records `forms` and the steps `steps` (`_dead_end_graph`), binding modifier `reg` in a new
-group; `nothing` when the copy is redundant in it. An allosteric child tags the new group
-`:EqualAI` and keeps `m`'s oligomeric state and regulatory sites.
-
-A plain child's new group, the group of the steps that take the copy up, goes through
-`_gauge_rescaling` on the child's own twins (`_productive_twin`). The twins are the same
-forms as the parent's: the complexes are not productive, and their edges attach each complex
-to its site's segment and join no two segments, so every form of `m` keeps its segment and
-offsets. But the complexes sort in among `m`'s forms, so `m`'s form indices do not hold in
-the child. Only the new group is tested: `m` holds no redundant copy group (the parent
-rule), and in each of about 218,000 enumerated parents checked, the placement made no older
-copy redundant (an empirical finding, not a proof). An allosteric child goes through
-`_redundant_copy_groups` only when the copy has a twin in the active conformation at each
-of its bindings (`_all_twin`), as redundancy needs; its bindings are the only edges that
-take it up. The twins are read on the child's whole catalytic graph, which is the active
-conformation's (`_assert_emission_rules` says why).
+The dead-end move's children of the mechanism `m` with the metabolites `metabolites`, the
+form records `forms` and the steps `steps` (`_dead_end_graph`), whose new kinetic group
+binds a competitive inhibitor. A plain `m` gives one child. An allosteric `m` gives three,
+with the new group `:EqualAI`, `:OnlyA` and `:OnlyI` in that order, and `m`'s oligomeric
+state and regulatory sites. A child is dropped when a kinetic group that binds a
+competitive inhibitor runs in neither conformation (`_inhibitors_bind`) or binds it
+redundantly (`_redundant_copy_groups`): either way data cannot determine its constant.
 """
-function _dead_end_child(m::Mechanisms.Mechanism, metabolites::Vector{Symbol},
-                         forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step},
-                         reg::Symbol)
+function _dead_end_children(m::Mechanisms.Mechanism, metabolites::Vector{Symbol},
+                            forms::Vector{_FormRecord}, steps::Vector{Mechanisms.Step})
     a = m.allosteric
-    states = _is_allosteric(m) ? [a.allosteric_states; :EqualAI] : Symbol[]
-    child = _candidate(metabolites, forms, m.catalytic.substrates, m.catalytic.products,
-                       steps,
-                       Mechanisms.Allostery(states, a.oligomeric_state, a.regulatory_sites))
-    cm = child.mechanism.catalytic
-    twin = _productive_twin(child, trues(length(cm.steps)))
-    if !_is_allosteric(m)
-        binding = findfirst(k -> _copy_change(child, k, reg) > 0, eachindex(cm.steps))::Int
-        return _gauge_rescaling(child, _kinetic_groups(cm), cm.steps[binding].kinetic_group,
-                                twin, _one_state_class) === nothing ? child : nothing
-    end
-    bindings = findall(k -> _copy_change(child, k, reg) > 0, eachindex(cm.steps))
-    _all_twin(child, bindings, twin) && !isempty(_redundant_copy_groups(child)) ?
-        nothing : child
+    state_lists = _is_allosteric(m) ?
+        [[a.allosteric_states; state] for state in (:EqualAI, :OnlyA, :OnlyI)] : [Symbol[]]
+    # Every copy group is tested, the older ones too, so each child obeys the rule that
+    # `_assert_emission_rules` checks of a parent. The twins of the whole catalytic graph
+    # cannot stand in for this test: they are a conformation's only where it runs every
+    # step and binds the copy, and an `:OnlyI` group, in `m` or in the child, can leave no
+    # such conformation.
+    children = [_candidate(metabolites, forms, m.catalytic.substrates, m.catalytic.products,
+                           steps,
+                           Mechanisms.Allostery(states, a.oligomeric_state,
+                                                a.regulatory_sites))
+                for states in state_lists]
+    filter!(child -> _inhibitors_bind(child) && isempty(_redundant_copy_groups(child)),
+            children)
 end
 
 """
@@ -749,11 +738,14 @@ competes with, and each form that holds an inhibitor it competes with. A reactan
 as a competitive inhibitor binds as a copy at a dead-end site of its own, so a form that
 carries only the copy of M is a site for an inhibitor that competes with M.
 
-Each eligible inhibitor and each distinct nonempty placement give one child
-(`_dead_end_graph`). The inhibitor binds every form of the placement at rapid equilibrium,
-in one new kinetic group (one new constant). Each step between two placed forms is
-mirrored between their complexes, in the step's own group. The move drops a child whose
-copy is redundant (`_dead_end_child`).
+Each eligible inhibitor and each distinct nonempty placement give one child of a plain `c`
+and three of an allosteric one, the new group `:EqualAI`, `:OnlyA` and `:OnlyI` in that
+order (`_dead_end_graph`, `_dead_end_children`). The inhibitor binds every form of the
+placement at rapid equilibrium, in one new kinetic group (one new constant). Each step
+between two placed forms is mirrored between their complexes, in the step's own group. The
+move drops a child in which a kinetic group that binds a competitive inhibitor runs in
+neither conformation or binds it redundantly: either way data cannot determine its
+constant.
 """
 function _expand_add_dead_end_regulator(c::CandidateMechanism,
                                         rxn::Mechanisms.EnzymeReaction)
@@ -792,8 +784,7 @@ function _expand_add_dead_end_regulator(c::CandidateMechanism,
 
     results = CandidateMechanism[]
     for reg in eligible_regs, sites in placements
-        child = _dead_end_child(c.mechanism, _dead_end_graph(c, reg, sites)..., reg)
-        child === nothing || push!(results, child)
+        append!(results, _dead_end_children(c.mechanism, _dead_end_graph(c, reg, sites)...))
     end
     results
 end
@@ -829,11 +820,11 @@ state of `rxn`'s `allowed_oligomeric_states` in turn, the move emits:
     would be returned, `_expand_change_allo_state` reaches its `:NonequalAI` version from
     that child.
 
-The move drops every child in which a competitive inhibitor binds in neither conformation
-(`_inhibitors_bind`) or binds redundantly (`_redundant_copy_groups`): either way its
-constant shows in no rate equation. An `:OnlyI` inhibitor binds nowhere when the `:OnlyA`
-groups cut every form it binds off from free E in the inactive conformation. Nothing
-stands in for a dropped child.
+The move drops every child in which a kinetic group that binds a competitive inhibitor runs
+in neither conformation (`_inhibitors_bind`) or binds it redundantly
+(`_redundant_copy_groups`): either way data cannot determine its constant. An `:OnlyI`
+inhibitor binds nowhere when the `:OnlyA` groups cut every form it binds off from free E in
+the inactive conformation. Nothing stands in for a dropped child.
 
 No child is all `:EqualAI`: its two conformations would be identical and `L` would cancel.
 Over one subunit `L` can be a phantom, which a rescaling of the other constants absorbs (the

@@ -379,7 +379,7 @@ Only productive forms are twin sources, so the complex itself never is one. A co
 that duplicates only a copy's complex shares its weight with that copy's constant, and
 the sites that pin either copy may keep both constants separable, so such a match never
 makes a twin. The forms are `m`'s own, so the twins of a mechanism the dead-end move
-builds are found on that mechanism (`_dead_end_child`).
+builds are found on that mechanism (`_dead_end_children`).
 """
 function _productive_twin(c::CandidateMechanism, mask::BitVector)
     m = c.mechanism.catalytic
