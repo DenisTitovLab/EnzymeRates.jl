@@ -5412,13 +5412,17 @@ end
     # A ping-pong of census pingpong: A and Q bind free E at random, P and B bind the
     # covalent form E_res_plusA_minusP, and two chemistry groups, EA to EP_res_plusA_minusP
     # and EB_res_plusA_minusP to EQ, make the two half-reactions. At one subunit the move
-    # tags every set of the six groups :OnlyA; the testset checks two of those children
-    # and does not write out the others. With both half-reactions :OnlyA (`every`) the
-    # inactive conformation never reaches the covalent forms: both oracles find the law
-    # to be the limit on every face, and the enumerator returns it. With the first
-    # half-reaction alone :OnlyA (`half1`) admission's interior accepts it, but a face
-    # holds a rapid-equilibrium segment whose lowest forms split (`_SPLIT`), so the
-    # enumerator does not return it.
+    # emits the 63 sets of the six groups tagged :OnlyA. Tagged :NonequalAI, six minimal
+    # sets gain a constant beyond L, each a pair of groups: A's with Q's, A's with the
+    # second half-reaction, A's with B's, Q's with B's, Q's with the second half-reaction,
+    # and B's with the second half-reaction. Tagged :OnlyA the last four are refused, and
+    # the move emits them tagged :NonequalAI. The testset writes those four out, and two of
+    # the 63 :OnlyA children. With both half-reactions :OnlyA (`both_halves`) the inactive
+    # conformation never reaches the covalent forms: both oracles find the law to be the
+    # limit on every face, and the enumerator returns it. With the first half-reaction
+    # alone :OnlyA (`half1`) admission's interior accepts it, but a face holds a
+    # rapid-equilibrium segment whose lowest forms split (`_SPLIT`), so the enumerator does
+    # not return it.
     m = @enzyme_mechanism begin
         substrates: A, B
         products: P, Q
@@ -5446,7 +5450,7 @@ end
             EB_res_plusA_minusP ⇌ EQ                      :: EqualAI
         end
     end
-    every = @_testhelper_unguarded @enzyme_mechanism begin
+    both_halves = @_testhelper_unguarded @enzyme_mechanism begin
         substrates: A, B ; products: P, Q ; oligomeric_state: 1
         steps: begin
             (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
@@ -5457,26 +5461,87 @@ end
             EB_res_plusA_minusP ⇌ EQ                      :: OnlyA
         end
     end
+    a_b_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: NonequalAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                      :: EqualAI
+        end
+    end
+    q_b_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                      :: EqualAI
+        end
+    end
+    q_half2_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                      :: NonequalAI
+        end
+    end
+    b_half2_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + A ⇌ EA, EQ + A ⇌ EAQ)                 :: EqualAI
+            (E + Q ⇌ EQ, EA + Q ⇌ EAQ)                 :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP ⇌ EQ                      :: NonequalAI
+        end
+    end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test half1 in kids && every in kids
+    @test length(kids) == 63 + 4
+    @test allunique(kids)
+    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
+    @test Set(nonequal) ==
+          Set([a_b_nonequal, q_b_nonequal, q_half2_nonequal, b_half2_nonequal])
+    # The other 63, distinct and each with only :OnlyA and :EqualAI groups, are the 63
+    # nonempty sets tagged :OnlyA.
+    @test all(setdiff(kids, nonequal)) do k
+        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
+            isempty(k.allosteric.regulatory_sites) &&
+            :OnlyA in k.allosteric.allosteric_states &&
+            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
+    end
+    @test half1 in kids && both_halves in kids
     D = EnzymeRates.Derivation
     returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
     @test D._admission_interior(half1, D._built_reading(half1)) === D._WELL_POSED
     @test D._guard(half1).fault === D._SPLIT
     @test !returns(half1)
-    @test all(_testhelper_admission_agreement(every; rng = Random.MersenneTwister(15327),
+    @test all(_testhelper_admission_agreement(both_halves;
+                                              rng = Random.MersenneTwister(15327),
                                               corners = true))
-    _testhelper_check_law_against_limit(every)
-    @test returns(every)
+    _testhelper_check_law_against_limit(both_halves)
+    @test returns(both_halves)
 end
 
 @testset "to_allosteric on a ter-bi ping-pong: the oracles on every group :OnlyA" begin
     # Census ter-bi parent 0dc399e7dab6e4f5 (census/base6): its covalent form E(; residual
     # = B + D - Q) takes up A and gives off P. Four groups hold chemistry, those of B, D, A
     # and Q, each mixing a plain binding with a fused one; P's binding at E is the only
-    # binding group. At one subunit the move tags every set of the five groups :OnlyA;
-    # the testset checks three of those children and does not write out the others. The
-    # four chemistry groups :OnlyA (`chemistry`) fail the guard: at zero A, B and D the
+    # binding group. At one subunit the move emits the 31 sets of the five groups tagged
+    # :OnlyA. Tagged :NonequalAI, four minimal sets gain a constant beyond L: the groups of
+    # B, of P and of Q alone, and those of D and A together. Tagged :OnlyA, B's group and
+    # the pair of D's and A's are refused, and the move emits those two tagged
+    # :NonequalAI. The testset writes those two out, and three of the 31 :OnlyA children.
+    # The four chemistry groups :OnlyA (`chemistry`) fail the guard: at zero A, B and D the
     # fused A binding, vanishing one way into the covalent form, fills it faster than it
     # empties (`_FILLED`). B's group alone (`b_alone`) passes the guard but keeps EB,
     # which only the binding it excludes enters (`_kept_forms_keep_a_binding`). With every
@@ -5535,7 +5600,43 @@ end
              EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: OnlyA
         end
     end
+    b_nonequal = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: NonequalAI
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: EqualAI
+        end
+    end
+    d_a_nonequal = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D ⇌ ED, EB + D ⇌ EQ_res_plusB_plusD_minusQ)            :: NonequalAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: NonequalAI
+            (E_res_plusB_plusD_minusQ + Q <--> EQ_res_plusB_plusD_minusQ,
+             EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: EqualAI
+        end
+    end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test length(kids) == 31 + 2
+    @test allunique(kids)
+    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
+    @test Set(nonequal) == Set([b_nonequal, d_a_nonequal])
+    # The other 31, distinct and each with only :OnlyA and :EqualAI groups, are the 31
+    # nonempty sets tagged :OnlyA.
+    @test all(setdiff(kids, nonequal)) do k
+        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
+            isempty(k.allosteric.regulatory_sites) &&
+            :OnlyA in k.allosteric.allosteric_states &&
+            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
+    end
     @test chemistry in kids && b_alone in kids && every in kids
     D = EnzymeRates.Derivation
     v = D._guard(chemistry)
@@ -5555,9 +5656,12 @@ end
     # Q) (B's and D's groups, each chemistry); Q's release from it leaves E(; residual =
     # B + D - Q), which takes up A into EP, fused (A's group), and Q's group holds Q's
     # abortive binding at EP beside its release. P's binding at E is the one binding
-    # group. At one subunit the move tags every set of the five groups :OnlyA; the testset
-    # checks the four that hold one chemistry group and does not write out the others.
-    # The enumerator returns none of the four. Q's group alone keeps the two sides of its
+    # group. At one subunit the move emits the 31 sets of the five groups tagged :OnlyA.
+    # Tagged :NonequalAI, four minimal sets gain a constant beyond L: the groups of B, of D
+    # and of P alone, and those of Q and A together. Tagged :OnlyA, all but P's group are
+    # refused, and the move emits those three tagged :NonequalAI. The testset writes those
+    # three out, and the four :OnlyA children that hold one chemistry group each, none of
+    # which the enumerator returns. Q's group alone keeps the two sides of its
     # rapid-equilibrium release joined in the inactive conformation (`_FAST_STEP_PINNED`),
     # and A's alone those of its fused binding; the guard names the group's first step in
     # step order. B's group alone passes the guard but keeps EB, which only the binding it
@@ -5627,7 +5731,55 @@ end
              EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
         end
     end
+    b_nonequal = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: NonequalAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
+        end
+    end
+    d_nonequal = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: NonequalAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: EqualAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: EqualAI
+        end
+    end
+    q_a_nonequal = @enzyme_mechanism begin
+        substrates: A, B, D ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            (E + B <--> EB, ED + B <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            (E + D <--> ED, EB + D <--> EQ_res_plusB_plusD_minusQ)      :: EqualAI
+            E + P <--> EP                                                  :: EqualAI
+            (E_res_plusB_plusD_minusQ + A ⇌ EP,
+             EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ) :: NonequalAI
+            (E_res_plusB_plusD_minusQ + Q ⇌ EQ_res_plusB_plusD_minusQ,
+             EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: NonequalAI
+        end
+    end
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
+    @test length(kids) == 31 + 3
+    @test allunique(kids)
+    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
+    @test Set(nonequal) == Set([b_nonequal, d_nonequal, q_a_nonequal])
+    # The other 31, distinct and each with only :OnlyA and :EqualAI groups, are the 31
+    # nonempty sets tagged :OnlyA.
+    @test all(setdiff(kids, nonequal)) do k
+        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
+            isempty(k.allosteric.regulatory_sites) &&
+            :OnlyA in k.allosteric.allosteric_states &&
+            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
+    end
     @test all(in(kids), [q_alone, a_alone, b_alone, d_alone])
     D = EnzymeRates.Derivation
     for (x, step) in (

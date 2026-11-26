@@ -171,12 +171,12 @@ forcing them into every seed; listing every regulator as optional recovers the
 unregulated starting set of seeds and variants. Requiring a competitive inhibitor and an
 allosteric regulator together multiplies the set: for a bi-bi reaction it holds many times
 the mechanisms that either one alone gives, and takes minutes to build (the repository's
-`ROADMAP.md` gives the numbers). When no
-mechanism binds every required regulator — a uni-uni reaction whose substrate is also
-declared a competitive inhibitor, say — `candidate_mechanisms` stops with an error that
-names the regulators and these two keywords. Declaring a regulator's type in the reaction —
-`::Activator` or `::Inhibitor` — pins it to one allosteric state and shrinks the set
-further. The [Identify tutorial](@ref) works a concrete example.
+`ROADMAP.md` gives the numbers). When no mechanism binds every required regulator — a
+uni-uni reaction whose substrate is also declared a competitive inhibitor, say —
+`candidate_mechanisms` stops with an error that names the regulators and these two
+keywords. Declaring a regulator's type in the reaction — `::Activator` or `::Inhibitor` —
+pins it to one allosteric state and shrinks the set further. The [Identify tutorial](@ref)
+works a concrete example.
 
 ## The seven expansion moves
 

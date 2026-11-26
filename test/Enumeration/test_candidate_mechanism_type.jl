@@ -371,12 +371,12 @@ end
 
 @testset "eq_complexity_filter counts both conformations" begin
     # The 336-term random-order bi-bi at one catalytic subunit with its chemistry and its
-    # product bindings at free E :OnlyA, a K-type the tagging move emits: the inactive
-    # conformation keeps the substrate square E, ES1, ES1S2, ES2, four segments and
+    # product bindings at free E :OnlyA, one of the :OnlyA sets the tagging move emits: the
+    # inactive conformation keeps the substrate square E, ES1, ES1S2, ES2, four segments and
     # four spanning trees, so the law counts 336 + 16 = 352. The default filter drops it
     # (`Enumeration._within_size_limits`, the enumerator's limits), where the active count
     # alone would let it through; the parameter limit reads its 16 fitted constants.
-    ktype = @enzyme_mechanism begin
+    m = @enzyme_mechanism begin
         substrates: S1, S2
         products: P1, P2
         oligomeric_state: 1
@@ -392,19 +392,19 @@ end
             ES2 + S1 <--> ES1S2 :: EqualAI
         end
     end
-    cm = ktype.catalytic
-    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(ktype)
+    cm = m.catalytic
+    runs = EnzymeRates.Mechanisms.steps_running_in_allosteric_conformations(m)
     @test _testhelper_laplacian_tree_count(cm, runs.active) == 336
     @test _testhelper_laplacian_tree_count(cm, runs.inactive) == 16
-    @test EnzymeRates.Derivation.rate_equation_term_count(ktype) == 352
-    @test EnzymeRates.Derivation.fitted_parameter_count(ktype) == 16
+    @test EnzymeRates.Derivation.rate_equation_term_count(m) == 352
+    @test EnzymeRates.Derivation.fitted_parameter_count(m) == 16
     within(max_param_count, eq_complexity_filter) =
         [c.mechanism for c in EnzymeRates.Enumeration._within_size_limits(
-             _testhelper_candidate.([ktype]), max_param_count, eq_complexity_filter)]
+             _testhelper_candidate.([m]), max_param_count, eq_complexity_filter)]
     @test isempty(within(typemax(Int), 337))
-    @test within(typemax(Int), 352) == [ktype]
+    @test within(typemax(Int), 352) == [m]
     @test isempty(within(15, typemax(Int)))
-    @test within(16, typemax(Int)) == [ktype]
+    @test within(16, typemax(Int)) == [m]
 end
 
 @testset "a reactant's modifier copy counts as its reactant in the seed tests" begin

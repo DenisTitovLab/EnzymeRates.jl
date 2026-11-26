@@ -2295,11 +2295,11 @@ end
 
 @testset "a declared activator is never :OnlyI in a starting mechanism" begin
     # With R required, every starting mechanism of the uni-uni reaction binds R at a site
-    # of its own: the tagging move gives its child whose one :OnlyA group is the chemistry
-    # R tagged :OnlyA and :OnlyI, and the regulator move gives R to the tagging move's
-    # other children. An activator binds the active conformation, so no starting mechanism
-    # holds R :OnlyI when R is declared one; with R declared neither way some starting
-    # mechanism does.
+    # of its own. The tagging move emits its child with the chemistry alone :OnlyA twice
+    # more, with R at a site tagged :OnlyA and tagged :OnlyI, and the regulator move gives
+    # R to the tagging move's other children. An activator binds the active conformation,
+    # so no starting mechanism holds R :OnlyI when R is declared one; with R declared
+    # neither way some starting mechanism does.
     function _testhelper_states_of_R(rxn)
         starting = _testhelper_mechanisms(EnzymeRates.Enumeration.candidate_mechanisms(rxn))
         [only(state for site in m.allosteric.regulatory_sites
