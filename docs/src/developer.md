@@ -758,10 +758,12 @@ proof sits in the docstring of the function that applies it; this list says whic
 - A dead-end copy of a substrate or product is redundant when each of its complexes has a
   productive twin and the dwell gauge moves its constant along a direction the rate law
   cannot see (`_redundant_copy_groups`, `_productive_twin`, `_gauge_rescaling`). The
-  dead-end and tagging moves drop a child that holds a redundant copy group or a group
-  that binds a competitive inhibitor in neither conformation (`_inhibitors_bind`), the
-  split drops every child that holds a redundant copy group, and the searches of the
-  tagging and relaxing moves count a set whose child holds one as failed.
+  dead-end move drops a child that holds a redundant copy group or whose new inhibitor
+  binds in neither conformation (`_inhibitors_bind`), the split drops every child that
+  holds a redundant copy group, and the searches of the tagging and relaxing moves count a
+  set whose child holds one as failed. The tagging move drops the same two kinds of child,
+  though they are not copies of its plain parent: data cannot determine the inhibitor's
+  constant.
 
 `candidate_mechanisms` asserts both rules, flux and no redundant copy, on every parent
 (`_assert_emission_rules`). The flip, split, tagging and relaxing moves share one

@@ -149,13 +149,13 @@ So the starting set begins where the search belongs. The engine takes the unregu
 starting set, in which each degenerate seed is already replaced by its flip children
 (`_base_tier`), and grows it through the regulator-binding moves alone — go allosteric, add
 an allosteric regulator, add a competitive inhibitor — under three constraints that keep
-the set small: each required regulator binds at its own single-ligand site, no regulator
-is `:NonequalAI`, and no partially-regulated mechanism survives. A kinetic group can be
-`:NonequalAI`: move 4 tags a set of groups so where the same set tagged `:OnlyA` is
-refused, and move 6, the only other way to such a version, does not run here. The result is
-every fully-regulated mechanism those moves build, and nothing that binds fewer
-regulators; like the seeds and variants, it holds mixed parameter counts. The beam then
-refines these with the detail moves — steady-state flips, splits, and `:NonequalAI`
+the set small: each required regulator binds at its own single-ligand site, no allosteric
+regulator is `:NonequalAI`, and no partially-regulated mechanism survives. A kinetic group
+can be `:NonequalAI`: move 4 tags a set of groups `:NonequalAI` where the same set tagged
+`:OnlyA` is refused, and move 6, the only other way to such a version, does not run here.
+The result is every fully-regulated mechanism those moves build, and nothing that binds
+fewer regulators; like the seeds and variants, it holds mixed parameter counts. The beam
+then refines these with the detail moves — steady-state flips, splits, and `:NonequalAI`
 relaxations — as usual.
 
 The growth starts from a degenerate seed's flip children, not from the seed, because the
@@ -169,10 +169,9 @@ By default every declared regulator is required. `identify_rate_equation`'s
 named regulators back to optional, so the beam adds them as refinements rather than
 forcing them into every seed; listing every regulator as optional recovers the
 unregulated starting set of seeds and variants. Requiring a competitive inhibitor and an
-allosteric regulator together multiplies the set: for the bi-bi reaction
-`A[CX] + B[N] → P[C] + Q[NX]` at oligomeric states 1 and 2 it holds 236,444 mechanisms,
-which take about three minutes to build, against 14,078 with only the regulator required
-and 1,548 with only the inhibitor (the repository's `ROADMAP.md` lists this). When no
+allosteric regulator together multiplies the set: for a bi-bi reaction it holds many times
+the mechanisms that either one alone gives, and takes minutes to build (the repository's
+`ROADMAP.md` gives the numbers). When no
 mechanism binds every required regulator — a uni-uni reaction whose substrate is also
 declared a competitive inhibitor, say — `candidate_mechanisms` stops with an error that
 names the regulators and these two keywords. Declaring a regulator's type in the reaction —
@@ -343,9 +342,10 @@ other running in both, as phosphorylation stops PDH's E1 and leaves E2 and E3 ru
 group that binds a competitive inhibitor has a third state, `:OnlyI`, in which only the
 inactive conformation binds the inhibitor, so the uni-uni mechanism with an inhibitor bound
 at free E has four groups and 2³ · 3 − 1 = 23 children. The engine tags no other group
-`:OnlyI`. The move does not test these children. A set of `:OnlyA` groups is not always a
-well-posed mechanism (see [How an excluded step is switched off](@ref)), and
-`candidate_mechanisms` drops the children that fail, as it does for every move.
+`:OnlyI`. The move does not test whether these children are well-posed. A set of `:OnlyA`
+groups is not always a well-posed mechanism
+(see [How an excluded step is switched off](@ref)), and `candidate_mechanisms` drops the
+children that fail, as it does for every move.
 
 **A declared regulator beside a chemistry-only set.** A child whose `:OnlyA` groups are
 all chemistry groups, and which tags no group `:OnlyI`, comes twice more for each declared
@@ -398,9 +398,9 @@ Nothing stands in for a dropped child. The all-`:EqualAI` version is never emitt
 conformations would be identical and `L` would cancel), and children whose laws agree up to
 renaming the constants share one key, so identify fits the law once. A parent gets no
 allosteric child only when every child is dropped. None of the 5,158 starting mechanisms of
-the ter-bi reaction `A[C] + B[N] + D[X] → P[CN] + Q[X]` is such a parent: with no regulator
-declared they get a median of 26 allosteric children. The search applies this move only to
-a plain mechanism.
+the ter-bi reaction `A[C] + B[N] + D[X] → P[CN] + Q[X]` at one subunit is such a parent:
+with no regulator declared they get a median of 26 allosteric children. The search applies
+this move only to a plain mechanism.
 
 A child does not always reveal `L`. Over more than one catalytic subunit the conformational
 equilibrium enters the rate with the oligomeric state as its power. Over one subunit, when
@@ -594,7 +594,7 @@ unreachable.
 whose rate function can be shown to equal the parent's: a split the constraint
 solver ties back, a flip that leaves the segment count unchanged, a flip that
 leaves a steady-state group without flux, a flip of a steady-state chain's flank in a
-plain mechanism, a redundant dead-end copy, an inhibitor that binds in neither
+plain mechanism, a redundant dead-end copy, an added inhibitor that binds in neither
 conformation, a `:NonequalAI` tag that adds no fitted constant. A few children whose law
 is the parent's up to renaming the constants survive; they share the parent's key, so
 identify fits their law once, and they never win selection.

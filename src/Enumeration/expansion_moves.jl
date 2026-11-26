@@ -515,9 +515,9 @@ function _expand_split_kinetic_group(c::CandidateMechanism)
         end
         re
     end
-    base = Derivation.fitted_parameter_count(c.mechanism)
+    parent_count = Derivation.fitted_parameter_count(c.mechanism)
     split_child(sel) = _apply_bipartitions(c, units[sel], flags_of(sel))
-    gains(child) = Derivation.fitted_parameter_count(child.mechanism) > base &&
+    gains(child) = Derivation.fitted_parameter_count(child.mechanism) > parent_count &&
                    _enumerator_keeps(child.mechanism)
     every = trues(length(cm.steps))
     # RE segment ids touched by each kinetic group's edges; empty for a steady-state
@@ -697,9 +697,9 @@ end
 """
 The dead-end move's children of the mechanism `m` with the metabolites `metabolites`, the
 form records `forms` and the steps `steps` (`_dead_end_graph`), whose new kinetic group
-binds a competitive inhibitor. A plain `m` gives one child. An allosteric `m` gives three,
-with the new group `:EqualAI`, `:OnlyA` and `:OnlyI` in that order, and `m`'s oligomeric
-state and regulatory sites. A child is dropped when a kinetic group that binds a
+binds a competitive inhibitor. A plain `m` gives at most one child, an allosteric `m` at
+most three, with the new group `:EqualAI`, `:OnlyA` and `:OnlyI` in that order, and `m`'s
+oligomeric state and regulatory sites. A child is dropped when a kinetic group that binds a
 competitive inhibitor runs in neither conformation (`_inhibitors_bind`) or binds it
 redundantly (`_redundant_copy_groups`): either way data cannot determine its constant.
 """
@@ -738,14 +738,14 @@ competes with, and each form that holds an inhibitor it competes with. A reactan
 as a competitive inhibitor binds as a copy at a dead-end site of its own, so a form that
 carries only the copy of M is a site for an inhibitor that competes with M.
 
-Each eligible inhibitor and each distinct nonempty placement give one child of a plain `c`
-and three of an allosteric one, the new group `:EqualAI`, `:OnlyA` and `:OnlyI` in that
-order (`_dead_end_graph`, `_dead_end_children`). The inhibitor binds every form of the
-placement at rapid equilibrium, in one new kinetic group (one new constant). Each step
-between two placed forms is mirrored between their complexes, in the step's own group. The
-move drops a child in which a kinetic group that binds a competitive inhibitor runs in
-neither conformation or binds it redundantly: either way data cannot determine its
-constant.
+Each eligible inhibitor and each distinct nonempty placement give at most one child of a
+plain `c` and at most three of an allosteric one, the new group `:EqualAI`, `:OnlyA` and
+`:OnlyI` in that order (`_dead_end_graph`, `_dead_end_children`). The inhibitor binds
+every form of the placement at rapid equilibrium, in one new kinetic group (one new
+constant). Each step between two placed forms is mirrored between their complexes, in the
+step's own group. The move drops a child in which a kinetic group that binds a competitive
+inhibitor runs in neither conformation or binds it redundantly: either way data cannot
+determine its constant.
 """
 function _expand_add_dead_end_regulator(c::CandidateMechanism,
                                         rxn::Mechanisms.EnzymeReaction)
@@ -841,6 +841,8 @@ function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReac
         "_expand_to_allosteric: the mechanism is allosteric; the move makes a plain one " *
         "allosteric"))
     hyperbolic = _hyperbolic_catalysis(c)
+    cns = filter(cn -> cn == 1 || hyperbolic, rxn.allowed_oligomeric_states)
+    isempty(cns) && return CandidateMechanism[]
     chem = _chemistry_groups(c)
     groups = collect(eachindex(chem))
     tagged(set, state) = (tags = fill(:EqualAI, length(chem)); tags[set] .= state; tags)
@@ -857,25 +859,25 @@ function _expand_to_allosteric(c::CandidateMechanism, rxn::Mechanisms.EnzymeReac
         assignments)
     regs = [reg.name for reg in rxn.regulators if reg.kind === :allosteric]
     no_site = Mechanisms.RegulatorySite[]
-    base = Derivation.fitted_parameter_count(c.mechanism)
+    parent_count = Derivation.fitted_parameter_count(c.mechanism)
     inhibitors_show(child) =
         _inhibitors_bind(child) && isempty(_redundant_copy_groups(child))
     returned(child) = inhibitors_show(child) && _enumerator_returns(child)
     results = CandidateMechanism[]
-    for cn in rxn.allowed_oligomeric_states
-        cn == 1 || hyperbolic || continue
+    for cn in cns
         append!(results, _candidate(c, tags, cn, no_site) for tags in assignments)
         for tags in with_regulator, reg in regs, state in (:OnlyA, :OnlyI)
             push!(results, _candidate(c, tags, cn,
                                       [Mechanisms.RegulatorySite([reg], cn, [state])]))
         end
-        # One binding tagged alone never gains where the inactive conformation runs a
-        # whole catalytic cycle: it must give the same Keq, so thermodynamics gives it
-        # back the active conformation's constant.
+        # A failed set is extended by any other group, since one more can lift each
+        # failure. Where the inactive conformation runs a whole catalytic cycle it must
+        # give the same Keq, so one rapid-equilibrium binding tagged alone gets the active
+        # conformation's constant back and gains nothing, while two gain one.
         nonequal = _minimal_gaining_children(
             set -> _candidate(c, tagged(set, :NonequalAI), cn, no_site),
-            child -> Derivation.fitted_parameter_count(child.mechanism) > base + 1 &&
-                     returned(child),
+            child -> Derivation.fitted_parameter_count(child.mechanism) >
+                     parent_count + 1 && returned(child),
             _ -> groups)
         for child in nonequal
             states = child.mechanism.allosteric.allosteric_states
@@ -983,8 +985,9 @@ The sets come by size, then in lexicographic order, and the ligands after them.
 function _expand_change_allo_state(c::CandidateMechanism)
     a = c.mechanism.allosteric
     states = a.allosteric_states
-    base = Derivation.fitted_parameter_count(c.mechanism)
-    gains_constant(child) = Derivation.fitted_parameter_count(child.mechanism) > base
+    parent_count = Derivation.fitted_parameter_count(c.mechanism)
+    gains_constant(child) =
+        Derivation.fitted_parameter_count(child.mechanism) > parent_count
     function relaxed(groups)
         tagged = copy(states)
         tagged[groups] .= :NonequalAI
@@ -999,9 +1002,10 @@ function _expand_change_allo_state(c::CandidateMechanism)
                    _enumerator_returns(child)
     # A failed set is extended by any other group, since one more can lift each failure.
     # Where the inactive conformation runs a whole catalytic cycle it must give the same
-    # Keq, so one binding tagged alone gets back the active conformation's constant and
-    # two gain one. An `:OnlyA` binding beside one tagged can have its affinity pinned in
-    # the inactive conformation (`_FAST_STEP_PINNED`); tagging it too frees it.
+    # Keq, so one rapid-equilibrium binding tagged alone gets the active conformation's
+    # constant back and gains nothing, while two gain one. An `:OnlyA` binding beside one
+    # tagged can have its affinity pinned in the inactive conformation
+    # (`_FAST_STEP_PINNED`); tagging it too frees it.
     taggable = findall(!=(:NonequalAI), states)
     results = _minimal_gaining_children(relaxed, gains, _ -> taggable)
     for (si, site) in enumerate(a.regulatory_sites), li in eachindex(site.ligands)

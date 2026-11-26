@@ -103,10 +103,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     consistent built reading are rejected with `_TOO_MANY_READINGS`, whatever their law: 27
     of the 2,000 ter-ter taggings, 2 of 3,000 ter-bi, 1 of 3,000 bi-ter and 3 of the
     admission tests' mechanisms. No starting mechanism is left without an allosteric child:
-    with no regulator declared, each of the 5,158 starting mechanisms of the census ter-bi
-    reaction `A[C] + B[N] + D[X] → P[CN] + Q[X]` (`candidate_mechanisms(rxn)`, which
-    replaces each degenerate one of its 4,885 `init_mechanisms` by its flip children) gets
-    at least one from `candidate_mechanisms(rxn, parent)`, a median of 26 (measured
+    with no regulator declared and one subunit, each of the 5,158 starting mechanisms of the
+    census ter-bi reaction `A[C] + B[N] + D[X] → P[CN] + Q[X]` (`candidate_mechanisms(rxn)`,
+    which replaces each degenerate one of its 4,885 `init_mechanisms` by its flip children)
+    gets at least one from `candidate_mechanisms(rxn, parent)`, a median of 26 (measured
     2026-11-25). Raising the caps costs time: the slowest guard call, on a ter-bi mechanism
     of 25 steps with 2,157 pairs, takes 0.3 s.
   - **Refused as a bridge.** The face condition refuses vanishing transitions that open a
@@ -131,11 +131,11 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
     branch, admitted nothing in any population. A wider rule could also give the test for
     hyperbolic laws something to drop. Above one subunit the enumerator returns no mechanism
     whose conformations' laws are not hyperbolic (`_hyperbolic_where_required`,
-    `src/Enumeration/candidate_mechanism_type.jl`), and today that drops nothing the guard
-    admits: every one of the 13,678 state assignments the guard admits on the bi-bi starting
-    mechanisms with hyperbolic schemes passes `_hyperbolic_catalysis` at two subunits, and
-    every one of 7,846 on mechanisms with an inhibitor, but only because the guard refuses
-    the assignments that would fail it.
+    `src/Enumeration/candidate_mechanism_type.jl`), and today that drops nothing that
+    `_enumerator_keeps` keeps: every one of the 13,678 state assignments it keeps on the
+    bi-bi starting mechanisms with hyperbolic schemes passes `_hyperbolic_catalysis` at two
+    subunits, and every one of 7,846 on mechanisms with an inhibitor, but only because the
+    guard refuses the assignments that would fail it.
   - **Refused by a face check though the rate equals the law's.** Of the mechanisms of 8
     steps or fewer that a face check refuses, sampled 40 per population, these have a limit
     along corner directions under some consistent reading: 9 of 40 `:OnlyA` taggings of the
@@ -257,15 +257,18 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   (`optional_competitive_inhibitors`, `optional_allosteric_regulators`) avoids the cost.
   Measured once each in a fresh process (compilation included) on the maintainer's
   machine, Julia 1.13.4, `--heap-size-hint=2500M`.
-- **No test shows the inhibitor checks deciding the tagging move's `:NonequalAI` search.**
+- **No test shows the inhibitor checks deciding a `:NonequalAI` search.**
   Inside its search for `:NonequalAI` sets, `_expand_to_allosteric` counts a set whose child
   binds a competitive inhibitor in neither conformation or redundantly
   (`_inhibitors_bind`, `_redundant_copy_groups`) as not gaining and extends it, and asks the
   same of the set tagged `:OnlyA`. No known mechanism of six or fewer kinetic groups makes
-  these checks change which children the search emits, so no testset pins that path. The
+  these checks change which children the search emits, so no testset pins that path.
+  `_expand_change_allo_state` likewise counts a set whose child binds an inhibitor
+  redundantly as not gaining and extends it. The testset "Allosteric mechanism — no
+  relaxation makes a kept copy redundant" (`test/Enumeration/test_expansion_moves.jl`)
+  pins such a refusal, but no testset shows a larger set emitted after one. The
   reachability testset ("to_allosteric and change_allo_state reach every irreducible
-  version", `test/Enumeration/test_expansion_moves.jl`) would show a version they hide on
-  its samples.
+  version", same file) would show a version either search hides on its samples.
 - **A batch's progress-log header can print twice.**
   When an L phantom's source's fit throws in the phantom's own batch, `run_batch!`'s log
   closure (`src/identify_rate_equation.jl`) prints the batch header again above the demotion
