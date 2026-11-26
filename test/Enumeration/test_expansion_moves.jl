@@ -58,6 +58,17 @@ _testhelper_is_catalytic_group(m, g) =
               (!EnzymeRates.Enumeration._is_binding(e) || _testhelper_is_fused(c, e)),
          m.catalytic.steps))
 
+# The mechanism with the catalytic scheme of the plain mechanism `m`, the allosteric state
+# `states[g]` for its kinetic group `g` (numbered as `_testhelper_group_members` gives
+# them), the oligomeric state `oligomeric_state` and no regulatory site. It calls the
+# `Mechanisms` constructors alone, so a testset can list a move's expected children
+# without the code under test.
+_testhelper_with_states(m, states; oligomeric_state = 1) =
+    EnzymeRates.Mechanism(m.catalytic,
+                          EnzymeRates.Mechanisms.Allostery(
+                              collect(Symbol, states), oligomeric_state,
+                              EnzymeRates.Mechanisms.RegulatorySite[]))
+
 const uni_uni_allo = @enzyme_reaction begin
     substrates: S[C]
     products: P[C]
@@ -4252,6 +4263,43 @@ end
                                                       rxn))
 end
 
+@testset "_testhelper_with_states tags the groups in their stored order" begin
+    # The uni-uni mechanism written S's binding, the chemistry, P's binding: its groups
+    # are stored P's binding 1, S's 2, the chemistry 3. A helper that read the written
+    # order would give each state to another group.
+    m = @enzyme_mechanism begin
+        substrates: S
+        products: P
+        steps: begin
+            E + S ⇌ ES
+            ES <--> EP
+            E + P ⇌ EP
+        end
+    end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + P ⇌ EP", "E + S ⇌ ES", "ES <--> EP"]
+    at_two = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S ; products: P ; oligomeric_state: 2
+        steps: begin
+            E + S ⇌ ES :: NonequalAI
+            ES <--> EP :: EqualAI
+            E + P ⇌ EP :: OnlyA
+        end
+    end
+    at_one = @_testhelper_unguarded @enzyme_mechanism begin
+        substrates: S ; products: P ; oligomeric_state: 1
+        steps: begin
+            E + S ⇌ ES :: OnlyI
+            ES <--> EP :: OnlyA
+            E + P ⇌ EP :: EqualAI
+        end
+    end
+    @test _testhelper_with_states(m, (:OnlyA, :NonequalAI, :EqualAI);
+                                  oligomeric_state = 2) == at_two
+    @test _testhelper_with_states(m, [:EqualAI, :OnlyI, :OnlyA]) == at_one
+end
+
 # ─── _expand_to_allosteric ─────────────────────────────────────────────
 @testset "_expand_to_allosteric" begin
 
@@ -4321,15 +4369,20 @@ end
             EAB <--> EPQ :: EqualAI
         end
     end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + A ⇌ EA", "E + Q ⇌ EQ", "EA + B ⇌ EAB", "EAB <--> EPQ", "EQ + P ⇌ EPQ"]
+    # Each group above :EqualAI or :OnlyA, but not every group :EqualAI.
+    two = (:EqualAI, :OnlyA)
+    only_a = [_testhelper_with_states(m, s; oligomeric_state = 2)
+              for s in Iterators.product(two, two, two, two, two)
+              if any(!=(:EqualAI), s)]
+    nonequal = [a_b_nonequal, q_p_nonequal]
+    expected = [only_a; nonequal]
     result = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m,
                               bi_bi_allo_rxn)
-    @test length(result) == 31 + 2
-    @test allunique(result)
-    nonequal = filter(r -> :NonequalAI in r.allosteric.allosteric_states, result)
-    @test Set(nonequal) == Set([a_b_nonequal, q_p_nonequal])
-    only_a = setdiff(result, nonequal)
-    @test all(r -> issubset(r.allosteric.allosteric_states, (:OnlyA, :EqualAI)) &&
-                   isempty(r.allosteric.regulatory_sites), only_a)
+    @test length(result) == length(expected) == 31 + 2
+    @test Set(result) == Set(expected)
     for (refused, step) in ((a_b_only_a, "EA + B ⇌ EAB"), (q_p_only_a, "EQ + P ⇌ EPQ"))
         @test refused in only_a
         v = EnzymeRates.Derivation._guard(refused)
@@ -4339,10 +4392,7 @@ end
     fitted = EnzymeRates.Derivation.fitted_parameter_count
     @test all(r -> fitted(r) == fitted(m) + 1, only_a)
     @test all(r -> fitted(r) == fitted(m) + 2, nonequal)
-    for r in result
-        _testhelper_assert_mechanism_invariants(r)
-        @test !all(==(:EqualAI), r.allosteric.allosteric_states)
-    end
+    foreach(_testhelper_assert_mechanism_invariants, result)
 end
 
 @testset "Mechanism — bi-bi ping-pong at two subunits: every :OnlyA set" begin
@@ -4510,21 +4560,22 @@ end
         end
     end
     kept = [a_both, q_both, aq_both, ap_both, apq_both]
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + A ⇌ EA", "E + Q ⇌ EQ", "EA <--> EP_res_plusA_minusP",
+           "EB_res_plusA_minusP ⇌ EQ", "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP",
+           "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"]
+    # Each group above :EqualAI or :OnlyA, but not every group :EqualAI.
+    two = (:EqualAI, :OnlyA)
+    nonequal = [q_half2_nonequal, a_b_nonequal, q_b_nonequal, b_half2_nonequal]
+    expected = [[_testhelper_with_states(m, s; oligomeric_state = 2)
+                 for s in Iterators.product(two, two, two, two, two, two)
+                 if any(!=(:EqualAI), s)];
+                nonequal]
     result = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m,
                               bi_bi_pp_allo_rxn)
-    @test length(result) == 63 + 4
-    @test allunique(result)
-    nonequal = filter(r -> :NonequalAI in r.allosteric.allosteric_states, result)
-    @test Set(nonequal) == Set([q_half2_nonequal, a_b_nonequal, q_b_nonequal,
-                                b_half2_nonequal])
-    # The other 63, distinct and each with only :OnlyA and :EqualAI groups, are the 63
-    # nonempty sets tagged :OnlyA.
-    @test all(setdiff(result, nonequal)) do r
-        r.catalytic == m.catalytic && r.allosteric.oligomeric_state == 2 &&
-            isempty(r.allosteric.regulatory_sites) &&
-            :OnlyA in r.allosteric.allosteric_states &&
-            issubset(r.allosteric.allosteric_states, (:OnlyA, :EqualAI))
-    end
+    @test length(result) == length(expected) == 63 + 4
+    @test Set(result) == Set(expected)
     @test issubset([a_half1, p_half1, ap_half1, kept...], result)
     for c in (a_half1, p_half1, ap_half1)
         v = EnzymeRates.Derivation._guard(c)
@@ -5389,20 +5440,20 @@ end
             EB_res_plusA_minusP <--> EQ                  :: OnlyA
         end
     end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, only(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + A ⇌ EA", "E + Q ⇌ EQ", "EA <--> EP_res_plusA_minusP",
+           "EB_res_plusA_minusP <--> EQ", "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP",
+           "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"]
+    # Each group above :EqualAI or :OnlyA, but not every group :EqualAI.
+    two = (:EqualAI, :OnlyA)
+    expected = [[_testhelper_with_states(m, s)
+                 for s in Iterators.product(two, two, two, two, two, two)
+                 if any(!=(:EqualAI), s)];
+                a_b_nonequal; q_p_nonequal; b_p_nonequal]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test length(kids) == 63 + 3
-    @test allunique(kids)
-    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
-    @test length(nonequal) == 3
-    @test Set(nonequal) == Set([a_b_nonequal, q_p_nonequal, b_p_nonequal])
-    # The other 63, distinct and each with only :OnlyA and :EqualAI groups, are the 63
-    # nonempty sets tagged :OnlyA.
-    @test all(setdiff(kids, nonequal)) do k
-        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
-            isempty(k.allosteric.regulatory_sites) &&
-            :OnlyA in k.allosteric.allosteric_states &&
-            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
-    end
+    @test length(kids) == length(expected) == 63 + 3
+    @test Set(kids) == Set(expected)
     returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
     @test !any(returns, [a_b_only_a, q_p_only_a, b_p_only_a])
     @test all(returns, [a_q_only_a, a_p_only_a, q_b_only_a, half1_only_a, half2_only_a])
@@ -5505,20 +5556,20 @@ end
             EB_res_plusA_minusP ⇌ EQ                      :: NonequalAI
         end
     end
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, first(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + A ⇌ EA", "E + Q ⇌ EQ", "EA <--> EP_res_plusA_minusP",
+           "EB_res_plusA_minusP ⇌ EQ", "E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP",
+           "E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP"]
+    # Each group above :EqualAI or :OnlyA, but not every group :EqualAI.
+    two = (:EqualAI, :OnlyA)
+    expected = [[_testhelper_with_states(m, s)
+                 for s in Iterators.product(two, two, two, two, two, two)
+                 if any(!=(:EqualAI), s)];
+                a_b_nonequal; q_b_nonequal; q_half2_nonequal; b_half2_nonequal]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test length(kids) == 63 + 4
-    @test allunique(kids)
-    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
-    @test Set(nonequal) ==
-          Set([a_b_nonequal, q_b_nonequal, q_half2_nonequal, b_half2_nonequal])
-    # The other 63, distinct and each with only :OnlyA and :EqualAI groups, are the 63
-    # nonempty sets tagged :OnlyA.
-    @test all(setdiff(kids, nonequal)) do k
-        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
-            isempty(k.allosteric.regulatory_sites) &&
-            :OnlyA in k.allosteric.allosteric_states &&
-            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
-    end
+    @test length(kids) == length(expected) == 63 + 4
+    @test Set(kids) == Set(expected)
     @test half1 in kids && both_halves in kids
     D = EnzymeRates.Derivation
     returns(x) = EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(x))
@@ -5624,19 +5675,21 @@ end
              EP + Q <--> EAQ_res_plusB_plusD_minusQ)                    :: EqualAI
         end
     end
+    # The groups of B, D, P, Q and A, each by its first step.
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, first(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + B <--> EB", "E + D ⇌ ED", "E + P <--> EP",
+           "EP + Q <--> EAQ_res_plusB_plusD_minusQ",
+           "EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ"]
+    # Each group above :EqualAI or :OnlyA, but not every group :EqualAI.
+    two = (:EqualAI, :OnlyA)
+    expected = [[_testhelper_with_states(m, s)
+                 for s in Iterators.product(two, two, two, two, two)
+                 if any(!=(:EqualAI), s)];
+                b_nonequal; d_a_nonequal]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test length(kids) == 31 + 2
-    @test allunique(kids)
-    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
-    @test Set(nonequal) == Set([b_nonequal, d_a_nonequal])
-    # The other 31, distinct and each with only :OnlyA and :EqualAI groups, are the 31
-    # nonempty sets tagged :OnlyA.
-    @test all(setdiff(kids, nonequal)) do k
-        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
-            isempty(k.allosteric.regulatory_sites) &&
-            :OnlyA in k.allosteric.allosteric_states &&
-            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
-    end
+    @test length(kids) == length(expected) == 31 + 2
+    @test Set(kids) == Set(expected)
     @test chemistry in kids && b_alone in kids && every in kids
     D = EnzymeRates.Derivation
     v = D._guard(chemistry)
@@ -5767,19 +5820,21 @@ end
              EP + Q ⇌ EAQ_res_plusB_plusD_minusQ)                       :: NonequalAI
         end
     end
+    # The groups of B, D, P, Q and A, each by its first step.
+    @test [EnzymeRates.Mechanisms.step_text(m.catalytic, first(ks))
+           for ks in _testhelper_group_members(m.catalytic)] ==
+          ["E + B <--> EB", "E + D <--> ED", "E + P <--> EP",
+           "EP + Q ⇌ EAQ_res_plusB_plusD_minusQ",
+           "EQ_res_plusB_plusD_minusQ + A ⇌ EAQ_res_plusB_plusD_minusQ"]
+    # Each group above :EqualAI or :OnlyA, but not every group :EqualAI.
+    two = (:EqualAI, :OnlyA)
+    expected = [[_testhelper_with_states(m, s)
+                 for s in Iterators.product(two, two, two, two, two)
+                 if any(!=(:EqualAI), s)];
+                b_nonequal; d_nonequal; q_a_nonequal]
     kids = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test length(kids) == 31 + 3
-    @test allunique(kids)
-    nonequal = filter(k -> :NonequalAI in k.allosteric.allosteric_states, kids)
-    @test Set(nonequal) == Set([b_nonequal, d_nonequal, q_a_nonequal])
-    # The other 31, distinct and each with only :OnlyA and :EqualAI groups, are the 31
-    # nonempty sets tagged :OnlyA.
-    @test all(setdiff(kids, nonequal)) do k
-        k.catalytic == m.catalytic && k.allosteric.oligomeric_state == 1 &&
-            isempty(k.allosteric.regulatory_sites) &&
-            :OnlyA in k.allosteric.allosteric_states &&
-            issubset(k.allosteric.allosteric_states, (:OnlyA, :EqualAI))
-    end
+    @test length(kids) == length(expected) == 31 + 3
+    @test Set(kids) == Set(expected)
     @test all(in(kids), [q_alone, a_alone, b_alone, d_alone])
     D = EnzymeRates.Derivation
     for (x, step) in (
@@ -6710,22 +6765,27 @@ end
             (E + A ⇌ EAmod, EQ + A ⇌ EAmodQ)       :: EqualAI
         end
     end
-    children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, parent, rxn)
-    @test length(children) == 95 + 4
-    @test allunique(children)
-    nonequal = filter(c -> :NonequalAI in c.allosteric.allosteric_states, children)
-    @test Set(nonequal) == Set([a_nonequal, b_nonequal, q_nonequal, p_nonequal])
-    # The other 95, distinct, are the 95 assignments: no site, some group not :EqualAI,
-    # and :OnlyI on the inhibitor's group alone.
-    copy_group =
-        parent.catalytic.steps[_testhelper_edge(parent, "E + A ⇌ EAmod")].kinetic_group
-    @test all(setdiff(children, nonequal)) do c
-        states = c.allosteric.allosteric_states
-        c.catalytic == parent.catalytic && c.allosteric.oligomeric_state == 2 &&
-            isempty(c.allosteric.regulatory_sites) && any(!=(:EqualAI), states) &&
-            issubset(states, (:OnlyA, :EqualAI, :OnlyI)) &&
-            all(g -> states[g] !== :OnlyI || g == copy_group, eachindex(states))
+    @test [EnzymeRates.Mechanisms.step_text(parent.catalytic, first(ks))
+           for ks in _testhelper_group_members(parent.catalytic)] ==
+          ["E + A <--> EA", "E + A ⇌ EAmod", "E + Q <--> EQ", "EA + B <--> EAB",
+           "EAB <--> EPQ", "EQ + P <--> EPQ"]
+    # Each group above :EqualAI or :OnlyA, the copy's also :OnlyI, but not every group
+    # :EqualAI.
+    two, three = (:EqualAI, :OnlyA), (:EqualAI, :OnlyA, :OnlyI)
+    assignments = [s for s in Iterators.product(two, three, two, two, two, two)
+                   if any(!=(:EqualAI), s)]
+    # None is dropped, checked on each mechanism.
+    @test all(assignments) do s
+        c = _testhelper_candidate(_testhelper_with_states(parent, s; oligomeric_state = 2))
+        EnzymeRates.Enumeration._inhibitors_bind(c) &&
+            isempty(EnzymeRates.Enumeration._redundant_copy_groups(c))
     end
+    expected = [[_testhelper_with_states(parent, s; oligomeric_state = 2)
+                 for s in assignments];
+                a_nonequal; b_nonequal; q_nonequal; p_nonequal]
+    children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, parent, rxn)
+    @test length(children) == length(expected) == 95 + 4
+    @test Set(children) == Set(expected)
     @test all(EnzymeRates.Enumeration._hyperbolic_catalysis,
               _testhelper_candidate.(children))
 end
@@ -7464,9 +7524,9 @@ end
     # two: 2^4 · 3^2 − 1 = 143 assignments. 12 are dropped because I binds in neither
     # conformation and 6 because the copy is redundant, which leaves 125, and Q's binding
     # tagged :NonequalAI is the one minimal gaining set refused tagged :OnlyA: 126
-    # children. They are not all written out: the smallest mechanism that shows this drop
-    # has these six groups and 126 children, and a search over the bi-bi, ping-pong and
-    # uni-bi starting mechanisms with one or two inhibitors bound found none smaller.
+    # children. The 125 are given as state assignments: the smallest mechanism that shows
+    # this drop has these six groups, and a search over the bi-bi, ping-pong and uni-bi
+    # starting mechanisms with one or two inhibitors bound found none smaller.
     rxn = @enzyme_reaction begin
         substrates: A[C], B[N]
         products: P[C], Q[N]
@@ -7541,15 +7601,60 @@ end
     # enumerator would return it, so only the move keeps it from the search.
     @test EnzymeRates.Enumeration._inhibitors_bind(_testhelper_candidate(redundant))
     @test EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(redundant))
+    # Each group above :EqualAI or :OnlyA, A's copy and I's binding also :OnlyI, but not
+    # every group :EqualAI.
+    two, three = (:EqualAI, :OnlyA), (:EqualAI, :OnlyA, :OnlyI)
+    assignments = [s for s in Iterators.product(two, three, two, three, two, two)
+                   if any(!=(:EqualAI), s)]
+    # I's group :OnlyI binds only in the inactive conformation, and every path there from
+    # free E to EA or EQ, the forms I binds, starts with A's binding or Q's: with both
+    # :OnlyA, I binds nowhere (`_inhibitors_bind`), whatever the copy, B's and P's.
+    binds_nowhere(s) = s[1] === :OnlyA && s[3] === :OnlyA && s[4] === :OnlyI
+    # The copy's complex EAmod has the productive twin EA. The copy is redundant
+    # (`_redundant_copy_groups`) where each conformation that binds it runs A's binding,
+    # which forms EA, and does not bind I at both EA and EQ (I's one group, binding at EA
+    # and at EQ, which has no twin, would leave no gauge), and where A's binding and B's,
+    # which leaves EA, the two groups the gauge rescales, are rescaled alike in both
+    # conformations wherever they are :EqualAI. In each assignment I's group is :OnlyI,
+    # so the active conformation binds no I.
+    redundant_copy = [
+        # The copy, A's binding and B's :OnlyA: the copy binds the active conformation
+        # alone, and the inactive one runs neither A's binding nor B's.
+        (:OnlyA, :OnlyA, :EqualAI, :OnlyI, :OnlyA, :EqualAI),
+        # As above, with P's binding :OnlyA too.
+        (:OnlyA, :OnlyA, :EqualAI, :OnlyI, :OnlyA, :OnlyA),
+        # As above, but B's binding :EqualAI and P's :OnlyA: without A's and P's
+        # bindings the inactive conformation reaches neither EA nor EPQ, so it runs no B
+        # binding either.
+        (:OnlyA, :OnlyA, :EqualAI, :OnlyI, :EqualAI, :OnlyA),
+        # The copy and A's binding :EqualAI, Q's and B's :OnlyA: both conformations bind
+        # the copy beside the twin EA alike, and the inactive one, which cannot reach
+        # EQ, binds I at EA alone.
+        (:EqualAI, :EqualAI, :OnlyA, :OnlyI, :OnlyA, :EqualAI),
+        # As above, with P's binding :OnlyA too.
+        (:EqualAI, :EqualAI, :OnlyA, :OnlyI, :OnlyA, :OnlyA),
+        # As above, but B's binding :EqualAI and P's :OnlyA: the inactive conformation
+        # reaches EPQ from EA, but not EQ.
+        (:EqualAI, :EqualAI, :OnlyA, :OnlyI, :EqualAI, :OnlyA)]
+    @test _testhelper_with_states(m, first(redundant_copy)) == redundant
+    nowhere = filter(binds_nowhere, assignments)
+    kept = filter(s -> !binds_nowhere(s) && s ∉ redundant_copy, assignments)
+    @test (length(assignments), length(nowhere), length(kept)) == (143, 12, 125)
+    # Each dropped assignment and each kept one, checked on its own mechanism.
+    candidate(s) = _testhelper_candidate(_testhelper_with_states(m, s))
+    inhibitors_bind = EnzymeRates.Enumeration._inhibitors_bind
+    @test !any(s -> inhibitors_bind(candidate(s)), nowhere)
+    @test all(s -> !isempty(redundant_groups(candidate(s))), redundant_copy)
+    @test all(s -> inhibitors_bind(candidate(s)) && isempty(redundant_groups(candidate(s))),
+              kept)
+    expected = [[_testhelper_with_states(m, s) for s in kept]; q_nonequal]
     children = _testhelper_move(EnzymeRates.Enumeration._expand_to_allosteric, m, rxn)
-    @test length(children) == 126
-    @test allunique(children)
+    @test length(children) == length(expected) == 126
+    @test Set(children) == Set(expected)
     @test all(c -> isempty(redundant_groups(_testhelper_candidate(c))), children)
     @test redundant ∉ children
     @test i_equal in children
     @test i_only_a in children
-    @test filter(c -> :NonequalAI in c.allosteric.allosteric_states, children) ==
-          [q_nonequal]
 end
 
 @testset "no child holds :OnlyI without a competitive inhibitor" begin

@@ -299,7 +299,11 @@ moves live in `test/Enumeration/` (`test_starting_mechanisms.jl`, `test_expansio
 2. **Assert the exact children**: `length(children) == n` and
    `Set(children) == Set(expected)`, the children read as mechanisms (`c.mechanism`,
    `_testhelper_move`, `_testhelper_children`), with every expected child written out.
-   Property assertions are welcome in addition, never instead.
+   Where every child of a move is the parent's catalytic scheme with one allosteric state
+   per kinetic group, the expected children may be given as state assignments over the
+   mechanism written in the testset (`_testhelper_with_states`), built without the
+   enumerator; the testset still asserts the count and the exact set. Property
+   assertions are welcome in addition, never instead.
 3. **Write chemistry the enumerator's way.** Name each form as the enumerator does (`EAB`,
    `ESSmod`, `EB_res_plusA_minusP`): `_testhelper_candidate` reads the form's contents from
    its name. Unmerged chemistry is an isomerization to the product-bound form followed by
