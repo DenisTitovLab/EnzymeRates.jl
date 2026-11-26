@@ -364,11 +364,13 @@ refused, no child leads there, so this move emits the `:NonequalAI` version itse
 each *minimal gaining set* (`_minimal_gaining_sets`): a set of groups that, tagged
 `:NonequalAI` with every other group `:EqualAI`, adds a fitted constant beyond `L` and gives
 a child the engine returns, while no smaller set does. It emits that child when the same
-set tagged `:OnlyA` would not be returned. One binding group alone never gains here: an
-inactive conformation that runs a whole catalytic cycle must give the same `Keq` as the
-active one, so thermodynamics gives the binding back the active conformation's constant
-([Thermodynamic constraints of MWC equations](@ref) works the uni-uni case). Two bindings
-gain one constant, the second tied to the first.
+set tagged `:OnlyA` would not be returned. One rapid-equilibrium binding group alone never
+gains here: an inactive conformation that runs a whole catalytic cycle must give the same
+`Keq` as the active one, so thermodynamics gives the binding back the active conformation's
+constant ([Thermodynamic constraints of MWC equations](@ref) works the uni-uni case). Two
+rapid-equilibrium bindings gain one constant, the second tied to the first. A steady-state
+group, a binding or chemistry, brings two rate constants of which the cycle ties back one,
+so it gains one constant alone.
 
 The six-step ping-pong with both half-reactions at steady state shows the three kinds:
 
@@ -381,13 +383,13 @@ EA <--> EP_res_plusA_minusP
 EB_res_plusA_minusP <--> EQ
 ```
 
-Its six groups give 63 sets of `:OnlyA` groups. Eight minimal sets gain: each
-half-reaction alone, and each of the six pairs of bindings. Tagged `:OnlyA`, three of the
-pairs are refused, A with B, Q with P, and B with P, so the move emits those three tagged
-`:NonequalAI`: 66 children at one subunit with no regulator. The other five sets are among
-the 63, and move 6 reaches their `:NonequalAI` versions from them. With a regulator
-declared, each of the three children whose `:OnlyA` groups are half-reactions alone (the
-first, the second, both) comes twice more.
+Its six groups give 63 sets of `:OnlyA` groups. Eight minimal sets gain: each steady-state
+half-reaction alone, and each of the six pairs of rapid-equilibrium bindings. Tagged
+`:OnlyA`, three of the pairs are refused, A with B, Q with P, and B with P, so the move
+emits those three tagged `:NonequalAI`: 66 children at one subunit with no regulator. The
+other five sets are among the 63, and move 6 reaches their `:NonequalAI` versions from them.
+With a regulator declared, each of the three children whose `:OnlyA` groups are
+half-reactions alone (the first, the second, both) comes twice more.
 
 The move drops a child in which a group that binds a competitive inhibitor runs in neither
 conformation, or binds it redundantly (see move 3). An `:OnlyI` inhibitor binds nowhere when
@@ -462,12 +464,12 @@ to zero, and `:OnlyI` the limit as the active conformation's affinity does, so a
 fits the data well with a group `:OnlyA` can grow into the version that runs it weakly in
 the inactive conformation.
 
-Sets matter because thermodynamics ties constants together. Where the inactive
-conformation runs a whole catalytic cycle, one rapid-equilibrium binding tagged alone gets
-the active conformation's constant back and adds nothing, while two bindings add one
-(see move 4). An `:OnlyA` binding beside a tagged one can have its affinity pinned in the
-inactive conformation, which the guard refuses; tagging both frees it. Two parents of the
-six-step ping-pong of move 4, at one subunit, show both cases:
+Sets matter because thermodynamics ties constants together. Where the inactive conformation
+runs a whole catalytic cycle, one rapid-equilibrium binding tagged alone gets the active
+conformation's constant back and adds nothing, while two such bindings add one and a
+steady-state group adds one alone (see move 4). An `:OnlyA` binding beside a tagged one can
+have its affinity pinned in the inactive conformation, which the guard refuses; tagging both
+frees it. Two parents of the six-step ping-pong of move 4, at one subunit, show both cases:
 
 - With its first half-reaction `:OnlyA` and every other group `:EqualAI`, the inactive
   conformation turns nothing over, no cycle ties a new constant to an old one, and each
