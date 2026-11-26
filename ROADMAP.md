@@ -273,9 +273,10 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   move's search for minimal gaining sets (`_expand_change_allo_state`) grows the same way
   where `:OnlyA` groups cut others off from free E: tagging such a group `:NonequalAI`
   gains nothing, so the search extends every set that holds it. It tries 48 of 63 sets at
-  six groups and 768 of 1,023 at ten (40 ms), harmless to about 15 groups and exponential
-  beyond. Measured on the maintainer's machine, Julia 1.13.4, `--heap-size-hint=2500M`;
-  the times of the children are of a second call in one process.
+  six groups and 768 of 1,023 at ten (40 ms). At that rate it is harmless to about 15
+  groups, an estimate and not a measurement, and exponential beyond. Measured on the
+  maintainer's machine, Julia 1.13.4, `--heap-size-hint=2500M`; the times of the children
+  are of a second call in one process.
 - **No test shows the inhibitor checks deciding a `:NonequalAI` search.**
   Inside its search for `:NonequalAI` sets, `_expand_to_allosteric` counts a set whose child
   binds a competitive inhibitor in neither conformation or redundantly
