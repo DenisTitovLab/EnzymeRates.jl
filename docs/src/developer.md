@@ -758,9 +758,10 @@ proof sits in the docstring of the function that applies it; this list says whic
 - A dead-end copy of a substrate or product is redundant when each of its complexes has a
   productive twin and the dwell gauge moves its constant along a direction the rate law
   cannot see (`_redundant_copy_groups`, `_productive_twin`, `_gauge_rescaling`). The
-  dead-end move skips a redundant placement, the split drops every child that holds a
-  redundant copy group, and the relaxing move counts a set whose child holds one as
-  failed.
+  dead-end and tagging moves drop a child that holds a redundant copy group or a group
+  that binds a competitive inhibitor in neither conformation (`_inhibitors_bind`), the
+  split drops every child that holds a redundant copy group, and the searches of the
+  tagging and relaxing moves count a set whose child holds one as failed.
 
 `candidate_mechanisms` asserts both rules, flux and no redundant copy, on every parent
 (`_assert_emission_rules`). The flip, split, tagging and relaxing moves share one
@@ -777,7 +778,8 @@ them on index arrays, with a weighted union-find (`has_nonzero_weight_cycle`), a
 test also reads only the flags. Only a candidate that passes those four is built and goes
 through the guard (`_minimal_flips`). `_degenerate`, the failure of condition V or C on the
 active-state graph, marks the starting mechanisms that `candidate_mechanisms`
-(`_base_tier`) replaces by their flip children that are not degenerate. Both methods of
+(`_base_tier`) replaces by their flip children that are not degenerate, before
+`seed_mechanisms` binds any required regulator. Both methods of
 `candidate_mechanisms` return a `CandidateMechanism` for each mechanism within the two size
 limits, which they apply to what they return and never inside a move's own search.
 
@@ -785,10 +787,14 @@ Over more than one catalytic subunit a conformational equilibrium raises every
 catalytic-site binding to a power. So a mechanism above one subunit must keep a hyperbolic
 catalytic scheme (`_requires_hyperbolic_catalysis`), one whose King–Altman denominator has
 degree at most 1 in every substrate and product; `_hyperbolic_catalysis` tests that.
-`_expand_to_allosteric` promotes a parent that fails the test at oligomeric state 1 only,
-and above one subunit the tagging, relaxing and flip moves drop a child that fails it. The
-test reads the degree from the rapid-equilibrium segment graph without deriving the law,
-and the `_hyperbolic_catalysis` docstring proves that reading exact. It decides "degree at
+`_expand_to_allosteric` promotes a parent that fails the test at oligomeric state 1 only.
+`_enumerator_returns` applies the rule where the enumerator returns its mechanisms,
+`candidate_mechanisms(reaction, parent)` and `seed_mechanisms`, whichever move built them;
+the searches of the tagging and relaxing moves for `:NonequalAI` sets read it too, since
+tagging one more group can make a conformation's law hyperbolic again. The flip search does
+not: more steady-state steps never restore a hyperbolic law. The test reads the degree
+from the rapid-equilibrium segment graph without deriving the law, and the
+`_hyperbolic_catalysis` docstring proves that reading exact. It decides "degree at
 most 1" with reachability checks (`_all_reach`) rather than a max-arborescence solve. The
 testset "_hyperbolic_catalysis matches the derived denominator"
 (`test/Enumeration/test_candidate_mechanism_type.jl`) checks it against the derived

@@ -143,4 +143,8 @@ combination of the chain's rate constants, not the dissociation constant of its
 complex: here `K_ES_to_E_S` plays the part of the Michaelis constant for `S`. The
 mechanism gives the same rate laws as the chain with all three steps steady
 state, with three parameters instead of five. The enumeration therefore never
-flips such a flank to steady state (see [The enumeration engine](@ref)).
+flips such a flank to steady state (see [The enumeration engine](@ref)). It reads a chain
+the same way in an allosteric mechanism, whatever the states of its groups, and skips its
+flanks there too. That is a modeling choice, not a consequence of the argument above: a
+flank's flip can show through the two conformations, mostly over more than one catalytic
+subunit.
