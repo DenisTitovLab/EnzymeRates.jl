@@ -541,8 +541,10 @@ always runs; the tagging and regulator moves (`_expand_to_allosteric`,
 competitive inhibitors alone keep the seeds plain, with no `L`. A seed node
 (`_is_seed_node`):
 
-1. tags nothing `:NonequalAI` (the beam reaches `:NonequalAI` later through
-   `_expand_change_allo_state`);
+1. tags no regulatory ligand `:NonequalAI` (the beam reaches those later through
+   `_expand_change_allo_state`). A kinetic group can be `:NonequalAI`: the tagging move
+   tags groups so only where the same groups tagged `:OnlyA` are not returned, and this
+   search never runs `_expand_change_allo_state`, the only other route to them;
 2. binds one ligand per regulatory site, which bounds the search: a child that adds a
    regulator to an existing site fails, and the search drops it before expanding it;
 3. binds no optional regulator: every bound allosteric ligand is in `required_allo` and
@@ -613,10 +615,8 @@ end
 function _is_seed_node(c::CandidateMechanism, rxn::Mechanisms.EnzymeReaction,
                        required_allo::Set{Symbol}, required_comp::Set{Symbol})
     m = c.mechanism
-    (:NonequalAI in m.allosteric.allosteric_states ||
-        any(site -> length(site.ligands) != 1 ||
-                    only(site.allosteric_states) == :NonequalAI,
-            m.allosteric.regulatory_sites)) && return false
+    any(site -> length(site.ligands) != 1 || only(site.allosteric_states) == :NonequalAI,
+        m.allosteric.regulatory_sites) && return false
     issubset(_bound_allo_regs(m), required_allo) || return false
     issubset(_bound_comp_inhibitors(c), required_comp) || return false
     _respects_reg_type(m, rxn) || return false
@@ -644,7 +644,8 @@ end
 
 The regulators the starting mechanisms must bind: every allosteric regulator and every
 competitive inhibitor declared in `rxn`, minus the names the caller marked optional. Both
-sets empty means the search starts from the unregulated seeds (`init_mechanisms`).
+sets empty means the search starts from the base tier of `init_mechanisms` (`_base_tier`),
+which binds no regulator.
 """
 function _required_regulators(rxn::Mechanisms.EnzymeReaction,
                               optional_allosteric_regulators::Vector{Symbol},

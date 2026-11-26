@@ -785,7 +785,8 @@ end
 
 @testset "the enumeration holds and allocates a bounded number of bytes" begin
     # Aggregate check over the whole bi-bi starting set. It bounds the bytes a candidate
-    # holds and the bytes the enumeration allocates, measured on Julia 1.11.9 and 1.13.4.
+    # holds and the bytes the enumeration allocates, measured on Julia 1.11.9 and 1.13.4
+    # (one expansion on 1.13.4 alone).
     # On one Julia version the bytes held are the same in every process. In the last CI
     # run, on all three runners, each candidate held 1,594 bytes and the bytes allocated
     # agreed within 2.5%. Time and peak memory depend on the machine. On the macOS CI
@@ -816,19 +817,22 @@ end
     @info "bi-bi enumeration: $(round(Int, held)) bytes held per candidate; " *
           "$start_bytes bytes allocated by the starting set, $expand_bytes by one expansion"
     # The bounds hold for a known amount of work: fewer candidates or children would
-    # allocate less and pass.
+    # allocate less and pass. The 33 children are the 6 of the flip and split moves, the
+    # 25 sets of the parent's five groups tagged :OnlyA that the enumerator returns, and
+    # the pairs of substrate bindings and of product bindings tagged :NonequalAI, which it
+    # refuses tagged :OnlyA.
     @test length(start) == 239
-    @test length(children) == 21
+    @test length(children) == 33
     # 1,593.6 bytes, the same in every process on Julia 1.11.9 and 1.13.4, so the margin
     # of 3.5% only allows for an untested Julia version. A field derived from the steps
     # and stored on `Mechanism`, `Step` or the candidate's record of a form raises it: one
     # `Int` vector on `Mechanism` takes it to 1,700.
     @test held < 1_650
-    # Each allocation bound sits 25% above the larger of its two values; more work per
-    # candidate raises it. 42,545,112 bytes on 1.11, 38,788,376 on 1.13:
+    # More work per candidate raises the bytes allocated. The starting set's bound sits 25%
+    # above the larger of its two values, 42,545,112 bytes on 1.11 and 38,788,376 on 1.13:
     @test start_bytes < 53_000_000
-    # 13,750,248 bytes on 1.13, 12,683,288 on 1.11:
-    @test expand_bytes < 17_200_000
+    # The expansion's bound sits 3.5% above its 30,804,736 bytes on 1.13:
+    @test expand_bytes < 31_883_000
 end
 
 @testset "init_mechanisms on ter-ter within its time and allocation budgets" begin
@@ -2066,7 +2070,8 @@ end
 end
 
 @testset "seed_mechanisms wave-parallel equivalence" begin
-    # Inline serial FIFO BFS = the reference the parallel version must match.
+    # Inline serial FIFO BFS = the reference the parallel version must match. It expands
+    # every seed node and returns those the enumerator returns (`_enumerator_returns`).
     _testhelper_binds_all_required(m, req_allo, req_comp) =
         issubset(req_allo, EnzymeRates.Enumeration._bound_allo_regs(m)) &&
         issubset(req_comp,
@@ -2099,7 +2104,8 @@ end
                     _testhelper_enq(c)
             end
         end
-        seeds
+        filter(m -> EnzymeRates.Enumeration._enumerator_returns(_testhelper_candidate(m)),
+               seeds)
     end
 
     req = Set([:R])
@@ -2231,7 +2237,7 @@ end
         oligomeric_state: (1, 2)
     end
     starting = ER.Enumeration.candidate_mechanisms(rxn)
-    @test length(starting) == 7126
+    @test length(starting) == 14078
     @test !any(ER.Enumeration._degenerate, starting)
     rxn_inhibited = @enzyme_reaction begin
         substrates: A[CX], B[N]
@@ -2240,6 +2246,48 @@ end
         oligomeric_state: (1, 2)
     end
     @test length(ER.Enumeration.candidate_mechanisms(rxn_inhibited)) == 1548
+end
+
+@testset "starting mechanisms hold one half-reaction :OnlyA and a :NonequalAI pair" begin
+    # With R required the starting mechanisms are grown from the base tier by the tagging
+    # and regulator moves (`seed_mechanisms`), never by `_expand_change_allo_state`. On the
+    # six-step ping-pong with both half-reactions at steady state they hold the version
+    # whose inactive conformation stops the first half-reaction alone, and the version
+    # whose inactive conformation binds A and B with constants of its own: A's and B's
+    # bindings tagged :OnlyA are refused, so the tagging move tags them :NonequalAI. Each
+    # binds R.
+    rxn = @enzyme_reaction begin
+        substrates: A[CX], B[N]
+        products: P[C], Q[NX]
+        allosteric_regulators: R
+    end
+    half1 = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                   :: EqualAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: EqualAI
+            E + Q ⇌ EQ                                   :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                  :: OnlyA
+            EB_res_plusA_minusP <--> EQ                  :: EqualAI
+        end
+        regulatory_site(1): R::OnlyA
+    end
+    a_b_nonequal = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                   :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                   :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                  :: EqualAI
+            EB_res_plusA_minusP <--> EQ                  :: EqualAI
+        end
+        regulatory_site(1): R::OnlyA
+    end
+    starting = _testhelper_mechanisms(EnzymeRates.Enumeration.candidate_mechanisms(rxn))
+    @test half1 in starting
+    @test a_b_nonequal in starting
 end
 
 @testset "_base_tier replaces a degenerate seed by the flips that cure it" begin

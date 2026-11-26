@@ -694,9 +694,10 @@ passes the guard.
 On a mechanism the guard rejects, the macro, the parser and the derivation entries throw;
 `init_mechanisms`, `seed_mechanisms` and both methods of `Enumeration.candidate_mechanisms`
 drop it. The flip move runs the guard on each candidate it builds, the split move on each
-candidate whose count rises, and the tagging move on each tag set its base search tries.
-The constructors and the Sig decoder never run it, so code that builds a mechanism inside
-the package never trips a check meant for the mechanisms it returns.
+candidate whose count rises, and the tagging and relaxing moves on each set of kinetic
+groups tagged `:NonequalAI` whose count rises, the tagging move also on that set tagged
+`:OnlyA`. The constructors and the Sig decoder never run it, so code that builds a
+mechanism inside the package never trips a check meant for the mechanisms it returns.
 
 ## Enumeration engine architecture
 
@@ -762,12 +763,12 @@ proof sits in the docstring of the function that applies it; this list says whic
   failed.
 
 `candidate_mechanisms` asserts both rules, flux and no redundant copy, on every parent
-(`_assert_emission_rules`). The flip, split and relaxing moves share one minimal-set search
-(`_minimal_gaining_sets`). Duplicate laws that survive these proofs share one fit, an L
-phantom's key aside: identify fits one mechanism per key (`_canonical`,
-`src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability rank exists only
-in the test suite, as an oracle for the proofs and the L-phantom certificate; nothing in
-`src/` estimates identifiability numerically.
+(`_assert_emission_rules`). The flip, split, tagging and relaxing moves share one
+minimal-set search (`_minimal_gaining_sets`). Duplicate laws that survive these proofs
+share one fit, an L phantom's key aside: identify fits one mechanism per key
+(`_canonical`, `src/Derivation/rate_equation_dedup_key.jl`). A numerical identifiability
+rank exists only in the test suite, as an oracle for the proofs and the L-phantom
+certificate; nothing in `src/` estimates identifiability numerically.
 
 `init_mechanisms` appends to the seeds their merged and Theorell–Chance variants
 (`_seed_variants`, plain `Mechanism`s only), whose rules [The enumeration engine](@ref)
@@ -804,11 +805,12 @@ The bytes held are the same in every process, on Julia 1.11.9 and 1.13.4 and on 
 platform, so their bound sits only 3.5% above them: one derived `Int` vector stored on
 `Mechanism` trips it, as would any field derived from the steps on `Mechanism`, `Step` or a
 candidate's record. The allocation bounds sit 25% above the larger of the values on the two
-Julia versions, which differ by about 10%; more work per candidate trips them. Time and
-peak resident memory depend on the machine and its collector, so the ter-ter testset logs
-both and bounds only the time outside garbage collection. On the macOS CI runner the
-ter-ter call spent 13.9 to 116.1 s in garbage collection in three runs of nearly the same
-code; `ROADMAP.md` lists these runs under the slow macOS tests, whose cause is not known.
+Julia versions, which differ by about 10%, and the expansion's 3.5% above its value on
+1.13.4; more work per candidate trips them. Time and peak resident memory depend on the
+machine and its collector, so the ter-ter testset logs both and bounds only the time
+outside garbage collection. On the macOS CI runner the ter-ter call spent 13.9 to 116.1 s
+in garbage collection in three runs of nearly the same code; `ROADMAP.md` lists these runs
+under the slow macOS tests, whose cause is not known.
 
 ## Optimization algorithm architecture
 
