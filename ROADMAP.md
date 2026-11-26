@@ -257,6 +257,25 @@ Update an entry in the same commit as the change that fixes, adds or retires it.
   (`optional_competitive_inhibitors`, `optional_allosteric_regulators`) avoids the cost.
   Measured once each in a fresh process (compilation included) on the maintainer's
   machine, Julia 1.13.4, `--heap-size-hint=2500M`.
+- **One parent's allosteric children double with each kinetic group.**
+  `_expand_to_allosteric` (the tagging move, `src/Enumeration/expansion_moves.jl`) emits
+  every set of `:OnlyA` groups at each oligomeric state, `2^g − 1` for `g` kinetic groups,
+  and the design measured how many of them the enumerator returns only up to seven groups
+  (90 at seven, on ter-bi). Take the ordered ter-ter mechanism of
+  `A[X] + B[Y] + C[Z] → P[X] + Q[Y] + R[Z]` with the abortive complexes EAR, EAQR and
+  EABR, every step at rapid equilibrium but the chemistry: ten groups. At oligomeric
+  states 1 and 2 its children (`candidate_mechanisms(rxn, parent)`) number 1,838 and take
+  0.4 s, against 1,026 at 0.11.0. With a competitive inhibitor bound (eleven groups) they
+  number 5,488 and take 3.0 s, and the call allocates 21.4 GB in passing, against 2,052,
+  0.9 s and 6.3 GB at 0.11.0. The design forbids a bound on these children: any bound
+  would hide a feasible version, and the argument that the tagging and relaxing moves
+  reach every irreducible version starts from every set of `:OnlyA` groups. The relaxing
+  move's search for minimal gaining sets (`_expand_change_allo_state`) grows the same way
+  where `:OnlyA` groups cut others off from free E: tagging such a group `:NonequalAI`
+  gains nothing, so the search extends every set that holds it. It tries 48 of 63 sets at
+  six groups and 768 of 1,023 at ten (40 ms), harmless to about 15 groups and exponential
+  beyond. Measured on the maintainer's machine, Julia 1.13.4, `--heap-size-hint=2500M`;
+  the times of the children are of a second call in one process.
 - **No test shows the inhibitor checks deciding a `:NonequalAI` search.**
   Inside its search for `:NonequalAI` sets, `_expand_to_allosteric` counts a set whose child
   binds a competitive inhibitor in neither conformation or redundantly
