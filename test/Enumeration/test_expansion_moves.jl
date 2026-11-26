@@ -6540,6 +6540,76 @@ end
     @test _testhelper_fitted(a_alone) == _testhelper_fitted(parent)
 end
 
+@testset "change_allo_state tags each group alone once two bindings are :NonequalAI" begin
+    # The six-step ping-pong with both half-reactions at steady state, at one subunit, A's
+    # binding and B's :NonequalAI and every other group :EqualAI: a child of the pair A
+    # with B, the second round of the move. What a group gains never falls as other groups
+    # become :NonequalAI: its constants are new unknowns, the thermodynamic equations that
+    # bind them are fixed, and they bind less as more constants are free. The pair has
+    # already taken the one constant the inactive cycle ties, so Q's binding and P's each
+    # gain one alone, and each half-reaction gains both of its rate constants, where from
+    # the all-:EqualAI parent it gains one. Four children.
+    parent = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP <--> EQ                   :: EqualAI
+        end
+    end
+    q = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                       :: NonequalAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP <--> EQ                   :: EqualAI
+        end
+    end
+    p = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: NonequalAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP <--> EQ                   :: EqualAI
+        end
+    end
+    first_half = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: NonequalAI
+            EB_res_plusA_minusP <--> EQ                   :: EqualAI
+        end
+    end
+    second_half = @enzyme_mechanism begin
+        substrates: A, B ; products: P, Q ; oligomeric_state: 1
+        steps: begin
+            E + A ⇌ EA                                       :: NonequalAI
+            E_res_plusA_minusP + B ⇌ EB_res_plusA_minusP :: NonequalAI
+            E + Q ⇌ EQ                                       :: EqualAI
+            E_res_plusA_minusP + P ⇌ EP_res_plusA_minusP :: EqualAI
+            EA <--> EP_res_plusA_minusP                   :: EqualAI
+            EB_res_plusA_minusP <--> EQ                   :: NonequalAI
+        end
+    end
+    kids = _testhelper_move(EnzymeRates.Enumeration._expand_change_allo_state, parent)
+    @test length(kids) == 4
+    @test Set(kids) == Set([q, p, first_half, second_half])
+    @test _testhelper_param_deltas(parent, kids) == [1, 1, 2, 2]
+end
+
 @testset "change_allo_state on a parent with every group :NonequalAI" begin
     # No group is left to tag, and no regulatory site: no child.
     parent = @enzyme_mechanism begin
